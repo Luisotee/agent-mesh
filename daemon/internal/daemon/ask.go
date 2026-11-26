@@ -43,10 +43,11 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 	}
 	body := strings.TrimSpace(m.Body)
 	if m.Review != "" && m.Agent == "" && m.Peers == "" {
-		// A review's defaults: an agent naming no repo means its own, and a review with no tier runs on the size's.
+		// A review's defaults: a worker naming no repo means its own (a root must name one), and a review with no
+		// tier runs on the size's.
 		m = proto.Clone(m).(*v1.AskRequest)
-		if strings.TrimSpace(m.Repo) == "" && IsAgent(actor.Class) {
-			if self, err := d.store.Read(ctx).GetAgent(actor.Id); err == nil {
+		if strings.TrimSpace(m.Repo) == "" {
+			if self := d.selfWorker(d.store.Read(ctx), actor); self != nil {
 				m.Repo = self.Repo
 			}
 		}
@@ -266,6 +267,9 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	if err != nil {
 		return nil, err
 	}
+	if err := d.workerRepoGuard(d.store.Read(ctx), actor, top); err != nil {
+		return nil, err
+	}
 	pr, err := d.resolvePR(ctx, top, m.Review)
 	if err != nil {
 		return nil, err
@@ -274,7 +278,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	if err := d.workerGuard(r, actor, pr); err != nil {
 		return nil, err
 	}
-	if err := d.workerCeiling(r, actor, pr, m.Size); err != nil {
+	if err := d.workerCeiling(r, actor, m.Meta, pr, m.Size); err != nil {
 		return nil, err
 	}
 	kind := orClaude(m.Kind)
@@ -347,6 +351,9 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	if err != nil {
 		return nil, err
 	}
+	if err := d.workerRepoGuard(d.store.Read(ctx), actor, top); err != nil {
+		return nil, err
+	}
 	pr, err := d.resolvePR(ctx, top, m.Review)
 	if err != nil {
 		return nil, err
@@ -355,7 +362,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	if err := d.workerGuard(r, actor, pr); err != nil {
 		return nil, err
 	}
-	if err := d.workerCeiling(r, actor, pr, m.Size); err != nil {
+	if err := d.workerCeiling(r, actor, m.Meta, pr, m.Size); err != nil {
 		return nil, err
 	}
 	prior, err := roundsOf(r, pr.URL)
@@ -760,7 +767,10 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 				return tx.PutAsk(ask)
 			}
 		}
-		return notFound("no review of %s asked %s by you", m.Pr, m.Reviewer)
+		if tx.Actor.Class == v1.ActorClass_ACTOR_CLASS_WORKER {
+			return notFound("no review of %s asked %s by you", m.Pr, m.Reviewer)
+		}
+		return notFound("no review of %s asked %s", m.Pr, m.Reviewer)
 	})
 	if err != nil {
 		return nil, err

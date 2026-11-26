@@ -223,8 +223,24 @@ func TestAWorkersDoneCarriesItsRoundsAndVerdictsAndTheRootsVerdictStands(t *test
 	if got := a.doneBody(t); !strings.Contains(got, reviewer.Name+" 2/0/1/0 by author") {
 		t.Errorf("footer after the author's verdict: %s", got)
 	}
+	byAuthor := func() (n int64) {
+		cost, err := a.asRoot.GetCost(context.Background(), connect.NewRequest(&v1.GetCostRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range cost.Msg.Verdicts {
+			n += v.ByAuthor
+		}
+		return n
+	}
+	if n := byAuthor(); n != 1 {
+		t.Errorf("by_author %d while the author's verdict stands, want 1", n)
+	}
 	if err := a.verdict(t, a.asRoot, reviewer.Name, 1, 2); err != nil {
 		t.Fatal(err)
+	}
+	if n := byAuthor(); n != 0 {
+		t.Errorf("by_author %d with the root's verdict standing, want 0", n)
 	}
 	if err := a.verdict(t, a.asWorker, reviewer.Name, 3, 0); code(err) != connect.CodeFailedPrecondition {
 		t.Errorf("the author over the root's verdict: %v", err)
@@ -238,16 +254,6 @@ func TestAWorkersDoneCarriesItsRoundsAndVerdictsAndTheRootsVerdictStands(t *test
 	a.say(t, other.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "x")
 	if err := a.verdict(t, a.asWorker, other.Agents[0].Name, 1, 0); code(err) != connect.CodeNotFound {
 		t.Errorf("a worker's verdict on the root's round: %v", err)
-	}
-	// By the cost report, how many reviews carry an author's verdict (none now: the root's stands).
-	cost, err := a.asRoot.GetCost(context.Background(), connect.NewRequest(&v1.GetCostRequest{}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, v := range cost.Msg.Verdicts {
-		if v.ByAuthor != 0 {
-			t.Errorf("by_author %d with the root's verdict standing: %v", v.ByAuthor, v)
-		}
 	}
 }
 
@@ -277,5 +283,212 @@ func TestAWorkerWaitingOnItsOwnRoundIsNotNudgedUntilItEnds(t *testing.T) {
 	a.pass()
 	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
 		t.Fatalf("nudges after the round ended: %d", n)
+	}
+}
+
+// A round that is still open counts against the ceiling: two asked together must not both pass.
+func TestAWorkerCannotAskAnotherRoundWhileOneIsOpen(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []*v1.AskRequest{
+		{Review: "7", Size: "small", Reviewers: "auto"},
+		{Review: "7", Size: "small", Reviewers: "claude"},
+		{Review: "7", Size: "small", Kind: "claude"},
+	} {
+		if _, err := a.ask(t, req); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "still open") {
+			t.Errorf("%v while a round is open: %v", req, err)
+		}
+	}
+	// A round that ended with no answer does not count: the worker may run it again.
+	a.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_FAILED, "no")
+	waitFor(t, "the round to finish", func() bool {
+		k, _ := a.d.Store().Read(context.Background()).GetAsk(res.Ask.Id)
+		return k.Status == v1.AskStatus_ASK_STATUS_FINISHED
+	})
+	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"}); err != nil {
+		t.Errorf("a round after one nobody answered: %v", err)
+	}
+}
+
+// A single reviewer's `done` goes to the worker, so the ask can't know it answered: the footer says how it was
+// asked, and still flags the missing verdict.
+func TestTheFooterNamesASingleReviewerAskedAloneAndItsMissingVerdict(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer := res.Agents[0]
+	a.say(t, reviewer.Id, v1.MessageType_MESSAGE_TYPE_DONE, "a.go:3")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" fixed")
+	got := a.doneBody(t)
+	for _, want := range []string{"one reviewer (small, mid)", reviewer.Name + " asked alone (its done went to " + a.worker.Name + ")", reviewer.Name + " no verdict recorded"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("footer lacks %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "no answer") {
+		t.Errorf("a single reviewer reported unanswered: %s", got)
+	}
+	if err := a.verdict(t, a.asWorker, reviewer.Name, 1, 0); err != nil {
+		t.Fatal(err)
+	}
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" settled")
+	if got := a.doneBody(t); strings.Contains(got, "no verdict recorded") || !strings.Contains(got, reviewer.Name+" 1/0/0/0 by author") {
+		t.Errorf("footer after the verdict: %s", got)
+	}
+}
+
+// The round's own `[mesh answers]` is unread mail from the daemon: it is the worker's next work, so the tick that
+// settles the round (an overdue one here) must not nudge it for a report it has had no time to write.
+func TestAWorkerIsNotNudgedInTheTickItsRoundSettlesIn(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	a.taskRead()
+	err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutAsk(&v1.Ask{Id: "k1", RunId: a.run.Id, CallerId: "a-w1", CallerName: "repo-one", Kind: v1.AskKind_ASK_KIND_REVIEW,
+			Status: v1.AskStatus_ASK_STATUS_OPEN, Collected: true, CreatedAt: timestamppb.New(time.Now().Add(-time.Hour)),
+			Deadline: timestamppb.New(time.Now().Add(-time.Minute)), AnswersPath: filepath.Join(t.TempDir(), "a.md"),
+			Members: []*v1.AskMember{{AgentId: "a-gone", Name: "repo-review-7-claude", Status: v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING}}})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh answers"); n != 1 {
+		t.Fatalf("answers to the worker %d, want 1", n)
+	}
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 0 {
+		t.Errorf("nudged with its round's answers unread: %d", n)
+	}
+}
+
+// A worker that asked one reviewer and ended its turn waits on it: no nudge until that reviewer reports.
+func TestAWorkerWaitingOnItsSingleReviewerIsNotNudged(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	a.taskRead()
+	revTok := a.seedAgent(a.run.Id, "a-r1", "repo-review-7-claude", "a-w1", v1.AgentRole_AGENT_ROLE_REVIEWER)
+	err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutAsk(&v1.Ask{Id: "k1", RunId: a.run.Id, CallerId: "a-w1", CallerName: "repo-one", Kind: v1.AskKind_ASK_KIND_REVIEW,
+			Status: v1.AskStatus_ASK_STATUS_FINISHED, CreatedAt: timestamppb.Now(),
+			Members: []*v1.AskMember{{AgentId: "a-r1", Name: "repo-review-7-claude", Status: v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING}}})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 0 {
+		t.Fatalf("nudged while its single reviewer runs: %d", n)
+	}
+	if err := a.send(revTok, "repo-one", v1.MessageType_MESSAGE_TYPE_DONE, "a.go:3"); err != nil {
+		t.Fatal(err)
+	}
+	readInbox(t, a.as(a.workerTok))
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now().Add(-2*time.Second))
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
+		t.Errorf("nudges once the reviewer has reported: %d", n)
+	}
+}
+
+// Two repos' workers can share a branch name: the PR must be of the worker's own repo too.
+func TestAWorkerReviewsNoPROfAnotherRepoEvenOnItsBranchName(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature") // the head is the worker's branch name, as another repo's worker of the same slug would have
+	other := gitRepo(t)
+	for _, req := range []*v1.AskRequest{
+		{Repo: other, Review: "7", Size: "small", Reviewers: "auto"},
+		{Repo: other, Review: "7", Size: "small", Kind: "claude"},
+	} {
+		if _, err := a.ask(t, req); code(err) != connect.CodePermissionDenied || !strings.Contains(err.Error(), "own repo") {
+			t.Errorf("%v: %v", req, err)
+		}
+	}
+}
+
+// The repo default (its own) is a worker's: a root that leaves out --repo is told to name it.
+func TestARootReviewWithoutARepoIsRefused(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	_, err := a.asRoot.Ask(context.Background(), connect.NewRequest(&v1.AskRequest{Review: "7", Size: "small", Reviewers: "claude", Tier: "mid"}))
+	if code(err) != connect.CodeInvalidArgument {
+		t.Errorf("a root's review with no repo: %v", err)
+	}
+}
+
+// A worker's hint says "last" when the ceiling would refuse another round, single reviewers it asked included.
+func TestAWorkersHintCountsItsSingleReviewersTowardTheLastRound(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	a.set(t, "review.rounds.small", 2)
+	res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Hint, "its last") || !strings.Contains(res.Hint, "run this round again") {
+		t.Errorf("round 1 of 2: %s", res.Hint)
+	}
+	a.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_FAILED, "no")
+	waitFor(t, "the round to finish", func() bool {
+		k, _ := a.d.Store().Read(context.Background()).GetAsk(res.Ask.Id)
+		return k.Status == v1.AskStatus_ASK_STATUS_FINISHED
+	})
+	// One single reviewer used up one of the two: the next round is the last, though it is round 1.
+	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	again, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(again.Hint, "its last") || strings.Contains(again.Hint, "run this round again") {
+		t.Errorf("a round the ceiling leaves no other after: %s", again.Hint)
+	}
+}
+
+// The "asked no round" line reads every ask of the PR, and a reused worker's older recorded PRs don't hide it.
+func TestTheFooterNamesWhoAskedTheRoundsOfAPRTheWorkerDidNot(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	// The root ran a round on the worker's PR.
+	a.reviewWorld.ask(t, &v1.AskRequest{Repo: a.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude"})
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" opened")
+	got := a.doneBody(t)
+	if !strings.Contains(got, a.worker.Name+" asked no review round itself; rounds of it were asked by "+a.lead.Name) {
+		t.Errorf("rounds the root asked: %s", got)
+	}
+	// An older PR of a reused worker is recorded; the done names a new one with no round on it at all.
+	err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutAgentPR(&v1.PullRequest{AgentId: a.worker.Id, Url: strings.TrimSuffix(a.pr.url(), "7") + "6", Number: 6})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+strings.TrimSuffix(a.pr.url(), "7")+"8 opened")
+	if got := a.doneBody(t); !strings.Contains(got, "PR #8: "+a.worker.Name+" asked no review round: ask it why") {
+		t.Errorf("a new PR beside a stale recorded one: %s", got)
+	}
+}
+
+func TestAVerdictsNotFoundErrorSaysByYouOnlyToAWorker(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	if err := a.verdict(t, a.asRoot, "nobody", 1, 0); code(err) != connect.CodeNotFound || strings.Contains(err.Error(), "by you") {
+		t.Errorf("root: %v", err)
+	}
+	if err := a.verdict(t, a.asWorker, "nobody", 1, 0); code(err) != connect.CodeNotFound || !strings.Contains(err.Error(), "by you") {
+		t.Errorf("worker: %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -59,13 +60,10 @@ func (d *Daemon) selfWorker(r store.Reader, actor *v1.Actor) *v1.Agent {
 	return a
 }
 
-// reviewTop is the repo a review is of: a worker (or any agent) naming its own worktree, or nothing, means the
+// reviewTop is the repo a review is of: a worker naming its own worktree, or nothing, means the
 // repo that worktree was made from, so the reviewers are named after it and their worktrees come from it.
 func (d *Daemon) reviewTop(ctx context.Context, actor *v1.Actor, repo string) (string, error) {
-	var self *v1.Agent
-	if IsAgent(actor.Class) {
-		self, _ = d.store.Read(ctx).GetAgent(actor.Id)
-	}
+	self := d.selfWorker(d.store.Read(ctx), actor)
 	if strings.TrimSpace(repo) == "" {
 		if self != nil && self.Repo != "" {
 			return self.Repo, nil
@@ -82,8 +80,20 @@ func (d *Daemon) reviewTop(ctx context.Context, actor *v1.Actor, repo string) (s
 	return top, nil
 }
 
-// workerGuard refuses what a worker may not do with a review of this PR: a PR that is not its own, and one whose
-// rounds its parent runs (`review.by`, `--reviews root`: a relay for a risky PR). Anyone else passes.
+// workerRepoGuard refuses a worker a review in a repo that is not its own, before anything is fetched from it:
+// slugs are unique per repo, so two repos' workers can share a branch name, and the branch check alone would let
+// one review the other's PR. top is the repo the review is of. Anyone else passes.
+func (d *Daemon) workerRepoGuard(r store.Reader, actor *v1.Actor, top string) error {
+	self := d.selfWorker(r, actor)
+	if self != nil && self.Repo != "" && !sameDir(top, self.Repo) {
+		return denied("a worker reviews only its own PR, in its own repo (%s); %s is another: the root reviews the rest", self.Repo, top)
+	}
+	return nil
+}
+
+// workerGuard refuses what a worker may not do with a review of this PR: one that is not its own (its head is not
+// the worker's branch), and one whose rounds its parent runs (`review.by`, `--reviews root`: a relay for a risky
+// PR). Anyone else passes.
 func (d *Daemon) workerGuard(r store.Reader, actor *v1.Actor, pr *prInfo) error {
 	self := d.selfWorker(r, actor)
 	if self == nil {
@@ -100,36 +110,63 @@ func (d *Daemon) workerGuard(r store.Reader, actor *v1.Actor, pr *prInfo) error 
 	return nil
 }
 
-// workerRoundsUsed is how many reviews of the PR count against a worker's ceiling: its answered rounds (any
-// caller's, any run: rounds are the PR's) and the single reviewers it asked, which have no round to count.
-func workerRoundsUsed(r store.Reader, actor *v1.Actor, pr string) (int, error) {
+// workerRoundsUsed is how many reviews of the PR count against a worker's ceiling: the answered rounds (any
+// caller's, any run: rounds are the PR's) and the single reviewers the worker asked, which have no round to
+// count. The ask named except is left out (the one being described).
+func workerRoundsUsed(r store.Reader, callerID, pr, except string) (int, error) {
 	all, err := r.PRAsks(pr)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, a := range all {
-		if a.Kind != v1.AskKind_ASK_KIND_REVIEW {
+		if a.Kind != v1.AskKind_ASK_KIND_REVIEW || a.Id == except {
 			continue
 		}
-		if a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED && answered(a) > 0 || !a.Collected && a.CallerId == actor.Id {
+		if a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED && answered(a) > 0 || !a.Collected && a.CallerId == callerID {
 			n++
 		}
 	}
 	return n, nil
 }
 
+// openRound is a collected review round of the PR still waiting for its reviewers, other than the ask `except`
+// (this request's own, when a retry finds the round it left half started).
+func openRound(r store.Reader, pr, except string) (*v1.Ask, error) {
+	all, err := r.PRAsks(pr)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range all {
+		if a.Kind == v1.AskKind_ASK_KIND_REVIEW && a.Collected && a.Status == v1.AskStatus_ASK_STATUS_OPEN && a.Id != except {
+			return a, nil
+		}
+	}
+	return nil, nil
+}
+
 // workerCeiling refuses a worker's round past `review.rounds.<size>`: the daemon's cap, not the author's; the
-// root may still run one.
-func (d *Daemon) workerCeiling(r store.Reader, actor *v1.Actor, pr *prInfo, size string) error {
+// root may still run one. A round is also refused while another of the PR is open, or two asked together would
+// both pass the count of the finished ones.
+func (d *Daemon) workerCeiling(r store.Reader, actor *v1.Actor, meta *v1.RequestMeta, pr *prInfo, size string) error {
 	if d.selfWorker(r, actor) == nil {
 		return nil
+	}
+	except := ""
+	if meta.GetMutationId() != "" {
+		except = askIDFor(actor, meta)
+	}
+	if open, err := openRound(r, pr.URL, except); err != nil {
+		return err
+	} else if open != nil {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"a review round of PR #%d is still open (asked by %s): wait for its answers", pr.Number, open.CallerName))
 	}
 	max, err := d.settingInt(r, "review.rounds."+sizeKey(size))
 	if err != nil {
 		return err
 	}
-	used, err := workerRoundsUsed(r, actor, pr.URL)
+	used, err := workerRoundsUsed(r, actor.Id, pr.URL, "")
 	if err != nil {
 		return err
 	}
@@ -163,8 +200,9 @@ func judgeOf(actor *v1.Actor) string {
 	return judgeUser
 }
 
-// openOwnAsk tells whether the agent has a collected ask (a round, or the peers) still waiting for its members:
-// it waits on purpose, so its parent is not owed a report yet (accountability).
+// openOwnAsk tells whether the agent has an ask it waits on: a collected one (a round, or the peers) still waiting
+// for its members, or a single reviewer it asked that has not reported yet. It waits on purpose, so its parent is
+// not owed a report yet (accountability).
 func openOwnAsk(r store.Reader, a *v1.Agent, now time.Time) bool {
 	asks, err := r.OpenAsks()
 	if err != nil {
@@ -173,6 +211,24 @@ func openOwnAsk(r store.Reader, a *v1.Agent, now time.Time) bool {
 	for _, k := range asks {
 		if k.Collected && k.CallerId == a.Id && (k.Deadline == nil || now.Before(k.Deadline.AsTime())) {
 			return true
+		}
+	}
+	all, err := r.RunAsks(a.RunId)
+	if err != nil {
+		return false
+	}
+	for _, k := range all {
+		if k.Collected || k.CallerId != a.Id || k.Kind != v1.AskKind_ASK_KIND_REVIEW {
+			continue
+		}
+		for _, m := range k.Members {
+			rev, err := r.GetAgent(m.AgentId)
+			if err != nil || stopped(rev) {
+				continue
+			}
+			if rep, err := lastReport(r, rev); err == nil && rep == nil {
+				return true
+			}
 		}
 	}
 	return false
@@ -194,11 +250,18 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string) strin
 			urls = append(urls, u)
 		}
 	}
-	// The PRs the done names that are the worker's own: those the daemon has recorded for it, else the first link.
+	// The PRs the done names that are the worker's own: those the daemon has recorded for it, else (none of them
+	// recorded: a new PR, or a reused worker's older ones) the first link.
 	own := map[string]bool{}
 	if prs, err := r.AgentPRs(self.Id); err == nil {
+		recorded := map[string]bool{}
 		for _, p := range prs {
-			own[prKey(p.Url)] = true
+			recorded[prKey(p.Url)] = true
+		}
+		for _, u := range urls {
+			if recorded[prKey(u)] {
+				own[prKey(u)] = true
+			}
 		}
 	}
 	if len(own) == 0 && len(urls) > 0 {
@@ -225,10 +288,27 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string) strin
 	covered := map[string]bool{}
 	for _, u := range urls {
 		k := prKey(u)
-		if len(byPR[k]) == 0 && own[k] {
-			lines = append(lines, fmt.Sprintf("[mesh reviews] PR #%s: %s asked no review round: ask it why, or start one yourself.", prNumberOf(u), self.Name))
-			covered[k] = true
+		if len(byPR[k]) > 0 || !own[k] {
+			continue
 		}
+		// Rounds of the PR that others asked (the root, an earlier run) count against the ceiling too.
+		others, err := r.PRAsks(u)
+		if err != nil {
+			continue
+		}
+		var by []string
+		for _, a := range others {
+			if a.Kind == v1.AskKind_ASK_KIND_REVIEW && !slices.Contains(by, a.CallerName) {
+				by = append(by, a.CallerName)
+			}
+		}
+		if len(by) == 0 {
+			lines = append(lines, fmt.Sprintf("[mesh reviews] PR #%s: %s asked no review round: ask it why, or start one yourself.", prNumberOf(u), self.Name))
+		} else {
+			lines = append(lines, fmt.Sprintf("[mesh reviews] PR #%s: %s asked no review round itself; rounds of it were asked by %s (`mesh asks`).",
+				prNumberOf(u), self.Name, strings.Join(by, ", ")))
+		}
+		covered[k] = true
 	}
 	for _, k := range prOrder {
 		if !covered[k] {
@@ -253,6 +333,8 @@ func roundsFooter(asks []*v1.Ask) []string {
 		var who []string
 		for _, m := range a.Members {
 			switch {
+			case !a.Collected: // its `done` went to the asking agent: the ask never learns whether it answered
+				who = append(who, m.Name+" asked alone (its done went to "+a.CallerName+")")
 			case m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED:
 				who = append(who, m.Name+" answered")
 			case m.Line != "":
@@ -276,7 +358,7 @@ func roundsFooter(asks []*v1.Ask) []string {
 			judged = append(judged, fmt.Sprintf("%s %d/%d/%d/%d by %s", v.Reviewer, v.Agree, v.Other, v.Disagree, v.Blocking, orDefault(v.Judge, judgeRoot)))
 		}
 		for _, m := range a.Members {
-			if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED && !have[m.Name] {
+			if (m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED || !a.Collected) && !have[m.Name] {
 				judged = append(judged, m.Name+" no verdict recorded")
 			}
 		}

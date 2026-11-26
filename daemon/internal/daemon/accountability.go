@@ -148,13 +148,15 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	if task.IsZero() || reported {
 		return owesNothing, task, nil
 	}
-	// Unread mail other than the daemon's own nudge: work is coming, or a doorbell was lost.
+	// Unread mail other than the daemon's own nudge: work is coming, or a doorbell was lost. The daemon's other
+	// mail counts (a finished round's `[mesh answers]` is the agent's next work: it must not be nudged for a
+	// report it has not had the time to write).
 	unread, err := r.Inbox(a.Id, false)
 	if err != nil {
 		return owesNothing, task, err
 	}
 	for _, m := range unread {
-		if m.From.GetId() != meshActor.Id {
+		if !(m.From.GetId() == meshActor.Id && strings.HasPrefix(m.Body, nudgeTag)) {
 			return owesNothing, task, nil
 		}
 	}
