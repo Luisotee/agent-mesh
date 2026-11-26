@@ -393,4 +393,50 @@ public class MeshServiceClient(
     ),
   )
 
+
+  /**
+   *  Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
+   *  again; a round of reviewers is collected into one answers file and one message to you.
+   */
+  override suspend fun ask(request: AskRequest, headers: Headers): ResponseMessage<AskResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/Ask",
+      dev.agentmesh.gen.agentmesh.v1.AskRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.AskResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Record the root's verdict on one reviewer's findings of a round.
+   */
+  override suspend fun recordVerdict(request: RecordVerdictRequest, headers: Headers): ResponseMessage<RecordVerdictResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RecordVerdict",
+      dev.agentmesh.gen.agentmesh.v1.RecordVerdictRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RecordVerdictResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  List the asks and review rounds of a run.
+   */
+  override suspend fun listAsks(request: ListAsksRequest, headers: Headers): ResponseMessage<ListAsksResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListAsks",
+      dev.agentmesh.gen.agentmesh.v1.ListAsksRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListAsksResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

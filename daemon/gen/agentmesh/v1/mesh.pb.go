@@ -3458,7 +3458,7 @@ var File_agentmesh_v1_mesh_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\n" +
-	"\x17agentmesh/v1/mesh.proto\x12\fagentmesh.v1\x1a\x18agentmesh/v1/actor.proto\x1a\x1aagentmesh/v1/options.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"Q\n" +
+	"\x17agentmesh/v1/mesh.proto\x12\fagentmesh.v1\x1a\x18agentmesh/v1/actor.proto\x1a\x16agentmesh/v1/ask.proto\x1a\x1aagentmesh/v1/options.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"Q\n" +
 	"\fHelloRequest\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\tR\x06client\x12)\n" +
 	"\x10protocol_version\x18\x02 \x01(\x05R\x0fprotocolVersion\"\xd9\x02\n" +
@@ -3692,7 +3692,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x18WAITING_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11WAITING_KIND_PLAN\x10\x01\x12\x19\n" +
 	"\x15WAITING_KIND_QUESTION\x10\x02\x12\x16\n" +
-	"\x12WAITING_KIND_INPUT\x10\x032\xee\x1a\n" +
+	"\x12WAITING_KIND_INPUT\x10\x032\xf4\x1e\n" +
 	"\vMeshService\x12\x95\x01\n" +
 	"\x05Hello\x12\x1a.agentmesh.v1.HelloRequest\x1a\x1b.agentmesh.v1.HelloResponse\"S\x8a\xb5\x18O\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\"EShow the daemon's id, version and capabilities, and who you are to it\x12a\n" +
@@ -3747,7 +3747,13 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\vListDevices\x12 .agentmesh.v1.ListDevicesRequest\x1a!.agentmesh.v1.ListDevicesResponse\"%\x8a\xb5\x18!\n" +
 	"\x01\x05\x1a\adevices\"\x13List paired devices\x12\x87\x01\n" +
 	"\fRevokeDevice\x12!.agentmesh.v1.RevokeDeviceRequest\x1a\".agentmesh.v1.RevokeDeviceResponse\"0\x8a\xb5\x18,\n" +
-	"\x01\x05\x10\x01\x1a\rrevoke-device\"\x16Revoke a paired device\x1a\x17\x92\xb5\x18\x13\n" +
+	"\x01\x05\x10\x01\x1a\rrevoke-device\"\x16Revoke a paired device\x12\xb3\x01\n" +
+	"\x03Ask\x12\x18.agentmesh.v1.AskRequest\x1a\x19.agentmesh.v1.AskResponse\"w\x8a\xb5\x18s\n" +
+	"\x02\x01\x02\x10\x01\x1a\x03ask\"fAsk a question or have a PR reviewed (a round of reviewers is collected into one file and one message)\x12\xb2\x01\n" +
+	"\rRecordVerdict\x12\".agentmesh.v1.RecordVerdictRequest\x1a#.agentmesh.v1.RecordVerdictResponse\"X\x8a\xb5\x18T\n" +
+	"\x02\x01\x05\x10\x01\x1a\averdict\"CRecord your verdict on a reviewer's findings of a PR's latest round\x12\x98\x01\n" +
+	"\bListAsks\x12\x1d.agentmesh.v1.ListAsksRequest\x1a\x1e.agentmesh.v1.ListAsksResponse\"M\x8a\xb5\x18I\n" +
+	"\x04\x01\x02\x05\x06\x1a\x04asks\";List the asks and review rounds of a run, with who answered\x1a\x17\x92\xb5\x18\x13\n" +
 	"\x0eterminal.input\x12\x01\x05B\xb2\x01\n" +
 	"\x10com.agentmesh.v1B\tMeshProtoP\x01ZBgithub.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1;agentmeshv1\xa2\x02\x03AXX\xaa\x02\fAgentmesh.V1\xca\x02\fAgentmesh\\V1\xe2\x02\x18Agentmesh\\V1\\GPBMetadata\xea\x02\rAgentmesh::V1b\x06proto3"
 
@@ -3837,6 +3843,12 @@ var file_agentmesh_v1_mesh_proto_goTypes = []any{
 	(*Setting)(nil),                 // 68: agentmesh.v1.Setting
 	(*structpb.Value)(nil),          // 69: google.protobuf.Value
 	(*Device)(nil),                  // 70: agentmesh.v1.Device
+	(*AskRequest)(nil),              // 71: agentmesh.v1.AskRequest
+	(*RecordVerdictRequest)(nil),    // 72: agentmesh.v1.RecordVerdictRequest
+	(*ListAsksRequest)(nil),         // 73: agentmesh.v1.ListAsksRequest
+	(*AskResponse)(nil),             // 74: agentmesh.v1.AskResponse
+	(*RecordVerdictResponse)(nil),   // 75: agentmesh.v1.RecordVerdictResponse
+	(*ListAsksResponse)(nil),        // 76: agentmesh.v1.ListAsksResponse
 }
 var file_agentmesh_v1_mesh_proto_depIdxs = []int32{
 	56, // 0: agentmesh.v1.HelloResponse.started_at:type_name -> google.protobuf.Timestamp
@@ -3928,33 +3940,39 @@ var file_agentmesh_v1_mesh_proto_depIdxs = []int32{
 	45, // 86: agentmesh.v1.MeshService.CreatePairing:input_type -> agentmesh.v1.CreatePairingRequest
 	47, // 87: agentmesh.v1.MeshService.ListDevices:input_type -> agentmesh.v1.ListDevicesRequest
 	49, // 88: agentmesh.v1.MeshService.RevokeDevice:input_type -> agentmesh.v1.RevokeDeviceRequest
-	2,  // 89: agentmesh.v1.MeshService.Hello:output_type -> agentmesh.v1.HelloResponse
-	4,  // 90: agentmesh.v1.MeshService.StartRun:output_type -> agentmesh.v1.StartRunResponse
-	6,  // 91: agentmesh.v1.MeshService.ListRuns:output_type -> agentmesh.v1.ListRunsResponse
-	8,  // 92: agentmesh.v1.MeshService.SpawnAgent:output_type -> agentmesh.v1.SpawnAgentResponse
-	10, // 93: agentmesh.v1.MeshService.ListAgents:output_type -> agentmesh.v1.ListAgentsResponse
-	12, // 94: agentmesh.v1.MeshService.GetAgent:output_type -> agentmesh.v1.GetAgentResponse
-	14, // 95: agentmesh.v1.MeshService.StopAgent:output_type -> agentmesh.v1.StopAgentResponse
-	40, // 96: agentmesh.v1.MeshService.ApproveAgent:output_type -> agentmesh.v1.ApproveAgentResponse
-	42, // 97: agentmesh.v1.MeshService.SwitchAgent:output_type -> agentmesh.v1.SwitchAgentResponse
-	44, // 98: agentmesh.v1.MeshService.ResumeAgent:output_type -> agentmesh.v1.ResumeAgentResponse
-	52, // 99: agentmesh.v1.MeshService.RetireAgent:output_type -> agentmesh.v1.RetireAgentResponse
-	54, // 100: agentmesh.v1.MeshService.StopRun:output_type -> agentmesh.v1.StopRunResponse
-	16, // 101: agentmesh.v1.MeshService.SendMessage:output_type -> agentmesh.v1.SendMessageResponse
-	18, // 102: agentmesh.v1.MeshService.ReadInbox:output_type -> agentmesh.v1.ReadInboxResponse
-	20, // 103: agentmesh.v1.MeshService.ListMessages:output_type -> agentmesh.v1.ListMessagesResponse
-	22, // 104: agentmesh.v1.MeshService.ListWaiting:output_type -> agentmesh.v1.ListWaitingResponse
-	25, // 105: agentmesh.v1.MeshService.SubscribeEvents:output_type -> agentmesh.v1.SubscribeEventsResponse
-	34, // 106: agentmesh.v1.MeshService.ListSettings:output_type -> agentmesh.v1.ListSettingsResponse
-	36, // 107: agentmesh.v1.MeshService.SetSetting:output_type -> agentmesh.v1.SetSettingResponse
-	38, // 108: agentmesh.v1.MeshService.ResetSetting:output_type -> agentmesh.v1.ResetSettingResponse
-	30, // 109: agentmesh.v1.MeshService.ReportHook:output_type -> agentmesh.v1.ReportHookResponse
-	32, // 110: agentmesh.v1.MeshService.OpenTerminal:output_type -> agentmesh.v1.OpenTerminalResponse
-	46, // 111: agentmesh.v1.MeshService.CreatePairing:output_type -> agentmesh.v1.CreatePairingResponse
-	48, // 112: agentmesh.v1.MeshService.ListDevices:output_type -> agentmesh.v1.ListDevicesResponse
-	50, // 113: agentmesh.v1.MeshService.RevokeDevice:output_type -> agentmesh.v1.RevokeDeviceResponse
-	89, // [89:114] is the sub-list for method output_type
-	64, // [64:89] is the sub-list for method input_type
+	71, // 89: agentmesh.v1.MeshService.Ask:input_type -> agentmesh.v1.AskRequest
+	72, // 90: agentmesh.v1.MeshService.RecordVerdict:input_type -> agentmesh.v1.RecordVerdictRequest
+	73, // 91: agentmesh.v1.MeshService.ListAsks:input_type -> agentmesh.v1.ListAsksRequest
+	2,  // 92: agentmesh.v1.MeshService.Hello:output_type -> agentmesh.v1.HelloResponse
+	4,  // 93: agentmesh.v1.MeshService.StartRun:output_type -> agentmesh.v1.StartRunResponse
+	6,  // 94: agentmesh.v1.MeshService.ListRuns:output_type -> agentmesh.v1.ListRunsResponse
+	8,  // 95: agentmesh.v1.MeshService.SpawnAgent:output_type -> agentmesh.v1.SpawnAgentResponse
+	10, // 96: agentmesh.v1.MeshService.ListAgents:output_type -> agentmesh.v1.ListAgentsResponse
+	12, // 97: agentmesh.v1.MeshService.GetAgent:output_type -> agentmesh.v1.GetAgentResponse
+	14, // 98: agentmesh.v1.MeshService.StopAgent:output_type -> agentmesh.v1.StopAgentResponse
+	40, // 99: agentmesh.v1.MeshService.ApproveAgent:output_type -> agentmesh.v1.ApproveAgentResponse
+	42, // 100: agentmesh.v1.MeshService.SwitchAgent:output_type -> agentmesh.v1.SwitchAgentResponse
+	44, // 101: agentmesh.v1.MeshService.ResumeAgent:output_type -> agentmesh.v1.ResumeAgentResponse
+	52, // 102: agentmesh.v1.MeshService.RetireAgent:output_type -> agentmesh.v1.RetireAgentResponse
+	54, // 103: agentmesh.v1.MeshService.StopRun:output_type -> agentmesh.v1.StopRunResponse
+	16, // 104: agentmesh.v1.MeshService.SendMessage:output_type -> agentmesh.v1.SendMessageResponse
+	18, // 105: agentmesh.v1.MeshService.ReadInbox:output_type -> agentmesh.v1.ReadInboxResponse
+	20, // 106: agentmesh.v1.MeshService.ListMessages:output_type -> agentmesh.v1.ListMessagesResponse
+	22, // 107: agentmesh.v1.MeshService.ListWaiting:output_type -> agentmesh.v1.ListWaitingResponse
+	25, // 108: agentmesh.v1.MeshService.SubscribeEvents:output_type -> agentmesh.v1.SubscribeEventsResponse
+	34, // 109: agentmesh.v1.MeshService.ListSettings:output_type -> agentmesh.v1.ListSettingsResponse
+	36, // 110: agentmesh.v1.MeshService.SetSetting:output_type -> agentmesh.v1.SetSettingResponse
+	38, // 111: agentmesh.v1.MeshService.ResetSetting:output_type -> agentmesh.v1.ResetSettingResponse
+	30, // 112: agentmesh.v1.MeshService.ReportHook:output_type -> agentmesh.v1.ReportHookResponse
+	32, // 113: agentmesh.v1.MeshService.OpenTerminal:output_type -> agentmesh.v1.OpenTerminalResponse
+	46, // 114: agentmesh.v1.MeshService.CreatePairing:output_type -> agentmesh.v1.CreatePairingResponse
+	48, // 115: agentmesh.v1.MeshService.ListDevices:output_type -> agentmesh.v1.ListDevicesResponse
+	50, // 116: agentmesh.v1.MeshService.RevokeDevice:output_type -> agentmesh.v1.RevokeDeviceResponse
+	74, // 117: agentmesh.v1.MeshService.Ask:output_type -> agentmesh.v1.AskResponse
+	75, // 118: agentmesh.v1.MeshService.RecordVerdict:output_type -> agentmesh.v1.RecordVerdictResponse
+	76, // 119: agentmesh.v1.MeshService.ListAsks:output_type -> agentmesh.v1.ListAsksResponse
+	92, // [92:120] is the sub-list for method output_type
+	64, // [64:92] is the sub-list for method input_type
 	64, // [64:64] is the sub-list for extension type_name
 	64, // [64:64] is the sub-list for extension extendee
 	0,  // [0:64] is the sub-list for field type_name
@@ -3966,6 +3984,7 @@ func file_agentmesh_v1_mesh_proto_init() {
 		return
 	}
 	file_agentmesh_v1_actor_proto_init()
+	file_agentmesh_v1_ask_proto_init()
 	file_agentmesh_v1_options_proto_init()
 	file_agentmesh_v1_types_proto_init()
 	file_agentmesh_v1_mesh_proto_msgTypes[24].OneofWrappers = []any{

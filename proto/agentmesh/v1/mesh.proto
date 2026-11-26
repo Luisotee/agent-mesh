@@ -3,6 +3,7 @@ syntax = "proto3";
 package agentmesh.v1;
 
 import "agentmesh/v1/actor.proto";
+import "agentmesh/v1/ask.proto";
 import "agentmesh/v1/options.proto";
 import "agentmesh/v1/types.proto";
 import "google/protobuf/struct.proto";
@@ -357,6 +358,47 @@ service MeshService {
       write: true
       cli: "revoke-device"
       summary: "Revoke a paired device"
+    };
+  }
+
+  // Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
+  // again; a round of reviewers is collected into one answers file and one message to you.
+  rpc Ask(AskRequest) returns (AskResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER
+      ]
+      write: true
+      cli: "ask"
+      summary: "Ask a question or have a PR reviewed (a round of reviewers is collected into one file and one message)"
+    };
+  }
+
+  // Record the root's verdict on one reviewer's findings of a round.
+  rpc RecordVerdict(RecordVerdictRequest) returns (RecordVerdictResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "verdict"
+      summary: "Record your verdict on a reviewer's findings of a PR's latest round"
+    };
+  }
+
+  // List the asks and review rounds of a run.
+  rpc ListAsks(ListAsksRequest) returns (ListAsksResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "asks"
+      summary: "List the asks and review rounds of a run, with who answered"
     };
   }
 }

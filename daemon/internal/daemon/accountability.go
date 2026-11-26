@@ -56,7 +56,11 @@ func tellTx(tx *store.Tx, to *v1.Agent, body string) (*v1.Message, error) {
 
 // alertParentTx tells an agent's parent something about it (an `info`), once per (kind, agent, since): a
 // message already sent after `since` says it. It returns the message to ring, or nil.
-func alertParentTx(tx *store.Tx, a *v1.Agent, kind, text string, since time.Time) (*v1.Message, error) {
+func (d *Daemon) alertParentTx(tx *store.Tx, a *v1.Agent, kind, text string, since time.Time) (*v1.Message, error) {
+	// A member of a round its parent asked for: the alert settles it, and the parent is rung once, at the end.
+	if ring, held, err := d.alertAsMember(tx, a, kind, text); held || err != nil {
+		return ring, err
+	}
 	parent, err := tx.GetAgent(a.ParentId)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -150,6 +154,7 @@ func reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAfter, waitMax 
 
 // accountability is the periodic pass: for each agent that has a parent, its state says what to tell whom.
 func (d *Daemon) accountability(ctx context.Context) {
+	d.settleOverdueAsks(ctx)
 	r := d.store.Read(ctx)
 	nudgeAfter, err := d.Setting(r, "accountability.nudge_after")
 	if err != nil {
@@ -215,7 +220,7 @@ func (d *Daemon) alertOnce(ctx context.Context, a *v1.Agent, kind, text string) 
 		if cur.LastActivity != nil {
 			since = cur.LastActivity.AsTime()
 		}
-		ring, err = alertParentTx(tx, cur, kind, text, since)
+		ring, err = d.alertParentTx(tx, cur, kind, text, since)
 		return err
 	})
 	if err == nil && ring != nil && d.notify != nil {
@@ -248,7 +253,7 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 				"(or `plan`, `question`, `failed`). If you are waiting on something on purpose, declare it first: "+
 				"`mesh send parent --type wait --body \"<what>\"`.")
 		case owesAlert:
-			ring, err = alertParentTx(tx, cur, "silent", fmt.Sprintf("%s ended a turn without reporting to you, and again after a nudge. "+
+			ring, err = d.alertParentTx(tx, cur, "silent", fmt.Sprintf("%s ended a turn without reporting to you, and again after a nudge. "+
 				"It is idle at its prompt with no `done`, `failed`, `plan` or `question` since your last message to it.", cur.Name), task)
 		}
 		return err
@@ -262,7 +267,7 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 // alertExitTx tells an agent's parent that its process ended, when the agent still owed it a report. It runs in
 // the transaction that records the exit, so the alert and the exit are one write; the caller rings the message.
 // lastSaid is the agent's state detail from before the exit event was applied (which overwrites it).
-func alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid string, code, signal int32, reason string) (*v1.Message, error) {
+func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid string, code, signal int32, reason string) (*v1.Message, error) {
 	if !owesParent(a) {
 		return nil, nil
 	}
@@ -289,7 +294,7 @@ func alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid string, code, signal int32,
 	if a.LastActivity != nil {
 		since = a.LastActivity.AsTime()
 	}
-	return alertParentTx(tx, a, "exited", text, since)
+	return d.alertParentTx(tx, a, "exited", text, since)
 }
 
 // unreadInstructions refuses a report while a task or answer sits unread in the agent's inbox: the report would

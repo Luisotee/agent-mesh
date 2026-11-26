@@ -1,0 +1,526 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+)
+
+// quotaReserveGuard is the hook point of the quota reserve (stop starting work on a vendor once its quota is
+// nearly used): every agent an ask starts or brings back asks it first. It allows everything until the
+// reserve lands (the parallel lifecycle work exports `ReserveGuard`, which replaces this body).
+func (d *Daemon) quotaReserveGuard(ctx context.Context, runID, kind, model, effort, what string) error {
+	return nil
+}
+
+// Ask asks a question or has a pull request reviewed, by a fresh read-only agent or an existing one; with
+// `reviewers` it is a round, collected (collect.go).
+func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {
+	actor := auth.ActorFrom(ctx)
+	m := req.Msg
+	if !IsAgent(actor.Class) {
+		return nil, denied("an ask answers to an agent: start the agent with `mesh spawn`")
+	}
+	if mid := m.Meta.GetMutationId(); mid != "" {
+		if proc, resp, err := d.store.Read(ctx).Mutation(actor.Id, mid); err == nil && proc == agentmeshv1connect.MeshServiceAskProcedure {
+			out := &v1.AskResponse{}
+			if err := proto.Unmarshal(resp, out); err != nil {
+				return nil, err
+			}
+			return connect.NewResponse(out), nil
+		}
+	}
+	body := strings.TrimSpace(m.Body)
+	switch {
+	case m.Agent != "":
+		if m.Repo != "" || m.Reviewers != "" || m.Slug != "" {
+			return nil, invalid("ask an existing agent with its name and a body (or --review): repo, reviewers and slug are for a fresh one")
+		}
+		return d.askAgent(ctx, actor, m, body)
+	case strings.TrimSpace(m.Repo) == "":
+		return nil, invalid("name the agent to ask, or the repo (--repo) a fresh one works in")
+	case m.Review == "":
+		if m.Reviewers != "" || m.Since != "" || m.Size != "" {
+			return nil, invalid("reviewers, size and since are for a review of a pull request (--review)")
+		}
+		if body == "" {
+			return nil, invalid("no question given (--body)")
+		}
+		return d.askFresh(ctx, m, body)
+	}
+	if _, ok := sizes[m.Size]; !ok {
+		return nil, invalid("size %q: trivial, small or large (it picks the reviewers, the /code-review level and the rounds)", m.Size)
+	}
+	if m.Reviewers != "" {
+		return d.reviewRound(ctx, actor, m, body)
+	}
+	return d.reviewOne(ctx, actor, m, body)
+}
+
+// topOf is a repo's top level.
+func topOf(ctx context.Context, repo string) (string, error) {
+	abs, err := filepath.Abs(repo)
+	if err != nil {
+		return "", invalid("repo: %v", err)
+	}
+	top, err := git(ctx, abs, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", invalid("%s is not a git repository: %v", repo, err)
+	}
+	return top, nil
+}
+
+// askFresh starts an asker with a read-only question. Its own `done` is the answer: no collecting.
+func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
+	actor := auth.ActorFrom(ctx)
+	top, err := topOf(ctx, m.Repo)
+	if err != nil {
+		return nil, err
+	}
+	slug := m.Slug
+	if slug == "" {
+		slug = askSlug(body)
+	}
+	if slug, err = d.freeSlug(d.store.Read(ctx), actor.RunId, top, slug); err != nil {
+		return nil, err
+	}
+	if err := d.quotaReserveGuard(ctx, actor.RunId, orClaude(m.Kind), m.Model, m.Effort, "an asker in "+top); err != nil {
+		return nil, err
+	}
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: m.Meta, Repo: top, Slug: slug,
+		Role: v1.AgentRole_AGENT_ROLE_ASKER, Kind: m.Kind, Model: m.Model, Effort: m.Effort, Tier: m.Tier,
+		Task: askPrefix + "\n\n" + body}))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.AskResponse{Agents: []*v1.Agent{res.Msg.Agent}}), nil
+}
+
+func orClaude(kind string) string {
+	if kind == "" {
+		return "claude"
+	}
+	return kind
+}
+
+// askAgent gives an existing agent of this run a read-only task: a question, or (with review) a review of a
+// pull request from its own worktree. A retired agent is resumed, a busy one is told the task waits.
+func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
+	r := d.store.Read(ctx)
+	a, err := d.FindAgent(r, actor, m.Agent)
+	if err != nil {
+		return nil, err
+	}
+	if a.ParentId != actor.Id {
+		return nil, denied("%s is not yours to ask: an agent asks its own children", a.Name)
+	}
+	task := askPrefix + "\n\n" + body
+	switch {
+	case m.Review != "":
+		pr, err := d.resolvePR(ctx, a.Repo, m.Review)
+		if err != nil {
+			return nil, err
+		}
+		level, err := d.settingString(r, "review.level."+orSmall(m.Size))
+		if err != nil {
+			return nil, err
+		}
+		spec := reviewSpec{pr: pr, kind: a.Kind, level: level, body: body, last: m.Since, ownBranch: true}
+		spec.narrow = narrowSince(ctx, a.Repo, m.Since, pr.Head)
+		spec.reused = m.Since != ""
+		task = reviewTask(spec)
+	case body == "":
+		return nil, invalid("no question given (--body)")
+	}
+	if err := d.quotaReserveGuard(ctx, a.RunId, a.Kind, a.Model, a.Effort, "asking "+a.Name); err != nil {
+		return nil, err
+	}
+	res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: m.Meta, To: a.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: task}))
+	if err != nil {
+		return nil, err
+	}
+	out := &v1.AskResponse{Message: res.Msg.Message}
+	if cur, err := d.getAgent(d.store.Read(ctx), a.Id); err == nil {
+		out.Agents = []*v1.Agent{d.view(cur)}
+		if cur.State == v1.AgentState_AGENT_STATE_WORKING {
+			out.Notes = append(out.Notes, a.Name+" is working: your task waits in its inbox until it is idle")
+		}
+	}
+	if res.Msg.Resumed != nil {
+		out.Notes = append(out.Notes, a.Name+" was retired: resumed in its own conversation")
+	}
+	if res.Msg.ResumeError != "" {
+		out.Notes = append(out.Notes, a.Name+" could not be resumed: "+res.Msg.ResumeError+" (the task is stored for when it is)")
+	}
+	return connect.NewResponse(out), nil
+}
+
+func orSmall(size string) string {
+	if size == "" {
+		return "small"
+	}
+	return size
+}
+
+// reviewOne starts one fresh reviewer, at the PR's head. Its own `done` is the answer: no collecting, but the
+// ask is kept, so a later round knows which head was reviewed.
+func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
+	top, err := topOf(ctx, m.Repo)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := d.resolvePR(ctx, top, m.Review)
+	if err != nil {
+		return nil, err
+	}
+	r := d.store.Read(ctx)
+	kind := orClaude(m.Kind)
+	level, err := d.settingString(r, "review.level."+m.Size)
+	if err != nil {
+		return nil, err
+	}
+	effort := m.Effort
+	if effort == "" && m.Model == "" {
+		if effort, err = d.settingString(r, "review.effort"); err != nil {
+			return nil, err
+		}
+	}
+	slug, err := d.freeSlug(r, actor.RunId, top, fmt.Sprintf("review-%d-%s", pr.Number, kind))
+	if err != nil {
+		return nil, err
+	}
+	last := m.Since
+	task := reviewTask(reviewSpec{pr: pr, kind: kind, level: level, body: body, last: last,
+		narrow: narrowSince(ctx, top, last, pr.Head)})
+	if err := d.quotaReserveGuard(ctx, actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
+		return nil, err
+	}
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: top, Slug: slug,
+		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: m.Kind, Model: m.Model, Effort: effort, Tier: m.Tier, Base: pr.Head, Task: task}))
+	if err != nil {
+		return nil, err
+	}
+	now := d.now()
+	ask := &v1.Ask{Id: ids.New("k", 10), RunId: actor.RunId, CallerId: actor.Id, CallerName: actor.Name,
+		Kind: v1.AskKind_ASK_KIND_REVIEW, Status: v1.AskStatus_ASK_STATUS_FINISHED, Pr: pr.URL, PrNumber: pr.Number, Repo: top,
+		Head: pr.Head, Since: last, Size: m.Size, Tier: m.Tier, Body: body, CreatedAt: timestamppb.New(now), FinishedAt: timestamppb.New(now),
+		Members: []*v1.AskMember{{AgentId: res.Msg.Agent.Id, Name: res.Msg.Agent.Name, Kind: res.Msg.Agent.Kind, How: "fresh",
+			Status: v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING, Line: "asked alone: its `done` comes to you directly",
+			Model: res.Msg.Agent.Model, Tier: m.Tier, Head: pr.Head}}}
+	out := &v1.AskResponse{Ask: ask, Agents: []*v1.Agent{res.Msg.Agent}}
+	if _, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAskProcedure, out, func(tx *store.Tx) error {
+		return tx.PutAsk(ask)
+	}); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(out), nil
+}
+
+// reviewRound runs a round of reviewers at once (bin/mesh's review_round): it picks the kinds, starts a fresh
+// reviewer of each at the PR's head (or, in the same run, asks the earlier round's own again), and records
+// the ask the answers are collected by.
+func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
+	if m.Tier == "" {
+		return nil, invalid("give the tier the reviewers run on (--tier): there is no default model")
+	}
+	if m.Model != "" || m.Kind != "" {
+		return nil, invalid("a round picks its own kinds (--reviewers) on a tier: model and kind are for one reviewer")
+	}
+	top, err := topOf(ctx, m.Repo)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := d.resolvePR(ctx, top, m.Review)
+	if err != nil {
+		return nil, err
+	}
+	r := d.store.Read(ctx)
+	prior, err := roundsOf(r, pr.URL)
+	if err != nil {
+		return nil, err
+	}
+	var last *v1.Ask
+	if len(prior) > 0 {
+		last = prior[len(prior)-1]
+	}
+	// A re-review: the head the last round covered, or the one named.
+	since := m.Since
+	if since == "" && last != nil && last.Head != pr.Head {
+		since = last.Head
+	}
+	var earlierKinds []string
+	if last != nil && last.Head != pr.Head {
+		for _, mem := range last.Members {
+			if mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
+				earlierKinds = append(earlierKinds, mem.Kind)
+			}
+		}
+	}
+	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, prAuthorKind(r, pr.HeadRef), earlierKinds)
+	if err != nil {
+		return nil, err
+	}
+	level, err := d.settingString(r, "review.level."+m.Size)
+	if err != nil {
+		return nil, err
+	}
+	effort := m.Effort
+	if effort == "" {
+		if effort, err = d.settingString(r, "review.effort"); err != nil {
+			return nil, err
+		}
+	}
+	timeout, err := d.Setting(r, "ask.timeout")
+	if err != nil {
+		return nil, err
+	}
+	now := d.now()
+	ask := &v1.Ask{Id: ids.New("k", 10), RunId: actor.RunId, CallerId: actor.Id, CallerName: actor.Name,
+		Kind: v1.AskKind_ASK_KIND_REVIEW, Status: v1.AskStatus_ASK_STATUS_OPEN, Pr: pr.URL, PrNumber: pr.Number, Repo: top,
+		Head: pr.Head, Since: since, Size: m.Size, Tier: m.Tier, Body: body, Collected: true, Round: int32(len(prior) + 1),
+		AnswersPath: d.answersPath(actor.RunId, pr.Number, now), CreatedAt: timestamppb.New(now),
+		Deadline: timestamppb.New(now.Add(time.Duration(timeout.(float64) * float64(time.Second))))}
+	out := &v1.AskResponse{Ask: ask, Notes: notes}
+	narrow := narrowSince(ctx, top, since, pr.Head)
+	for _, kind := range kinds {
+		member, agent, note := d.startReviewer(ctx, actor, reviewJob{kind: kind, pr: pr, top: top, level: level, effort: effort,
+			tier: m.Tier, body: body, since: since, narrow: narrow, last: last})
+		if note != "" {
+			out.Notes = append(out.Notes, note)
+		}
+		ask.Members = append(ask.Members, member)
+		if agent != nil {
+			out.Agents = append(out.Agents, agent)
+		}
+	}
+	started := 0
+	for _, mem := range ask.Members {
+		if mem.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING {
+			started++
+		}
+	}
+	if started == 0 {
+		var why []string
+		for _, mem := range ask.Members {
+			why = append(why, mem.Name+": "+mem.Line)
+		}
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("no reviewer could be started (%s)", strings.Join(why, "; ")))
+	}
+	out.Hint = d.roundsHint(r, ask, false)
+	if _, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAskProcedure, out, func(tx *store.Tx) error {
+		return tx.PutAsk(ask)
+	}); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(out), nil
+}
+
+// reviewJob is what starting or re-asking one reviewer of a round needs.
+type reviewJob struct {
+	kind, top, level, effort, tier, body, since string
+	pr                                          *prInfo
+	narrow                                      bool
+	last                                        *v1.Ask
+}
+
+// startReviewer brings one reviewer of a round into it: the earlier round's own agent when this run has one
+// (given a new task, resumed if retired, its worktree moved to the new head when that is safe), else a fresh
+// agent at the head. A reviewer that can't be reached is a member with a line saying why, not an error.
+func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob) (*v1.AskMember, *v1.Agent, string) {
+	member := &v1.AskMember{Kind: j.kind, Tier: j.tier, Head: j.pr.Head, Status: v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING}
+	fail := func(name, line string) (*v1.AskMember, *v1.Agent, string) {
+		member.Name = name
+		member.Status, member.Line = v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED, line
+		return member, nil, fmt.Sprintf("%s (%s): not asked: %s", name, j.kind, line)
+	}
+	r := d.store.Read(ctx)
+	// The earlier round's own reviewer of this kind, in this run.
+	var reuse *v1.Agent
+	var reviewedAt string
+	if j.last != nil && j.last.RunId == actor.RunId {
+		for _, mem := range j.last.Members {
+			if mem.Kind != j.kind || mem.AgentId == "" || mem.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
+				continue
+			}
+			if a, err := r.GetAgent(mem.AgentId); err == nil && a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER && a.ParentId == actor.Id {
+				reuse, reviewedAt = a, mem.Head
+				break
+			}
+		}
+	}
+	if reuse != nil {
+		member.AgentId, member.Name = reuse.Id, reuse.Name
+		if err := d.quotaReserveGuard(ctx, actor.RunId, reuse.Kind, reuse.Model, reuse.Effort, "asking "+reuse.Name); err != nil {
+			return fail(reuse.Name, err.Error())
+		}
+		spec := reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: reviewedAt, reused: true,
+			narrow: narrowSince(ctx, j.top, reviewedAt, j.pr.Head)}
+		var note string
+		if why := moveWorktree(ctx, reuse, reviewedAt, j.pr.Head); why != "" {
+			spec.stayAt, spec.stayWhy = reviewedAt, why
+			if cur, err := git(ctx, reuse.Worktree, "rev-parse", "HEAD"); err == nil {
+				spec.stayAt = cur
+			}
+			note = fmt.Sprintf("%s's worktree stays at %s: %s", reuse.Name, short(spec.stayAt), why)
+		}
+		res, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: reuse.Id,
+			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: reviewTask(spec)}))
+		if err != nil {
+			return fail(reuse.Name, err.Error())
+		}
+		if res.Msg.ResumeError != "" {
+			return fail(reuse.Name, "could not be resumed: "+res.Msg.ResumeError)
+		}
+		member.How, member.Model = "asked", reuse.Model
+		if res.Msg.Resumed != nil {
+			member.How = "resumed"
+		}
+		cur, _ := d.getAgent(d.store.Read(ctx), reuse.Id)
+		if cur == nil {
+			cur = reuse
+		}
+		return member, d.view(cur), note
+	}
+	// A fresh one.
+	slug, err := d.freeSlug(r, actor.RunId, j.top, fmt.Sprintf("review-%d-%s", j.pr.Number, j.kind))
+	if err != nil {
+		return fail(j.kind, err.Error())
+	}
+	member.Name = filepath.Base(j.top) + "-" + slug
+	if err := d.quotaReserveGuard(ctx, actor.RunId, j.kind, "", j.effort, "a "+j.kind+" reviewer in "+j.top); err != nil {
+		return fail(member.Name, err.Error())
+	}
+	task := reviewTask(reviewSpec{pr: j.pr, kind: j.kind, level: j.level, body: j.body, last: j.since, narrow: j.narrow})
+	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: j.top, Slug: slug,
+		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: j.effort, Tier: j.tier, Base: j.pr.Head, Task: task}))
+	if err != nil {
+		var ce *connect.Error
+		msg := err.Error()
+		if errors.As(err, &ce) {
+			msg = ce.Message()
+		}
+		return fail(member.Name, msg)
+	}
+	member.AgentId, member.Name, member.How, member.Model = res.Msg.Agent.Id, res.Msg.Agent.Name, "fresh", res.Msg.Agent.Model
+	return member, res.Msg.Agent, ""
+}
+
+// ── verdicts and listing ──
+
+// asksOf finds the asks about a PR given by URL or number, in the caller's run (a device: any).
+func asksOf(r store.Reader, actor *v1.Actor, pr string) ([]*v1.Ask, error) {
+	var asks []*v1.Ask
+	var err error
+	if n, convErr := strconv.Atoi(strings.TrimPrefix(pr, "#")); convErr == nil {
+		asks, err = r.NumberAsks(int32(n))
+	} else {
+		asks, err = r.PRAsks(pr)
+	}
+	if err != nil {
+		return nil, err
+	}
+	own := runScope(actor)
+	var out []*v1.Ask
+	for _, a := range asks {
+		if own == "" || a.RunId == own {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// RecordVerdict stores the root's judgement of one reviewer's findings on the PR's newest round.
+func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error) {
+	m := req.Msg
+	if m.Pr == "" || m.Reviewer == "" {
+		return nil, invalid("name the pull request and the reviewer")
+	}
+	if m.Agree < 0 || m.Other < 0 || m.Disagree < 0 || m.Blocking < 0 {
+		return nil, invalid("counts can't be negative")
+	}
+	if m.Agree == 0 && m.Other == 0 && m.Disagree == 0 {
+		return nil, invalid("give at least one of agree, other and disagree: how many of the reviewer's findings you agreed with, found otherwise useful, and disagreed with")
+	}
+	if m.Blocking > m.Agree+m.Other {
+		return nil, invalid("blocking (%d) can't be more than agree + other (%d): a blocking finding is one you agreed with or found useful", m.Blocking, m.Agree+m.Other)
+	}
+	out := &v1.RecordVerdictResponse{}
+	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceRecordVerdictProcedure, out, func(tx *store.Tx) error {
+		asks, err := asksOf(tx.Reader, tx.Actor, m.Pr)
+		if err != nil {
+			return err
+		}
+		for i := len(asks) - 1; i >= 0; i-- {
+			ask := asks[i]
+			if ask.Kind != v1.AskKind_ASK_KIND_REVIEW {
+				continue
+			}
+			for _, mem := range ask.Members {
+				if mem.Name != m.Reviewer && mem.AgentId != m.Reviewer {
+					continue
+				}
+				tier := mem.Tier
+				if a, err := tx.GetAgent(mem.AgentId); err == nil && a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING && a.ExecTier != "" {
+					tier = a.ExecTier
+				}
+				v := &v1.Verdict{Reviewer: mem.Name, Kind: mem.Kind, Model: mem.Model, Tier: tier, Agree: m.Agree, Other: m.Other,
+					Disagree: m.Disagree, Blocking: m.Blocking, At: timestamppb.New(tx.Now())}
+				kept := ask.Verdicts[:0]
+				for _, old := range ask.Verdicts {
+					if old.Reviewer != mem.Name {
+						kept = append(kept, old)
+					}
+				}
+				ask.Verdicts = append(kept, v)
+				out.Ask, out.Verdict = ask, v
+				return tx.PutAsk(ask)
+			}
+		}
+		return notFound("no review of %s asked %s", m.Pr, m.Reviewer)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(out), nil
+}
+
+// ListAsks lists a run's asks.
+func (d *Daemon) ListAsks(ctx context.Context, req *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error) {
+	actor := auth.ActorFrom(ctx)
+	runID, err := scopedRun(actor, req.Msg.RunId)
+	if err != nil {
+		return nil, err
+	}
+	r := d.store.Read(ctx)
+	var asks []*v1.Ask
+	if req.Msg.Pr != "" {
+		if asks, err = asksOf(r, actor, req.Msg.Pr); err != nil {
+			return nil, err
+		}
+	} else if asks, err = r.RunAsks(runID); err != nil {
+		return nil, err
+	}
+	out := &v1.ListAsksResponse{}
+	for _, a := range asks {
+		if runID != "" && a.RunId != runID || req.Msg.OpenOnly && a.Status != v1.AskStatus_ASK_STATUS_OPEN {
+			continue
+		}
+		out.Asks = append(out.Asks, a)
+	}
+	return connect.NewResponse(out), nil
+}

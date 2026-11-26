@@ -1,13 +1,16 @@
 ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ApproveAgent
+  /agentmesh.v1.MeshService/Ask
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/ReadInbox
+  /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/ResumeAgent
@@ -20,9 +23,11 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/SwitchAgent
 ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/ApproveAgent
+  /agentmesh.v1.MeshService/Ask
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ReadInbox
@@ -60,12 +65,14 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListDevices
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
+  /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/ResumeAgent
   /agentmesh.v1.MeshService/RetireAgent
@@ -83,6 +90,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
+  /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings

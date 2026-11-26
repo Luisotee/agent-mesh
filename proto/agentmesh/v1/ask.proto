@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/types.proto";
+import "google/protobuf/timestamp.proto";
+
+// Asks: a question for a read-only agent, a PR review by one or several reviewers, collected into one answers
+// file and one message to the caller (`mesh ask`, `mesh verdict`, `mesh asks`).
+
+enum AskKind {
+  ASK_KIND_UNSPECIFIED = 0;
+  // A question; collected only when it goes to several agents at once.
+  ASK_KIND_QUESTION = 1;
+  // A review of one commit of a pull request: a round of reviewers, or one.
+  ASK_KIND_REVIEW = 2;
+}
+
+enum AskStatus {
+  ASK_STATUS_UNSPECIFIED = 0;
+  // Members are still to answer.
+  ASK_STATUS_OPEN = 1;
+  // Every member answered or was settled; the caller was told once.
+  ASK_STATUS_FINISHED = 2;
+}
+
+enum AskMemberStatus {
+  ASK_MEMBER_STATUS_UNSPECIFIED = 0;
+  ASK_MEMBER_STATUS_PENDING = 1;
+  // It sent a `done`.
+  ASK_MEMBER_STATUS_ANSWERED = 2;
+  // It will not answer in this ask: a `failed`, a question back, an exit or silence the daemon told the caller of,
+  // or the deadline.
+  ASK_MEMBER_STATUS_SETTLED = 3;
+  // Not asked: its kind is not installed, or it was skipped; `line` says why.
+  ASK_MEMBER_STATUS_NOT_ASKED = 4;
+}
+
+// AskMember is one agent an ask is waiting on.
+message AskMember {
+  string agent_id = 1;
+  string name = 2;
+  // The CLI kind ("claude", "agy").
+  string kind = 3;
+  // "fresh" (started for this ask), "asked" (a live agent of this run given a new task) or "resumed" (a retired
+  // one brought back).
+  string how = 4;
+  AskMemberStatus status = 5;
+  // What settled it, or why it was not asked: one line.
+  string line = 6;
+  // The answer: the body of its `done` (or `failed`).
+  string text = 7;
+  // The type it settled with: "done", "failed", "question", "plan" or an alert kind.
+  string type = 8;
+  string model = 9;
+  string tier = 10;
+  // The commit this agent reviewed at (a review).
+  string head = 11;
+}
+
+// Verdict is the root's judgement of one reviewer's findings on a round (`mesh verdict`).
+message Verdict {
+  string reviewer = 1;
+  string kind = 2;
+  string model = 3;
+  // The tier it ran on (the execution tier when it was executing).
+  string tier = 4;
+  int32 agree = 5;
+  int32 other = 6;
+  int32 disagree = 7;
+  // Of the findings agreed with or otherwise useful, how many were blocking.
+  int32 blocking = 8;
+  google.protobuf.Timestamp at = 9;
+}
+
+// Ask is the record of one `mesh ask` that started or reached agents.
+message Ask {
+  string id = 1;
+  string run_id = 2;
+  // The agent that asked, and that every member reports to.
+  string caller_id = 3;
+  string caller_name = 4;
+  AskKind kind = 5;
+  AskStatus status = 6;
+  // A review: the pull request's URL and number, its repo (the checkout's top level), the commit under review
+  // and, for a re-review, the commit the last review covered.
+  string pr = 7;
+  int32 pr_number = 8;
+  string repo = 9;
+  string head = 10;
+  string since = 11;
+  // trivial, small or large: picks the slots, the /code-review level and the round ceiling.
+  string size = 12;
+  string tier = 13;
+  // The question, or the notes to the reviewers.
+  string body = 14;
+  repeated AskMember members = 15;
+  // Whether the daemon holds the members' answers and writes them into one file (a round); false for one
+  // agent, whose own `done` is already one wake.
+  bool collected = 16;
+  // The file the answers go into (fixed at the start; it exists once the ask is finished).
+  string answers_path = 17;
+  // Which round of this PR this is (1 for the first), counted across runs.
+  int32 round = 18;
+  repeated Verdict verdicts = 19;
+  // After it, members still pending are settled as not answered.
+  google.protobuf.Timestamp deadline = 20;
+  google.protobuf.Timestamp created_at = 21;
+  google.protobuf.Timestamp finished_at = 22;
+}
+
+message AskRequest {
+  RequestMeta meta = 1;
+  // An existing agent of this run, by name, to ask or to ask again (it is resumed if retired). Without it, a
+  // fresh agent is started in `repo`.
+  string agent = 2;
+  // The git repository a fresh asker or reviewer works in.
+  string repo = 3;
+  // The question, or the notes to the reviewers; `@file` reads it from a file.
+  string body = 4;
+  // A pull request to review (its URL or number in `repo`): the ask is a review, of the PR's head commit.
+  string review = 5;
+  // trivial, small or large: the review's slots (`review.reviewers.<size>`), /code-review level and rounds.
+  string size = 6;
+  string tier = 7;
+  // The CLI of a fresh agent; a round chooses its own.
+  string kind = 8;
+  string model = 9;
+  string effort = 10;
+  // A round: "auto" (the size's slots, the author's CLI last, a re-review as `review.re_review.*` says), "all"
+  // (every installed CLI) or a comma list of kinds. Needs `repo`, `review`, `size` and `tier`.
+  string reviewers = 11;
+  // Review only what changed since this commit, the head the last review covered.
+  string since = 12;
+  // Names a fresh agent (<repo>-<slug>); default: from the body.
+  string slug = 13;
+}
+
+message AskResponse {
+  // The ask's record, when it is kept (a round, or one reviewer).
+  Ask ask = 1;
+  // The agents started or reached, in the order of the ask's members; for a plain question, the one agent.
+  repeated Agent agents = 2;
+  // What the caller should know: a busy agent, a kind skipped, a worktree that stayed on an old commit.
+  repeated string notes = 3;
+  // The rounds hint, for a review.
+  string hint = 4;
+  // The message that carried the task, for an existing agent.
+  Message message = 5;
+}
+
+message RecordVerdictRequest {
+  RequestMeta meta = 1;
+  // The pull request (URL or number) of the round.
+  string pr = 2;
+  // The reviewer, by name.
+  string reviewer = 3;
+  int32 agree = 4;
+  int32 other = 5;
+  int32 disagree = 6;
+  int32 blocking = 7;
+}
+
+message RecordVerdictResponse {
+  Ask ask = 1;
+  Verdict verdict = 2;
+}
+
+message ListAsksRequest {
+  // Empty means the caller's own run (every run for a device).
+  string run_id = 1;
+  // Only the asks of this pull request (URL or number).
+  string pr = 2;
+  bool open_only = 3;
+}
+
+message ListAsksResponse {
+  repeated Ask asks = 1;
+}

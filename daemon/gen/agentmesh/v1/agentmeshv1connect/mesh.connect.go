@@ -91,6 +91,13 @@ const (
 	// MeshServiceRevokeDeviceProcedure is the fully-qualified name of the MeshService's RevokeDevice
 	// RPC.
 	MeshServiceRevokeDeviceProcedure = "/agentmesh.v1.MeshService/RevokeDevice"
+	// MeshServiceAskProcedure is the fully-qualified name of the MeshService's Ask RPC.
+	MeshServiceAskProcedure = "/agentmesh.v1.MeshService/Ask"
+	// MeshServiceRecordVerdictProcedure is the fully-qualified name of the MeshService's RecordVerdict
+	// RPC.
+	MeshServiceRecordVerdictProcedure = "/agentmesh.v1.MeshService/RecordVerdict"
+	// MeshServiceListAsksProcedure is the fully-qualified name of the MeshService's ListAsks RPC.
+	MeshServiceListAsksProcedure = "/agentmesh.v1.MeshService/ListAsks"
 )
 
 // MeshServiceClient is a client for the agentmesh.v1.MeshService service.
@@ -155,6 +162,13 @@ type MeshServiceClient interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
+	// again; a round of reviewers is collected into one answers file and one message to you.
+	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
+	// Record the root's verdict on one reviewer's findings of a round.
+	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
+	// List the asks and review rounds of a run.
+	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
 }
 
 // NewMeshServiceClient constructs a client for the agentmesh.v1.MeshService service. By default, it
@@ -318,6 +332,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		ask: connect.NewClient[v1.AskRequest, v1.AskResponse](
+			httpClient,
+			baseURL+MeshServiceAskProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("Ask")),
+			connect.WithClientOptions(opts...),
+		),
+		recordVerdict: connect.NewClient[v1.RecordVerdictRequest, v1.RecordVerdictResponse](
+			httpClient,
+			baseURL+MeshServiceRecordVerdictProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RecordVerdict")),
+			connect.WithClientOptions(opts...),
+		),
+		listAsks: connect.NewClient[v1.ListAsksRequest, v1.ListAsksResponse](
+			httpClient,
+			baseURL+MeshServiceListAsksProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListAsks")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -348,6 +380,9 @@ type meshServiceClient struct {
 	createPairing   *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices     *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice    *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	ask             *connect.Client[v1.AskRequest, v1.AskResponse]
+	recordVerdict   *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
+	listAsks        *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -475,6 +510,21 @@ func (c *meshServiceClient) RevokeDevice(ctx context.Context, req *connect.Reque
 	return c.revokeDevice.CallUnary(ctx, req)
 }
 
+// Ask calls agentmesh.v1.MeshService.Ask.
+func (c *meshServiceClient) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {
+	return c.ask.CallUnary(ctx, req)
+}
+
+// RecordVerdict calls agentmesh.v1.MeshService.RecordVerdict.
+func (c *meshServiceClient) RecordVerdict(ctx context.Context, req *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error) {
+	return c.recordVerdict.CallUnary(ctx, req)
+}
+
+// ListAsks calls agentmesh.v1.MeshService.ListAsks.
+func (c *meshServiceClient) ListAsks(ctx context.Context, req *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error) {
+	return c.listAsks.CallUnary(ctx, req)
+}
+
 // MeshServiceHandler is an implementation of the agentmesh.v1.MeshService service.
 type MeshServiceHandler interface {
 	// The handshake: who the daemon is and what it supports. A connection is ready once this answers.
@@ -537,6 +587,13 @@ type MeshServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
+	// again; a round of reviewers is collected into one answers file and one message to you.
+	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
+	// Record the root's verdict on one reviewer's findings of a round.
+	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
+	// List the asks and review rounds of a run.
+	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
 }
 
 // NewMeshServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -696,6 +753,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceAskHandler := connect.NewUnaryHandler(
+		MeshServiceAskProcedure,
+		svc.Ask,
+		connect.WithSchema(meshServiceMethods.ByName("Ask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRecordVerdictHandler := connect.NewUnaryHandler(
+		MeshServiceRecordVerdictProcedure,
+		svc.RecordVerdict,
+		connect.WithSchema(meshServiceMethods.ByName("RecordVerdict")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListAsksHandler := connect.NewUnaryHandler(
+		MeshServiceListAsksProcedure,
+		svc.ListAsks,
+		connect.WithSchema(meshServiceMethods.ByName("ListAsks")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.v1.MeshService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MeshServiceHelloProcedure:
@@ -748,6 +823,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListDevicesHandler.ServeHTTP(w, r)
 		case MeshServiceRevokeDeviceProcedure:
 			meshServiceRevokeDeviceHandler.ServeHTTP(w, r)
+		case MeshServiceAskProcedure:
+			meshServiceAskHandler.ServeHTTP(w, r)
+		case MeshServiceRecordVerdictProcedure:
+			meshServiceRecordVerdictHandler.ServeHTTP(w, r)
+		case MeshServiceListAsksProcedure:
+			meshServiceListAsksHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -855,4 +936,16 @@ func (UnimplementedMeshServiceHandler) ListDevices(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeDevice is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.Ask is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RecordVerdict is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListAsks is not implemented"))
 }

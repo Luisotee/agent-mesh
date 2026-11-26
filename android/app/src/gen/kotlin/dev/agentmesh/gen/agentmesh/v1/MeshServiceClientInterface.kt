@@ -139,4 +139,20 @@ public interface MeshServiceClientInterface {
    *  Revoke a paired device's token and close its active streams. Only the host's own device may call this.
    */
   public suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeDeviceResponse>
+
+  /**
+   *  Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
+   *  again; a round of reviewers is collected into one answers file and one message to you.
+   */
+  public suspend fun ask(request: AskRequest, headers: Headers = emptyMap()): ResponseMessage<AskResponse>
+
+  /**
+   *  Record the root's verdict on one reviewer's findings of a round.
+   */
+  public suspend fun recordVerdict(request: RecordVerdictRequest, headers: Headers = emptyMap()): ResponseMessage<RecordVerdictResponse>
+
+  /**
+   *  List the asks and review rounds of a run.
+   */
+  public suspend fun listAsks(request: ListAsksRequest, headers: Headers = emptyMap()): ResponseMessage<ListAsksResponse>
 }

@@ -939,7 +939,7 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 			AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "reopen failed: " + reason}}}); err != nil {
 			return err
 		}
-		if alert, err = alertExitTx(tx, a, lastSaid, -1, 0, "reopen failed: "+reason); err != nil {
+		if alert, err = d.alertExitTx(tx, a, lastSaid, -1, 0, "reopen failed: "+reason); err != nil {
 			return err
 		}
 		return tx.RevokeTokens(a.Id)
