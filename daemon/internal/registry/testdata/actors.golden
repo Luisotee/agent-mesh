@@ -147,6 +147,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/PromptAgent
   /agentmesh.v1.MeshService/ReadTranscript
   /agentmesh.v1.MeshService/RecordVerdict
+  /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/RemovePeer
   /agentmesh.v1.MeshService/ResetRoot
   /agentmesh.v1.MeshService/ResetSetting
@@ -166,6 +167,8 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/SubscribeEvents
   /agentmesh.v1.MeshService/SwitchAgent
   /agentmesh.v1.MeshService/TailnetStatus
+  /agentmesh.v1.MeshService/TestPush
+  /agentmesh.v1.MeshService/UnregisterPush
   permission terminal.input
 ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/CheckConflicts
@@ -186,6 +189,9 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/ReadTranscript
+  /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/ResolveModel
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents
+  /agentmesh.v1.MeshService/TestPush
+  /agentmesh.v1.MeshService/UnregisterPush

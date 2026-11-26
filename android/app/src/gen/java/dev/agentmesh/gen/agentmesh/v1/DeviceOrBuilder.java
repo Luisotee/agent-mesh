@@ -74,4 +74,23 @@ public interface DeviceOrBuilder extends
    * @return The revokedAt.
    */
   com.google.protobuf.Timestamp getRevokedAt();
+
+  /**
+   * <pre>
+   * The device's push endpoint, when it registered one.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+   * @return Whether the push field is set.
+   */
+  boolean hasPush();
+  /**
+   * <pre>
+   * The device's push endpoint, when it registered one.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PushRegistration push = 6 [json_name = "push"];</code>
+   * @return The push.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PushRegistration getPush();
 }

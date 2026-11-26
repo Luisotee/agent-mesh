@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p electron/tsconfig.json",
     "test": "vitest run",
     "build": "vite build && tsc -p electron/tsconfig.json",
-    "e2e": "vitest run --config vitest.e2e.config.ts",
+    "e2e": "scripts/e2e.sh",
     "start": "electron ."
   },
   "dependencies": {

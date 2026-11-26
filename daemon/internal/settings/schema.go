@@ -423,6 +423,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
 		Leaf{Key: "caps.agents", Type: Int, Default: 16.0,
 			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
+		Leaf{Key: "push.allow_private_endpoints", Type: Bool, Default: false,
+			Summary: "let a device's push endpoint be on a loopback, private or link-local address (a ntfy on this host or the LAN); off, meshd pushes only to public addresses, so a paired device can't make it POST into this network; only the host's own device may change it"},
 	)
 	return append(ls, AppLeaves()...)
 }
@@ -484,8 +486,9 @@ func ValidShortcut(s string) bool {
 // DockNewAgents are the choices of app.dock.new_agents.
 var DockNewAgents = []string{"dock", "badge", "tab", "none"}
 
-// AppLeaves are the desktop app's own preferences. They live on the host so every device and every agent sees
-// and can change them (docs/apps.md, "Settings are data on the host"); the daemon itself reads none of them.
+// AppLeaves are the apps' own preferences. They live on the host so every device and every agent sees and can
+// change them (docs/apps.md, "Settings are data on the host"). The daemon reads only app.notify.enabled and
+// app.notify.events, to choose what it pushes to phones (internal/daemon/push.go).
 func AppLeaves() []Leaf {
 	events := make([]any, len(DefaultNotifyEvents))
 	for i, e := range DefaultNotifyEvents {
@@ -493,11 +496,11 @@ func AppLeaves() []Leaf {
 	}
 	return []Leaf{
 		{Key: "app.notify.enabled", Type: Bool, Default: true,
-			Summary: "desktop notifications for what happens on this host"},
+			Summary: "notifications for what happens on this host, on the desktop and the phone (its pushes too)"},
 		{Key: "app.notify.sound", Type: Bool, Default: true,
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
-			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit"},
+			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit; phones' pushes follow it too, all but error and limited for now"},
 		{Key: "app.dock.new_agents", Type: String, Default: "dock", Choices: DockNewAgents,
 			Summary: "what a worker that starts while the app is open does: pop into the live dock marked new (dock), only count on the dock's toggle (badge), open as a tab in the background (tab), or nothing (none). It never takes focus"},
 		{Key: "app.keys.palette", Type: Shortcut, Default: "Mod+Shift+P", Summary: "shortcut: open the command palette"},

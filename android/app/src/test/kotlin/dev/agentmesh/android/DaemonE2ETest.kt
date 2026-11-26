@@ -100,4 +100,35 @@ class DaemonE2ETest {
             client.stop()
         }
     }
+
+    @Test fun `a test push from meshd decrypts with the phone's own WebPush code into the app's payload`() = runBlocking {
+        val d = daemon!!
+        // This device's WebPush keys, as the UnifiedPush library makes them: P-256 and a 16-byte auth secret.
+        val kp = java.security.KeyPairGenerator.getInstance("EC").apply { initialize(java.security.spec.ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+        val pub = kp.public as java.security.interfaces.ECPublicKey
+        fun coord(b: java.math.BigInteger) = b.toByteArray().let { if (it.size > 32) it.takeLast(32).toByteArray() else ByteArray(32 - it.size) + it }
+        val point = byteArrayOf(4) + coord(pub.w.affineX) + coord(pub.w.affineY)
+        val auth = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        val b64 = java.util.Base64.getUrlEncoder().withoutPadding()
+        // The push service (ntfy's part) is a mock on loopback, which meshd pushes to only with the setting on (set
+        // from the host: a paired device may not change it).
+        withContext(Dispatchers.IO) { d.ctl("set", "--key", "push.allow_private_endpoints", "--value", "true") }
+        val server = okhttp3.mockwebserver.MockWebServer().apply { enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(201)); start() }
+        try {
+            val reg = withContext(Dispatchers.IO) { api().registerPush(server.url("/upTest?up=1").toString(), b64.encodeToString(point), b64.encodeToString(auth)) }
+            assertTrue(reg.endpointHost, reg.endpointHost.endsWith(":${server.port}"))
+            withContext(Dispatchers.IO) { api().testPush() }
+            val req = server.takeRequest(10, java.util.concurrent.TimeUnit.SECONDS)!!
+            assertEquals("aes128gcm", req.getHeader("Content-Encoding"))
+            val plain = com.google.crypto.tink.apps.fixed_webpush.WebPushHybridDecrypt.Builder()
+                .withAuthSecret(auth).withRecipientPublicKey(pub).withRecipientPrivateKey(kp.private as java.security.interfaces.ECPrivateKey)
+                .build().decrypt(req.body.readByteArray(), null)
+            val p = dev.agentmesh.android.notify.PushPayload.parse(plain)!!
+            assertTrue(p.isTest)
+            assertEquals(d.daemonId, p.daemon)
+            assertTrue(p.body, p.body.endsWith("work."))
+        } finally {
+            server.shutdown()
+        }
+    }
 }
