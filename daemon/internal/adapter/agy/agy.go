@@ -30,6 +30,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
+	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
 	"github.com/Luisotee/agent-mesh/daemon/internal/shellmatch"
 )
 
@@ -977,6 +978,11 @@ func workspaceMatches(cwd string, workspaces []string) bool {
 		}
 	}
 	return false
+}
+
+// ReadInputBox reads the input box from a repaint: agy's rules box, its empty-box hint in colour 8 as well as dim.
+func (a *Adapter) ReadInputBox(_ context.Context, req *connect.Request[adapterv1.ReadInputBoxRequest]) (*connect.Response[adapterv1.ReadInputBoxResponse], error) {
+	return connect.NewResponse(adapter.ReadInputBox(req.Msg, inputbox.Agy)), nil
 }
 
 // ── cost / step usage ──

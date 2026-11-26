@@ -400,7 +400,7 @@ func (d *Daemon) startReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset, 
 	var checkErr error
 	if takesDoorbell(a.State) {
 		var quiet bool
-		if quiet, checkErr = d.quietToType(ctx, a.TerminalId); checkErr == nil && quiet {
+		if quiet, checkErr = d.quietToType(ctx, a); checkErr == nil && quiet {
 			return d.beginReset(ctx, a, pr)
 		}
 		why = "someone is typing into it"
@@ -495,7 +495,7 @@ func (d *Daemon) beginReset(ctx context.Context, a *v1.Agent, pr *v1.RootReset) 
 
 // ringBootstrap types the bootstrap line into the reset root and finishes the reset.
 func (d *Daemon) ringBootstrap(ctx context.Context, a *v1.Agent, pr *v1.RootReset, compacted bool, newSession string) (bool, error) {
-	quiet, qerr := d.quietToType(ctx, a.TerminalId)
+	quiet, qerr := d.quietToType(ctx, a)
 	if qerr != nil || !quiet {
 		// Someone is typing into the root: the line waits, for as long as a reset waits for a quiet prompt, and no
 		// longer: the root is not held for good (it holds doorbells while the reset is pending).

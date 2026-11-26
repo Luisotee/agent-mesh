@@ -297,11 +297,16 @@ func (d *Daemon) measureContext(ctx context.Context, a *v1.Agent) *v1.ContextUsa
 
 // ── carrying a compaction out ──
 
-// quietToType reports whether a line may be typed into an agent's terminal now: nobody is typing into it. Every
-// typed `/compact`, `/clear` and bootstrap line asks here, as a doorbell does before it types.
-func (d *Daemon) quietToType(ctx context.Context, terminalID string) (bool, error) {
-	typing, err := d.userTyping(ctx, terminalID)
-	return !typing, err
+// quietToType reports whether a line may be typed into an agent's terminal now: nobody is typing into it, and its
+// input box holds no draft (a user who typed and detached leaves one: the line would be typed after it, and
+// submitted with it). Every typed `/compact`, `/clear` and bootstrap line asks here, as a doorbell does before it
+// types. A box it can't read, or reads as empty, doesn't hold the line.
+func (d *Daemon) quietToType(ctx context.Context, a *v1.Agent) (bool, error) {
+	typing, err := d.userTyping(ctx, a.TerminalId)
+	if err != nil || typing {
+		return false, err
+	}
+	return d.readInputBox(ctx, a, "").GetBox() != adapterv1.InputBox_INPUT_BOX_TYPED, nil
 }
 
 // noteHookEvents is what an agent's hooks tell the context machinery: its turn began with a mesh doorbell or not
@@ -386,7 +391,7 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 	if !wants(pc, usage) {
 		return false, d.endCompaction(ctx, a, pc, "", 0, 0)
 	}
-	quiet, qerr := d.quietToType(ctx, a.TerminalId)
+	quiet, qerr := d.quietToType(ctx, a)
 	if qerr != nil || !quiet {
 		if pc.WaitedSince == nil {
 			return true, d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) { p.WaitedSince = timestamppb.New(now) })

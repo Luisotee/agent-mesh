@@ -5,6 +5,10 @@ package adapterv1
 // FieldDocs is the leading comment of every commented field, by its full name.
 var FieldDocs = map[string]string{
 	"agentmesh.adapter.v1.DecodeHookRequest.session_id":        "The conversation id the daemon knows for the agent; hooks from another conversation are dropped.",
+	"agentmesh.adapter.v1.DeliverNativeRequest.env":            "The agent's environment: where the CLI keeps its records (its config folder).",
+	"agentmesh.adapter.v1.DeliverNativeRequest.pid":            "The terminal's process and when it started (clock ticks since boot), which the CLI's own record of itself must match: a process that reused the pid is not the agent.",
+	"agentmesh.adapter.v1.DeliverNativeRequest.text":           "The doorbell, as it would be typed.",
+	"agentmesh.adapter.v1.DeliverNativeResponse.reason":        "Why not, for the log and the apps: no record of the process, no socket, a setting that holds messages, a failed write.",
 	"agentmesh.adapter.v1.DescribeModelResponse.effort":        "The effort the model's name fixes (an agy id such as `gemini-4-neon-low`), or empty.",
 	"agentmesh.adapter.v1.DescribeResponse.kind":               "The kind agents name it by, such as \"claude\".",
 	"agentmesh.adapter.v1.DescribeResponse.verified_versions":  "CLI versions its decoding was verified against; others get a warning.",
@@ -30,6 +34,10 @@ var FieldDocs = map[string]string{
 	"agentmesh.adapter.v1.PlanLaunchResponse.worktree_files":   "Files the adapter needs in the agent's worktree before launch (for CLIs without inline `--settings` hooks).",
 	"agentmesh.adapter.v1.RateLimited.all_models":              "The limit is on the whole account (a session or weekly limit), so every model of a chain shares it: no other model of the chain is free. False for a limit on one model (agy's, Claude's Opus or Sonnet limit).",
 	"agentmesh.adapter.v1.RateLimited.reset_at":                "When the limit is over, if the CLI said (Claude's \"resets 3pm (America/Sao_Paulo)\").",
+	"agentmesh.adapter.v1.ReadInputBoxRequest.screen":          "A repaint as the terminal host sends it to a client with no screen (`Screen.Data`).",
+	"agentmesh.adapter.v1.ReadInputBoxRequest.token":           "The ref token of the doorbell to count above the box; empty counts none.",
+	"agentmesh.adapter.v1.ReadInputBoxResponse.text":           "What is typed, whitespace squeezed (INPUT_BOX_TYPED).",
+	"agentmesh.adapter.v1.ReadInputBoxResponse.token_above":    "Copies of the token above the input box (whitespace removed, so no wrap splits it).",
 	"agentmesh.adapter.v1.SessionStarted.source":               "\"startup\", \"resume\", \"clear\", \"compact\".",
 	"agentmesh.adapter.v1.TurnStarted.by_mesh":                 "The turn began with a mesh doorbell (`📬 [mesh]`), not text the user typed. False when unknown.",
 	"agentmesh.adapter.v1.WorktreeFile.git_exclude":            "Keep the file out of git status: an untracked one is ignored (a self-ignoring .gitignore beside it, so other checkouts of the repo are untouched; <git-common-dir>/info/exclude only at the worktree's top), and a tracked one is marked skip-worktree.",

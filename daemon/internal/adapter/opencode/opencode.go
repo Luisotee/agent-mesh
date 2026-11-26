@@ -30,6 +30,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
+	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
 )
 
 // Kind is the adapter's kind.
@@ -907,6 +908,11 @@ func resolvePathIncludingMissing(p string) string {
 		tail = append([]string{filepath.Base(cur)}, tail...)
 		cur = parent
 	}
+}
+
+// ReadInputBox reads the input box from a repaint: OpenCode's `┃` gutter box, whose foot is the agent and model.
+func (a *Adapter) ReadInputBox(_ context.Context, req *connect.Request[adapterv1.ReadInputBoxRequest]) (*connect.Response[adapterv1.ReadInputBoxResponse], error) {
+	return connect.NewResponse(adapter.ReadInputBox(req.Msg, inputbox.OpenCode)), nil
 }
 
 // ── cost / message usage ──

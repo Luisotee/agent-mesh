@@ -52,6 +52,8 @@ public  final class Event extends
     AGENT_COMPACTED(29),
     ROOT_RESET_REQUESTED(30),
     ROOT_RESET_FINISHED(31),
+    DOORBELL_FAILED(32),
+    DOORBELL_HELD(33),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -89,6 +91,8 @@ public  final class Event extends
         case 29: return AGENT_COMPACTED;
         case 30: return ROOT_RESET_REQUESTED;
         case 31: return ROOT_RESET_FINISHED;
+        case 32: return DOORBELL_FAILED;
+        case 33: return DOORBELL_HELD;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1553,6 +1557,106 @@ public  final class Event extends
    */
   private void clearRootResetFinished() {
     if (payloadCase_ == 31) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DOORBELL_FAILED_FIELD_NUMBER = 32;
+  /**
+   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDoorbellFailed() {
+    return payloadCase_ == 32;
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.DoorbellFailed getDoorbellFailed() {
+    if (payloadCase_ == 32) {
+       return (dev.agentmesh.gen.agentmesh.v1.DoorbellFailed) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.DoorbellFailed.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+   */
+  private void setDoorbellFailed(dev.agentmesh.gen.agentmesh.v1.DoorbellFailed value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 32;
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+   */
+  private void mergeDoorbellFailed(dev.agentmesh.gen.agentmesh.v1.DoorbellFailed value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 32 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.DoorbellFailed.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.DoorbellFailed.newBuilder((dev.agentmesh.gen.agentmesh.v1.DoorbellFailed) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 32;
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+   */
+  private void clearDoorbellFailed() {
+    if (payloadCase_ == 32) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DOORBELL_HELD_FIELD_NUMBER = 33;
+  /**
+   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDoorbellHeld() {
+    return payloadCase_ == 33;
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.DoorbellHeld getDoorbellHeld() {
+    if (payloadCase_ == 33) {
+       return (dev.agentmesh.gen.agentmesh.v1.DoorbellHeld) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+   */
+  private void setDoorbellHeld(dev.agentmesh.gen.agentmesh.v1.DoorbellHeld value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 33;
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+   */
+  private void mergeDoorbellHeld(dev.agentmesh.gen.agentmesh.v1.DoorbellHeld value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 33 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.newBuilder((dev.agentmesh.gen.agentmesh.v1.DoorbellHeld) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 33;
+  }
+  /**
+   * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+   */
+  private void clearDoorbellHeld() {
+    if (payloadCase_ == 33) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3090,6 +3194,102 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDoorbellFailed() {
+      return instance.hasDoorbellFailed();
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.DoorbellFailed getDoorbellFailed() {
+      return instance.getDoorbellFailed();
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+     */
+    public Builder setDoorbellFailed(dev.agentmesh.gen.agentmesh.v1.DoorbellFailed value) {
+      copyOnWrite();
+      instance.setDoorbellFailed(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+     */
+    public Builder setDoorbellFailed(
+        dev.agentmesh.gen.agentmesh.v1.DoorbellFailed.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDoorbellFailed(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+     */
+    public Builder mergeDoorbellFailed(dev.agentmesh.gen.agentmesh.v1.DoorbellFailed value) {
+      copyOnWrite();
+      instance.mergeDoorbellFailed(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellFailed doorbell_failed = 32 [json_name = "doorbellFailed"];</code>
+     */
+    public Builder clearDoorbellFailed() {
+      copyOnWrite();
+      instance.clearDoorbellFailed();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDoorbellHeld() {
+      return instance.hasDoorbellHeld();
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.DoorbellHeld getDoorbellHeld() {
+      return instance.getDoorbellHeld();
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+     */
+    public Builder setDoorbellHeld(dev.agentmesh.gen.agentmesh.v1.DoorbellHeld value) {
+      copyOnWrite();
+      instance.setDoorbellHeld(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+     */
+    public Builder setDoorbellHeld(
+        dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDoorbellHeld(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+     */
+    public Builder mergeDoorbellHeld(dev.agentmesh.gen.agentmesh.v1.DoorbellHeld value) {
+      copyOnWrite();
+      instance.mergeDoorbellHeld(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DoorbellHeld doorbell_held = 33 [json_name = "doorbellHeld"];</code>
+     */
+    public Builder clearDoorbellHeld() {
+      copyOnWrite();
+      instance.clearDoorbellHeld();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -3138,14 +3338,16 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.AgentCompacted.class,
             dev.agentmesh.gen.agentmesh.v1.RootResetRequested.class,
             dev.agentmesh.gen.agentmesh.v1.RootResetFinished.class,
+            dev.agentmesh.gen.agentmesh.v1.DoorbellFailed.class,
+            dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.class,
           };
           java.lang.String info =
-              "\u0000\u001d\u0001\u0001\u0001\u001f\u001d\u0000\u0000\u0000\u0001\u0002\u0002\u0208" +
-              "\u0003\u1009\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000" +
-              "\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000" +
-              "\u0012<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018" +
-              "<\u0000\u0019<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000" +
-              "\u001f<\u0000";
+              "\u0000\u001f\u0001\u0001\u0001!\u001f\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003" +
+              "\u1009\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b" +
+              "<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012" +
+              "<\u0000\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000" +
+              "\u0019<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f" +
+              "<\u0000 <\u0000!<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
