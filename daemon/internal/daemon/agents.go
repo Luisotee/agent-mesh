@@ -99,6 +99,16 @@ type AgentConfig struct {
 	Usage *UsageOps
 	// ReserveEvery is how often reserve alerts check open runs (default 15m).
 	ReserveEvery time.Duration
+	// CompactQuietWait, CompactStartWait and CompactTimeout override how long a live compaction waits for a user to
+	// stop typing, for the CLI to begin compacting after `/compact` was typed, and for it to finish (defaults 60 s,
+	// 60 s and 15 min).
+	CompactQuietWait, CompactStartWait, CompactTimeout time.Duration
+	// ContextEvery is how often agents with a compaction or a root reset still to carry out are looked at (default
+	// 5 s).
+	ContextEvery time.Duration
+	// RunCLI runs a CLI command to its end with exactly the environment given (a headless compaction); nil runs it
+	// for real. Tests set it so no real CLI runs.
+	RunCLI func(ctx context.Context, argv []string, env map[string]string, cwd string) (string, error)
 }
 
 // The environment an agent inherits from the daemon; anything else (other secrets, the caller's own session) is
@@ -146,6 +156,7 @@ type runtime struct {
 	cpus        cpuTracker
 	usage       usageState      // usage cache / rate_limits (usage.go)
 	openCode    openCodeRuntime // OpenCode polling and model cache (opencode.go)
+	ctxwork     contextRuntime  // headless compactions in flight (compact.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -406,7 +417,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired, limited, accounted, reserved time.Time
+		var pruned, retired, limited, accounted, reserved, contextTick time.Time
 		accountEvery := d.rt.cfg.AccountEvery
 		if accountEvery == 0 {
 			accountEvery = accountEveryDefault
@@ -431,6 +442,10 @@ func (d *Daemon) runBackground(ctx context.Context) {
 				}()
 			}
 			d.retryDoorbells(ctx)
+			if now := d.now(); now.Sub(contextTick) >= orDuration(d.rt.cfg.ContextEvery, contextEvery) {
+				contextTick = now
+				d.contextPass(ctx)
+			}
 			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
 				// Off this loop: stopping a process waits for it, and the spool and the doorbells must not.
@@ -595,6 +610,7 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	}
 	a.State, a.NeedsInput, a.StateDetail, a.SessionId, a.ExitCode = s.State, s.NeedsInput, s.Detail, s.SessionID, s.ExitCode
 	a.StateBeforeCompact = s.BeforeCompact
+	noteHookEvents(a, evs, tx.Now())
 	if !s.LastActivity.IsZero() {
 		a.LastActivity = timestamppb.New(s.LastActivity)
 	}
@@ -1234,6 +1250,9 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	a, err := r.GetAgent(agentID)
 	if err != nil {
 		return err
+	}
+	if held, err := d.compactStep(ctx, a); held || err != nil {
+		return err // a compaction first: the reopen and the doorbell wait for it
 	}
 	if a.PendingReopen != nil {
 		return d.reopen(ctx, a)

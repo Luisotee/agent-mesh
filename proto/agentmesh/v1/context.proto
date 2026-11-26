@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Context management: what keeps an agent's and the root's conversation small (docs/design.md §12 compaction,
+// §15 root reset). Leaf messages only; types.proto imports this file.
+
+// ContextUsage is how big a conversation is, as its CLI's own record says.
+message ContextUsage {
+  // The tokens its next call re-reads; 0 right after a compaction.
+  int64 tokens = 1;
+  // False when the record could not be read: tokens is then unknown, not zero.
+  bool measured = 2;
+  // The prompt cache has expired: the next turn re-reads everything at the cache-write price.
+  bool cold = 3;
+  // How long the cache lives (300 or 3600 s).
+  int32 ttl_seconds = 4;
+  // The file or database the number came from.
+  string transcript = 5;
+}
+
+// PendingCompaction is a compaction asked for and not done yet. For a stopped conversation it runs headless
+// before the reopen; for a live agent `/compact` is typed at its next quiet prompt, before any doorbell, and it
+// ends when the CLI says its session was compacted. Whether it is worth it is decided when it runs, from the
+// size then, by the thresholds fixed when it was asked for.
+message PendingCompaction {
+  // Unique per request.
+  string id = 1;
+  // "resume", "approve" or "follow-up".
+  string why = 2;
+  // What the compaction keeps: the CLI's `/compact` argument.
+  string focus = 3;
+  google.protobuf.Timestamp requested_at = 4;
+  // Compact whatever the size (`--compact yes`).
+  bool always = 5;
+  // Compact when the size is above this many tokens (0: never by size).
+  int64 warm_at = 6;
+  // The same once the prompt cache has expired (0: as warm_at).
+  int64 cold_at = 7;
+  // Compact when the size can't be read (an agy conversation back from another run).
+  bool unmeasured = 8;
+  // Set once `/compact` was typed into the live agent.
+  google.protobuf.Timestamp typed_at = 9;
+  // Set once the CLI reported it began (`PreCompact`), and that it is over (`SessionStart` of source compact).
+  google.protobuf.Timestamp started_at = 10;
+  google.protobuf.Timestamp done_at = 11;
+  // Since when the agent has been at its prompt but not typeable (a user typing): it gives up after a minute.
+  google.protobuf.Timestamp waited_since = 12;
+  // The size when `/compact` was typed.
+  int64 tokens_before = 13;
+}
+
+// RootReset is a `mesh reset` of a root: asked for, typed at a quiet prompt, then finished or given up.
+message RootReset {
+  // Unique per request.
+  string id = 1;
+  // Who asked: "command" (`mesh reset`) or "keeper" (the idle root).
+  string via = 2;
+  // What the root does next, as it wrote it; the bootstrap line carries it.
+  string next = 3;
+  // Compact the root's session instead of replacing it (a Claude root).
+  bool compact = 4;
+  google.protobuf.Timestamp requested_at = 5;
+  // Set once the reset began (the `/clear`, `/compact` or relaunch).
+  google.protobuf.Timestamp typed_at = 6;
+  google.protobuf.Timestamp finished_at = 7;
+  // "", "done", "failed" or "cancelled".
+  string outcome = 8;
+  // Why it failed or was cancelled.
+  string reason = 9;
+  // The conversation before, and after.
+  string old_session = 10;
+  string new_session = 11;
+  // The root's size when it was asked for.
+  int64 tokens = 12;
+  // The old conversation's file, offered by `mesh brief` as an untrusted reference.
+  string transcript = 13;
+  // The failure was already told to the root once (by a command's hint).
+  bool noted = 14;
+}
+
+// A compaction ran for an agent (live or on a stopped conversation before its reopen).
+message AgentCompacted {
+  string why = 1;
+  // "live" (typed into its terminal) or "headless" (before its reopen).
+  string via = 2;
+  int64 tokens_before = 3;
+  int64 tokens_after = 4;
+  // "done", or why it was skipped or failed; the agent went on as it was.
+  string outcome = 5;
+}
+
+message RootResetRequested {
+  RootReset reset = 1;
+}
+
+message RootResetFinished {
+  RootReset reset = 1;
+}

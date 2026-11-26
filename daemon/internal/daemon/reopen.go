@@ -442,6 +442,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if out.Reopen, err = requestReopen(tx, a, model, effort, deny, "plan approved", m.Why); err != nil {
 				return err
 			}
+			if err := d.requestApproveCompaction(tx, a, model); err != nil {
+				return err
+			}
 		}
 		out.Agent = a
 		return tx.PutAgent(a)
@@ -726,6 +729,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if m.Effort != "" && !validEffort(m.Effort) {
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
+	if m.Compact != "" && m.Compact != "auto" && m.Compact != "yes" && m.Compact != "no" {
+		return nil, invalid("compact %q: auto, yes or no", m.Compact)
+	}
 	actor := auth.ActorFrom(ctx)
 	if IsAgent(actor.Class) {
 		if actor.RunId == "" {
@@ -795,7 +801,8 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if err := d.hasProcessOnSessionOrWorktree(r1, a0); err != nil {
 		return nil, err
 	}
-	spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why}
+	spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why,
+		compact: m.Compact, focus: strings.TrimSpace(m.Focus), taskText: task}
 	if task != "" && a0.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 		pm, pe, err := d.previewReviveTarget(r1, a0, spec)
 		if err != nil {
@@ -943,7 +950,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			if err := d.mayLaunch(tx.Reader, "resuming "+created.Name, created.Id); err != nil {
 				return err
 			}
-			rv, err := d.reviveAs(tx, created, spec)
+			crossSpec := spec
+			crossSpec.crossRun = true // it comes back from another run
+			rv, err := d.reviveAs(tx, created, crossSpec)
 			if err != nil {
 				d.rt.guard.release(created.Id)
 				return err
@@ -1013,6 +1022,10 @@ type reviveSpec struct {
 	plan                bool
 	tier, model, effort string
 	why                 string
+	// compact is `--compact`: "" or "auto" (when it pays), "yes" or "no"; focus overrides what it keeps. taskText
+	// is the task the resume is for, which the default focus names; crossRun says it comes back from another run.
+	compact, focus, taskText string
+	crossRun                 bool
 }
 
 // revive requests the reopen that brings a stopped agent back, applying spec to the agent (the caller stores
@@ -1101,7 +1114,11 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 	case spec.effort != "":
 		effort = spec.effort
 	}
-	return requestReopen(tx, a, model, effort, deny, "resumed", spec.why)
+	rv, err := requestReopen(tx, a, model, effort, deny, "resumed", spec.why)
+	if err != nil {
+		return nil, err
+	}
+	return rv, d.requestResumeCompaction(tx, a, spec) // a resume re-reads the conversation: compact it first when it pays
 }
 
 // ── carrying a reopen out ──
@@ -1339,6 +1356,7 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 
 // cancelReopen drops a pending reopen because the agent is being stopped on purpose.
 func cancelReopen(tx *store.Tx, a *v1.Agent, reason string) error {
+	a.PendingCompaction = nil // a compaction asked for with it goes too
 	r := a.PendingReopen
 	if r == nil {
 		return nil

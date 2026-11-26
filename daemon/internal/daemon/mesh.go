@@ -462,6 +462,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				return err
 			}
 		}
+		if !stopped(to) { // a follow-up round for a finished Claude worker: compacted before the message rings
+			if err := d.requestFollowupCompaction(t, to, req.Msg.Type, req.Msg.Body); err != nil {
+				return err
+			}
+		}
 		msgBody := req.Msg.Body
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK {
 			msgBody = withOpenCodeBodyNote(to.Kind, req.Msg.Body)
@@ -475,7 +480,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if prepErr != nil && to.Id == prepCandID {
 				out.ResumeError = fmt.Sprintf("preparing worktree for %s: %v", to.Name, prepErr)
 			} else {
-				spec := reviveSpec{task: direct}
+				spec := reviveSpec{task: direct, taskText: req.Msg.Body}
 				// The guards answer before anything is written: a refusal keeps the message and says why the agent
 				// stayed stopped (a report to a retired parent must not be lost to the host's cap).
 				switch rv, err := d.revive(t, to, spec); {
