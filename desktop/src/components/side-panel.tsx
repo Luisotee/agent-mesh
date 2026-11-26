@@ -1,9 +1,10 @@
-import { Copy, ExternalLink, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
+import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { getCost, getUsage, sendMessage } from '@/actions'
+import { getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
+import { LEVEL_LABEL, hasLevels, levelOf, withLevel, type Level } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/input'
+import { Select, Textarea } from '@/components/ui/input'
 import { MessageType } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
@@ -99,6 +100,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           )}
         </div>
       </Section>
+      <Autonomy host={host} repo={agent.repo} />
       <Section title="Cost">
         {cost.error && !cost.value && <p className="text-xs text-destructive">Couldn't read the cost: {cost.error}</p>}
         {cost.loading && !cost.value && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -198,6 +200,15 @@ const CHECKS_TONE: Record<string, string> = { pass: 'border-state-done text-stat
 
 function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: HostRuntime }) {
   const [commenting, setCommenting] = useState(false)
+  const [holdError, setHoldError] = useState('')
+  async function toggleHold() {
+    setHoldError('')
+    try {
+      await holdPullRequest(host.client, pr.url, pr.held)
+    } catch (e) {
+      setHoldError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    }
+  }
   return (
     <li className="text-xs">
       <button
@@ -210,17 +221,24 @@ function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: 
         <span className="font-medium">#{pr.number}</span>
         <Badge className={cn(pr.state === 'open' && !pr.draft && 'border-primary text-primary')}>{pr.draft && pr.state === 'open' ? 'draft' : pr.state}</Badge>
         {pr.checks && <Badge className={CHECKS_TONE[pr.checks]}>{pr.checks === 'failing' ? 'checks failing' : `checks ${pr.checks}`}</Badge>}
+        {pr.held && <Badge className="border-state-needs text-state-needs">held</Badge>}
         {pr.stale && <span className="text-muted-foreground" title="GitHub couldn't be read the last time: this is what was seen before">stale</span>}
         <ExternalLink className="ml-auto size-3 shrink-0 text-muted-foreground" />
       </button>
       <div className="flex items-center gap-1 px-1">
         {showAgent && <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{pr.agentName}</p>}
         {pr.state === 'open' && (
+          <Button size="sm" variant="ghost" className="h-5 gap-1 px-1 text-[11px]" aria-pressed={pr.held} aria-label={`${pr.held ? 'Release' : 'Hold'} the merge of #${pr.number}`} title={pr.held ? 'Let a root merge it again' : 'No root merges it until you release it'} onClick={() => void toggleHold()}>
+            <Hand className="size-3" /> {pr.held ? 'Release' : 'Hold merge'}
+          </Button>
+        )}
+        {pr.state === 'open' && (
           <Button size="sm" variant="ghost" className="ml-auto h-5 gap-1 px-1 text-[11px]" aria-expanded={commenting} aria-label={`Comment on #${pr.number}`} onClick={() => setCommenting(!commenting)}>
             <MessageSquarePlus className="size-3" /> Comment
           </Button>
         )}
       </div>
+      {holdError && <p role="alert" className="px-1 text-[11px] text-destructive">{holdError}</p>}
       {commenting && <CommentBox host={host} pr={pr} onDone={() => setCommenting(false)} />}
     </li>
   )
@@ -251,6 +269,31 @@ function Quota({ host }: { host: HostRuntime }) {
           ))}
         </ul>
       )}
+    </Section>
+  )
+}
+
+/** The user's level for the agent's project: which PRs a root may merge and whose plans it may approve (host settings). */
+function Autonomy({ host, repo }: { host: HostRuntime; repo: string }) {
+  const settings = useHostState(host, (s) => s.settings)
+  const [error, setError] = useState('')
+  if (!repo || !hasLevels(settings)) return null
+  const level = levelOf(settings, repo)
+  async function choose(next: Level) {
+    setError('')
+    try {
+      for (const { key, value } of withLevel(settings, repo, next)) await setSetting(host.client, key, value)
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    }
+  }
+  return (
+    <Section title="Autonomy">
+      <Select aria-label={`Autonomy for ${repoName(repo)}`} value={level} onChange={(e) => void choose(e.target.value as Level)} className="text-xs">
+        {(Object.keys(LEVEL_LABEL) as Level[]).map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
+      </Select>
+      <p className="mt-1 text-[11px] text-muted-foreground">For {repoName(repo)}: a root never merges a PR you merge, and leaves a plan you approve to you. Hold a single PR below.</p>
+      {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
     </Section>
   )
 }

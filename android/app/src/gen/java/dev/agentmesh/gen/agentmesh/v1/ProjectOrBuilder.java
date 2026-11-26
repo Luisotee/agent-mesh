@@ -72,7 +72,8 @@ public interface ProjectOrBuilder extends
 
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -82,7 +83,8 @@ public interface ProjectOrBuilder extends
       getBranchesList();
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -91,7 +93,8 @@ public interface ProjectOrBuilder extends
   int getBranchesCount();
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -101,7 +104,8 @@ public interface ProjectOrBuilder extends
   java.lang.String getBranches(int index);
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>

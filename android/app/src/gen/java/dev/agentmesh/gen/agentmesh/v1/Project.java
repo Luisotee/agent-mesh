@@ -227,7 +227,8 @@ public  final class Project extends
   private com.google.protobuf.Internal.ProtobufList<java.lang.String> branches_;
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -239,7 +240,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -251,7 +253,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -264,7 +267,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -286,7 +290,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -301,7 +306,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -315,7 +321,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -329,7 +336,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -339,7 +347,8 @@ public  final class Project extends
   }
   /**
    * <pre>
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/&lt;name&gt;.
    * </pre>
    *
    * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -901,7 +910,8 @@ public  final class Project extends
 
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -915,7 +925,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -927,7 +938,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -940,7 +952,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -954,7 +967,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -970,7 +984,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -985,7 +1000,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -1000,7 +1016,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>
@@ -1013,7 +1030,8 @@ public  final class Project extends
     }
     /**
      * <pre>
-     * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+     * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+     * its name, the remote's as origin/&lt;name&gt;.
      * </pre>
      *
      * <code>repeated string branches = 4 [json_name = "branches"];</code>

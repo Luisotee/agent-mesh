@@ -32,6 +32,7 @@ export interface PrRow {
   draft: boolean
   checks: string
   stale: boolean
+  held: boolean
 }
 
 /** The PRs of the agents `only` accepts, the ones to act on first: open before merged and closed, then newest. */
@@ -40,7 +41,7 @@ export function prRows(prs: Record<string, AgentPullRequests>, agents: Record<st
   return Object.values(prs)
     .flatMap((ap) => {
       const a = agents[ap.agentId]
-      return a && only(a) ? ap.pullRequests.map((p): PrRow => ({ agentName: a.name, agentId: a.id, number: p.number, url: p.url, state: p.state, draft: p.draft, checks: p.checks, stale: p.stale })) : []
+      return a && only(a) ? ap.pullRequests.map((p): PrRow => ({ agentName: a.name, agentId: a.id, number: p.number, url: p.url, state: p.state, draft: p.draft, checks: p.checks, stale: p.stale, held: p.held })) : []
     })
     .sort((a, b) => rank(a.state) - rank(b.state) || b.number - a.number)
 }

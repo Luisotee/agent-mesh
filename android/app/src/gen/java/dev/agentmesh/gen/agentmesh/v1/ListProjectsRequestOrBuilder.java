@@ -12,8 +12,8 @@ public interface ListProjectsRequestOrBuilder extends
 
   /**
    * <pre>
-   * Only this repo (a path or a bare name of a `repos.dir` folder), and with its open pull requests read from GitHub:
-   * the full list is quick (it asks git, not GitHub) and has none.
+   * Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
+   * pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none.
    * </pre>
    *
    * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -22,8 +22,8 @@ public interface ListProjectsRequestOrBuilder extends
   java.lang.String getRepo();
   /**
    * <pre>
-   * Only this repo (a path or a bare name of a `repos.dir` folder), and with its open pull requests read from GitHub:
-   * the full list is quick (it asks git, not GitHub) and has none.
+   * Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
+   * pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none.
    * </pre>
    *
    * <code>string repo = 1 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>

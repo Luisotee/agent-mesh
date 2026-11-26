@@ -78,3 +78,27 @@ test('the sidebar groups the agents by run, project and status bucket', async ()
   await group.getByRole('button', { name: 'Runs' }).click()
   await nav.getByRole('region', { name: 'group run' }).waitFor()
 })
+
+test('a new workspace starts a lead in a worktree of a project from the dialog, and holding a PR needs a PR the host lists', async () => {
+  const { page } = app
+  await page.getByRole('button', { name: 'Workspace' }).click()
+  const dialog = page.getByRole('dialog')
+  // The host lists the repos it has seen (the throwaway repo, used by the earlier test's agents), with its branches.
+  await dialog.getByLabel('Project').fill(host.repo)
+  await dialog.getByLabel('Project').blur()
+  await dialog.getByText(/Default branch: main|Default branch: the repo's HEAD/).waitFor({ timeout: 20_000 })
+  await dialog.getByLabel('Start from', { exact: true }).selectOption('branch')
+  await dialog.getByLabel('Branch').selectOption('main')
+  await dialog.getByLabel('Run title').fill('from the dialog')
+  await dialog.getByLabel('Name').fill('dialog-lead')
+  await page.screenshot({ path: path.join(shots, 'workspace-dialog.png') })
+  await dialog.getByRole('button', { name: 'Start workspace' }).click()
+  // The dialog closes and the new agent's terminal opens.
+  await dialog.waitFor({ state: 'detached' })
+  await page.getByRole('article', { name: 'repo-dialog-lead' }).waitFor({ timeout: 20_000 })
+  const created = (await host.client().listAgents({})).agents.find((a) => a.name === 'repo-dialog-lead')!
+  expect(created.branch).toContain('dialog-lead')
+
+  // A host with no such PR refuses a hold (nothing would carry it to the root).
+  await expect(host.client().holdPullRequest({ url: 'https://github.com/o/r/pull/1' })).rejects.toThrow(/no pull request/)
+})

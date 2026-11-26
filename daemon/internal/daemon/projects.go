@@ -50,6 +50,11 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 			return nil, err
 		}
 		paths = []string{top}
+		// Fresh refs, so a branch or a PR's head the user picks is there to start from (a failed fetch is not an error: the
+		// refs last fetched are listed).
+		fctx, stop := context.WithTimeout(ctx, 15*time.Second)
+		_, _ = git(fctx, top, "fetch", "--quiet", "origin")
+		stop()
 	} else {
 		dirs, err := d.Setting(r, "repos.dir")
 		if err != nil {
@@ -123,8 +128,8 @@ func gitFolders(dir string) []string {
 	return out
 }
 
-// projectBranchesOf is a repo's default branch (the remote's HEAD as last fetched) and its newest branches, local
-// and the remote's, by commit date, each once.
+// projectBranchesOf is a repo's default branch (the remote's HEAD as last fetched) and its newest branches by commit
+// date, as refs a worktree can start from: a local branch by its name, the remote's as origin/<name>.
 func projectBranchesOf(ctx context.Context, dir string) (string, []string) {
 	def := ""
 	if ref, err := git(ctx, dir, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); err == nil {
@@ -137,8 +142,8 @@ func projectBranchesOf(ctx context.Context, dir string) (string, []string) {
 	seen := map[string]bool{}
 	var branches []string
 	for _, line := range strings.Split(out, "\n") {
-		b := strings.TrimPrefix(strings.TrimSpace(line), "origin/")
-		if b == "" || b == "origin" || b == "HEAD" || seen[b] {
+		b := strings.TrimSpace(line)
+		if b == "" || b == "origin" || b == "origin/HEAD" || seen[b] {
 			continue
 		}
 		seen[b] = true

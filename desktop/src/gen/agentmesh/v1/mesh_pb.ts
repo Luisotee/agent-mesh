@@ -2390,8 +2390,8 @@ export const HoldPullRequestResponseSchema: GenMessage<HoldPullRequestResponse> 
  */
 export type ListProjectsRequest = Message<"agentmesh.v1.ListProjectsRequest"> & {
   /**
-   * Only this repo (a path or a bare name of a `repos.dir` folder), and with its open pull requests read from GitHub:
-   * the full list is quick (it asks git, not GitHub) and has none.
+   * Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
+   * pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none.
    *
    * @generated from field: string repo = 1;
    */
@@ -2472,7 +2472,8 @@ export type Project = Message<"agentmesh.v1.Project"> & {
   defaultBranch: string;
 
   /**
-   * Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+   * Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+   * its name, the remote's as origin/<name>.
    *
    * @generated from field: repeated string branches = 4;
    */

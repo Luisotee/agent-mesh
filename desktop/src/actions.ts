@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -29,6 +29,8 @@ export const startRun = (c: MeshClient, title: string) => c.startRun({ meta: met
 
 export type SpawnInput = Pick<SpawnAgentRequest, 'runId' | 'repo' | 'slug' | 'kind' | 'tier' | 'model' | 'effort' | 'task'> & {
   role: AgentRole
+  /** The branch or commit the new worktree starts from; empty: the repo's default branch. */
+  base?: string
 }
 export const spawnAgent = (c: MeshClient, input: SpawnInput) => c.spawnAgent({ meta: meta(), ...input })
 
@@ -78,6 +80,12 @@ export const getUsage = (c: MeshClient, refresh = false) => c.getUsage({ refresh
 
 /** What a run (or a window of time) cost, with the table per agent when `agents` is set. */
 export const getCost = (c: MeshClient, scope: { runId: string } | { since: string }, agents = false) => c.getCost({ agents, runId: '', since: '', ...scope })
+
+/** The repos the host can start work in (quick, from git); with `repo`, that one fetched, with its branches and open pull requests. */
+export const listProjects = (c: MeshClient, repo = '') => c.listProjects({ repo })
+
+/** Holds a pull request's merge, or releases it: a root never merges a held one. */
+export const holdPullRequest = (c: MeshClient, url: string, release = false) => c.holdPullRequest({ meta: meta(), url, release })
 
 export const listSettings = (c: MeshClient, prefix = '') => c.listSettings({ prefix })
 

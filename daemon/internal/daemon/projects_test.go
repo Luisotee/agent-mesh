@@ -82,8 +82,9 @@ func TestListProjectsForOneRepoAddsItsOpenPullRequestsAndBranchesNewestFirst(t *
 	for _, b := range p.Branches {
 		seen[b]++
 	}
-	if seen["main"] != 1 || seen["older"] != 1 || seen["HEAD"] != 0 || seen["origin"] != 0 {
-		t.Errorf("branches %v: each once, no origin/HEAD", p.Branches)
+	// A local branch by its name, the remote's as origin/<name>: refs a worktree can start from.
+	if seen["main"] != 1 || seen["older"] != 1 || seen["origin/main"] != 1 || seen["origin/HEAD"] != 0 || seen["origin"] != 0 {
+		t.Errorf("branches %v: each once, the remote's as origin/<name>, no origin/HEAD", p.Branches)
 	}
 
 	// A repo that isn't one is refused, and a GitHub that fails leaves the project without PRs.

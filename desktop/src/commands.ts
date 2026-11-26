@@ -108,6 +108,7 @@ export function buildCommands(app: AppModel): Command[] {
   out.push({ id: 'shortcuts', title: 'Keyboard shortcuts…', group: 'View', detail: 'rebind keys', run: () => app.openSettings(true, 'app.keys') })
 
   if (selected) {
+    out.push({ id: 'new-workspace', title: 'New workspace…', group: 'Actions', detail: `${selected.info.name} project worktree branch pull request`, run: () => app.openWorkspace(true) })
     out.push({
       id: 'start-run',
       title: 'Start a run…',

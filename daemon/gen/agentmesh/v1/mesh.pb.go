@@ -4865,8 +4865,8 @@ func (x *HoldPullRequestResponse) GetPullRequests() []*PullRequest {
 
 type ListProjectsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Only this repo (a path or a bare name of a `repos.dir` folder), and with its open pull requests read from GitHub:
-	// the full list is quick (it asks git, not GitHub) and has none.
+	// Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
+	// pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none.
 	Repo          string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4995,7 +4995,8 @@ type Project struct {
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// Its default branch (the remote's HEAD), empty when it can't be told.
 	DefaultBranch string `protobuf:"bytes,3,opt,name=default_branch,json=defaultBranch,proto3" json:"default_branch,omitempty"`
-	// Branches of the repo (local ones and the remote's), the first few dozen, most recently used first.
+	// Branches of the repo, newest commit first, the first few dozen, as refs SpawnAgent's `base` takes: a local branch by
+	// its name, the remote's as origin/<name>.
 	Branches []string `protobuf:"bytes,4,rep,name=branches,proto3" json:"branches,omitempty"`
 	// Only when ListProjects was asked for this one repo.
 	PullRequests []*ProjectPullRequest `protobuf:"bytes,5,rep,name=pull_requests,json=pullRequests,proto3" json:"pull_requests,omitempty"`

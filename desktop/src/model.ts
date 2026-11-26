@@ -122,6 +122,8 @@ export interface AppState extends WorkspaceState {
   sidebarGroup: SidebarGroup
   /** The side panel beside the open agent is shown. */
   panelOpen: boolean
+  /** The New workspace dialog is open. */
+  workspaceOpen: boolean
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
 }
@@ -161,6 +163,7 @@ export interface AppModel {
   openPalette(open: boolean): void
   setSidebarGroup(g: SidebarGroup): void
   setPanel(open: boolean): void
+  openWorkspace(open: boolean): void
   openPairing(open: boolean): void
   /** Shows or hides the grid of every live agent. */
   openWatch(open: boolean): void
@@ -168,7 +171,7 @@ export interface AppModel {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, paletteOpen: false, sidebarGroup: 'run', panelOpen: true, settingsQuery: '', ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, paletteOpen: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -283,6 +286,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     openPalette: (open) => set({ paletteOpen: open }),
     setSidebarGroup: (sidebarGroup) => set({ sidebarGroup }),
     setPanel: (panelOpen) => set({ panelOpen }),
+    openWorkspace: (workspaceOpen) => set({ workspaceOpen }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false }),
     setTab: (tab) => set({ tab }),

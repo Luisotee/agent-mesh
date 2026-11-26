@@ -11,6 +11,7 @@ import type { HostRuntime, SidebarGroup } from '@/model'
 import { StateIcon } from './state-icon'
 import { WaitingList } from './waiting-list'
 import { NewRunDialog, SpawnDialog } from './spawn-dialogs'
+import { WorkspaceButton } from './workspace-dialog'
 
 /** The host's runs, each as a tree from its lead: workers under it, their read-only agents under them. */
 export function RunSidebar({ host }: { host: HostRuntime }) {
@@ -27,7 +28,10 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
       <WaitingList host={host} />
       <div className="flex items-center justify-between px-3 py-2">
         <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Runs</h2>
-        <NewRunDialog host={host} />
+        <div className="flex gap-1.5">
+          <WorkspaceButton host={host} />
+          <NewRunDialog host={host} />
+        </div>
       </div>
       <GroupSwitch />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
