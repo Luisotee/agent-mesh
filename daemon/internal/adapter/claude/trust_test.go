@@ -176,8 +176,9 @@ func TestPretrustWaitsForALiveLockAndBreaksAStaleOne(t *testing.T) {
 	env, file := claudeHome(t, `{"projects": {}}`)
 	wt := realDir(t, t.TempDir())
 	// A live lock held a moment is waited for.
-	os.Mkdir(file+".lock", 0o755)
-	go func() { time.Sleep(200 * time.Millisecond); os.Remove(file + ".lock") }()
+	lock := file + ".lock"
+	os.Mkdir(lock, 0o755)
+	go func() { time.Sleep(200 * time.Millisecond); os.Remove(lock) }()
 	start := time.Now()
 	if err := Pretrust(env, wt); err != nil || time.Since(start) < 150*time.Millisecond {
 		t.Fatalf("live lock: %v after %v", err, time.Since(start))
