@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -23,11 +25,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,8 +40,11 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.derive.waitingOnYou
 import dev.agentmesh.android.hosts.Host
+import dev.agentmesh.android.hosts.UnpairResult
+import dev.agentmesh.android.hosts.unpairFromHost
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,14 +78,77 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
         }
     }
     removing?.let { h ->
-        ConfirmDialog(
-            title = "Remove ${h.name}?",
-            text = "The app forgets this host and its token. The host and its agents are untouched.",
-            confirm = "Remove",
-            onConfirm = { container.hosts.remove(h.id); removing = null },
+        val runtime = runtimes[h.id]
+        val state by (runtime?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(dev.agentmesh.android.store.HostState()) }).collectAsStateWithLifecycleCompat()
+        val ready = runtime != null && state.conn is ConnState.Ready
+        RemoveHostDialog(
+            hostName = h.name,
+            canUnpair = ready,
+            unpair = { retry -> unpairFromHost(runtime?.api(), afterFailedTry = retry) },
+            onRemove = { container.hosts.remove(h.id); removing = null },
             onDismiss = { removing = null },
         )
     }
+}
+
+/**
+ * Removing a host: the app forgets it and its token, and, when connected, can first ask the host to revoke this
+ * device's pairing (`RevokeSelf`), so the token doesn't stay valid there. A failed call leaves the choice to the user:
+ * try again (which only retries the unpair, and waits for a connection), or remove only here (the host's owner then
+ * revokes the device with `mesh revoke-device`): the host is never forgotten without one of those two being chosen.
+ */
+@Composable
+fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend (afterFailedTry: Boolean) -> UnpairResult, onRemove: () -> Unit, onDismiss: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    // Ticked by default: it only counts while the host is connected, so a connection that comes up with the dialog open is covered.
+    var alsoUnpair by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Remove $hostName?") },
+        text = {
+            Column {
+                Text("The app forgets this host and its token. The host and its agents are untouched.")
+                if (error != null) {
+                    // After a failure the choice is "Try again" or "Remove here only": no box to untick.
+                    if (!canUnpair) Text("Waiting for the host to be reachable again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                } else if (canUnpair) {
+                    Row(Modifier.clickable(enabled = !busy) { alsoUnpair = !alsoUnpair }, verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(alsoUnpair, { alsoUnpair = it }, enabled = !busy, modifier = Modifier.testTag("also-unpair"))
+                        Text("Also unpair this phone from the host")
+                    }
+                } else {
+                    Text(
+                        "The host isn't reachable, so this phone's token stays valid on it until its owner revokes the device (mesh revoke-device).",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                error?.let { Text("Couldn't unpair: $it", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp).testTag("unpair-error")) }
+            }
+        },
+        confirmButton = {
+            val retry = error != null
+            TextButton(enabled = !busy && (!retry || canUnpair), onClick = {
+                // Only a first try may remove without unpairing (box unticked, or no connection): a retry never does.
+                if (!retry && !(canUnpair && alsoUnpair)) return@TextButton onRemove()
+                busy = true
+                scope.launch {
+                    // The error stays until the host is unpaired, so the choices of a failed try stay on screen while a retry runs.
+                    when (val r = unpair(retry)) {
+                        UnpairResult.Done -> onRemove()
+                        is UnpairResult.Failed -> { busy = false; error = r.message }
+                    }
+                }
+            }) { Text(if (retry) "Try again" else "Remove") }
+        },
+        dismissButton = {
+            Row {
+                if (error != null) TextButton(enabled = !busy, onClick = onRemove) { Text("Remove here only") }
+                TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 @Composable
