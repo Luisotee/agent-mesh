@@ -268,9 +268,9 @@ func TestDaemonThroughRelayPairingAndRevocation(t *testing.T) {
 type fakeTailnet struct {
 	listenErr error
 	mu        sync.Mutex
-	ln     net.Listener
-	status *v1.TailnetStatusResponse
-	closed chan struct{}
+	ln        net.Listener
+	status    *v1.TailnetStatusResponse
+	closed    chan struct{}
 }
 
 func (f *fakeTailnet) Listen(network, _ string) (net.Listener, error) {
