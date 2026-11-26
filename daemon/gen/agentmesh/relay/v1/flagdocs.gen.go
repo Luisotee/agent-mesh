@@ -4,6 +4,9 @@ package relayv1
 
 // FieldDocs is the leading comment of every commented field, by its full name.
 var FieldDocs = map[string]string{
-	"agentmesh.relay.v1.ControlFrame.register":   "Daemon to relay.",
-	"agentmesh.relay.v1.ControlFrame.registered": "Relay to daemon.",
+	"agentmesh.relay.v1.ClientToken.expires_unix": "Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.",
+	"agentmesh.relay.v1.ClientToken.sha256":       "SHA-256 of the token as the client sends it in its preamble.",
+	"agentmesh.relay.v1.ControlFrame.register":    "Daemon to relay.",
+	"agentmesh.relay.v1.ControlFrame.registered":  "Relay to daemon.",
+	"agentmesh.relay.v1.Register.device_tokens":   "The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.",
 }

@@ -20,6 +20,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	relayv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/relay/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
@@ -66,8 +67,11 @@ type Config struct {
 	// direct LAN / Tailscale clients. Off by default.
 	Listen string
 	Relay  RelayConfig
-	Now    func() time.Time
-	Logger *slog.Logger
+	// Tailnet, when set, is the host's own Tailscale node (`meshd --tailscale`, internal/tailnet): meshd serves its
+	// TLS API on it as on Listen, and pairing links carry its address. Tests give a fake: none joins a tailnet.
+	Tailnet Tailnet
+	Now     func() time.Time
+	Logger  *slog.Logger
 
 	// Settings is the table of settings the host knows; nil is settings.Default().
 	Settings *settings.Schema
@@ -94,27 +98,30 @@ type Daemon struct {
 	agentmeshv1connect.UnimplementedMeshServiceHandler
 	agentmeshv1connect.UnimplementedPairingServiceHandler
 
-	cfg         Config
-	paths       Paths
-	log         *slog.Logger
-	now         func() time.Time
-	lock        *fsutil.Lock
-	store       *store.Store
-	bus         *events.Bus
-	reg         *registry.Registry
-	schema      *settings.Schema
-	daemonID    string
-	hostName    string
-	instanceID  string
-	startedAt   time.Time
-	tlsCfg      *tls.Config
-	certFP      string
-	relay       *relay.Connector
-	mux         *http.ServeMux
-	stopping    chan struct{}
-	stopOnce    sync.Once
-	handlerOnce sync.Once
-	info        Info
+	cfg        Config
+	paths      Paths
+	log        *slog.Logger
+	now        func() time.Time
+	lock       *fsutil.Lock
+	store      *store.Store
+	bus        *events.Bus
+	reg        *registry.Registry
+	schema     *settings.Schema
+	daemonID   string
+	hostName   string
+	instanceID string
+	startedAt  time.Time
+	tlsCfg     *tls.Config
+	certFP     string
+	relay      *relay.Connector
+	// relayTokensLast is the last set of client tokens given to the relay (relayClientTokens).
+	relayTokensMu   sync.Mutex
+	relayTokensLast []*relayv1.ClientToken
+	mux             *http.ServeMux
+	stopping        chan struct{}
+	stopOnce        sync.Once
+	handlerOnce     sync.Once
+	info            Info
 	// capabilities the host advertises in Hello.
 	capabilities []string
 	// notify, when set, is told that an agent has a message to deliver.
@@ -207,11 +214,15 @@ func New(cfg Config) (*Daemon, error) {
 			HostName:      d.hostName,
 			DaemonVersion: Version,
 			Logger:        d.log,
+			ClientTokens:  d.relayClientTokens,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("relay: %w", err)
 		}
 		d.capabilities = append(d.capabilities, "relay")
+	}
+	if cfg.Tailnet != nil {
+		d.capabilities = append(d.capabilities, "tailscale")
 	}
 	if err := d.ensureDeviceToken(context.Background()); err != nil {
 		return nil, err
@@ -422,6 +433,9 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	bg, stopBG := context.WithCancel(ctx)
 	defer stopBG()
 	d.runBackground(bg)
+	if d.cfg.Tailnet != nil {
+		d.serveTailnet(bg, tlsSrv, errc)
+	}
 	if d.relay != nil {
 		go func() { _ = d.relay.Run(bg) }()
 		go func() {
@@ -468,6 +482,11 @@ func listenLoopback(addr string) (net.Listener, error) {
 func (d *Daemon) close() {
 	d.stopOnce.Do(func() { close(d.stopping) })
 	d.bgWG.Wait()
+	if d.cfg.Tailnet != nil {
+		if err := d.cfg.Tailnet.Close(); err != nil {
+			d.log.Warn("closing the tailnet node", "err", err)
+		}
+	}
 	if d.store != nil {
 		d.store.Close()
 	}

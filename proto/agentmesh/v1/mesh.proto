@@ -427,6 +427,17 @@ service MeshService {
     };
   }
 
+  // The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
+  // tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
+  // tailnet opens it.
+  rpc TailnetStatus(TailnetStatusRequest) returns (TailnetStatusResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      cli: "tailnet"
+      summary: "Show the host's built-in Tailscale node: state, login URL, addresses"
+    };
+  }
+
   // Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
   rpc GetUsage(GetUsageRequest) returns (GetUsageResponse) {
     option (action) = {
@@ -1168,7 +1179,8 @@ message CreatePairingResponse {
   string relay_url = 6;
   // Raw TCP client endpoint (`host:port`) on the relay, when configured.
   string relay_tcp = 7;
-  // Client relay auth token (`amr_...`) for this host, when relay is configured.
+  // The relay token (`amr_...`) of the device this pairing makes, when a relay is configured. The relay accepts it
+  // while the pairing is open and, once redeemed, until the device is revoked.
   string relay_client_token = 8;
   string direct_url = 9;
   // Canonical `agentmesh://pair?...` URI for QR codes and pairing links.
@@ -1191,6 +1203,29 @@ message RevokeDeviceRequest {
 
 message RevokeDeviceResponse {
   Device device = 1;
+}
+
+message TailnetStatusRequest {}
+
+message TailnetStatusResponse {
+  // Whether meshd runs with `--tailscale`. The other fields are empty when it doesn't.
+  bool enabled = 1;
+  // Tailscale's backend state: `NoState`, `NeedsLogin`, `NeedsMachineAuth`, `Starting`, `Running` or `Stopped`.
+  string state = 2;
+  // The URL to open to log the node in, while the state is `NeedsLogin`.
+  string auth_url = 3;
+  // The node's name on the tailnet.
+  string hostname = 4;
+  // The node's MagicDNS name, when the tailnet has one.
+  string dns_name = 5;
+  // The node's tailnet addresses.
+  repeated string addresses = 6;
+  // The control server (a Headscale URL), empty for Tailscale's own.
+  string control_url = 7;
+  // The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`), once it runs.
+  string direct_url = 8;
+  // Why the node isn't running, when Tailscale says (health warnings, a start error).
+  repeated string problems = 9;
 }
 
 message RetireAgentRequest {

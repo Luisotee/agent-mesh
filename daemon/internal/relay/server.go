@@ -3,6 +3,7 @@ package relay
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +71,42 @@ type hostSession struct {
 	writeMu sync.Mutex
 	closed  chan struct{}
 	cancel  context.CancelFunc
+
+	// deviceTokens: the daemon gives its devices' tokens (Register.device_tokens), and tokens holds them by
+	// hash, with the Unix second each expires after (0: never). Without it, the host-wide token is checked.
+	deviceTokens bool
+	tokensMu     sync.Mutex
+	tokens       map[[sha256.Size]byte]int64
+}
+
+// MaxClientTokens caps the client tokens a daemon may give the relay for one host.
+const MaxClientTokens = 1000
+
+func (h *hostSession) setTokens(list []*relayv1.ClientToken) {
+	m := make(map[[sha256.Size]byte]int64, len(list))
+	for i, t := range list {
+		if i == MaxClientTokens {
+			break
+		}
+		if len(t.GetSha256()) != sha256.Size {
+			continue
+		}
+		m[[sha256.Size]byte(t.GetSha256())] = t.GetExpiresUnix()
+	}
+	h.tokensMu.Lock()
+	h.tokens = m
+	h.tokensMu.Unlock()
+}
+
+func (h *hostSession) acceptsToken(token string, now time.Time) bool {
+	if token == "" {
+		return false
+	}
+	sum := TokenHash(token)
+	h.tokensMu.Lock()
+	exp, ok := h.tokens[sum]
+	h.tokensMu.Unlock()
+	return ok && (exp == 0 || now.Unix() <= exp)
 }
 
 func (h *hostSession) sendFrame(ctx context.Context, f *relayv1.ControlFrame) error {
@@ -226,8 +263,12 @@ func (s *Server) HandleClientConn(ctx context.Context, rawConn net.Conn) {
 		return
 	}
 	hostID, tok := parts[1], parts[2]
-	if !ValidClientToken(s.cfg.Secret, hostID, tok) {
-		writeTCPAbort(rawConn, "auth", "invalid relay token")
+	if err := s.authorizeClient(hostID, tok); err != nil {
+		if errors.Is(err, errDaemonOffline) {
+			writeTCPAbort(rawConn, "offline", "daemon offline")
+		} else {
+			writeTCPAbort(rawConn, "auth", "invalid relay token")
+		}
 		return
 	}
 
@@ -260,6 +301,30 @@ func (s *Server) HandleClientConn(ctx context.Context, rawConn net.Conn) {
 		clientConn = &prefixConn{Conn: rawConn, extra: extra}
 	}
 	Splice(ctx, clientConn, ps.conn)
+}
+
+var errBadClientToken = errors.New("invalid relay token")
+
+// authorizeClient checks a client's relay token for hostID before any dial-back is asked for. A daemon that
+// gives its devices' tokens is held to them; one that doesn't (an older daemon) to the host-wide token.
+func (s *Server) authorizeClient(hostID, tok string) error {
+	s.mu.Lock()
+	sess := s.hosts[hostID]
+	s.mu.Unlock()
+	if sess == nil {
+		// A device's token can't be judged without its host's list, so any token hears offline.
+		return errDaemonOffline
+	}
+	if sess.deviceTokens {
+		if sess.acceptsToken(tok, s.now()) {
+			return nil
+		}
+		return errBadClientToken
+	}
+	if ValidClientToken(s.cfg.Secret, hostID, tok) {
+		return nil
+	}
+	return errBadClientToken
 }
 
 func writeTCPAbort(c net.Conn, code, msg string) {
@@ -318,11 +383,15 @@ func (s *Server) serveDaemonControl(w http.ResponseWriter, r *http.Request) {
 	}
 	reg := regFrame.GetRegister()
 	sess := &hostSession{
-		id:     reg.HostId,
-		name:   reg.HostName,
-		ws:     ws,
-		closed: make(chan struct{}),
-		cancel: cancel,
+		id:           reg.HostId,
+		name:         reg.HostName,
+		ws:           ws,
+		closed:       make(chan struct{}),
+		cancel:       cancel,
+		deviceTokens: reg.DeviceTokens,
+	}
+	if reg.DeviceTokens {
+		sess.setTokens(reg.ClientTokens)
 	}
 
 	s.mu.Lock()
@@ -351,7 +420,8 @@ func (s *Server) serveDaemonControl(w http.ResponseWriter, r *http.Request) {
 		_ = ws.CloseNow()
 		return
 	}
-	s.log.Info("daemon registered", "host", sess.id, "name", sess.name, "version", reg.DaemonVersion)
+	s.log.Info("daemon registered", "host", sess.id, "name", sess.name, "version", reg.DaemonVersion,
+		"device_tokens", reg.DeviceTokens)
 
 	go func() {
 		select {
@@ -375,6 +445,10 @@ func (s *Server) serveDaemonControl(w http.ResponseWriter, r *http.Request) {
 			}); err != nil {
 				_ = ws.CloseNow()
 				return
+			}
+		case *relayv1.ControlFrame_ClientTokens:
+			if sess.deviceTokens {
+				sess.setTokens(v.ClientTokens.GetTokens())
 			}
 		}
 	}
@@ -438,8 +512,12 @@ func (s *Server) serveClientWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing host_id", http.StatusBadRequest)
 		return
 	}
-	if !ValidClientToken(s.cfg.Secret, hostID, auth.BearerToken(r.Header)) {
-		http.Error(w, "invalid relay token", http.StatusUnauthorized)
+	if err := s.authorizeClient(hostID, auth.BearerToken(r.Header)); err != nil {
+		if errors.Is(err, errDaemonOffline) {
+			http.Error(w, "daemon offline", http.StatusServiceUnavailable)
+		} else {
+			http.Error(w, "invalid relay token", http.StatusUnauthorized)
+		}
 		return
 	}
 	ps, err := s.openStream(r.Context(), hostID)

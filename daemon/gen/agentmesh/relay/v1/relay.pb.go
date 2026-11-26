@@ -31,6 +31,7 @@ type ControlFrame struct {
 	//	*ControlFrame_Register
 	//	*ControlFrame_DialBack
 	//	*ControlFrame_Ping
+	//	*ControlFrame_ClientTokens
 	//	*ControlFrame_Registered
 	//	*ControlFrame_Pong
 	Frame         isControlFrame_Frame `protobuf_oneof:"frame"`
@@ -102,6 +103,15 @@ func (x *ControlFrame) GetPing() *Ping {
 	return nil
 }
 
+func (x *ControlFrame) GetClientTokens() *ClientTokens {
+	if x != nil {
+		if x, ok := x.Frame.(*ControlFrame_ClientTokens); ok {
+			return x.ClientTokens
+		}
+	}
+	return nil
+}
+
 func (x *ControlFrame) GetRegistered() *Registered {
 	if x != nil {
 		if x, ok := x.Frame.(*ControlFrame_Registered); ok {
@@ -137,6 +147,10 @@ type ControlFrame_Ping struct {
 	Ping *Ping `protobuf:"bytes,3,opt,name=ping,proto3,oneof"`
 }
 
+type ControlFrame_ClientTokens struct {
+	ClientTokens *ClientTokens `protobuf:"bytes,4,opt,name=client_tokens,json=clientTokens,proto3,oneof"`
+}
+
 type ControlFrame_Registered struct {
 	// Relay to daemon.
 	Registered *Registered `protobuf:"bytes,10,opt,name=registered,proto3,oneof"`
@@ -152,6 +166,8 @@ func (*ControlFrame_DialBack) isControlFrame_Frame() {}
 
 func (*ControlFrame_Ping) isControlFrame_Frame() {}
 
+func (*ControlFrame_ClientTokens) isControlFrame_Frame() {}
+
 func (*ControlFrame_Registered) isControlFrame_Frame() {}
 
 func (*ControlFrame_Pong) isControlFrame_Frame() {}
@@ -161,6 +177,10 @@ type Register struct {
 	HostId        string                 `protobuf:"bytes,1,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
 	HostName      string                 `protobuf:"bytes,2,opt,name=host_name,json=hostName,proto3" json:"host_name,omitempty"`
 	DaemonVersion string                 `protobuf:"bytes,3,opt,name=daemon_version,json=daemonVersion,proto3" json:"daemon_version,omitempty"`
+	// The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+	// client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+	DeviceTokens  bool           `protobuf:"varint,4,opt,name=device_tokens,json=deviceTokens,proto3" json:"device_tokens,omitempty"`
+	ClientTokens  []*ClientToken `protobuf:"bytes,5,rep,name=client_tokens,json=clientTokens,proto3" json:"client_tokens,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -216,6 +236,121 @@ func (x *Register) GetDaemonVersion() string {
 	return ""
 }
 
+func (x *Register) GetDeviceTokens() bool {
+	if x != nil {
+		return x.DeviceTokens
+	}
+	return false
+}
+
+func (x *Register) GetClientTokens() []*ClientToken {
+	if x != nil {
+		return x.ClientTokens
+	}
+	return nil
+}
+
+// ClientTokens replaces the set of client tokens the relay accepts for this host (daemon to relay, after
+// Registered), sent whenever a pairing is made or redeemed or a device is revoked.
+type ClientTokens struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Tokens        []*ClientToken         `protobuf:"bytes,1,rep,name=tokens,proto3" json:"tokens,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClientTokens) Reset() {
+	*x = ClientTokens{}
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClientTokens) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientTokens) ProtoMessage() {}
+
+func (x *ClientTokens) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientTokens.ProtoReflect.Descriptor instead.
+func (*ClientTokens) Descriptor() ([]byte, []int) {
+	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ClientTokens) GetTokens() []*ClientToken {
+	if x != nil {
+		return x.Tokens
+	}
+	return nil
+}
+
+// ClientToken is one client relay token the relay accepts, by its hash: the relay never holds the token.
+type ClientToken struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// SHA-256 of the token as the client sends it in its preamble.
+	Sha256 []byte `protobuf:"bytes,1,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// Unix seconds after which the relay refuses it (a pairing not yet redeemed); 0 is no expiry.
+	ExpiresUnix   int64 `protobuf:"varint,2,opt,name=expires_unix,json=expiresUnix,proto3" json:"expires_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClientToken) Reset() {
+	*x = ClientToken{}
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClientToken) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClientToken) ProtoMessage() {}
+
+func (x *ClientToken) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClientToken.ProtoReflect.Descriptor instead.
+func (*ClientToken) Descriptor() ([]byte, []int) {
+	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ClientToken) GetSha256() []byte {
+	if x != nil {
+		return x.Sha256
+	}
+	return nil
+}
+
+func (x *ClientToken) GetExpiresUnix() int64 {
+	if x != nil {
+		return x.ExpiresUnix
+	}
+	return 0
+}
+
 type Registered struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	HostId        string                 `protobuf:"bytes,1,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
@@ -225,7 +360,7 @@ type Registered struct {
 
 func (x *Registered) Reset() {
 	*x = Registered{}
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[2]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -237,7 +372,7 @@ func (x *Registered) String() string {
 func (*Registered) ProtoMessage() {}
 
 func (x *Registered) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[2]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -250,7 +385,7 @@ func (x *Registered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Registered.ProtoReflect.Descriptor instead.
 func (*Registered) Descriptor() ([]byte, []int) {
-	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{2}
+	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Registered) GetHostId() string {
@@ -272,7 +407,7 @@ type DialBack struct {
 
 func (x *DialBack) Reset() {
 	*x = DialBack{}
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[3]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -284,7 +419,7 @@ func (x *DialBack) String() string {
 func (*DialBack) ProtoMessage() {}
 
 func (x *DialBack) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[3]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -297,7 +432,7 @@ func (x *DialBack) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DialBack.ProtoReflect.Descriptor instead.
 func (*DialBack) Descriptor() ([]byte, []int) {
-	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{3}
+	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DialBack) GetTicket() string {
@@ -323,7 +458,7 @@ type Ping struct {
 
 func (x *Ping) Reset() {
 	*x = Ping{}
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[4]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +470,7 @@ func (x *Ping) String() string {
 func (*Ping) ProtoMessage() {}
 
 func (x *Ping) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[4]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +483,7 @@ func (x *Ping) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ping.ProtoReflect.Descriptor instead.
 func (*Ping) Descriptor() ([]byte, []int) {
-	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{4}
+	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Ping) GetSeq() int64 {
@@ -367,7 +502,7 @@ type Pong struct {
 
 func (x *Pong) Reset() {
 	*x = Pong{}
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[5]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -379,7 +514,7 @@ func (x *Pong) String() string {
 func (*Pong) ProtoMessage() {}
 
 func (x *Pong) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[5]
+	mi := &file_agentmesh_relay_v1_relay_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -392,7 +527,7 @@ func (x *Pong) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Pong.ProtoReflect.Descriptor instead.
 func (*Pong) Descriptor() ([]byte, []int) {
-	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{5}
+	return file_agentmesh_relay_v1_relay_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Pong) GetSeq() int64 {
@@ -406,21 +541,29 @@ var File_agentmesh_relay_v1_relay_proto protoreflect.FileDescriptor
 
 const file_agentmesh_relay_v1_relay_proto_rawDesc = "" +
 	"\n" +
-	"\x1eagentmesh/relay/v1/relay.proto\x12\x12agentmesh.relay.v1\"\xb2\x02\n" +
+	"\x1eagentmesh/relay/v1/relay.proto\x12\x12agentmesh.relay.v1\"\xfb\x02\n" +
 	"\fControlFrame\x12:\n" +
 	"\bregister\x18\x01 \x01(\v2\x1c.agentmesh.relay.v1.RegisterH\x00R\bregister\x12;\n" +
 	"\tdial_back\x18\x02 \x01(\v2\x1c.agentmesh.relay.v1.DialBackH\x00R\bdialBack\x12.\n" +
-	"\x04ping\x18\x03 \x01(\v2\x18.agentmesh.relay.v1.PingH\x00R\x04ping\x12@\n" +
+	"\x04ping\x18\x03 \x01(\v2\x18.agentmesh.relay.v1.PingH\x00R\x04ping\x12G\n" +
+	"\rclient_tokens\x18\x04 \x01(\v2 .agentmesh.relay.v1.ClientTokensH\x00R\fclientTokens\x12@\n" +
 	"\n" +
 	"registered\x18\n" +
 	" \x01(\v2\x1e.agentmesh.relay.v1.RegisteredH\x00R\n" +
 	"registered\x12.\n" +
 	"\x04pong\x18\v \x01(\v2\x18.agentmesh.relay.v1.PongH\x00R\x04pongB\a\n" +
-	"\x05frame\"g\n" +
+	"\x05frame\"\xd2\x01\n" +
 	"\bRegister\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\x12\x1b\n" +
 	"\thost_name\x18\x02 \x01(\tR\bhostName\x12%\n" +
-	"\x0edaemon_version\x18\x03 \x01(\tR\rdaemonVersion\"%\n" +
+	"\x0edaemon_version\x18\x03 \x01(\tR\rdaemonVersion\x12#\n" +
+	"\rdevice_tokens\x18\x04 \x01(\bR\fdeviceTokens\x12D\n" +
+	"\rclient_tokens\x18\x05 \x03(\v2\x1f.agentmesh.relay.v1.ClientTokenR\fclientTokens\"G\n" +
+	"\fClientTokens\x127\n" +
+	"\x06tokens\x18\x01 \x03(\v2\x1f.agentmesh.relay.v1.ClientTokenR\x06tokens\"H\n" +
+	"\vClientToken\x12\x16\n" +
+	"\x06sha256\x18\x01 \x01(\fR\x06sha256\x12!\n" +
+	"\fexpires_unix\x18\x02 \x01(\x03R\vexpiresUnix\"%\n" +
 	"\n" +
 	"Registered\x12\x17\n" +
 	"\ahost_id\x18\x01 \x01(\tR\x06hostId\"?\n" +
@@ -446,26 +589,31 @@ func file_agentmesh_relay_v1_relay_proto_rawDescGZIP() []byte {
 	return file_agentmesh_relay_v1_relay_proto_rawDescData
 }
 
-var file_agentmesh_relay_v1_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_agentmesh_relay_v1_relay_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_agentmesh_relay_v1_relay_proto_goTypes = []any{
 	(*ControlFrame)(nil), // 0: agentmesh.relay.v1.ControlFrame
 	(*Register)(nil),     // 1: agentmesh.relay.v1.Register
-	(*Registered)(nil),   // 2: agentmesh.relay.v1.Registered
-	(*DialBack)(nil),     // 3: agentmesh.relay.v1.DialBack
-	(*Ping)(nil),         // 4: agentmesh.relay.v1.Ping
-	(*Pong)(nil),         // 5: agentmesh.relay.v1.Pong
+	(*ClientTokens)(nil), // 2: agentmesh.relay.v1.ClientTokens
+	(*ClientToken)(nil),  // 3: agentmesh.relay.v1.ClientToken
+	(*Registered)(nil),   // 4: agentmesh.relay.v1.Registered
+	(*DialBack)(nil),     // 5: agentmesh.relay.v1.DialBack
+	(*Ping)(nil),         // 6: agentmesh.relay.v1.Ping
+	(*Pong)(nil),         // 7: agentmesh.relay.v1.Pong
 }
 var file_agentmesh_relay_v1_relay_proto_depIdxs = []int32{
 	1, // 0: agentmesh.relay.v1.ControlFrame.register:type_name -> agentmesh.relay.v1.Register
-	3, // 1: agentmesh.relay.v1.ControlFrame.dial_back:type_name -> agentmesh.relay.v1.DialBack
-	4, // 2: agentmesh.relay.v1.ControlFrame.ping:type_name -> agentmesh.relay.v1.Ping
-	2, // 3: agentmesh.relay.v1.ControlFrame.registered:type_name -> agentmesh.relay.v1.Registered
-	5, // 4: agentmesh.relay.v1.ControlFrame.pong:type_name -> agentmesh.relay.v1.Pong
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	5, // 1: agentmesh.relay.v1.ControlFrame.dial_back:type_name -> agentmesh.relay.v1.DialBack
+	6, // 2: agentmesh.relay.v1.ControlFrame.ping:type_name -> agentmesh.relay.v1.Ping
+	2, // 3: agentmesh.relay.v1.ControlFrame.client_tokens:type_name -> agentmesh.relay.v1.ClientTokens
+	4, // 4: agentmesh.relay.v1.ControlFrame.registered:type_name -> agentmesh.relay.v1.Registered
+	7, // 5: agentmesh.relay.v1.ControlFrame.pong:type_name -> agentmesh.relay.v1.Pong
+	3, // 6: agentmesh.relay.v1.Register.client_tokens:type_name -> agentmesh.relay.v1.ClientToken
+	3, // 7: agentmesh.relay.v1.ClientTokens.tokens:type_name -> agentmesh.relay.v1.ClientToken
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_relay_v1_relay_proto_init() }
@@ -477,6 +625,7 @@ func file_agentmesh_relay_v1_relay_proto_init() {
 		(*ControlFrame_Register)(nil),
 		(*ControlFrame_DialBack)(nil),
 		(*ControlFrame_Ping)(nil),
+		(*ControlFrame_ClientTokens)(nil),
 		(*ControlFrame_Registered)(nil),
 		(*ControlFrame_Pong)(nil),
 	}
@@ -486,7 +635,7 @@ func file_agentmesh_relay_v1_relay_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_relay_v1_relay_proto_rawDesc), len(file_agentmesh_relay_v1_relay_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

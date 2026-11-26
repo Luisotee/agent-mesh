@@ -36,6 +36,10 @@ type ConnectorConfig struct {
 	HeartbeatInterval time.Duration
 	// HeartbeatTimeout is how long to wait for a Pong ack (default 10s).
 	HeartbeatTimeout time.Duration
+	// ClientTokens, when set, lists the client tokens the relay may accept for this host (by hash), read at
+	// every registration and after every TokensChanged. The relay then accepts no other token, the host-wide
+	// one included. Nil keeps the host-wide token (ClientToken).
+	ClientTokens func() []*relayv1.ClientToken
 }
 
 // Connector maintains the daemon's outbound control connection to the relay and yields dialed-back
@@ -46,6 +50,8 @@ type Connector struct {
 	hc       *http.Client
 	wsBase   string
 	listener *chanListener
+	// tokensChanged holds one pending "send the relay the client tokens again".
+	tokensChanged chan struct{}
 
 	online atomic.Bool
 }
@@ -83,16 +89,35 @@ func NewConnector(cfg ConnectorConfig) (*Connector, error) {
 		cfg.HeartbeatTimeout = 10 * time.Second
 	}
 	return &Connector{
-		cfg:      cfg,
-		log:      cfg.Logger,
-		hc:       hc,
-		wsBase:   wsBase,
-		listener: newChanListener(wsAddr("relay:" + cfg.HostID)),
+		cfg:           cfg,
+		log:           cfg.Logger,
+		hc:            hc,
+		wsBase:        wsBase,
+		listener:      newChanListener(wsAddr("relay:" + cfg.HostID)),
+		tokensChanged: make(chan struct{}, 1),
 	}, nil
 }
 
 // Listener returns the net.Listener that accepts dialed-back streams from the relay.
 func (c *Connector) Listener() net.Listener { return c.listener }
+
+// TokensChanged tells the connector the set of client tokens changed: the live control connection sends it again
+// (a later registration reads it anyway). It never blocks.
+func (c *Connector) TokensChanged() {
+	select {
+	case c.tokensChanged <- struct{}{}:
+	default:
+	}
+}
+
+func (c *Connector) clientTokens() []*relayv1.ClientToken {
+	list := c.cfg.ClientTokens()
+	if len(list) > MaxClientTokens {
+		c.log.Error("too many client relay tokens; the relay gets the first ones", "tokens", len(list), "max", MaxClientTokens)
+		list = list[:MaxClientTokens]
+	}
+	return list
+}
 
 // Online reports whether the control connection is registered and healthy.
 func (c *Connector) Online() bool { return c.online.Load() }
@@ -148,14 +173,22 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 	ws.SetReadLimit(64 * 1024)
 	defer ws.CloseNow()
 
+	reg := &relayv1.Register{
+		HostId:        c.cfg.HostID,
+		HostName:      c.cfg.HostName,
+		DaemonVersion: c.cfg.DaemonVersion,
+	}
+	if c.cfg.ClientTokens != nil {
+		// Drain first: a change after this read rings again and is sent once registered.
+		select {
+		case <-c.tokensChanged:
+		default:
+		}
+		reg.DeviceTokens = true
+		reg.ClientTokens = c.clientTokens()
+	}
 	if err := writeControlFrame(ctx, ws, &relayv1.ControlFrame{
-		Frame: &relayv1.ControlFrame_Register{
-			Register: &relayv1.Register{
-				HostId:        c.cfg.HostID,
-				HostName:      c.cfg.HostName,
-				DaemonVersion: c.cfg.DaemonVersion,
-			},
-		},
+		Frame: &relayv1.ControlFrame_Register{Register: reg},
 	}); err != nil {
 		return false, err
 	}
@@ -186,6 +219,29 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 		return writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
 			Frame: &relayv1.ControlFrame_Ping{Ping: &relayv1.Ping{Seq: seq}},
 		})
+	}
+
+	if c.cfg.ClientTokens != nil {
+		go func() {
+			for {
+				select {
+				case <-connCtx.Done():
+					return
+				case <-c.tokensChanged:
+				}
+				list := c.clientTokens()
+				writeMu.Lock()
+				err := writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
+					Frame: &relayv1.ControlFrame_ClientTokens{ClientTokens: &relayv1.ClientTokens{Tokens: list}},
+				})
+				writeMu.Unlock()
+				if err != nil {
+					// The connection is going; the next registration carries the set. Ring again for it.
+					c.TokensChanged()
+					return
+				}
+			}
+		}()
 	}
 
 	pongCh := make(chan int64, 8)

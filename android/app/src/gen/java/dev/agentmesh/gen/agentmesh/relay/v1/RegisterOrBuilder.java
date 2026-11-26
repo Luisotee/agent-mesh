@@ -45,4 +45,29 @@ public interface RegisterOrBuilder extends
    */
   com.google.protobuf.ByteString
       getDaemonVersionBytes();
+
+  /**
+   * <pre>
+   * The daemon gives the relay its devices' tokens: the relay then accepts a client only by a token in
+   * client_tokens (or a later ClientTokens), never by the host-wide token derived from the relay secret.
+   * </pre>
+   *
+   * <code>bool device_tokens = 4 [json_name = "deviceTokens"];</code>
+   * @return The deviceTokens.
+   */
+  boolean getDeviceTokens();
+
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.relay.v1.ClientToken> 
+      getClientTokensList();
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.relay.v1.ClientToken getClientTokens(int index);
+  /**
+   * <code>repeated .agentmesh.relay.v1.ClientToken client_tokens = 5 [json_name = "clientTokens"];</code>
+   */
+  int getClientTokensCount();
 }

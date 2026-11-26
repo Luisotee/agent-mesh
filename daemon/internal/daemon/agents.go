@@ -527,6 +527,7 @@ func (d *Daemon) pruneMutations(ctx context.Context) {
 	if err != nil && ctx.Err() == nil {
 		d.log.Warn("pruning the mutation records", "err", err)
 	}
+	d.relayTokensChanged()
 }
 
 // watchTerminals follows exits and output marks, reconnecting until the daemon stops.
