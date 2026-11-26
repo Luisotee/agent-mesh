@@ -63,7 +63,7 @@ beforeEach(async () => {
           listSettings: async () => {
             await settingsGate
             return create(ListSettingsResponseSchema, {
-              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed']), settingOf('app.tray.close_to_tray', 'bool', false)],
+              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed', 'error']), settingOf('app.tray.close_to_tray', 'bool', false)],
             })
           },
           async *subscribeEvents() {

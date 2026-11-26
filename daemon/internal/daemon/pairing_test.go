@@ -438,8 +438,13 @@ func TestDeviceEventsNotSentToRunAgents(t *testing.T) {
 	}
 
 	// Host device receives DevicePaired, DeviceRevoked, and MessageDelivered.
-	if ev := recv(t, devStream).GetEvent(); ev.GetDevicePaired().GetDevice().GetId() != red.Msg.DeviceId {
+	ev := recv(t, devStream).GetEvent()
+	if ev.GetDevicePaired().GetDevice().GetId() != red.Msg.DeviceId {
 		t.Fatalf("device stream 1 = %v, want DevicePaired", ev)
+	}
+	// The event says which link the device came through, so a client can match them exactly.
+	if got := ev.GetDevicePaired().GetPairingId(); got == "" || got != cp.Msg.PairingId {
+		t.Fatalf("DevicePaired.pairing_id = %q, want the id CreatePairing returned (%q)", got, cp.Msg.PairingId)
 	}
 	if ev := recv(t, devStream).GetEvent(); ev.GetDeviceRevoked().GetDeviceId() != red.Msg.DeviceId {
 		t.Fatalf("device stream 2 = %v, want DeviceRevoked", ev)

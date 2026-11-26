@@ -414,11 +414,12 @@ func DefaultLeaves() []Leaf {
 }
 
 // NotifyEvents are the events the desktop app can notify about (app.notify.events).
-var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited"}
+var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited", "limited", "error"}
 
-// DefaultNotifyEvents are the ones that notify until the user chooses (every event but a clean exit). The desktop
+// DefaultNotifyEvents are the ones that notify until the user chooses (every event but a clean exit and a usage
+// limit, which the daemon usually handles itself by moving the agent to the next model). The desktop
 // app falls back to the same list before the host's settings arrive (desktop/src/prefs.ts).
-var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed"}
+var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error"}
 
 // AppLeaves are the desktop app's own preferences. They live on the host so every device and every agent sees
 // and can change them (docs/apps.md, "Settings are data on the host"); the daemon itself reads none of them.
@@ -433,7 +434,7 @@ func AppLeaves() []Leaf {
 		{Key: "app.notify.sound", Type: Bool, Default: true,
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
-			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, or any agent's exit"},
+			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit"},
 		{Key: "app.tray.close_to_tray", Type: Bool, Default: false,
 			Summary: "closing the desktop window keeps the app running in the tray (off by default: a desktop with no tray would leave no way back to the window)"},
 	}

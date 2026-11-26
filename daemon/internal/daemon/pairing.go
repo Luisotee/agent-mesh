@@ -254,7 +254,7 @@ func (d *Daemon) RedeemPairing(ctx context.Context, req *connect.Request[v1.Rede
 		}
 		tx.Actor = &v1.Actor{Class: rec.Class, Id: devID, Name: name}
 		if _, err := tx.AppendEvent(&v1.Event{
-			Payload: &v1.Event_DevicePaired{DevicePaired: &v1.DevicePaired{Device: dev}},
+			Payload: &v1.Event_DevicePaired{DevicePaired: &v1.DevicePaired{Device: dev, PairingId: rec.ID}},
 		}); err != nil {
 			return err
 		}

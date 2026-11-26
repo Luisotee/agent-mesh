@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { BridgeEvent, DesktopApi, NoticeClick, SocketEvent } from '../shared/api.js'
+import type { BridgeEvent, DesktopApi, NoticeClick, OpenedLink, SocketEvent } from '../shared/api.js'
 
 const listeners = new Map<string, (e: BridgeEvent) => void>()
 ipcRenderer.on('bridge:event', (_e, id: string, ev: BridgeEvent) => {
@@ -36,6 +36,15 @@ const api: DesktopApi = {
         ipcRenderer.send('socket:close', id)
       },
     }
+  },
+  links: {
+    take: () => ipcRenderer.invoke('links:take'),
+    onOpen(cb) {
+      // Main only rings; the link itself is taken, so it is handed over once.
+      const handler = () => void (ipcRenderer.invoke('links:take') as Promise<OpenedLink | undefined>).then((l) => l && cb(l))
+      ipcRenderer.on('links:open', handler)
+      return () => ipcRenderer.removeListener('links:open', handler)
+    },
   },
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
   shell: {

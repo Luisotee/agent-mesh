@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { AgentRole, AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, type Event } from './gen/agentmesh/v1/types_pb'
 import { LIVE_WITHIN_MS, noticeFor } from './notify'
+import { DEFAULT_PREFS } from './prefs'
 
 const NOW = 1_800_000_000_000
 const agent = (id: string, role: AgentRole, o: { state?: AgentState } = {}) => create(AgentSchema, { id, name: `app-${id}`, role, state: o.state ?? AgentState.WORKING })
@@ -18,6 +19,23 @@ describe('noticeFor', () => {
     expect(noticeFor(e(AgentState.WORKING, AgentState.NEEDS_INPUT), agents, NOW)).toMatchObject({ kind: 'input', tag: 'w1', title: 'app-w1 needs you', body: 'Claude needs your permission to use Bash', tab: 'terminal' })
     expect(noticeFor(e(AgentState.NEEDS_INPUT, AgentState.NEEDS_INPUT), agents, NOW)).toBeUndefined()
     expect(noticeFor(e(AgentState.WORKING, AgentState.IDLE), agents, NOW)).toBeUndefined()
+  })
+
+  it('says an agent hit its usage limit or is in error, once, and not when it recovers', () => {
+    const e = (from: AgentState, to: AgentState, detail = '') => ev({ case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from, to, detail, needsInput: 0 } })
+    expect(noticeFor(e(AgentState.WORKING, AgentState.LIMITED, 'resets at 5pm'), agents, NOW)).toMatchObject({ kind: 'limited', tag: 'w1', title: 'app-w1 hit its usage limit', body: 'resets at 5pm', tab: 'terminal' })
+    expect(noticeFor(e(AgentState.WORKING, AgentState.ERROR, 'API error 500'), agents, NOW)).toMatchObject({ kind: 'error', tag: 'w1', title: 'app-w1 is in error', body: 'API error 500' })
+    expect(noticeFor(e(AgentState.WORKING, AgentState.ERROR), agents, NOW)!.body).not.toBe('') // never an empty notification
+    expect(noticeFor(e(AgentState.LIMITED, AgentState.LIMITED), agents, NOW)).toBeUndefined()
+    expect(noticeFor(e(AgentState.ERROR, AgentState.ERROR), agents, NOW)).toBeUndefined()
+    expect(noticeFor(e(AgentState.LIMITED, AgentState.WORKING), agents, NOW)).toBeUndefined()
+    expect(noticeFor(e(AgentState.WORKING, AgentState.ERROR), {}, NOW)).toBeUndefined()
+  })
+
+  it('notifies on an error out of the box, and on a usage limit only when the user asks (the host\'s defaults)', () => {
+    expect(DEFAULT_PREFS.notifyEvents.has('error')).toBe(true)
+    expect(DEFAULT_PREFS.notifyEvents.has('limited')).toBe(false)
+    expect(DEFAULT_PREFS.notifyEvents.has('exited')).toBe(false)
   })
 
   it('notifies for a plan, question, report or failure sent to the lead', () => {
