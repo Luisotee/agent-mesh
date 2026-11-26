@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // relaySteps is at most this many.
@@ -51,6 +52,26 @@ func (d *Daemon) relayStepsOf(r interface {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].CreatedAt.AsTime().Before(out[j].CreatedAt.AsTime()) })
 	return out, nil
+}
+
+// openRelayStep refuses while a step of the relay is still collecting its answer.
+func openRelayStep(steps []*v1.Ask) error {
+	for _, a := range steps {
+		if a.Status == v1.AskStatus_ASK_STATUS_OPEN {
+			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+				"relay step %d of this PR is still collecting its answer (%s): its message comes when the reviewer has answered", a.RelayStep, a.Id))
+		}
+	}
+	return nil
+}
+
+// relayOpenStep reads the PR's relay steps and refuses while one is open.
+func (d *Daemon) relayOpenStep(r store.Reader, runID, pr string) error {
+	steps, err := d.relayStepsOf(r, runID, pr)
+	if err != nil {
+		return err
+	}
+	return openRelayStep(steps)
 }
 
 // answeringKind is the kind of the first member of an ask that answered.
@@ -91,13 +112,12 @@ func (d *Daemon) relayStep(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	if err != nil {
 		return nil, err
 	}
+	if err := openRelayStep(steps); err != nil {
+		return nil, err
+	}
 	var done []*v1.Ask // the steps that counted: finished with an answer
 	for _, a := range steps {
-		switch {
-		case a.Status == v1.AskStatus_ASK_STATUS_OPEN:
-			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-				"relay step %d of this PR is still collecting its answer (%s): its message comes when the reviewer has answered", a.RelayStep, a.Id))
-		case answered(a) > 0:
+		if answered(a) > 0 {
 			done = append(done, a)
 		}
 	}

@@ -112,16 +112,20 @@ func Signal(pid int, startTicks uint64, sig syscall.Signal) error {
 const ClockTicks = 100
 
 // Usage is a process's resident memory in kB (/proc/<pid>/statm) and the CPU time it has used, user plus system,
-// in clock ticks (/proc/<pid>/stat fields 14 and 15).
+// in clock ticks (/proc/<pid>/stat fields 14 and 15), with that of the children it has waited for (fields 16 and
+// 17): a build or a test run that starts and ends between two samples is only ever seen there.
 func Usage(pid int) (rssKB, cpuTicks uint64, err error) {
 	f, err := stat(pid)
 	if err != nil {
 		return 0, 0, err
 	}
-	utime, err1 := strconv.ParseUint(f[11], 10, 64)
-	stime, err2 := strconv.ParseUint(f[12], 10, 64)
-	if err1 != nil || err2 != nil {
-		return 0, 0, fmt.Errorf("unparseable CPU times in /proc/%d/stat", pid)
+	var ticks uint64
+	for _, i := range []int{11, 12, 13, 14} { // utime, stime, cutime, cstime
+		n, perr := strconv.ParseUint(f[i], 10, 64)
+		if perr != nil {
+			return 0, 0, fmt.Errorf("unparseable CPU times in /proc/%d/stat", pid)
+		}
+		ticks += n
 	}
 	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/statm", pid))
 	if err != nil {
@@ -135,7 +139,7 @@ func Usage(pid int) (rssKB, cpuTicks uint64, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	return pages * uint64(os.Getpagesize()) / 1024, utime + stime, nil
+	return pages * uint64(os.Getpagesize()) / 1024, ticks, nil
 }
 
 // PPID is a process's parent (/proc/<pid>/stat field 4).

@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -99,5 +100,35 @@ func TestARelayRunsABAOnTheFixRangeAndCountsThreeSteps(t *testing.T) {
 		if _, err := w.asRoot.Ask(ctx, connect.NewRequest(req)); code(err) != connect.CodeInvalidArgument {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// Two relay calls at once start one step, not two: the check for an open step is repeated in the write that
+// stores the ask.
+func TestTwoRelayCallsAtOnceStartOneStep(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	w.pr.push(t, "the feature")
+	var wg sync.WaitGroup
+	errs := make([]error, 6)
+	for i := range errs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Repo: w.pr.repo, Review: "7", Relay: true}))
+		}()
+	}
+	wg.Wait()
+	ok := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			ok++
+		case code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "still collecting"):
+			t.Errorf("a concurrent relay call: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Errorf("%d of 6 concurrent relay calls started a step", ok)
 	}
 }

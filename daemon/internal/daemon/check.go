@@ -21,7 +21,7 @@ const (
 )
 
 // CheckAgent is the root's look at a worker's branch in one call: what `git log`, `git diff --stat`, `git status`
-// and `gh pr view` would each print, capped. The PRs are read from GitHub now.
+// and `gh pr view` would each print, capped. The PRs are read from GitHub now (a read-only device gets the stored ones).
 func (d *Daemon) CheckAgent(ctx context.Context, req *connect.Request[v1.CheckAgentRequest]) (*connect.Response[v1.CheckAgentResponse], error) {
 	r := d.store.Read(ctx)
 	a, err := d.FindAgent(r, auth.ActorFrom(ctx), req.Msg.Agent)
@@ -50,10 +50,18 @@ func (d *Daemon) checkText(ctx context.Context, a *v1.Agent) string {
 		}
 		return sha
 	}
-	out = append(out, fmt.Sprintf("branch %s at %s, base %s", a.Branch, short(tip), short(a.BaseCommit)))
-	if a.BaseCommit != "" {
-		span := a.BaseCommit + ".." + tip
-		if log, err := gitRO(ctx, a.Repo, "log", "--format=%h %s", span); err == nil {
+	// The base is where the worker's own work starts: its start commit, or, once it has merged the default branch
+	// in, the newest commit of that branch it has merged (what main brought is not the worker's).
+	base := a.BaseCommit
+	if def := defaultBaseRO(ctx, a.Repo); def != "HEAD" {
+		if mb, err := gitRO(ctx, a.Repo, "merge-base", def, tip); err == nil && mb != "" {
+			base = mb
+		}
+	}
+	out = append(out, fmt.Sprintf("branch %s at %s, base %s", a.Branch, short(tip), short(base)))
+	if base != "" {
+		span := base + ".." + tip
+		if log, err := gitRO(ctx, a.Repo, "log", "--no-merges", "--format=%h %s", span); err == nil {
 			lines := nonEmpty(strings.Split(log, "\n"))
 			out = append(out, fmt.Sprintf("commits past the base: %d", len(lines)))
 			for i, l := range lines {
@@ -64,7 +72,7 @@ func (d *Daemon) checkText(ctx context.Context, a *v1.Agent) string {
 				out = append(out, "  "+l)
 			}
 		}
-		if num, err := gitRO(ctx, a.Repo, "diff", "--numstat", a.BaseCommit, tip); err == nil {
+		if num, err := gitRO(ctx, a.Repo, "diff", "--numstat", base, tip); err == nil {
 			out = append(out, diffStat(num)...)
 		}
 	}
@@ -93,10 +101,17 @@ func (d *Daemon) checkText(ctx context.Context, a *v1.Agent) string {
 			}
 		}
 	}
-	d.refreshPRs(ctx, ctx, a, true)
+	// A read-only device sees the PRs the daemon has stored: a phone polling this must not spend the host's GitHub
+	// rate limit or write the store.
+	readOnly := false
+	if actor := auth.ActorFrom(ctx); actor != nil && actor.Class == v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE {
+		readOnly = true
+	} else {
+		d.refreshPRs(ctx, ctx, a, true)
+	}
 	prs, _ := d.store.Read(ctx).AgentPRs(a.Id)
 	sort.SliceStable(prs, func(i, j int) bool { return prs[i].Number < prs[j].Number })
-	if txt := prText(&v1.AgentPullRequests{PullRequests: prs, ReadFailed: !d.prs.read(a.Id)}, false); txt != "" {
+	if txt := prText(&v1.AgentPullRequests{PullRequests: prs, ReadFailed: !readOnly && !d.prs.read(a.Id)}, false); txt != "" {
 		out = append(out, "PRs: "+txt)
 	} else {
 		out = append(out, "PRs: none found")

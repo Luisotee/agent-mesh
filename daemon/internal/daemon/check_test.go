@@ -6,11 +6,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 )
 
 type checker interface {
@@ -70,5 +73,71 @@ func TestCheckAgentShowsABranchInOneCall(t *testing.T) {
 	asWorker := w.as(w.token(t, worker.Id))
 	if _, err := asWorker.CheckAgent(ctx, connect.NewRequest(&v1.CheckAgentRequest{Agent: worker.Id})); code(err) != connect.CodePermissionDenied {
 		t.Errorf("a worker checked: %v", err)
+	}
+}
+
+// A worker that merged the default branch in is credited only with its own work: the base moves to the newest
+// commit of that branch it has merged, and merge commits are not counted.
+func TestCheckAgentDoesNotCountWhatMainBrought(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	gitIn(t, repo, "remote", "add", "origin", repo)
+	gitIn(t, repo, "fetch", "origin")
+	gitIn(t, repo, "remote", "set-head", "origin", "main")
+	run := startRun(t, w.device.Mesh, "")
+	worker := w.spawn(run.Id, repo, "fix", "")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	got, _ := w.device.Mesh.GetAgent(ctx, connect.NewRequest(&v1.GetAgentRequest{Agent: worker.Id}))
+	wt := got.Msg.Agent.Worktree
+	os.WriteFile(filepath.Join(wt, "mine.txt"), []byte("one\n"), 0o644)
+	gitIn(t, wt, "add", ".")
+	gitIn(t, wt, "commit", "-m", "the worker's change")
+	os.WriteFile(filepath.Join(repo, "theirs.txt"), []byte("a\nb\nc\nd\n"), 0o644)
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "main moved on")
+	gitIn(t, repo, "fetch", "origin")
+	gitIn(t, wt, "merge", "--no-edit", "origin/main")
+	res, err := w.device.Mesh.CheckAgent(ctx, connect.NewRequest(&v1.CheckAgentRequest{Agent: worker.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := res.Msg.Text
+	if !strings.Contains(text, "commits past the base: 1") || !strings.Contains(text, "the worker's change") ||
+		strings.Contains(text, "main moved on") || strings.Contains(text, "theirs.txt") || !strings.Contains(text, "mine.txt") {
+		t.Errorf("the check counts main's work as the worker's:\n%s", text)
+	}
+}
+
+// A read-only device is shown the stored PRs: its call runs no gh (a phone polling it would spend the host's
+// GitHub rate limit) and writes nothing.
+func TestCheckAgentForAReadOnlyDeviceRunsNoGH(t *testing.T) {
+	var ghCalls atomic.Int32
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true, RunGH: func(context.Context, string, ...string) ([]byte, error) {
+			ghCalls.Add(1)
+			return []byte("[]"), nil
+		}}
+	})
+	ctx := context.Background()
+	repo := gitRepo(t)
+	gitIn(t, repo, "remote", "add", "origin", "https://github.com/o/r.git")
+	run := startRun(t, w.device.Mesh, "")
+	worker := w.spawn(run.Id, repo, "fix", "")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	ghCalls.Store(0)
+	ro := auth.WithActor(ctx, &v1.Actor{Id: "viewer", Class: v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE})
+	res, err := w.d.CheckAgent(ro, connect.NewRequest(&v1.CheckAgentRequest{Agent: worker.Id}))
+	if err != nil || !strings.Contains(res.Msg.Text, "PRs: ") {
+		t.Fatalf("a read-only device: %v, %v", res, err)
+	}
+	if n := ghCalls.Load(); n != 0 {
+		t.Errorf("a read-only device's check ran gh %d times", n)
+	}
+	if _, err := w.device.Mesh.CheckAgent(ctx, connect.NewRequest(&v1.CheckAgentRequest{Agent: worker.Id})); err != nil {
+		t.Fatal(err)
+	}
+	if ghCalls.Load() == 0 {
+		t.Errorf("the host's own device's check read nothing from GitHub (the test's remote is no GitHub repo?)")
 	}
 }

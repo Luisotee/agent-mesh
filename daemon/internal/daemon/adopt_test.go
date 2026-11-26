@@ -207,6 +207,26 @@ func TestAdoptingTakesOverTheRunsOwnRoot(t *testing.T) {
 	if term := w.agent(lead.Id).TerminalId; term != "" {
 		t.Errorf("the old process is still the root's terminal: %s", term)
 	}
+	// The timeline never shows the root as retired and then revived: one state change, from what it was.
+	evs, _ := w.d.Store().Read(ctx).ListEvents(run.Id)
+	changed := 0
+	for _, e := range evs {
+		if e.AgentId != lead.Id {
+			continue
+		}
+		if r := e.GetAgentRetired(); r != nil {
+			t.Errorf("the takeover appended a retire event: %v", r)
+		}
+		if c := e.GetAgentStateChanged(); c != nil && strings.Contains(c.Detail, "adopted the Claude Code session") {
+			changed++
+			if c.From == v1.AgentState_AGENT_STATE_RETIRED || c.To != v1.AgentState_AGENT_STATE_IDLE {
+				t.Errorf("the takeover's state change: %v", c)
+			}
+		}
+	}
+	if changed != 1 {
+		t.Errorf("%d state changes for the takeover", changed)
+	}
 	if _, err := asLead.ListAgents(ctx, connect.NewRequest(&v1.ListAgentsRequest{RunId: run.Id})); err == nil {
 		t.Errorf("the spawned root's token still works")
 	}

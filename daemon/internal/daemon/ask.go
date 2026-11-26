@@ -460,7 +460,15 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
 	}, func(r store.Reader, a *v1.Ask) string { return d.roundsHint(r, a, false) },
-		func(r store.Reader) error { return d.workerCeiling(r, actor, m.Meta, pr, m.Size) })
+		func(r store.Reader) error {
+			if relay != nil {
+				// Checked in the write that stores the ask: two calls at once both found no step open before it.
+				if err := d.relayOpenStep(r, actor.RunId, pr.URL); err != nil {
+					return err
+				}
+			}
+			return d.workerCeiling(r, actor, m.Meta, pr, m.Size)
+		})
 }
 
 // collectRound starts the members of a collected ask one after another and returns once they have started

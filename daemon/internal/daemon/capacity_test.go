@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -84,4 +85,44 @@ func TestSamplingMeasuresMemoryAndCPUAndTheLineFollows(t *testing.T) {
 	if line := w.d.CapacityLine(ctx); !strings.Contains(line, "of 3 workers working, caps.working set") {
 		t.Errorf("set: %q", line)
 	}
+}
+
+// A pass reads every agent's /proc entries without the sampler's lock: the cap check inside a spawn's write
+// transaction reads the measurements through it, and must not wait for a pass that is still reading.
+func TestACapacityPassDoesNotBlockTheCapCheckWhileItReadsProc(t *testing.T) {
+	dir := t.TempDir()
+	mem := writeProc(t, dir, "meminfo", meminfoText(12000, 0, 16000, 0))
+	var reading, release = make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	fs := newFakeSys()
+	ops := fs.ops()
+	ops.ProcUsage = func(pid int) (uint64, uint64, error) {
+		once.Do(func() { close(reading) })
+		<-release
+		return 600 * 1024, 1, nil
+	}
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.MeminfoPath, c.Cores, c.Sys = mem, 4, ops })
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	a := w.spawn(run.Id, gitRepo(t), "worker", "")
+	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	passed := make(chan struct{})
+	go func() { w.d.SampleCapacityAt(ctx, time.Now()); close(passed) }()
+	select {
+	case <-reading:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the pass never read a process")
+	}
+	got := make(chan string, 1)
+	go func() { got <- w.d.CapacityLine(ctx) }()
+	select {
+	case line := <-got:
+		if line == "" {
+			t.Errorf("no capacity line")
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the capacity line waits for a pass that is reading /proc")
+	}
+	close(release)
+	<-passed
 }

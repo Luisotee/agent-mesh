@@ -262,17 +262,15 @@ func (d *Daemon) sampleCapacityAt(ctx context.Context, now time.Time) {
 	if err != nil {
 		return
 	}
-	var mbSum float64
-	var measured int
-	var cpuSum float64
-	var cpuN int
-	seen := map[string]bool{}
-	s := &d.rt.sampler
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.last == nil {
-		s.last = map[string]cpuMark{}
+	// /proc is read without the sampler's lock: capGuard reads the measurements inside the store's write
+	// transaction, and a spawn must not wait there for a pass that is still reading every agent's tree.
+	type reading struct {
+		id      string
+		rssKB   uint64
+		ticks   uint64
+		working bool
 	}
+	var got []reading
 	for _, a := range agents {
 		pid, ok := pids[a.TerminalId]
 		if !ok || stopped(a) {
@@ -290,14 +288,25 @@ func (d *Daemon) sampleCapacityAt(ctx context.Context, now time.Time) {
 		if rssKB == 0 {
 			continue
 		}
-		seen[a.Id] = true
-		mbSum += float64(rssKB) / 1024
+		got = append(got, reading{a.Id, rssKB, ticks, a.State == v1.AgentState_AGENT_STATE_WORKING})
+	}
+	var mbSum, cpuSum float64
+	var measured, cpuN int
+	seen := map[string]bool{}
+	s := &d.rt.sampler
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.last == nil {
+		s.last = map[string]cpuMark{}
+	}
+	for _, g := range got {
+		seen[g.id] = true
+		mbSum += float64(g.rssKB) / 1024
 		measured++
-		prev, had := s.last[a.Id]
-		s.last[a.Id] = cpuMark{ticks, now}
-		if dt := now.Sub(prev.at).Seconds(); had && dt >= 5 && ticks >= prev.ticks &&
-			a.State == v1.AgentState_AGENT_STATE_WORKING {
-			cpuSum += float64(ticks-prev.ticks) / proc.ClockTicks / dt
+		prev, had := s.last[g.id]
+		s.last[g.id] = cpuMark{g.ticks, now}
+		if dt := now.Sub(prev.at).Seconds(); had && dt >= 5 && g.ticks >= prev.ticks && g.working {
+			cpuSum += float64(g.ticks-prev.ticks) / proc.ClockTicks / dt
 			cpuN++
 		}
 	}

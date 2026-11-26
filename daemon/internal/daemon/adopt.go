@@ -140,15 +140,22 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 			// conversation stays on disk; its row, mailbox and workers are the session's from here on): a write
 			// that fails leaves the root as it was. Its process is stopped once this commits.
 			old = proto.Clone(cur).(*v1.Agent)
-			if _, err := retireTx(tx, cur, "adopted by a session"); err != nil {
+			from := cur.State
+			// Not retireTx: the row never shows as retired (the timeline would read "retired", then "revived"),
+			// only as the root's state changing to the session's. What it does besides is done here: its
+			// pending reopen ends and its token stops working.
+			if err := cancelReopen(tx, cur, "adopted by a session"); err != nil {
 				return err
 			}
-			from := cur.State
+			if err := tx.RevokeTokens(cur.Id); err != nil {
+				return err
+			}
 			cur.State, cur.StateDetail, cur.NeedsInput = v1.AgentState_AGENT_STATE_IDLE, "", 0
 			cur.TerminalId, cur.SessionId, cur.Kind = "", sess.ID, claude.Kind
 			cur.Repo, cur.Worktree, cur.Branch, cur.BaseCommit = top, "", "", ""
 			cur.AdoptedPid, cur.AdoptedPidStart = m.Pid, m.PidStartTicks
 			cur.PendingReopen, cur.PendingReset, cur.PendingCompaction = nil, nil, nil
+			cur.StateBeforeCompact = v1.AgentState_AGENT_STATE_UNSPECIFIED
 			cur.LastActivity = timestamppb.New(now)
 			if err := tx.PutAgent(cur); err != nil {
 				return err
