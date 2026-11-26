@@ -160,7 +160,8 @@ func (d *Daemon) workerCeiling(r store.Reader, actor *v1.Actor, meta *v1.Request
 		return err
 	} else if open != nil {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"a review round of PR #%d is still open (asked by %s): wait for its answers", pr.Number, open.CallerName))
+			"a review round of PR #%d is still open (ask %s by %s, until %s at the latest): wait for its answers",
+			pr.Number, open.Id, open.CallerName, open.Deadline.AsTime().UTC().Format("15:04:05Z")))
 	}
 	max, err := d.settingInt(r, "review.rounds."+sizeKey(size))
 	if err != nil {
@@ -203,7 +204,7 @@ func judgeOf(actor *v1.Actor) string {
 // openOwnAsk tells whether the agent has an ask it waits on: a collected one (a round, or the peers) still waiting
 // for its members, or a single reviewer it asked that has not reported yet. It waits on purpose, so its parent is
 // not owed a report yet (accountability).
-func openOwnAsk(r store.Reader, a *v1.Agent, now time.Time) bool {
+func (d *Daemon) openOwnAsk(r store.Reader, a *v1.Agent, now time.Time) bool {
 	asks, err := r.OpenAsks()
 	if err != nil {
 		return false
@@ -217,8 +218,14 @@ func openOwnAsk(r store.Reader, a *v1.Agent, now time.Time) bool {
 	if err != nil {
 		return false
 	}
+	// A single reviewer is waited on for as long as a round's members are (`ask.timeout`): one that hung without
+	// reporting must not keep its asker from being nudged for good.
+	limit := time.Duration(0)
+	if v, err := d.Setting(r, "ask.timeout"); err == nil {
+		limit = time.Duration(v.(float64) * float64(time.Second))
+	}
 	for _, k := range all {
-		if k.Collected || k.CallerId != a.Id || k.Kind != v1.AskKind_ASK_KIND_REVIEW {
+		if k.Collected || k.CallerId != a.Id || k.Kind != v1.AskKind_ASK_KIND_REVIEW || !now.Before(k.CreatedAt.AsTime().Add(limit)) {
 			continue
 		}
 		for _, m := range k.Members {

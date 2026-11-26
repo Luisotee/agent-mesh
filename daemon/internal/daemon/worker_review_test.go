@@ -492,3 +492,26 @@ func TestAVerdictsNotFoundErrorSaysByYouOnlyToAWorker(t *testing.T) {
 		t.Errorf("worker: %v", err)
 	}
 }
+
+// A reviewer that hung without reporting does not hold its asker's nudge past `ask.timeout`.
+func TestAWorkerIsNudgedOnceItsSingleReviewerHasHadAskTimeoutToAnswer(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.setting("ask.timeout", 60.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	a.taskRead()
+	a.seedAgent(a.run.Id, "a-r1", "repo-review-7-claude", "a-w1", v1.AgentRole_AGENT_ROLE_REVIEWER)
+	err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutAsk(&v1.Ask{Id: "k1", RunId: a.run.Id, CallerId: "a-w1", CallerName: "repo-one", Kind: v1.AskKind_ASK_KIND_REVIEW,
+			Status: v1.AskStatus_ASK_STATUS_FINISHED, CreatedAt: timestamppb.New(time.Now().Add(-2 * time.Minute)),
+			Members: []*v1.AskMember{{AgentId: "a-r1", Name: "repo-review-7-claude", Status: v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING}}})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
+		t.Errorf("nudges with its reviewer long overdue: %d", n)
+	}
+}
