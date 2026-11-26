@@ -21,6 +21,7 @@ public  final class ApproveAgentRequest extends
     effort_ = "";
     body_ = "";
     why_ = "";
+    reviews_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -447,6 +448,73 @@ public  final class ApproveAgentRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     why_ = value.toStringUtf8();
+
+  }
+
+  public static final int REVIEWS_FIELD_NUMBER = 9;
+  private java.lang.String reviews_;
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * </pre>
+   *
+   * <code>string reviews = 9 [json_name = "reviews"];</code>
+   * @return The reviews.
+   */
+  @java.lang.Override
+  public java.lang.String getReviews() {
+    return reviews_;
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * </pre>
+   *
+   * <code>string reviews = 9 [json_name = "reviews"];</code>
+   * @return The bytes for reviews.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReviewsBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(reviews_);
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * </pre>
+   *
+   * <code>string reviews = 9 [json_name = "reviews"];</code>
+   * @param value The reviews to set.
+   */
+  private void setReviews(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    reviews_ = value;
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * </pre>
+   *
+   * <code>string reviews = 9 [json_name = "reviews"];</code>
+   */
+  private void clearReviews() {
+
+    reviews_ = getDefaultInstance().getReviews();
+  }
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * </pre>
+   *
+   * <code>string reviews = 9 [json_name = "reviews"];</code>
+   * @param value The bytes for reviews to set.
+   */
+  private void setReviewsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    reviews_ = value.toStringUtf8();
 
   }
 
@@ -988,6 +1056,75 @@ public  final class ApproveAgentRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * </pre>
+     *
+     * <code>string reviews = 9 [json_name = "reviews"];</code>
+     * @return The reviews.
+     */
+    @java.lang.Override
+    public java.lang.String getReviews() {
+      return instance.getReviews();
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * </pre>
+     *
+     * <code>string reviews = 9 [json_name = "reviews"];</code>
+     * @return The bytes for reviews.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReviewsBytes() {
+      return instance.getReviewsBytes();
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * </pre>
+     *
+     * <code>string reviews = 9 [json_name = "reviews"];</code>
+     * @param value The reviews to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviews(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setReviews(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * </pre>
+     *
+     * <code>string reviews = 9 [json_name = "reviews"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviews() {
+      copyOnWrite();
+      instance.clearReviews();
+      return this;
+    }
+    /**
+     * <pre>
+     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * </pre>
+     *
+     * <code>string reviews = 9 [json_name = "reviews"];</code>
+     * @param value The bytes for reviews to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setReviewsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ApproveAgentRequest)
   }
   @java.lang.Override
@@ -1013,10 +1150,11 @@ public  final class ApproveAgentRequest extends
             "keepModel_",
             "body_",
             "why_",
+            "reviews_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
-              "\u0208\u0004\u0208\u0005\u0208\u0006\u0007\u0007\u0208\b\u0208";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
+              "\u0208\u0004\u0208\u0005\u0208\u0006\u0007\u0007\u0208\b\u0208\t\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

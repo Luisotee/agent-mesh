@@ -42,6 +42,22 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 		}
 	}
 	body := strings.TrimSpace(m.Body)
+	if m.Review != "" && m.Agent == "" && m.Peers == "" {
+		// A review's defaults: an agent naming no repo means its own, and a review with no tier runs on the size's.
+		m = proto.Clone(m).(*v1.AskRequest)
+		if strings.TrimSpace(m.Repo) == "" && IsAgent(actor.Class) {
+			if self, err := d.store.Read(ctx).GetAgent(actor.Id); err == nil {
+				m.Repo = self.Repo
+			}
+		}
+		if sz, ok := sizes[m.Size]; ok && m.Tier == "" && m.Model == "" {
+			t, err := d.reviewTier(d.store.Read(ctx), sz)
+			if err != nil {
+				return nil, err
+			}
+			m.Tier = t
+		}
+	}
 	if strings.HasPrefix(m.Review, "-") {
 		return nil, invalid("review %q looks like an option: give the PR's number or URL", m.Review)
 	}
@@ -196,6 +212,9 @@ func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 	task := askPrefix + "\n\n" + body
 	switch {
 	case m.Review != "":
+		if d.selfWorker(r, actor) != nil {
+			return nil, invalid("a worker's re-review is a round: `mesh ask --review <PR> --size <size> --reviewers auto` asks the earlier reviewers again, and counts against the ceiling")
+		}
 		if _, ok := sizes[m.Size]; !ok {
 			return nil, invalid("size %q: trivial, small or large (it picks the /code-review level)", m.Size)
 		}
@@ -243,7 +262,7 @@ func (d *Daemon) askAgent(ctx context.Context, actor *v1.Actor, m *v1.AskRequest
 // reviewOne starts one fresh reviewer, at the PR's head. Its own `done` is the answer: no collecting, but the
 // ask is kept, so a later round knows which head was reviewed.
 func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
-	top, err := d.repoTop(ctx, m.Repo)
+	top, err := d.reviewTop(ctx, actor, m.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +271,12 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		return nil, err
 	}
 	r := d.store.Read(ctx)
+	if err := d.workerGuard(r, actor, pr); err != nil {
+		return nil, err
+	}
+	if err := d.workerCeiling(r, actor, pr, m.Size); err != nil {
+		return nil, err
+	}
 	kind := orClaude(m.Kind)
 	level, err := d.settingString(r, "review.level."+m.Size)
 	if err != nil {
@@ -318,7 +343,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	if m.Model != "" || m.Kind != "" {
 		return nil, invalid("a round picks its own kinds (--reviewers) on a tier: model and kind are for one reviewer")
 	}
-	top, err := d.repoTop(ctx, m.Repo)
+	top, err := d.reviewTop(ctx, actor, m.Repo)
 	if err != nil {
 		return nil, err
 	}
@@ -327,6 +352,12 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		return nil, err
 	}
 	r := d.store.Read(ctx)
+	if err := d.workerGuard(r, actor, pr); err != nil {
+		return nil, err
+	}
+	if err := d.workerCeiling(r, actor, pr, m.Size); err != nil {
+		return nil, err
+	}
 	prior, err := roundsOf(r, pr.URL)
 	if err != nil {
 		return nil, err
@@ -669,7 +700,8 @@ func prKey(u string) string {
 	return strings.ToLower(strings.TrimRight(u, "/"))
 }
 
-// RecordVerdict stores the root's judgement of one reviewer's findings on the PR's newest round.
+// RecordVerdict stores the judgement of one reviewer's findings on the PR's newest round: the PR author's (a
+// worker, for the rounds it asked) or the root's, which replaces it.
 func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error) {
 	m := req.Msg
 	if m.Pr == "" || m.Reviewer == "" {
@@ -695,16 +727,28 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 			if ask.Kind != v1.AskKind_ASK_KIND_REVIEW {
 				continue
 			}
+			// A worker judges the rounds it asked, and never overrules the root's or a user's verdict.
+			if tx.Actor.Class == v1.ActorClass_ACTOR_CLASS_WORKER && ask.CallerId != tx.Actor.Id {
+				continue
+			}
 			for _, mem := range ask.Members {
 				if mem.Name != m.Reviewer && mem.AgentId != m.Reviewer {
 					continue
+				}
+				judge := judgeOf(tx.Actor)
+				if judge == judgeAuthor {
+					for _, old := range ask.Verdicts {
+						if old.Reviewer == mem.Name && old.Judge != judgeAuthor { // an older verdict with no judge is the root's
+							return failedPrecondition("%s's findings already have the %s's verdict: it stands", mem.Name, orDefault(old.Judge, judgeRoot))
+						}
+					}
 				}
 				tier := mem.Tier
 				if a, err := tx.GetAgent(mem.AgentId); err == nil && a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING && a.ExecTier != "" {
 					tier = a.ExecTier
 				}
 				v := &v1.Verdict{Reviewer: mem.Name, Kind: mem.Kind, Model: mem.Model, Tier: tier, Agree: m.Agree, Other: m.Other,
-					Disagree: m.Disagree, Blocking: m.Blocking, At: timestamppb.New(tx.Now())}
+					Disagree: m.Disagree, Blocking: m.Blocking, At: timestamppb.New(tx.Now()), Judge: judge}
 				kept := ask.Verdicts[:0]
 				for _, old := range ask.Verdicts {
 					if old.Reviewer != mem.Name {
@@ -716,7 +760,7 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 				return tx.PutAsk(ask)
 			}
 		}
-		return notFound("no review of %s asked %s", m.Pr, m.Reviewer)
+		return notFound("no review of %s asked %s by you", m.Pr, m.Reviewer)
 	})
 	if err != nil {
 		return nil, err

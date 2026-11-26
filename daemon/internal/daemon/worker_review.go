@@ -1,0 +1,295 @@
+package daemon
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"connectrpc.com/connect"
+
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+)
+
+// A worker runs and settles its own PR's review round (docs/apps.md: a worker may start read-only agents). The
+// round itself is the root's machinery unchanged (ask.go, collect.go); this file holds what is a worker's alone:
+// who runs a PR's rounds (`review.by`, `mesh spawn --reviews`), the refusals that keep a worker to its own PR and
+// to the round ceiling, its verdicts, and the footer that shows its parent what the rounds found.
+
+const (
+	reviewByWorker = "worker"
+	reviewByRoot   = "root"
+
+	judgeAuthor = "author" // a verdict the PR's author (the worker that asked the round) gave
+	judgeRoot   = "root"
+	judgeUser   = "user" // a device's
+)
+
+// checkReviewBy validates a `reviews` request field.
+func checkReviewBy(s string) error {
+	if s == "" || s == reviewByWorker || s == reviewByRoot {
+		return nil
+	}
+	return invalid("reviews %q: worker (it runs its PR's review rounds itself) or root (its parent does)", s)
+}
+
+// reviewByOf is who runs a worker's PR's rounds: the worker's own choice, else the `review.by` setting.
+func (d *Daemon) reviewByOf(r store.Reader, a *v1.Agent) string {
+	if a.ReviewBy != "" {
+		return a.ReviewBy
+	}
+	if s, err := d.settingString(r, "review.by"); err == nil && s != "" {
+		return s
+	}
+	return reviewByWorker
+}
+
+// selfWorker is the calling agent when it is a worker, else nil.
+func (d *Daemon) selfWorker(r store.Reader, actor *v1.Actor) *v1.Agent {
+	if actor.Class != v1.ActorClass_ACTOR_CLASS_WORKER {
+		return nil
+	}
+	a, err := r.GetAgent(actor.Id)
+	if err != nil || a.Role != v1.AgentRole_AGENT_ROLE_WORKER {
+		return nil
+	}
+	return a
+}
+
+// reviewTop is the repo a review is of: a worker (or any agent) naming its own worktree, or nothing, means the
+// repo that worktree was made from, so the reviewers are named after it and their worktrees come from it.
+func (d *Daemon) reviewTop(ctx context.Context, actor *v1.Actor, repo string) (string, error) {
+	var self *v1.Agent
+	if IsAgent(actor.Class) {
+		self, _ = d.store.Read(ctx).GetAgent(actor.Id)
+	}
+	if strings.TrimSpace(repo) == "" {
+		if self != nil && self.Repo != "" {
+			return self.Repo, nil
+		}
+		return "", invalid("name the repo (--repo) the pull request is in")
+	}
+	top, err := d.repoTop(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	if self != nil && self.Repo != "" && self.Worktree != "" && sameDir(top, self.Worktree) {
+		return self.Repo, nil
+	}
+	return top, nil
+}
+
+// workerGuard refuses what a worker may not do with a review of this PR: a PR that is not its own, and one whose
+// rounds its parent runs (`review.by`, `--reviews root`: a relay for a risky PR). Anyone else passes.
+func (d *Daemon) workerGuard(r store.Reader, actor *v1.Actor, pr *prInfo) error {
+	self := d.selfWorker(r, actor)
+	if self == nil {
+		return nil
+	}
+	if d.reviewByOf(r, self) == reviewByRoot {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"your parent runs the reviews of your PR (review.by or --reviews root: a relay, or a PR it reads itself): "+
+				"don't ask a round; report `done` and it starts them"))
+	}
+	if pr.HeadRef == "" || pr.HeadRef != self.Branch {
+		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
+	}
+	return nil
+}
+
+// workerRoundsUsed is how many reviews of the PR count against a worker's ceiling: its answered rounds (any
+// caller's, any run: rounds are the PR's) and the single reviewers it asked, which have no round to count.
+func workerRoundsUsed(r store.Reader, actor *v1.Actor, pr string) (int, error) {
+	all, err := r.PRAsks(pr)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, a := range all {
+		if a.Kind != v1.AskKind_ASK_KIND_REVIEW {
+			continue
+		}
+		if a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED && answered(a) > 0 || !a.Collected && a.CallerId == actor.Id {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// workerCeiling refuses a worker's round past `review.rounds.<size>`: the daemon's cap, not the author's; the
+// root may still run one.
+func (d *Daemon) workerCeiling(r store.Reader, actor *v1.Actor, pr *prInfo, size string) error {
+	if d.selfWorker(r, actor) == nil {
+		return nil
+	}
+	max, err := d.settingInt(r, "review.rounds."+sizeKey(size))
+	if err != nil {
+		return err
+	}
+	used, err := workerRoundsUsed(r, actor, pr.URL)
+	if err != nil {
+		return err
+	}
+	if used >= max {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"PR #%d has had %d of at most %d review rounds for a %s PR (`review.rounds.%s`): fix what you agree with from them and "+
+				"report `done`; your parent decides on more", pr.Number, used, max, size, sizeKey(size)))
+	}
+	return nil
+}
+
+// reviewTier is the tier a review without one runs its reviewers on: `review.tier.<size>`.
+func (d *Daemon) reviewTier(r store.Reader, size string) (string, error) {
+	return d.settingString(r, "review.tier."+sizeKey(size))
+}
+
+// callerIsWorker tells whether a round was asked by a worker (the PR's author), whose hint reads differently.
+func callerIsWorker(r store.Reader, a *v1.Ask) bool {
+	c, err := r.GetAgent(a.CallerId)
+	return err == nil && c.Role == v1.AgentRole_AGENT_ROLE_WORKER
+}
+
+// judgeOf is the label of who gave a verdict.
+func judgeOf(actor *v1.Actor) string {
+	switch actor.Class {
+	case v1.ActorClass_ACTOR_CLASS_WORKER:
+		return judgeAuthor
+	case v1.ActorClass_ACTOR_CLASS_ROOT:
+		return judgeRoot
+	}
+	return judgeUser
+}
+
+// openOwnAsk tells whether the agent has a collected ask (a round, or the peers) still waiting for its members:
+// it waits on purpose, so its parent is not owed a report yet (accountability).
+func openOwnAsk(r store.Reader, a *v1.Agent, now time.Time) bool {
+	asks, err := r.OpenAsks()
+	if err != nil {
+		return false
+	}
+	for _, k := range asks {
+		if k.Collected && k.CallerId == a.Id && (k.Deadline == nil || now.Before(k.Deadline.AsTime())) {
+			return true
+		}
+	}
+	return false
+}
+
+// reviewFooter is what a worker's `done` to its parent carries about its PR's reviews, from the store alone: each
+// round it asked (who answered, the answers file, the verdicts and who gave them), and for a PR the `done` names
+// that it asked no round on, a line saying so. The parent then needs no relay to find the findings, and a
+// skipped round shows instead of passing silently. A worker whose parent runs its reviews gets none.
+func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string) string {
+	if self.Role != v1.AgentRole_AGENT_ROLE_WORKER || d.reviewByOf(r, self) == reviewByRoot {
+		return ""
+	}
+	var urls []string
+	seen := map[string]bool{}
+	for _, u := range prURLRE.FindAllString(body, -1) {
+		if k := prKey(u); !seen[k] {
+			seen[k] = true
+			urls = append(urls, u)
+		}
+	}
+	// The PRs the done names that are the worker's own: those the daemon has recorded for it, else the first link.
+	own := map[string]bool{}
+	if prs, err := r.AgentPRs(self.Id); err == nil {
+		for _, p := range prs {
+			own[prKey(p.Url)] = true
+		}
+	}
+	if len(own) == 0 && len(urls) > 0 {
+		own[prKey(urls[0])] = true
+	}
+	asks, err := r.RunAsks(self.RunId)
+	if err != nil {
+		return ""
+	}
+	byPR := map[string][]*v1.Ask{}
+	var prOrder []string
+	for _, a := range asks {
+		if a.Kind != v1.AskKind_ASK_KIND_REVIEW || a.CallerId != self.Id || a.Pr == "" {
+			continue
+		}
+		k := prKey(a.Pr)
+		if byPR[k] == nil {
+			prOrder = append(prOrder, k)
+		}
+		byPR[k] = append(byPR[k], a)
+	}
+	sort.Strings(prOrder)
+	var lines []string
+	covered := map[string]bool{}
+	for _, u := range urls {
+		k := prKey(u)
+		if len(byPR[k]) == 0 && own[k] {
+			lines = append(lines, fmt.Sprintf("[mesh reviews] PR #%s: %s asked no review round: ask it why, or start one yourself.", prNumberOf(u), self.Name))
+			covered[k] = true
+		}
+	}
+	for _, k := range prOrder {
+		if !covered[k] {
+			lines = append(lines, roundsFooter(byPR[k])...)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\n" + strings.Join(lines, "\n")
+}
+
+func prNumberOf(url string) string {
+	return url[strings.LastIndex(url, "/")+1:]
+}
+
+// roundsFooter describes one PR's asks by one worker, oldest first.
+func roundsFooter(asks []*v1.Ask) []string {
+	sort.Slice(asks, func(i, j int) bool { return asks[i].CreatedAt.AsTime().Before(asks[j].CreatedAt.AsTime()) })
+	out := []string{fmt.Sprintf("[mesh reviews] PR #%d: %d review ask(s) by its author:", asks[0].PrNumber, len(asks))}
+	for _, a := range asks {
+		var who []string
+		for _, m := range a.Members {
+			switch {
+			case m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED:
+				who = append(who, m.Name+" answered")
+			case m.Line != "":
+				who = append(who, m.Name+" no answer ("+m.Line+")")
+			default:
+				who = append(who, m.Name+" pending")
+			}
+		}
+		line := fmt.Sprintf("- round %d (%s, %s) at %s: %s", a.Round, a.Size, orDash(a.Tier), short(a.Head), strings.Join(who, ", "))
+		if !a.Collected {
+			line = fmt.Sprintf("- one reviewer (%s, %s) at %s: %s", a.Size, orDash(a.Tier), short(a.Head), strings.Join(who, ", "))
+		}
+		if a.AnswersPath != "" {
+			line += "; answers " + filepath.Clean(a.AnswersPath)
+		}
+		out = append(out, line)
+		var judged []string
+		have := map[string]bool{}
+		for _, v := range a.Verdicts {
+			have[v.Reviewer] = true
+			judged = append(judged, fmt.Sprintf("%s %d/%d/%d/%d by %s", v.Reviewer, v.Agree, v.Other, v.Disagree, v.Blocking, orDefault(v.Judge, judgeRoot)))
+		}
+		for _, m := range a.Members {
+			if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED && !have[m.Name] {
+				judged = append(judged, m.Name+" no verdict recorded")
+			}
+		}
+		if len(judged) > 0 {
+			out = append(out, "  verdicts (agree/other/disagree/blocking): "+strings.Join(judged, "; "))
+		}
+	}
+	return out
+}
+
+func orDefault(s, d string) string {
+	if s == "" {
+		return d
+	}
+	return s
+}

@@ -360,6 +360,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 	if m.Effort != "" && !validEffort(m.Effort) {
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
+	if err := checkReviewBy(m.Reviews); err != nil {
+		return nil, err
+	}
 	out := &v1.ApproveAgentResponse{}
 	actor := auth.ActorFrom(ctx)
 	{
@@ -453,6 +456,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if err := d.requestApproveCompaction(tx, a, model); err != nil {
 				return err
 			}
+		}
+		if m.Reviews != "" {
+			a.ReviewBy = m.Reviews
 		}
 		out.Agent = a
 		return tx.PutAgent(a)

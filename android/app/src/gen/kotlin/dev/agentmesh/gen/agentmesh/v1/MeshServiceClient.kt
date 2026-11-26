@@ -506,7 +506,8 @@ public class MeshServiceClient(
 
 
   /**
-   *  Record the root's verdict on one reviewer's findings of a round.
+   *  Record the judge's verdict on one reviewer's findings of a round: the PR author's (a worker, for the rounds it
+   *  asked) or the root's (which replaces it).
    */
   override suspend fun recordVerdict(request: RecordVerdictRequest, headers: Headers): ResponseMessage<RecordVerdictResponse> = client.unary(
     request,

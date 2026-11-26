@@ -158,6 +158,10 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 			return owesNothing, task, nil
 		}
 	}
+	// A round (or a peers ask) the agent started and is waiting on: its members' answers are what it waits for.
+	if openOwnAsk(r, a, now) {
+		return owesNothing, task, nil
+	}
 	// A declared wait: the agent said it is waiting on purpose, until it is over: its deadline, or the agent woke
 	// (was active again after the turn end that declared it) and ended a turn with no report (bin/mesh's wait_over).
 	if !wait.IsZero() && now.Sub(wait) < waitMax && !d.waits.woke(a, wait) {

@@ -526,6 +526,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				}
 			}
 		}
+		if IsAgent(actor.Class) && req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE && to.Id != "" {
+			// A worker's done to its parent carries what its PR's review rounds found (reviewFooter).
+			if self, err := t.Reader.GetAgent(actor.Id); err == nil && to.Id == self.ParentId {
+				msgBody += d.reviewFooter(t.Reader, self, req.Msg.Body)
+			}
+		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
 			Type: req.Msg.Type, Body: msgBody, CreatedAt: tsOf(t.Now())}
 		if asked != nil && (req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE || req.Msg.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {

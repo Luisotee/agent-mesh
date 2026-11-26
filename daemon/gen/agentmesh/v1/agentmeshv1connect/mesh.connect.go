@@ -232,7 +232,8 @@ type MeshServiceClient interface {
 	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
 	// again; a round of reviewers is collected into one answers file and one message to you.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
-	// Record the root's verdict on one reviewer's findings of a round.
+	// Record the judge's verdict on one reviewer's findings of a round: the PR author's (a worker, for the rounds it
+	// asked) or the root's (which replaces it).
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
@@ -976,7 +977,8 @@ type MeshServiceHandler interface {
 	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
 	// again; a round of reviewers is collected into one answers file and one message to you.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
-	// Record the root's verdict on one reviewer's findings of a round.
+	// Record the judge's verdict on one reviewer's findings of a round: the PR author's (a worker, for the rounds it
+	// asked) or the root's (which replaces it).
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
