@@ -651,6 +651,12 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 	if run, err := tx.GetRun(a.RunId); err == nil && run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 		return nil, failedPrecondition("run %s is closed", a.RunId)
 	}
+	// A peer's conversation has one process, whichever run's agent holds it.
+	if a.Peer {
+		if other := peerRunning(tx.Reader, a.Name, a.RunId); other != nil {
+			return nil, failedPrecondition("%s is running in run %s (%s): one process per conversation; retire it there first", a.Name, other.RunId, other.Id)
+		}
+	}
 	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id); err != nil {
 		return nil, err
 	}

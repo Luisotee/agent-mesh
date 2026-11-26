@@ -1296,8 +1296,10 @@ type Peer struct {
 	LastAgent   string `protobuf:"bytes,13,opt,name=last_agent,json=lastAgent,proto3" json:"last_agent,omitempty"`
 	LastAnswers string `protobuf:"bytes,14,opt,name=last_answers,json=lastAnswers,proto3" json:"last_answers,omitempty"`
 	// The run and agent that hold its conversation running now; empty when none does.
-	RunningRun    string `protobuf:"bytes,15,opt,name=running_run,json=runningRun,proto3" json:"running_run,omitempty"`
-	RunningAgent  string `protobuf:"bytes,16,opt,name=running_agent,json=runningAgent,proto3" json:"running_agent,omitempty"`
+	RunningRun   string `protobuf:"bytes,15,opt,name=running_run,json=runningRun,proto3" json:"running_run,omitempty"`
+	RunningAgent string `protobuf:"bytes,16,opt,name=running_agent,json=runningAgent,proto3" json:"running_agent,omitempty"`
+	// The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+	Cloned        bool `protobuf:"varint,17,opt,name=cloned,proto3" json:"cloned,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1442,6 +1444,13 @@ func (x *Peer) GetRunningAgent() string {
 		return x.RunningAgent
 	}
 	return ""
+}
+
+func (x *Peer) GetCloned() bool {
+	if x != nil {
+		return x.Cloned
+	}
+	return false
 }
 
 type PeerGroup struct {
@@ -1899,8 +1908,10 @@ func (x *RemovePeerRequest) GetDeleteClone() bool {
 }
 
 type RemovePeerResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Worktree      string                 `protobuf:"bytes,1,opt,name=worktree,proto3" json:"worktree,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Worktree string                 `protobuf:"bytes,1,opt,name=worktree,proto3" json:"worktree,omitempty"`
+	// The clone that was deleted (`delete_clone`), else empty.
+	DeletedClone  string `protobuf:"bytes,2,opt,name=deleted_clone,json=deletedClone,proto3" json:"deleted_clone,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1938,6 +1949,13 @@ func (*RemovePeerResponse) Descriptor() ([]byte, []int) {
 func (x *RemovePeerResponse) GetWorktree() string {
 	if x != nil {
 		return x.Worktree
+	}
+	return ""
+}
+
+func (x *RemovePeerResponse) GetDeletedClone() string {
+	if x != nil {
+		return x.DeletedClone
 	}
 	return ""
 }
@@ -2154,7 +2172,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\fPeerUpstream\x12\x16\n" +
 	"\x06remote\x18\x01 \x01(\tR\x06remote\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\tR\x06branch\x12\x10\n" +
-	"\x03url\x18\x03 \x01(\tR\x03url\"\xfc\x03\n" +
+	"\x03url\x18\x03 \x01(\tR\x03url\"\x94\x04\n" +
 	"\x04Peer\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04repo\x18\x02 \x01(\tR\x04repo\x12\x14\n" +
@@ -2175,7 +2193,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\flast_answers\x18\x0e \x01(\tR\vlastAnswers\x12\x1f\n" +
 	"\vrunning_run\x18\x0f \x01(\tR\n" +
 	"runningRun\x12#\n" +
-	"\rrunning_agent\x18\x10 \x01(\tR\frunningAgent\"5\n" +
+	"\rrunning_agent\x18\x10 \x01(\tR\frunningAgent\x12\x16\n" +
+	"\x06cloned\x18\x11 \x01(\bR\x06cloned\"5\n" +
 	"\tPeerGroup\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05about\x18\x02 \x01(\tR\x05about\"(\n" +
@@ -2203,9 +2222,10 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x11RemovePeerRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12!\n" +
-	"\fdelete_clone\x18\x03 \x01(\bR\vdeleteClone\"0\n" +
+	"\fdelete_clone\x18\x03 \x01(\bR\vdeleteClone\"U\n" +
 	"\x12RemovePeerResponse\x12\x1a\n" +
-	"\bworktree\x18\x01 \x01(\tR\bworktree\"W\n" +
+	"\bworktree\x18\x01 \x01(\tR\bworktree\x12#\n" +
+	"\rdeleted_clone\x18\x02 \x01(\tR\fdeletedClone\"W\n" +
 	"\x12ImportPeersRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\tR\x04from\"K\n" +

@@ -35,13 +35,17 @@ import (
 
 const maxAbout = 400
 
+// refPartRE is a remote or a branch name git may be given as an argument: plain characters, never a leading dash
+// (empty is allowed: no upstream).
+var refPartRE = regexp.MustCompile(`^(?:[A-Za-z0-9_][A-Za-z0-9._/-]*)?$`)
+
 var peerNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // peerName is the default name of a peer: the clone's name cut to 20 characters, and "-research".
 func peerName(stem string) string {
 	stem = strings.TrimSuffix(stem, ".git")
-	if len(stem) > 20 {
-		stem = strings.TrimRight(stem[:20], "-._")
+	if r := []rune(stem); len(r) > 20 {
+		stem = strings.TrimRight(string(r[:20]), "-._")
 	}
 	return stem + "-research"
 }
@@ -71,6 +75,12 @@ func (d *Daemon) ensurePeerWorktree(ctx context.Context, p *v1.Peer) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(p.Worktree), 0o700); err != nil {
 		return err
+	}
+	// Something else is where the worktree goes: an empty folder is replaced, anything else is the user's.
+	if _, err := os.Stat(p.Worktree); err == nil {
+		if err := os.Remove(p.Worktree); err != nil {
+			return fmt.Errorf("%s exists and is not a worktree of %s: move it away", p.Worktree, p.Repo)
+		}
 	}
 	git(ctx, p.Repo, "worktree", "prune")
 	at := p.Seen
@@ -235,7 +245,9 @@ func (d *Daemon) AddPeer(ctx context.Context, req *connect.Request[v1.AddPeerReq
 		seen, _ = git(ctx, clone, "rev-parse", "HEAD")
 	}
 	p := &v1.Peer{Name: name, Repo: clone, Group: group, Kind: kind, About: m.About, Upstream: up, Worktree: d.peerWorktree(name),
-		Seen: seen, Added: timestamppb.New(d.now())}
+		Seen: seen, Added: timestamppb.New(d.now()), Cloned: cloned}
+	_, statErr := os.Stat(p.Worktree)
+	madeWorktree := statErr != nil // one that was there is another call's: it stays if this one fails
 	if err := d.ensurePeerWorktree(ctx, p); err != nil {
 		if cloned {
 			os.RemoveAll(clone)
@@ -257,7 +269,9 @@ func (d *Daemon) AddPeer(ctx context.Context, req *connect.Request[v1.AddPeerReq
 		return tx.PutPeer(p)
 	})
 	if err != nil {
-		git(ctx, clone, "worktree", "remove", "--force", p.Worktree)
+		if madeWorktree {
+			git(ctx, clone, "worktree", "remove", "--force", p.Worktree)
+		}
 		if cloned {
 			os.RemoveAll(clone)
 		}
@@ -310,10 +324,21 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	} else if err != nil {
 		return nil, err
 	}
-	if agents, err := r.ListAgents(""); err == nil {
-		for _, a := range agents {
-			if a.Peer && a.Name == p.Name && !stopped(a) {
-				return nil, failedPrecondition("%s is running in run %s: retire it first", p.Name, a.RunId)
+	if other := peerRunning(r, p.Name, ""); other != nil {
+		return nil, failedPrecondition("%s is running in run %s: retire it first", p.Name, other.RunId)
+	}
+	// The clone goes only if the daemon made it and no other peer works in it.
+	if m.DeleteClone {
+		if !p.Cloned {
+			return nil, invalid("%s's clone is %s, which the daemon did not make: remove it yourself, or remove the peer without --delete-clone", p.Name, p.Repo)
+		}
+		peers, err := r.ListPeers("")
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range peers {
+			if o.Name != p.Name && o.Repo == p.Repo {
+				return nil, failedPrecondition("%s also uses %s: remove it first", o.Name, p.Repo)
 			}
 		}
 	}
@@ -324,6 +349,12 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 		return nil, err
 	}
 	git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree)
+	if m.DeleteClone {
+		if err := os.RemoveAll(p.Repo); err != nil {
+			return nil, err
+		}
+		out.DeletedClone = p.Repo
+	}
 	return connect.NewResponse(out), nil
 }
 
@@ -408,11 +439,24 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		if _, err := git(ctx, e.Repo, "cat-file", "-e", seen+"^{commit}"); seen == "" || err != nil {
 			seen, _ = git(ctx, e.Repo, "rev-parse", "HEAD")
 		}
-		p := &v1.Peer{Name: n, Repo: e.Repo, Group: e.Group, Kind: kind, About: about, Seen: seen, Worktree: d.peerWorktree(n),
-			Upstream: &v1.PeerUpstream{Remote: e.Upstream.Remote, Branch: e.Upstream.Branch, Url: e.Upstream.URL}, Added: timestamppb.New(d.now())}
-		if p.Group == "" {
-			p.Group = "peers"
+		group := e.Group
+		if group == "" {
+			group = "peers"
 		}
+		if !peerNameRE.MatchString(group) {
+			skip("its group " + strconv.Quote(group) + " is not a name the daemon accepts")
+			continue
+		}
+		// The remote and branch go to git as arguments: one that could read as an option is left out.
+		up := &v1.PeerUpstream{Remote: e.Upstream.Remote, Branch: e.Upstream.Branch, Url: e.Upstream.URL}
+		if !refPartRE.MatchString(up.Remote) || !refPartRE.MatchString(up.Branch) {
+			if up.Remote != "" || up.Branch != "" {
+				skip("imported without its upstream " + strconv.Quote(up.Remote+"/"+up.Branch) + ": not a plain remote and branch name")
+			}
+			up = &v1.PeerUpstream{}
+		}
+		p := &v1.Peer{Name: n, Repo: e.Repo, Group: group, Kind: kind, About: about, Seen: seen, Worktree: d.peerWorktree(n),
+			Upstream: up, Added: timestamppb.New(d.now())}
 		_, statErr := os.Stat(p.Worktree)
 		if err := d.ensurePeerWorktree(ctx, p); err != nil {
 			skip(err.Error())
@@ -432,7 +476,11 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		sort.Strings(gnames)
 		for _, g := range gnames {
 			if _, err := tx.GetPeerGroup(g); errors.Is(err, store.ErrNotFound) && peerNameRE.MatchString(g) {
-				if err := tx.PutPeerGroup(&v1.PeerGroup{Name: g, About: f.Groups[g].About}); err != nil {
+				about := f.Groups[g].About
+				if r := []rune(about); len(r) > maxAbout {
+					about = string(r[:maxAbout])
+				}
+				if err := tx.PutPeerGroup(&v1.PeerGroup{Name: g, About: about}); err != nil {
 					return err
 				}
 				out.Imported = append(out.Imported, "group "+g)
@@ -520,7 +568,7 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 		b.WriteString("This project has no upstream recorded: your checkout is as you left it.")
 	default:
 		fctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		cmd := exec.CommandContext(fctx, "git", "-C", p.Repo, "fetch", "--quiet", up.Remote)
+		cmd := exec.CommandContext(fctx, "git", "-C", p.Repo, "fetch", "--quiet", "--", up.Remote)
 		// Never a prompt for a password or a passphrase: a peer that needs one is reported, not waited on.
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
 		fout, err := cmd.CombinedOutput()
@@ -534,11 +582,19 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 			fmt.Fprintf(&b, "Could not fetch %s (%s): your checkout is as you left it.", up.Remote, lineOf(err.Error()))
 		case herr != nil:
 			fmt.Fprintf(&b, "Upstream %s was not found: your checkout is as you left it.", where)
-		case head == p.Seen || p.Seen == "":
-			fmt.Fprintf(&b, "Upstream (%s) hasn't changed since you last looked.", where)
-			if p.Seen == "" {
+		case p.Seen == "":
+			// Nothing recorded to compare with: the checkout goes to the head when it is clean, and only then
+			// has it seen it.
+			fmt.Fprintf(&b, "Upstream (%s) is at %s; you have not looked at this project before.", where, short(head))
+			if at == head {
 				p.Seen = head
+			} else if st, err := git(ctx, p.Worktree, "status", "--porcelain"); err == nil && st == "" {
+				if _, err := git(ctx, p.Worktree, "checkout", "--quiet", "--detach", head); err == nil {
+					at, p.Seen = head, head
+				}
 			}
+		case head == p.Seen:
+			fmt.Fprintf(&b, "Upstream (%s) hasn't changed since you last looked.", where)
 		default:
 			cnt, _ := git(ctx, p.Repo, "rev-list", "--count", p.Seen+".."+head)
 			n, _ := strconv.Atoi(cnt)
@@ -569,15 +625,15 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 	return b.String(), newCommits, at
 }
 
-// peerRunning is the agent of this peer that is running in a run other than runID: its conversation has one
-// process already.
-func peerRunning(r store.Reader, p *v1.Peer, runID string) *v1.Agent {
+// peerRunning is the agent of this peer that has a process in a run other than runID (running, starting, or
+// with a reopen asked for): its conversation has one already.
+func peerRunning(r store.Reader, name, runID string) *v1.Agent {
 	agents, err := r.ListAgents("")
 	if err != nil {
 		return nil
 	}
 	for _, a := range agents {
-		if a.Peer && a.Name == p.Name && a.RunId != runID && !stopped(a) {
+		if a.Peer && a.Name == name && a.RunId != runID && hasProcess(a) {
 			return a
 		}
 	}
@@ -637,12 +693,17 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		member.Status, member.Line = v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED, line
 		return member, nil, fmt.Sprintf("%s: not asked: %s", p.Name, line)
 	}
+	// One ask of a peer at a time, from any run: the fetch and the checkout move, and the check that no other
+	// process holds its conversation must hold until this one has launched.
+	lock := d.agentLock("peer:" + p.Name)
+	lock.Lock()
+	defer lock.Unlock()
 	r := d.store.Read(ctx)
 	// Re-read: another ask of this run may have moved it.
 	if cur, err := r.GetPeer(p.Name); err == nil {
 		p = cur
 	}
-	if other := peerRunning(r, p, actor.RunId); other != nil {
+	if other := peerRunning(r, p.Name, actor.RunId); other != nil {
 		return fail(fmt.Sprintf("it is running in run %s (%s): one process per conversation; retire it there, or wait for its answer", other.RunId, other.Id))
 	}
 	if err := d.ensurePeerWorktree(ctx, p); err != nil {
@@ -656,10 +717,17 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	for _, a := range same {
 		if a.Peer {
 			mine = a
+		} else {
+			return fail(fmt.Sprintf("this run already has an agent named %s that is not the peer: rename or retire it", p.Name))
 		}
 	}
-	if mine != nil && mine.State == v1.AgentState_AGENT_STATE_WORKING {
-		return fail("it is still answering an earlier question of this run")
+	if mine != nil {
+		if open, _, err := collecting(r, mine.Id, actor.Id); err != nil {
+			return fail(err.Error())
+		} else if mine.State == v1.AgentState_AGENT_STATE_WORKING || mine.State == v1.AgentState_AGENT_STATE_STARTING ||
+			mine.PendingReopen != nil || open != nil {
+			return fail("it is still answering an earlier question of this run")
+		}
 	}
 	if err := d.quotaReserveGuard(ctx, actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
 		return fail(err.Error())
@@ -675,6 +743,9 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			return fail(err.Error())
 		}
 		if res.Msg.ResumeError != "" {
+			// The task was stored with the refusal: it is not for the next resume, which brings the peer back for
+			// a later question, so it is marked read.
+			d.dropStoredTask(ctx, actor, mine.Id, res.Msg.Message.GetId())
 			return fail("could not be resumed: " + res.Msg.ResumeError)
 		}
 		member.How = "asked"
@@ -718,6 +789,27 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		return tx.PutPeer(cur)
 	})
 	return member, agent, ""
+}
+
+// dropStoredTask marks a task message read and delivered: it was stored for an agent that could not be brought
+// back, and must not be what it does when it is.
+func (d *Daemon) dropStoredTask(ctx context.Context, actor *v1.Actor, agentID, msgID string) {
+	if msgID == "" {
+		return
+	}
+	d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
+		in, err := tx.Reader.Inbox(agentID, true)
+		if err != nil {
+			return err
+		}
+		for _, m := range in {
+			if m.Id == msgID {
+				m.DeliveredAt, m.ReadAt = tsOf(tx.Now()), tsOf(tx.Now())
+				return tx.PutMessage(m)
+			}
+		}
+		return nil
+	})
 }
 
 // launchPeerAgent starts a peer's agent in this run: a new agent record of role asker named as the peer, in the
@@ -765,6 +857,14 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 			return err
 		} else if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 			return failedPrecondition("run %s is closed", actor.RunId)
+		}
+		if other := peerRunning(tx.Reader, p.Name, actor.RunId); other != nil {
+			return failedPrecondition("%s is running in run %s (%s): one process per conversation", p.Name, other.RunId, other.Id)
+		}
+		if same, err := tx.Reader.AgentsNamed(actor.RunId, p.Name); err != nil {
+			return err
+		} else if len(same) > 0 {
+			return failedPrecondition("this run already has an agent named %s", p.Name)
 		}
 		if err := d.mayLaunch(tx.Reader, "peer "+p.Name, agent.Id); err != nil {
 			return err

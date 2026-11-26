@@ -232,6 +232,8 @@ message Peer {
   // The run and agent that hold its conversation running now; empty when none does.
   string running_run = 15;
   string running_agent = 16;
+  // The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.
+  bool cloned = 17;
 }
 
 message PeerGroup {
@@ -286,6 +288,8 @@ message RemovePeerRequest {
 
 message RemovePeerResponse {
   string worktree = 1;
+  // The clone that was deleted (`delete_clone`), else empty.
+  string deleted_clone = 2;
 }
 
 message ImportPeersRequest {

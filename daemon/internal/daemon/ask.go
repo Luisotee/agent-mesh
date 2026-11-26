@@ -456,13 +456,17 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 	return connect.NewResponse(out), nil
 }
 
-// noReviewer is the refusal of a round none of whose reviewers could be started.
+// noReviewer is the refusal of a round none of whose members could be started.
 func (d *Daemon) noReviewer(a *v1.Ask) error {
 	var why []string
 	for _, mem := range a.Members {
 		why = append(why, mem.Name+": "+mem.Line)
 	}
-	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("no reviewer could be started (%s)", strings.Join(why, "; ")))
+	what := "no reviewer could be started"
+	if a.Kind == v1.AskKind_ASK_KIND_PEERS {
+		what = "nobody could be asked"
+	}
+	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s (%s)", what, strings.Join(why, "; ")))
 }
 
 // reviewJob is what starting or re-asking one reviewer of a round needs.
