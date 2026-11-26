@@ -368,6 +368,44 @@ public  final class VerdictCostSummary extends
     hasAgreedPct_ = false;
   }
 
+  public static final int BY_AUTHOR_FIELD_NUMBER = 12;
+  private long byAuthor_;
+  /**
+   * <pre>
+   * Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+   * </pre>
+   *
+   * <code>int64 by_author = 12 [json_name = "byAuthor"];</code>
+   * @return The byAuthor.
+   */
+  @java.lang.Override
+  public long getByAuthor() {
+    return byAuthor_;
+  }
+  /**
+   * <pre>
+   * Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+   * </pre>
+   *
+   * <code>int64 by_author = 12 [json_name = "byAuthor"];</code>
+   * @param value The byAuthor to set.
+   */
+  private void setByAuthor(long value) {
+    
+    byAuthor_ = value;
+  }
+  /**
+   * <pre>
+   * Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+   * </pre>
+   *
+   * <code>int64 by_author = 12 [json_name = "byAuthor"];</code>
+   */
+  private void clearByAuthor() {
+
+    byAuthor_ = 0L;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.VerdictCostSummary parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -836,6 +874,46 @@ public  final class VerdictCostSummary extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+     * </pre>
+     *
+     * <code>int64 by_author = 12 [json_name = "byAuthor"];</code>
+     * @return The byAuthor.
+     */
+    @java.lang.Override
+    public long getByAuthor() {
+      return instance.getByAuthor();
+    }
+    /**
+     * <pre>
+     * Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+     * </pre>
+     *
+     * <code>int64 by_author = 12 [json_name = "byAuthor"];</code>
+     * @param value The byAuthor to set.
+     * @return This builder for chaining.
+     */
+    public Builder setByAuthor(long value) {
+      copyOnWrite();
+      instance.setByAuthor(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+     * </pre>
+     *
+     * <code>int64 by_author = 12 [json_name = "byAuthor"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearByAuthor() {
+      copyOnWrite();
+      instance.clearByAuthor();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.VerdictCostSummary)
   }
   @java.lang.Override
@@ -863,11 +941,12 @@ public  final class VerdictCostSummary extends
             "findings_",
             "agreedPct_",
             "hasAgreedPct_",
+            "byAuthor_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0000\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0002\n\u0004" +
-              "\u000b\u0007";
+              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0002\n\u0004\u000b\u0007" +
+              "\f\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

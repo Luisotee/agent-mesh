@@ -66,6 +66,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/ListSettings
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ReadInbox
+  /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/RequestPermission
   /agentmesh.v1.MeshService/ResolveModel
