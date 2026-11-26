@@ -51,9 +51,9 @@ export function noticeFor(e: Event, agents: Record<string, Agent>, now: number, 
         case AgentState.NEEDS_INPUT:
           return { kind: 'input', tag: a.id, title: `${a.name} needs you`, body: detail || 'It is stopped at a prompt in its terminal.', agentId: a.id, tab: 'terminal' }
         case AgentState.LIMITED:
-          return { kind: 'limited', tag: a.id, title: `${a.name} hit its usage limit`, body: detail, agentId: a.id, tab: 'terminal' }
+          return { kind: 'limited', tag: a.id, title: `${a.name} hit its usage limit`, body: detail || 'Its terminal says more.', agentId: a.id, tab: 'terminal' }
         case AgentState.ERROR:
-          return { kind: 'error', tag: a.id, title: `${a.name} is in error`, body: detail, agentId: a.id, tab: 'terminal' }
+          return { kind: 'error', tag: a.id, title: `${a.name} is in error`, body: detail || 'Its terminal says more.', agentId: a.id, tab: 'terminal' }
       }
       return undefined
     }

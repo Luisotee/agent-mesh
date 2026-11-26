@@ -23,13 +23,9 @@ export function App({ api }: { api: DesktopApi }) {
   const [opened, setOpened] = useState<OpenedLink>()
   useEffect(() => {
     if (api.hosts.fixed) return
-    let live = true
-    void api.links.take().then((l) => live && l && setOpened(l))
-    const off = api.links.onOpen(setOpened)
-    return () => {
-      live = false
-      off()
-    }
+    // The link is handed over once: a result is kept even if this effect ran again meanwhile (React's strict mode runs it twice).
+    void api.links.take().then((l) => l && setOpened(l))
+    return api.links.onOpen(setOpened)
   }, [api])
   return (
     <AppContext.Provider value={model}>

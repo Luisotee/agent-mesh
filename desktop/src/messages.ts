@@ -64,7 +64,11 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
     /** Load a run's messages once (a run already loaded, or on its way, is left as it is). */
     ensure(runId: string): Promise<void> {
       wanted.add(runId)
-      return complete.has(runId) ? Promise.resolve() : loadRun(runId)
+      if (complete.has(runId)) return Promise.resolve()
+      // A retry already waiting is replaced by this load, not added to.
+      clearTimeout(timers.get(runId))
+      timers.delete(runId)
+      return loadRun(runId)
     },
     /** Try again now (the Retry button), starting the back-off over. */
     retry(runId: string): Promise<void> {

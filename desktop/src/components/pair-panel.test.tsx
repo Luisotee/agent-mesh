@@ -96,6 +96,19 @@ describe('PairPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Paired: Pixel 9')
   })
 
+  it('still goes by name for a device the host said nothing about, when another link\'s device was seen', async () => {
+    const { host, client, store, wrap } = fixture()
+    client.createPairing.mockImplementationOnce(async () => create(CreatePairingResponseSchema, { pairingId: 'p-mine', uri: URI, expiresAt: timestampFromMs(Date.now() + 600_000) }))
+    render(wrap(<PairPanel host={host} />))
+    await userEvent.type(await screen.findByLabelText('Name of the device'), 'Tablet')
+    await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    paired(store, 1n, 'd7', 'Phone', 'p-other')
+    // Ours arrived while the stream was down: it is in the list, with no event behind it.
+    store.setState((s) => ({ devices: [...s.devices, device('d8', 'Tablet')] }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Paired: Tablet')
+  })
+
   it('forgets which link a revoked device came through', () => {
     const store = createHostStore()
     paired(store, 1n, 'd9', 'Pixel 9', 'p1')

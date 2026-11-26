@@ -73,14 +73,14 @@ export function PairPanel({ host }: { host: HostRuntime }) {
   }, [host])
 
   // The host says which link a device came through (`DevicePaired.pairingId`), so the new device is the one whose link
-  // is this one. A host from before the field says nothing: then the name the link was made with (the device may give
+  // is this one. A device it says nothing about (a host from before the field, or an event we missed): then the name the link was made with (the device may give
   // its own instead), or, with no name, the only device that appeared since, is what there is to go by. Anything else
   // is left open: the link stays, and the note says who appeared, not whether the link was used.
   const pairedVia = useHostState(host, (s) => s.pairedVia)
   const fresh = made ? devices.filter((d) => !made.known.has(d.id)) : []
   const exact = made?.res.pairingId ? fresh.find((d) => pairedVia[d.id] === made.res.pairingId) : undefined
-  const hostSaysWhich = fresh.some((d) => pairedVia[d.id])
-  const paired = made ? exact ?? (hostSaysWhich ? undefined : guess(fresh, made.name)) : undefined
+  // A device the host says another link made is not this one; one it says nothing about (its event was missed) may be.
+  const paired = made ? exact ?? guess(fresh.filter((d) => !pairedVia[d.id]), made.name) : undefined
   const others = fresh.filter((d) => d !== paired)
   const skew = useHostState(host, (s) => s.clockSkewMs)
   const expired = useExpired(made?.res.expiresAt, skew)

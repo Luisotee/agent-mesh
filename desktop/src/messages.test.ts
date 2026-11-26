@@ -113,6 +113,24 @@ describe('messageLoader', () => {
     loader.stop()
   })
 
+  it('asking again while a retry waits loads at once and leaves no second try behind', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = createHostStore()
+      const pages: Record<string, { messages: ReturnType<typeof m>[]; more: boolean }> = {}
+      const { c, calls } = client(pages)
+      const loader = messageLoader(c as never, store, () => {})
+      await loader.ensure('r1') // fails, a retry is queued
+      pages['r1:'] = { messages: [m('a')], more: false }
+      await loader.ensure('r1')
+      expect(calls).toHaveLength(2)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(calls).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('stops retrying once stopped', async () => {
     vi.useFakeTimers()
     try {

@@ -25,6 +25,7 @@ describe('noticeFor', () => {
     const e = (from: AgentState, to: AgentState, detail = '') => ev({ case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from, to, detail, needsInput: 0 } })
     expect(noticeFor(e(AgentState.WORKING, AgentState.LIMITED, 'resets at 5pm'), agents, NOW)).toMatchObject({ kind: 'limited', tag: 'w1', title: 'app-w1 hit its usage limit', body: 'resets at 5pm', tab: 'terminal' })
     expect(noticeFor(e(AgentState.WORKING, AgentState.ERROR, 'API error 500'), agents, NOW)).toMatchObject({ kind: 'error', tag: 'w1', title: 'app-w1 is in error', body: 'API error 500' })
+    expect(noticeFor(e(AgentState.WORKING, AgentState.ERROR), agents, NOW)!.body).not.toBe('') // never an empty notification
     expect(noticeFor(e(AgentState.LIMITED, AgentState.LIMITED), agents, NOW)).toBeUndefined()
     expect(noticeFor(e(AgentState.ERROR, AgentState.ERROR), agents, NOW)).toBeUndefined()
     expect(noticeFor(e(AgentState.LIMITED, AgentState.WORKING), agents, NOW)).toBeUndefined()
