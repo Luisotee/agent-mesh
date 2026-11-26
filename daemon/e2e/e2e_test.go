@@ -740,7 +740,7 @@ func TestRelayAndPairingEndToEnd(t *testing.T) {
 	})
 
 	// Create a pairing via real mesh pair.
-	pairOut := w.ctl("pair", "--name", "e2e-phone")
+	pairOut := w.ctl("pair", "--name", "e2e-phone", "--format", "json")
 	p, err := pairing.ParseURI(str(pairOut, "uri"))
 	if err != nil {
 		t.Fatalf("ParseURI(%q): %v", str(pairOut, "uri"), err)
