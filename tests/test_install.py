@@ -229,7 +229,7 @@ def test_an_upgrade_repoints_the_old_links_and_removes_the_retired_ones(tmp_path
     # the old block is replaced by the new one, and the user's own lines stay
     claude = (tmp_path / ".claude" / "CLAUDE.md").read_text()
     assert claude.startswith("# mine") and claude.count("agent-mesh:begin") == 1 and "needs herdr" not in claude
-    # a CLI the daemon has no adapter for loses the block; an OpenCode file with only the block goes
+    # the old Copilot and OpenCode blocks go; an OpenCode file with only the block goes
     assert (tmp_path / ".copilot" / "copilot-instructions.md").read_text().strip() == "# copilot mine"
     assert not (tmp_path / ".config" / "opencode" / "AGENTS.md").exists()
     assert "plugin unlink local.mesh-notify" in calls(tmp_path, "herdr.log")

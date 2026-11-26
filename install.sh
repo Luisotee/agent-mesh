@@ -15,8 +15,9 @@ CONFIG_LINK="$HOME/.config/agent-mesh"
 SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
 ROOT_CLIS=(claude agy)  # the CLI each SKILL_ROOTS / RULE_FILES entry belongs to: installed only when it is on PATH
-# Files an earlier install put the rules block in for CLIs the daemon has no adapter for yet (Copilot, OpenCode):
-# the block is taken out again, since an agent of those CLIs can't be a daemon agent. OpenCode reads the first of
+# Files an earlier install put the rules block in for Copilot and OpenCode: the old block names the herdr mesh, so it
+# is taken out and none is written (a daemon OpenCode agent learns the protocol from its first doorbell; Copilot has
+# no adapter yet). OpenCode reads the first of
 # ~/.config/opencode/AGENTS.md and ~/.claude/CLAUDE.md, so a file left with nothing but the block is removed (an
 # empty one would hide the user's CLAUDE.md from it).
 STALE_RULE_FILES=("${COPILOT_HOME:-$HOME/.copilot}/copilot-instructions.md")
@@ -187,7 +188,7 @@ daemon_install() {
 }
 
 
-# The files an install of the bin/mesh era (or of a CLI the daemon has no adapter for) left behind: links into the
+# The files an install of the bin/mesh era left behind: links into the
 # old checkout (dangling once it is pulled), the retired skills, the Copilot and OpenCode rules blocks, `meshctl`
 # and the herdr plugin. Nothing of the old run state (~/.local/state/agent-mesh, ~/.config/agent-mesh.json) is read
 # or removed.
