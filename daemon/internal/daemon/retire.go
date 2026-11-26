@@ -57,9 +57,9 @@ func retireTx(tx *store.Tx, a *v1.Agent, reason string) (bool, error) {
 	return true, nil
 }
 
-// finishRetire stops a retired agent's process and lets the terminal go, under the agent's lock. An exit the
-// host reports meanwhile finds the agent retired and only acknowledges the terminal.
-func (d *Daemon) finishRetire(ctx context.Context, agentID string) error {
+// stopRetiredProcess stops a retired agent's process and lets the terminal go, under the agent's lock. An exit
+// the host reports meanwhile finds the agent retired and only acknowledges the terminal.
+func (d *Daemon) stopRetiredProcess(ctx context.Context, agentID string) error {
 	// Its launch no longer counts against the memory guard, and a caller that gives up now would leave the process
 	// running under a retired agent: the stop is bounded by StopWait, not by the caller.
 	d.rt.guard.release(agentID)
@@ -82,6 +82,17 @@ func (d *Daemon) finishRetire(ctx context.Context, agentID string) error {
 		cur.TerminalId = ""
 		return tx.PutAgent(cur)
 	})
+}
+
+// finishRetire stops a retired agent's process and sweeps any leftover processes it left in its worktree.
+func (d *Daemon) finishRetire(ctx context.Context, agentID string) error {
+	if err := d.stopRetiredProcess(ctx, agentID); err != nil {
+		return err
+	}
+	if a, err := d.store.Read(context.WithoutCancel(ctx)).GetAgent(agentID); err == nil {
+		d.sweepWorktrees(ctx, []*v1.Agent{a})
+	}
+	return nil
 }
 
 // RetireAgent retires an agent: its process stops, its conversation stays.
@@ -361,7 +372,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := d.finishRetire(ctx, a.Id); err != nil {
+			if err := d.stopRetiredProcess(ctx, a.Id); err != nil {
 				d.log.Warn("stopping an agent of a stopped run", "agent", a.Name, "err", err)
 				mu.Lock()
 				notStopped[a.Id] = err.Error()
@@ -370,6 +381,15 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		}()
 	}
 	wg.Wait()
+	// Sweep leftover processes workers left in their worktrees (already retired or exited ones too) before
+	// removing those worktrees.
+	var sweepAgents []*v1.Agent
+	for _, a := range agents {
+		if notStopped[a.Id] == "" {
+			sweepAgents = append(sweepAgents, a)
+		}
+	}
+	d.sweepWorktrees(ctx, sweepAgents)
 	// A replayed call has no agents: its stored response already says what happened (without the worktrees, which
 	// are only reported by the call that removed them).
 	for _, a := range agents {

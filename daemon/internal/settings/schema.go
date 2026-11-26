@@ -316,6 +316,10 @@ func DefaultLeaves() []Leaf {
 			Summary: `MB of memory plus swap under which no agent starts; "auto" is 10% of RAM plus 10% of swap plus 1 GB (at least 2 GB), 0 turns the guard off`},
 		Leaf{Key: "memory_pressure_max", Type: Percent, Default: 10.0,
 			Summary: "no agent starts while the memory pressure (full avg60) is over this percent; 0 turns the guard off"},
+		Leaf{Key: "worker_cpus", Type: Percent, Default: 25.0,
+			Summary: "percent of the machine's CPU cores each launched agent may use (at least one); 0 or 100 turns the cap off"},
+		Leaf{Key: "worker_memory_high", Type: Int, Default: 0.0,
+			Summary: "MB above which each launched agent is throttled in a transient systemd user scope (MemoryHigh); 0 turns the scope off"},
 		Leaf{Key: "caps.agents", Type: Int, Default: 8.0,
 			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
 	)

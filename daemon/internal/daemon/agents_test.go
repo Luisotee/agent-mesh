@@ -65,6 +65,11 @@ func agentConfig(t *testing.T, home string) daemon.AgentConfig {
 		Env:           map[string]string{"HOME": home, "PATH": os.Getenv("PATH")},
 		DeliveryDelay: 20 * time.Millisecond, SpoolEvery: 100 * time.Millisecond, TypingQuiet: 1500 * time.Millisecond,
 		ReadySettle: 150 * time.Millisecond,
+		Sys: &daemon.SystemOps{
+			RunScope: func(context.Context, []string) error {
+				return fmt.Errorf("systemd scopes are disabled in tests")
+			},
+		},
 	}
 }
 

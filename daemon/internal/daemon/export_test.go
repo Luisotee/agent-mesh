@@ -1,6 +1,12 @@
 package daemon
 
-import "time"
+import (
+	"context"
+	"time"
+
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
+)
 
 // OnLaunched sets reopen's test seam (nil clears it).
 func OnLaunched(f func(agentID string, die func() bool)) { launchedHook = f }
@@ -29,3 +35,25 @@ func (d *Daemon) Reserved(agentID string) bool {
 
 // SameRelayURL exposes sameRelayURL.
 func SameRelayURL(a, b string) bool { return sameRelayURL(a, b) }
+
+// Release, Refresh, and Seed expose guard methods for tests.
+func (d *Daemon) Release(agentID string) { d.rt.guard.release(agentID) }
+func (d *Daemon) Refresh(agentID string) { d.rt.guard.refresh(agentID, d.now()) }
+func (d *Daemon) Seed(agentID string, startedAt time.Time) {
+	d.rt.guard.seed(agentID, startedAt, d.now())
+}
+
+// ConfineAgentForTest exposes confineAgent for tests.
+func ConfineAgentForTest(d *Daemon, ctx context.Context, pid int, startTicks uint64, name string) {
+	d.confineAgent(ctx, pid, startTicks, name)
+}
+
+// LeftoverProcessesForTest exposes leftoverProcesses for tests.
+func LeftoverProcessesForTest(top string, table []proc.Info) []proc.Info {
+	return leftoverProcesses(top, table)
+}
+
+// SweepableForTest exposes sweepable for tests.
+func SweepableForTest(worktreesRoot string, a *v1.Agent, rootCwds []string) (string, bool) {
+	return sweepable(worktreesRoot, a, rootCwds)
+}
