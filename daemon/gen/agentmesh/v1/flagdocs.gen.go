@@ -320,7 +320,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.TailnetStatusResponse.addresses":          "The node's tailnet addresses.",
 	"agentmesh.v1.TailnetStatusResponse.auth_url":           "The URL to open to log the node in, while the state is `NeedsLogin`.",
 	"agentmesh.v1.TailnetStatusResponse.control_url":        "The control server (a Headscale URL), empty for Tailscale's own.",
-	"agentmesh.v1.TailnetStatusResponse.direct_url":         "The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`), once it runs.",
+	"agentmesh.v1.TailnetStatusResponse.direct_url":         "The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`, or its IPv6 address in brackets when it has no IPv4 one), once it runs.",
 	"agentmesh.v1.TailnetStatusResponse.dns_name":           "The node's MagicDNS name, when the tailnet has one.",
 	"agentmesh.v1.TailnetStatusResponse.enabled":            "Whether meshd runs with `--tailscale`. The other fields are empty when it doesn't.",
 	"agentmesh.v1.TailnetStatusResponse.hostname":           "The node's name on the tailnet.",

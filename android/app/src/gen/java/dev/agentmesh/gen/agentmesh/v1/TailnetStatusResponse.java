@@ -530,7 +530,8 @@ public  final class TailnetStatusResponse extends
   private java.lang.String directUrl_;
   /**
    * <pre>
-   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+   * brackets when it has no IPv4 one), once it runs.
    * </pre>
    *
    * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -542,7 +543,8 @@ public  final class TailnetStatusResponse extends
   }
   /**
    * <pre>
-   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+   * brackets when it has no IPv4 one), once it runs.
    * </pre>
    *
    * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -555,7 +557,8 @@ public  final class TailnetStatusResponse extends
   }
   /**
    * <pre>
-   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+   * brackets when it has no IPv4 one), once it runs.
    * </pre>
    *
    * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -569,7 +572,8 @@ public  final class TailnetStatusResponse extends
   }
   /**
    * <pre>
-   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+   * brackets when it has no IPv4 one), once it runs.
    * </pre>
    *
    * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -580,7 +584,8 @@ public  final class TailnetStatusResponse extends
   }
   /**
    * <pre>
-   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+   * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+   * brackets when it has no IPv4 one), once it runs.
    * </pre>
    *
    * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -1334,7 +1339,8 @@ public  final class TailnetStatusResponse extends
 
     /**
      * <pre>
-     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+     * brackets when it has no IPv4 one), once it runs.
      * </pre>
      *
      * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -1346,7 +1352,8 @@ public  final class TailnetStatusResponse extends
     }
     /**
      * <pre>
-     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+     * brackets when it has no IPv4 one), once it runs.
      * </pre>
      *
      * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -1359,7 +1366,8 @@ public  final class TailnetStatusResponse extends
     }
     /**
      * <pre>
-     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+     * brackets when it has no IPv4 one), once it runs.
      * </pre>
      *
      * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -1374,7 +1382,8 @@ public  final class TailnetStatusResponse extends
     }
     /**
      * <pre>
-     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+     * brackets when it has no IPv4 one), once it runs.
      * </pre>
      *
      * <code>string direct_url = 8 [json_name = "directUrl"];</code>
@@ -1387,7 +1396,8 @@ public  final class TailnetStatusResponse extends
     }
     /**
      * <pre>
-     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`), once it runs.
+     * The direct address a pairing link carries for this node (`https://&lt;tailnet IPv4&gt;[:port]`, or its IPv6 address in
+     * brackets when it has no IPv4 one), once it runs.
      * </pre>
      *
      * <code>string direct_url = 8 [json_name = "directUrl"];</code>

@@ -3819,7 +3819,8 @@ type TailnetStatusResponse struct {
 	Addresses []string `protobuf:"bytes,6,rep,name=addresses,proto3" json:"addresses,omitempty"`
 	// The control server (a Headscale URL), empty for Tailscale's own.
 	ControlUrl string `protobuf:"bytes,7,opt,name=control_url,json=controlUrl,proto3" json:"control_url,omitempty"`
-	// The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`), once it runs.
+	// The direct address a pairing link carries for this node (`https://<tailnet IPv4>[:port]`, or its IPv6 address in
+	// brackets when it has no IPv4 one), once it runs.
 	DirectUrl string `protobuf:"bytes,8,opt,name=direct_url,json=directUrl,proto3" json:"direct_url,omitempty"`
 	// Why the node isn't running, when Tailscale says (health warnings, a start error).
 	Problems      []string `protobuf:"bytes,9,rep,name=problems,proto3" json:"problems,omitempty"`
