@@ -1,7 +1,7 @@
 // Command fakecopilot stands in for the GitHub Copilot CLI (`copilot`) in tests. It logs launches to
 // $FAKECOPILOT_ARGV_LOG, enforces `--deny-tool` rules, draws Copilot's gutter input box (`╻▄▄` / `┃` / `╹▀▀`, with
 // dim placeholder text when $FAKECOPILOT_PLACEHOLDER is set), optionally draws the folder-trust dialog first
-// ($FAKECOPILOT_TRUST), writes Copilot's events file ($COPILOT_HOME/session-state/<id>/events.jsonl) and acts out
+// ($FAKECOPILOT_TRUST; "stuck": Enter does not answer it), writes Copilot's events file ($COPILOT_HOME/session-state/<id>/events.jsonl) and acts out
 // turns from lines typed into its terminal:
 //
 //	any text   user.message, a turn, a final answer
@@ -81,8 +81,14 @@ func main() {
 			"│   2. Yes, and remember this folder       │\r\n" +
 			"│   3. No (Esc)                            │\r\n" +
 			"╰──────────────────────────────────────────╯\r\n")
-		if !in.Scan() {
-			return
+		for {
+			if !in.Scan() {
+				return
+			}
+			// "stuck": Enter does nothing, only the word "trust" (typed by hand) answers it.
+			if os.Getenv("FAKECOPILOT_TRUST") != "stuck" || strings.TrimSpace(in.Text()) == "trust" {
+				break
+			}
 		}
 		note("trust answered")
 		fmt.Print("\x1b[2J\x1b[H")

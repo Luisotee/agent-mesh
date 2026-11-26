@@ -232,7 +232,7 @@ func ReadEvents(path string) ([]Event, error) {
 		cut = true
 	}
 	var out []Event
-	r := bufio.NewReaderSize(f, 1<<20)
+	r := bufio.NewReaderSize(f, int(min(st.Size(), tailBytes)))
 	for first := true; ; first = false {
 		line, err := r.ReadBytes('\n')
 		if len(line) > 0 && !(first && cut) {
@@ -354,6 +354,12 @@ var limitRE = regexp.MustCompile(`(?i)^[^A-Za-z\n]*You've (?:hit (?:your|the) .*
 var perModelRE = regexp.MustCompile(`(?i)rate limit for this model`)
 
 var resetRE = regexp.MustCompile(`(?i)(?:resets?|try again)\s+in\s+((?:\d+(?:\.\d+)?\s*[a-z]+\s*)+)`)
+
+// Key identifies a limit line across polls: the line without its countdown ("resets in 3h 20m"), which changes
+// while the line stays on the screen.
+func (l Limit) Key() string {
+	return strings.Join(strings.Fields(resetRE.ReplaceAllString(l.Message, "")), " ")
+}
 
 // ScreenLimit finds a rate limit or a policy refusal on the last lines of a screen.
 func ScreenLimit(lines []string) (Limit, bool) {

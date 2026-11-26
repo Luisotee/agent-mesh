@@ -137,7 +137,7 @@ func TestLeanMCPConfigTakesTheRepoOwnServersTheKeptOnesAndTheNamedOnes(t *testin
 		"approved": srv("ap"), "unapproved": srv("un")}})
 	env := map[string]string{"HOME": home}
 	names := func(mode string, keep, extra []string) ([]string, []string) {
-		b, missing, err := LeanMCPConfig(env, repo, mode, keep, extra)
+		b, missing, err := LeanMCPConfig(env, repo, mode, keep, extra, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

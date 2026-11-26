@@ -104,7 +104,7 @@ func (d *Daemon) leanCut(ctx context.Context, r store.Reader, a *v1.Agent, env m
 		claudeaiSkills = claude.ClaudeAISkills
 	}
 
-	mode, mcpLoaded, mcpCut, err := d.mcpLoad(r, a, env)
+	mode, mcpLoaded, mcpCut, err := d.mcpLoad(r, a, env, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (d *Daemon) leanCut(ctx context.Context, r store.Reader, a *v1.Agent, env m
 
 // mcpLoad is the MCP side of a lean launch: the mode it runs in (`inherit` with `mcp_all`, else `repo` or `none`)
 // and which of the user's servers it loads and cuts, sorted.
-func (d *Daemon) mcpLoad(r store.Reader, a *v1.Agent, env map[string]string) (mode string, loaded, cut []string, err error) {
+func (d *Daemon) mcpLoad(r store.Reader, a *v1.Agent, env map[string]string, cache map[string]map[string]any) (mode string, loaded, cut []string, err error) {
 	mode, err = d.settingString(r, "claude.mcp")
 	if err != nil {
 		return "", nil, nil, err
@@ -148,7 +148,7 @@ func (d *Daemon) mcpLoad(r store.Reader, a *v1.Agent, env map[string]string) (mo
 	} else if mode != claude.MCPNone && mode != claude.MCPInherit {
 		mode = claude.MCPRepo
 	}
-	known := claude.KnownMCPServers(env, a.Repo)
+	known := claude.KnownMCPServersCached(env, a.Repo, cache)
 	if mode == claude.MCPInherit {
 		for n := range known {
 			loaded = append(loaded, n)
