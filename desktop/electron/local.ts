@@ -138,7 +138,7 @@ mkdir -p "$d" && printf '[Service]\\nEnvironment="AGENT_MESH_LISTEN=${LISTEN_ADD
 const pairScript = (port: number) => `
 PATH="$HOME/.local/bin:$HOME/.local/lib/agent-mesh/bin:$PATH"
 e=$(mktemp)
-if p=$(mesh pair --name Desktop --ttl-seconds 120 --direct-url https://127.0.0.1:${port} 2>"$e" </dev/null); then echo "${SENTINEL}pair=$(printf '%s' "$p" | tr -d '\\n')"; else echo "${SENTINEL}err=mesh pair failed: $(tr -d '\\n' < "$e")"; fi
+if p=$(mesh pair --format json --name Desktop --ttl-seconds 120 --direct-url https://127.0.0.1:${port} 2>"$e" </dev/null); then echo "${SENTINEL}pair=$(printf '%s' "$p" | tr -d '\\n')"; else echo "${SENTINEL}err=mesh pair failed: $(tr -d '\\n' < "$e")"; fi
 rm -f "$e"
 `
 

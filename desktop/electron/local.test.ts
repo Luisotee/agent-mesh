@@ -208,6 +208,7 @@ describe('Local, on Windows', () => {
     const info = await new Local(hosts, f.deps).connect('wsl:Ubuntu')
     expect(info).toMatchObject({ name: 'Box', kind: 'paired', target: '127.0.0.1:9443' })
     const pair = f.calls.find((c) => c.stdin?.includes('mesh pair'))!
+    expect(pair.stdin).toContain('--format json')
     expect(pair.stdin).toContain('--direct-url https://127.0.0.1:9443')
     expect(pair.stdin).toContain('--ttl-seconds 120')
     expect(hosts.all()).toHaveLength(1)
