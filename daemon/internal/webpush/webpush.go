@@ -74,7 +74,7 @@ func ValidEndpoint(raw string) (*url.URL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("endpoint is not a URL: %w", err)
 	}
-	if u.Host == "" || u.User != nil || u.Opaque != "" {
+	if u.Hostname() == "" || u.User != nil || u.Opaque != "" {
 		return nil, errors.New("endpoint must be an absolute http(s) URL with a host and no user info")
 	}
 	switch u.Scheme {

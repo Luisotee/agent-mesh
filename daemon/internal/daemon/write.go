@@ -24,21 +24,13 @@ func (d *Daemon) write(ctx context.Context, meta *v1.RequestMeta, procedure stri
 	if actor == nil {
 		return false, connect.NewError(connect.CodeUnauthenticated, errors.New("no actor"))
 	}
-	expired := func(now time.Time) error {
-		if exp := meta.GetExpiresAt(); exp != nil && now.After(exp.AsTime()) {
-			return connect.NewError(connect.CodeFailedPrecondition,
-				fmt.Errorf("request expired at %s", exp.AsTime().Format("15:04:05.000")))
-		}
-		return nil
-	}
 	mid := meta.GetMutationId()
 	err = d.store.Write(ctx, actor, mid, func(t *store.Tx) error {
 		if mid != "" {
 			proc, resp, err := t.Mutation(actor.Id, mid)
 			switch {
 			case err == nil && proc != procedure:
-				return connect.NewError(connect.CodeInvalidArgument,
-					fmt.Errorf("mutation id %s was already used for %s", mid, proc))
+				return reusedMutation(mid, proc)
 			case err == nil:
 				replayed = true
 				return proto.Unmarshal(resp, out)
@@ -48,7 +40,7 @@ func (d *Daemon) write(ctx context.Context, meta *v1.RequestMeta, procedure stri
 		}
 		// Checked here, after the lookup (a retry of an applied write gets its result, however late) and
 		// inside the transaction (a write that waited for the lock past its expiry doesn't run late).
-		if err := expired(t.Now()); err != nil {
+		if err := expired(meta, t.Now()); err != nil {
 			return err
 		}
 		if err := fn(t); err != nil {
@@ -64,4 +56,18 @@ func (d *Daemon) write(ctx context.Context, meta *v1.RequestMeta, procedure stri
 		return t.PutMutation(actor.Id, mid, procedure, b)
 	})
 	return replayed, err
+}
+
+// expired refuses a write past its meta's expiry.
+func expired(meta *v1.RequestMeta, now time.Time) error {
+	if exp := meta.GetExpiresAt(); exp != nil && now.After(exp.AsTime()) {
+		return connect.NewError(connect.CodeFailedPrecondition,
+			fmt.Errorf("request expired at %s", exp.AsTime().Format("15:04:05.000")))
+	}
+	return nil
+}
+
+// reusedMutation refuses a mutation id the caller already used for another procedure.
+func reusedMutation(mid, proc string) error {
+	return connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("mutation id %s was already used for %s", mid, proc))
 }

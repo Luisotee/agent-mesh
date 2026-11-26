@@ -102,7 +102,14 @@ class RecordingApi : MeshApi {
         return dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance()
     }
 
-    override suspend fun unregisterPush(): Boolean { push += "unregister"; return true }
+    /** While set, UnregisterPush hangs until it completes: a host that is slow to answer. */
+    @Volatile var unregisterGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
+    override suspend fun unregisterPush(): Boolean {
+        unregisterGate?.await()
+        push += "unregister"
+        return true
+    }
 
     override suspend fun testPush(): dev.agentmesh.gen.agentmesh.v1.PushRegistration {
         failPush?.let { throw it }

@@ -340,5 +340,6 @@ func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.Revok
 		return nil, err
 	}
 	d.disconnectActor(id)
+	d.push.stop(id, "")
 	return connect.NewResponse(out), nil
 }

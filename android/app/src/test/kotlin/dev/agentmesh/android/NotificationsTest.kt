@@ -314,6 +314,40 @@ class NotificationsTest {
         assertEquals(false, container.prefs.push.value)
     }
 
+    @Test fun `turning push off and on again while a host is slow to answer keeps the new registration`() {
+        api = RecordingApi()
+        val (hostId, _) = readyHost()
+        val channel = container.push as FakePushChannel
+        val activity = org.robolectric.Robolectric.buildActivity(android.app.Activity::class.java).get()
+        val endpoint = dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth")
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint)
+        waitFor("RegisterPush") { "register https://ntfy.example/upA?up=1" in api.push }
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.unregisterGate = gate
+        // Off: the distributor drops the instance at once, whatever the host does.
+        container.disablePush()
+        assertEquals(listOf(hostId), channel.unregistered.toList())
+        assertNull(container.pushRegistrar.status.value[hostId])
+        // On again before the host answered: the new endpoint registers, and the old call, once answered, undoes nothing.
+        container.enablePush(activity) {}
+        container.pushRegistrar.onEndpoint(hostId, endpoint.copy(url = "https://ntfy.example/upB?up=1"))
+        waitFor("RegisterPush of the new endpoint") { "register https://ntfy.example/upB?up=1" in api.push }
+        gate.complete(Unit)
+        Thread.sleep(200)
+        assertEquals(listOf(hostId), channel.unregistered.toList())
+        assertEquals(true, container.pushRegistrar.status.value[hostId]?.ok)
+    }
+
+    @Test fun `with push on, a host not connected yet whose endpoint is kept waits for the host`() {
+        api = RecordingApi()
+        val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        waitFor("the runtime") { container.runtimes.value[host.id] != null }
+        container.pushRegistrar.onEndpoint(host.id, dev.agentmesh.android.notify.SavedEndpoint("https://ntfy.example/upA?up=1", "pub", "auth"))
+        container.prefs.setPush(true)
+        waitFor("the status") { container.pushRegistrar.status.value[host.id]?.text == "Waiting for the host" }
+    }
+
     @Test fun `with no distributor installed push stays off`() {
         api = RecordingApi()
         val channel = container.push as FakePushChannel

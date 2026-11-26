@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
@@ -391,5 +392,57 @@ func TestNoPushGoesToARevokedDevice(t *testing.T) {
 	case <-srv.arrived:
 		t.Fatal("the retry went to a revoked device")
 	default:
+	}
+}
+
+func TestPushToANewEndpointDoesNotWaitForTheOldOnesRetries(t *testing.T) {
+	h := startWith(t, "", func(cfg *daemon.Config) { cfg.Push.Retry = []time.Duration{time.Hour} })
+	ctx := context.Background()
+	old := newFakePush(t, http.StatusServiceUnavailable)
+	moved := newFakePush(t)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, old.URL+"/up")
+	run := startRun(t, h.device.Mesh, "")
+	h.seedAgent(run.Id, "mv-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	w := h.seedAgent(run.Id, "mv-w1", "fix", "mv-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	readInbox(t, h.as(w))
+	send := func(body string) {
+		t.Helper()
+		if _, err := h.as(w).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: body})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("first")
+	<-old.arrived // the 503; its retry waits an hour
+	ph.register(t, moved.URL+"/up")
+	send("second")
+	waitFor(t, "the push to the new endpoint", func() bool { return moved.delivered() == 1 })
+	moved.mu.Lock()
+	got := ph.open(t, moved.got[0])
+	moved.mu.Unlock()
+	if !strings.Contains(got.Body, "second") {
+		t.Fatalf("the new endpoint got %+v", got)
+	}
+}
+
+func TestTestPushSendsNothingForAnExpiredOrReusedRequest(t *testing.T) {
+	h := startWith(t, "", fastPush)
+	ctx := context.Background()
+	srv := newFakePush(t)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	past := &v1.RequestMeta{MutationId: "late", ExpiresAt: timestamppb.New(time.Now().Add(-time.Minute))}
+	if _, err := ph.c.TestPush(ctx, connect.NewRequest(&v1.TestPushRequest{Meta: past})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("expired: %v", err)
+	}
+	if _, err := ph.c.UnregisterPush(ctx, connect.NewRequest(&v1.UnregisterPushRequest{Meta: meta("used")})); err != nil {
+		t.Fatal(err)
+	}
+	ph.register(t, srv.URL+"/up")
+	if _, err := ph.c.TestPush(ctx, connect.NewRequest(&v1.TestPushRequest{Meta: meta("used")})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("reused mutation id: %v", err)
+	}
+	if n := srv.delivered(); n != 0 {
+		t.Fatalf("%d pushes sent", n)
 	}
 }

@@ -66,6 +66,15 @@ type pushJob struct {
 	msg      webpush.Message
 }
 
+// senderKey is one sender's: a device's endpoint. A device that moves to a new endpoint gets a new sender, so
+// pushes for it never wait behind, or get dropped with, the old endpoint's retries.
+type senderKey struct{ device, endpoint string }
+
+type pushSender struct {
+	ch     chan pushJob
+	cancel context.CancelFunc
+}
+
 type pusher struct {
 	d      *Daemon
 	client *http.Client
@@ -74,7 +83,7 @@ type pusher struct {
 
 	mu      sync.Mutex
 	ctx     context.Context
-	devices map[string]chan pushJob
+	senders map[senderKey]*pushSender
 
 	// spawned holds the agents spawned lately, as their AgentSpawned events said: a launch that fails deletes its
 	// agent in the transaction that reports the exit, so the store no longer has it when the exit is pushed.
@@ -86,7 +95,7 @@ type pusher struct {
 const maxSpawned = 1000
 
 func newPusher(d *Daemon, cfg PushConfig) *pusher {
-	p := &pusher{d: d, client: cfg.Client, retry: cfg.Retry, in: make(chan []*v1.Event, pushInbox), devices: map[string]chan pushJob{}, spawned: map[string]*v1.Agent{}}
+	p := &pusher{d: d, client: cfg.Client, retry: cfg.Retry, in: make(chan []*v1.Event, pushInbox), senders: map[senderKey]*pushSender{}, spawned: map[string]*v1.Agent{}}
 	if p.client == nil {
 		p.client = webpush.NewClient()
 	}
@@ -238,26 +247,28 @@ func (p *pusher) send(regs []store.PushRecord, pl pushPayload, urgent bool) {
 	}
 }
 
-// queue hands a job to the device's sender, starting it on first use; a full queue drops its oldest job.
+// queue hands a job to its endpoint's sender, starting it on first use; a full queue drops its oldest job.
 func (p *pusher) queue(device string, j pushJob) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	ch := p.devices[device]
-	if ch == nil {
+	k := senderKey{device, j.endpoint}
+	s := p.senders[k]
+	if s == nil {
 		if p.ctx == nil {
 			return
 		}
-		ch = make(chan pushJob, pushDeviceQueue)
-		p.devices[device] = ch
-		go p.sender(p.ctx, device, ch)
+		ctx, cancel := context.WithCancel(p.ctx)
+		s = &pushSender{ch: make(chan pushJob, pushDeviceQueue), cancel: cancel}
+		p.senders[k] = s
+		go p.sender(ctx, k, s)
 	}
 	for {
 		select {
-		case ch <- j:
+		case s.ch <- j:
 			return
 		default:
 			select {
-			case <-ch:
+			case <-s.ch:
 				p.d.log.Warn("push: queue full; oldest push dropped", "device", device)
 			default:
 			}
@@ -265,21 +276,39 @@ func (p *pusher) queue(device string, j pushJob) {
 	}
 }
 
-// sender delivers one device's pushes in order, retrying each per p.retry.
-func (p *pusher) sender(ctx context.Context, device string, ch chan pushJob) {
+// stop ends a device's senders, but the one for keep: what they still hold is dropped, and a push waiting out a
+// retry stops waiting. RegisterPush (keep is the new endpoint), UnregisterPush and RevokeDevice call it.
+func (p *pusher) stop(device, keep string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for k, s := range p.senders {
+		if k.device == device && k.endpoint != keep {
+			s.cancel()
+			delete(p.senders, k)
+		}
+	}
+}
+
+// sender delivers one endpoint's pushes in order, retrying each per p.retry.
+func (p *pusher) sender(ctx context.Context, k senderKey, s *pushSender) {
+	done := func() {
+		s.cancel()
+		p.mu.Lock()
+		if p.senders[k] == s {
+			delete(p.senders, k)
+		}
+		p.mu.Unlock()
+	}
 	for {
 		select {
 		case <-ctx.Done():
+			done()
 			return
-		case j := <-ch:
-			if !p.deliver(ctx, device, j) {
-				// The registration is gone (revoked, unregistered, or the endpoint is): what is still queued
-				// for it is dropped with the sender, and a new registration starts a new one.
-				p.mu.Lock()
-				if p.devices[device] == ch {
-					delete(p.devices, device)
-				}
-				p.mu.Unlock()
+		case j := <-s.ch:
+			if !p.deliver(ctx, k.device, j) {
+				// The registration has another endpoint or none (revoked, unregistered, gone): what is still
+				// queued here is for this endpoint, so it is dropped with the sender.
+				done()
 				return
 			}
 		}
@@ -344,7 +373,7 @@ func (p *pusher) settle(ctx context.Context, device, endpoint string, res webpus
 		}
 		if res.Outcome == webpush.Rejected {
 			// That push will never be taken, but the endpoint may be fine: record why, don't count it as failing.
-			p.d.log.Warn("push: rejected", "device", device, "host", host, "status", res.Status, "err", res.Err)
+			p.d.log.Warn("push: rejected", "device", device, "host", host, "status", res.Status, "err", res.Err, "detail", res.Detail)
 			return t.NotePush(device, endpoint, res.Err.Error())
 		}
 		if !reg.FailingSince.IsZero() && t.Now().Sub(reg.FailingSince) > pushFailingMax {
@@ -413,6 +442,7 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 	}); err != nil {
 		return nil, err
 	}
+	d.push.stop(device, endpoint)
 	return connect.NewResponse(out), nil
 }
 
@@ -429,6 +459,7 @@ func (d *Daemon) UnregisterPush(ctx context.Context, req *connect.Request[v1.Unr
 	}); err != nil {
 		return nil, err
 	}
+	d.push.stop(device, "")
 	return connect.NewResponse(out), nil
 }
 
@@ -440,14 +471,26 @@ func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushR
 	if err != nil {
 		return nil, err
 	}
+	// What d.write checks, checked before anything is sent: a replay of a test that worked gets its answer, and a
+	// mutation id used for something else or a request past its expiry sends nothing.
 	actor := auth.ActorFrom(ctx)
 	if mid := req.Msg.Meta.GetMutationId(); mid != "" {
-		if proc, resp, err := d.store.Read(ctx).Mutation(actor.Id, mid); err == nil && proc == agentmeshv1connect.MeshServiceTestPushProcedure {
+		proc, resp, err := d.store.Read(ctx).Mutation(actor.Id, mid)
+		switch {
+		case err == nil && proc != agentmeshv1connect.MeshServiceTestPushProcedure:
+			return nil, reusedMutation(mid, proc)
+		case err == nil:
 			out := &v1.TestPushResponse{}
-			if err := proto.Unmarshal(resp, out); err == nil {
-				return connect.NewResponse(out), nil
+			if err := proto.Unmarshal(resp, out); err != nil {
+				return nil, err
 			}
+			return connect.NewResponse(out), nil
+		case !errors.Is(err, store.ErrNotFound):
+			return nil, err
 		}
+	}
+	if err := expired(req.Msg.Meta, d.now()); err != nil {
+		return nil, err
 	}
 	reg, err := d.store.Read(ctx).Push(device)
 	if errors.Is(err, store.ErrNotFound) {
@@ -462,6 +505,9 @@ func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushR
 		return nil, err
 	}
 	res := webpush.Post(ctx, d.push.client, reg.Endpoint, m)
+	if err := ctx.Err(); err != nil {
+		return nil, connect.NewError(connect.CodeCanceled, err)
+	}
 	d.push.settle(ctx, device, reg.Endpoint, res)
 	switch res.Outcome {
 	case webpush.Delivered:

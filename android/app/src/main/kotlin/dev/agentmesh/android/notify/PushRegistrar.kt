@@ -74,7 +74,11 @@ class PushRegistrar(
     private fun watch(rt: HostRuntime): Job = scope.launch {
         // Ready already (push was just turned on), then every connection after.
         launch { rt.connected.collect { register(rt) } }
-        if (rt.state.value.conn is ConnState.Ready) register(rt)
+        when {
+            rt.state.value.conn is ConnState.Ready -> register(rt)
+            // A cold start keeps the endpoint from last time: what is missing is the connection.
+            store.get(rt.hostId) != null && rt.hostId !in _status.value -> set(rt.hostId, PushStatus("Waiting for the host", ok = false))
+        }
     }
 
     private fun set(hostId: String, s: PushStatus?) = _status.update { if (s == null) it - hostId else it + (hostId to s) }

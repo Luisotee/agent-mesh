@@ -159,7 +159,7 @@ private fun PushSettings() {
                 color = if (st?.ok == true) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             )
         }
-        androidx.compose.material3.TextButton(
+        if (hosts.isNotEmpty()) androidx.compose.material3.TextButton(
             onClick = {
                 note = "Sending…"
                 scope.launch {

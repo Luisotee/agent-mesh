@@ -125,26 +125,33 @@ class AppContainer(
         p.toNotice()?.let { show(hostId, it) }
     }
 
+    /** The host calls of the last [disablePush], cancelled when push is turned on again. */
+    private var pushOff: Job? = null
+
     /** Turns push on: picks the distributor (asking the user when there are several), then registers every host. */
     fun enablePush(activity: android.app.Activity, done: (Boolean) -> Unit) = push.pick(activity) { ok ->
         if (ok) {
+            pushOff?.cancel()
             prefs.setPush(true)
             for (h in hosts.hosts.value) runCatching { push.register(h.id, h.name) }
         }
         done(ok)
     }
 
-    /** Turns push off: each host is told to stop (when reachable), and the distributor drops the registrations. */
+    /**
+     * Turns push off: the distributor drops the registrations at once, then each reachable host is told to stop (all
+     * at the same time, in the background). Turning push on again cancels what hasn't been sent yet, so a slow host
+     * can't undo the new registrations.
+     */
     fun disablePush() {
         prefs.setPush(false)
         val ids = hosts.hosts.value.map { it.id }
-        scope.launch {
-            for (id in ids) {
-                pushRegistrar.unregisterAt(id)
-                runCatching { push.unregister(id) }
-                pushRegistrar.forget(id)
-            }
+        for (id in ids) {
+            runCatching { push.unregister(id) }
+            pushRegistrar.forget(id)
         }
+        pushOff?.cancel()
+        pushOff = scope.launch { for (id in ids) launch { pushRegistrar.unregisterAt(id) } }
     }
 
     fun nudgeAll() = _runtimes.value.values.forEach { it.nudge() }

@@ -3,6 +3,7 @@ package dev.agentmesh.android.notify
 import android.app.Activity
 import android.content.Context
 import org.unifiedpush.android.connector.UnifiedPush
+import org.unifiedpush.android.connector.keys.KeyManager
 
 /**
  * Push (docs/apps.md, "Push"): UnifiedPush, with a distributor app on the phone (ntfy, on the user's own server or
@@ -34,8 +35,11 @@ interface PushChannel {
     fun unregister(hostId: String)
 }
 
-/** The real one: the UnifiedPush connector library. */
-class UnifiedPushChannel(private val context: Context) : PushChannel {
+/**
+ * The real one: the UnifiedPush connector library. [keys] replaces the library's own key manager (the Android
+ * Keystore) in tests, which have no Keystore; null is the library's default.
+ */
+class UnifiedPushChannel(private val context: Context, private val keys: KeyManager? = null) : PushChannel {
     override fun distributors(): List<String> = UnifiedPush.getDistributors(context)
 
     override fun current(): String? = UnifiedPush.getAckDistributor(context)
@@ -47,8 +51,18 @@ class UnifiedPushChannel(private val context: Context) : PushChannel {
 
     override fun pick(activity: Activity, done: (Boolean) -> Unit) = UnifiedPush.tryUseCurrentOrDefaultDistributor(activity, done)
 
-    override fun register(hostId: String, hostName: String) =
-        UnifiedPush.register(context, instance = hostId, messageForDistributor = "agent-mesh: $hostName")
+    override fun register(hostId: String, hostName: String) {
+        val note = "agent-mesh: $hostName"
+        if (keys == null) UnifiedPush.register(context, instance = hostId, messageForDistributor = note)
+        else UnifiedPush.register(context, hostId, note, null, keys)
+    }
 
-    override fun unregister(hostId: String) = UnifiedPush.unregister(context, hostId)
+    // The library forgets the saved distributor when its last instance is unregistered, and then registers later
+    // ones silently with no distributor: removing the only host would break push for the next one while the
+    // switch stays on. The distributor is put back; turning push on again picks it anew anyway.
+    override fun unregister(hostId: String) {
+        val saved = UnifiedPush.getSavedDistributor(context)
+        if (keys == null) UnifiedPush.unregister(context, hostId) else UnifiedPush.unregister(context, hostId, keys)
+        if (saved != null && UnifiedPush.getSavedDistributor(context) == null) UnifiedPush.saveDistributor(context, saved)
+    }
 }

@@ -103,6 +103,7 @@ func TestParseKeysAndEndpoint(t *testing.T) {
 		"https://user:pw@ntfy.sh/up": false,
 		"/relative":                  false,
 		"https:///nohost":            false,
+		"https://:443/up":            false,
 	} {
 		if _, err := ValidEndpoint(raw); (err == nil) != ok {
 			t.Errorf("ValidEndpoint(%q) = %v, want ok=%v", raw, err, ok)

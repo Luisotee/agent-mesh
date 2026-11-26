@@ -53,4 +53,13 @@ class PushSettingsTest {
         compose.onNodeWithText("Home: The distributor couldn't reach its server").performScrollTo()
         compose.onNodeWithText("Send a test notification").performScrollTo()
     }
+
+    @Test fun `on with no host there is nothing to test`() {
+        NotificationsTest.api = RecordingApi()
+        (container.push as FakePushChannel).chosen = "io.heckel.ntfy"
+        container.prefs.setPush(true)
+        show()
+        compose.onNodeWithText("Through io.heckel.ntfy", substring = true).performScrollTo()
+        compose.onNodeWithText("Send a test notification").assertDoesNotExist()
+    }
 }
