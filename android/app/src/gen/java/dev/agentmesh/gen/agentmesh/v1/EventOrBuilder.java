@@ -289,5 +289,16 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.RunStopped getRunStopped();
 
+  /**
+   * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 27 [json_name = "agentRoleChanged"];</code>
+   * @return Whether the agentRoleChanged field is set.
+   */
+  boolean hasAgentRoleChanged();
+  /**
+   * <code>.agentmesh.v1.AgentRoleChanged agent_role_changed = 27 [json_name = "agentRoleChanged"];</code>
+   * @return The agentRoleChanged.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentRoleChanged getAgentRoleChanged();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

@@ -178,6 +178,66 @@ var directStartRe = regexp.MustCompile(`^Direct task(?:\s*\(no plan\)|:|\.(?:\s|
 
 func isDirectTask(body string) bool { return directStartRe.MatchString(strings.TrimSpace(body)) }
 
+// readOnlyStartRe is how a read-only task begins (bin/mesh's ASK_PREFIX and REVIEW_PREFIX): PROTOCOL.md rule 6.
+var readOnlyStartRe = regexp.MustCompile(`^(?:Question|Review) \(read-only\)`)
+
+func isReadOnlyTask(body string) bool { return readOnlyStartRe.MatchString(strings.TrimSpace(body)) }
+
+// becomesWorker reports whether a task with this body, sent to this agent, gives an asker or reviewer a change
+// to make: any task that is not a read-only one.
+func becomesWorker(a *v1.Agent, body string) bool {
+	return adapter.ReadOnly(a.Role) && !isReadOnlyTask(body)
+}
+
+// takeChange turns an asker or reviewer that was given a change task into a worker, in the same conversation
+// (bin/mesh does the same: the role is the agent's, not its start): its role and its live tokens' class change,
+// and a planned task puts it in the plan phase, still under the planning deny list its read-only start gave it
+// (approve then reopens it without, on the execution tier; a direct task lifts it through directTask or
+// revive). It is refused for an agent whose parent is a worker, since a worker never gets a change worker
+// (mayStart). It stores the agent. A task that is read-only, or sent to any other role, changes nothing.
+func (d *Daemon) takeChange(tx *store.Tx, a *v1.Agent, body string, planned bool) error {
+	if !becomesWorker(a, body) {
+		return nil
+	}
+	parent := v1.ActorClass_ACTOR_CLASS_DEVICE // started by a device: no parent agent
+	if a.ParentId != "" {
+		p, err := tx.GetAgent(a.ParentId)
+		if err != nil {
+			return err
+		}
+		parent = ClassOf(p.Role)
+	}
+	if !mayStart(parent, v1.AgentRole_AGENT_ROLE_WORKER) {
+		return failedPrecondition("%s is a %s of a worker, and a worker never gets a change worker: ask the root to start one for the change, "+
+			"or send %s a read-only question", a.Name, roleName(a.Role), a.Name)
+	}
+	from := a.Role
+	why := "change task"
+	if planned {
+		why = "planned change task"
+	}
+	a.Role = v1.AgentRole_AGENT_ROLE_WORKER
+	a.DenyEdits = true // it was launched under the read-only list: until it is lifted, the list is its own
+	if err := tx.SetTokenClass(a.Id, ClassOf(a.Role)); err != nil {
+		return err
+	}
+	if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentRoleChanged{
+		AgentRoleChanged: &v1.AgentRoleChanged{From: from, To: a.Role, Why: why}}}); err != nil {
+		return err
+	}
+	if planned {
+		endExecution(a)
+		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, why); err != nil {
+			return err
+		}
+	}
+	return tx.PutAgent(a)
+}
+
+func roleName(r v1.AgentRole) string {
+	return strings.ToLower(strings.TrimPrefix(r.String(), "AGENT_ROLE_"))
+}
+
 // directTask applies a direct task sent to an agent outside resume: the plan phase it was in ends, and the
 // planning deny list goes unless the role is read-only. A running process can't change its deny list, so that
 // is a reopen of the same model and effort; a stopped agent just launches without it when it next starts.
@@ -525,6 +585,11 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		}
 		if !stopped(a) {
 			return failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a.Name)
+		}
+		if task != "" {
+			if err := d.takeChange(tx, a, task, m.Plan); err != nil {
+				return err
+			}
 		}
 		spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why}
 		if task != "" {

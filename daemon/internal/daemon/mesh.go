@@ -234,7 +234,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return false
 		}
 		_, _, deny := target(to)
-		return deny && !adapter.ReadOnly(to.Role)
+		return deny && (!adapter.ReadOnly(to.Role) || becomesWorker(to, req.Msg.Body))
 	})
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
@@ -294,8 +294,15 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		// planned follow-up leaves a planner planning. From a device as from the agent's parent. A stopped agent
 		// gets it from `revive` below instead, behind the same guards as any resume, so that a refusal leaves it
 		// as it was and nothing is requested twice.
-		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) &&
-			(!IsAgent(actor.Class) || to.ParentId == actor.Id)
+		fromParent := !IsAgent(actor.Class) || to.ParentId == actor.Id
+		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) && fromParent
+		// A task that is not a read-only one, from the agent's parent or a device, makes an asker or reviewer
+		// the worker for it (takeChange), before the direct task lifts its list.
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && fromParent {
+			if err := d.takeChange(t, to, req.Msg.Body, !direct); err != nil {
+				return err
+			}
+		}
 		if direct && !stopped(to) {
 			if err := d.directTask(t, to); err != nil {
 				return err
