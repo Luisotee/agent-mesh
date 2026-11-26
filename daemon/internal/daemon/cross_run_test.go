@@ -117,6 +117,19 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 	if err != nil || len(msgsR1.Msg.Messages) == 0 {
 		t.Fatalf("root ListMessages(run1) = %+v, err=%v", msgsR1, err)
 	}
+	// root2 omitting run_id defaults to its own run (run2), and an empty-run ROOT actor is refused.
+	if msgsR2, err := root2Cli.ListMessages(ctx, connect.NewRequest(&v1.ListMessagesRequest{})); err != nil || len(msgsR2.Msg.Messages) != 0 {
+		t.Errorf("root ListMessages(default=run2) = %+v, err=%v", msgsR2, err)
+	}
+	emptyRootCtx := auth.WithActor(ctx, &v1.Actor{
+		Class: v1.ActorClass_ACTOR_CLASS_ROOT, Id: "a_empty", Name: "lead", RunId: "",
+	})
+	if _, err := w.d.ListMessages(emptyRootCtx, connect.NewRequest(&v1.ListMessagesRequest{RunId: run1.Id})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("empty-run root ListMessages(run1): %v, want PermissionDenied", err)
+	}
+	if _, err := w.d.ListMessages(emptyRootCtx, connect.NewRequest(&v1.ListMessagesRequest{})); err == nil {
+		t.Errorf("expected empty-run root ListMessages(empty run_id) to fail")
+	}
 	gotW1, err := root2Cli.GetAgent(ctx, connect.NewRequest(&v1.GetAgentRequest{Agent: w1.Id}))
 	if err != nil || gotW1.Msg.Agent.RunId != run1.Id {
 		t.Fatalf("root GetAgent(w1) = %+v, err=%v", gotW1, err)
@@ -182,4 +195,87 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 		t.Fatalf("RetireAgent(w2): %v", err)
 	}
 	w.waitState(w2.Id, v1.AgentState_AGENT_STATE_RETIRED)
+
+	// 8. StopRun(run2) must remove w2's clean worktree now that run1 is closed and w1 is stopped.
+	stopR2, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{
+		Meta: meta(""), RunId: run2.Id,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wt := range stopR2.Msg.Worktrees {
+		if strings.Contains(wt.Reason, "another run") {
+			t.Errorf("StopRun(run2) falsely skipped worktree as busy: %+v", wt)
+		}
+	}
+	if _, err := os.Stat(w2.Worktree); !os.IsNotExist(err) {
+		t.Errorf("StopRun(run2) leaked follow-up worktree %s: stat=%v", w2.Worktree, err)
+	}
+}
+
+func TestCrossRunResumeClosedRunsOnlyAndClosedBeforeOpenSearch(t *testing.T) {
+	ctx := context.Background()
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true}
+	})
+	repo := gitRepo(t)
+
+	// Run 1 (closed): worker "repo-worker".
+	run1 := startRun(t, w.device.Mesh, "")
+	w1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run1.Id, Repo: repo, Slug: "worker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w1 := w.waitState(w1Res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if _, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{
+		Meta: meta(""), RunId: run1.Id,
+	})); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run 3 (open): another worker also named "repo-worker", stopped/retired inside open run3.
+	run3 := startRun(t, w.device.Mesh, "")
+	w3Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run3.Id, Repo: repo, Slug: "worker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w3 := w.waitState(w3Res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w3 = retireStoppedWorker(t, w, w3)
+
+	// Run 2 (open): lead root2.
+	run2 := startRun(t, w.device.Mesh, "")
+	root2Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run2.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root2 := w.waitState(root2Res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	root2Cli := agentClient(t, w, root2)
+
+	// Cross-run resume of open run3's worker is refused even when stopped.
+	if _, err := root2Cli.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
+		Meta: meta(""), Agent: w3.Id, Task: "hijack open run3 worker",
+	})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("resuming open run3's worker: %v, want PermissionDenied", err)
+	}
+
+	// Name lookup from root2 searches closed runs before other open runs, resolving "repo-worker" to w1.
+	got, err := root2Cli.GetAgent(ctx, connect.NewRequest(&v1.GetAgentRequest{Agent: w1.Name}))
+	if err != nil || got.Msg.Agent.Id != w1.Id {
+		t.Fatalf("root2 GetAgent(%q) = %+v, err=%v (want closed run1 %s)", w1.Name, got, err, w1.Id)
+	}
+	rres, err := root2Cli.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
+		Meta: meta(""), Agent: w1.Name, Task: "follow-up on closed run1",
+	}))
+	if err != nil {
+		t.Fatalf("root2 ResumeAgent(%q): %v", w1.Name, err)
+	}
+	if rres.Msg.Agent.ResumedFromAgentId != w1.Id || rres.Msg.Agent.ResumedFromRunId != run1.Id {
+		t.Errorf("resumed %+v, want from closed run1 %s / %s", rres.Msg.Agent, run1.Id, w1.Id)
+	}
 }

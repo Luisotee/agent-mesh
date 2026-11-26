@@ -119,6 +119,8 @@ func ensureWorktree(ctx context.Context, repo, worktree, branch, baseCommit stri
 	if err := os.MkdirAll(filepath.Dir(worktree), 0o700); err != nil {
 		return false, "", err
 	}
+	// Clean up stale administrative state if the directory was removed outside `git worktree remove`.
+	_, _ = git(ctx, repo, "worktree", "prune")
 	if branch != "" {
 		if _, berr := git(ctx, repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); berr == nil {
 			if _, aerr := git(ctx, repo, "worktree", "add", worktree, branch); aerr != nil {
@@ -145,7 +147,7 @@ func ensureWorktree(ctx context.Context, repo, worktree, branch, baseCommit stri
 
 // prepareWorktreeForTask ensures a change worker's worktree exists and, when `changeTask` is true and its
 // branch's GitHub PR is already merged or closed (and none is open), moves it onto a fresh
-// `mesh/<targetRunID>/<slug>` branch. Must run under d.agentLock(a.Id) and OUTSIDE SQLite write locks.
+// `mesh/<targetRunID>/<slug>` branch. Must run under d.worktreeLock(a.Worktree) and OUTSIDE SQLite write locks.
 func (d *Daemon) prepareWorktreeForTask(ctx context.Context, a *v1.Agent, targetRunID string, changeTask bool) (*preparedWorktree, error) {
 	if adapter.ReadOnly(a.Role) || a.Role == v1.AgentRole_AGENT_ROLE_ROOT || a.Worktree == "" || a.Repo == "" {
 		return &preparedWorktree{}, nil
@@ -335,6 +337,17 @@ func gitIsAncestor(ctx context.Context, dir, ancestor, descendant string) bool {
 	return err == nil
 }
 
+func prOnBranch(ctx context.Context, worktree, oid, branch, baseCommit string) bool {
+	if oid == "" {
+		return true
+	}
+	if _, err := git(ctx, worktree, "cat-file", "-e", oid+"^{commit}"); err != nil {
+		return true // not in the local repo to compare (e.g. squash-merged PR head never fetched)
+	}
+	onBranch := gitIsAncestor(ctx, worktree, oid, "refs/heads/"+branch) || gitIsAncestor(ctx, worktree, oid, "HEAD")
+	return onBranch && !(baseCommit != "" && gitIsAncestor(ctx, worktree, oid, baseCommit))
+}
+
 func (d *Daemon) finishedPR(ctx context.Context, worktree, branch, baseCommit, repoSlug string) (state string, number int, url string, headOID string) {
 	args := []string{"pr", "list"}
 	if repoSlug != "" {
@@ -352,16 +365,11 @@ func (d *Daemon) finishedPR(ctx context.Context, worktree, branch, baseCommit, r
 	var relevant []ghPR
 	for _, pr := range prs {
 		st := strings.ToUpper(strings.TrimSpace(pr.State))
-		if pr.HeadRefOid != "" {
-			if !gitIsAncestor(ctx, worktree, pr.HeadRefOid, branch) && !gitIsAncestor(ctx, worktree, pr.HeadRefOid, "HEAD") {
-				continue
-			}
-			if baseCommit != "" && gitIsAncestor(ctx, worktree, pr.HeadRefOid, baseCommit) {
-				continue
-			}
-		}
 		if st == "OPEN" {
 			return "", 0, "", ""
+		}
+		if !prOnBranch(ctx, worktree, pr.HeadRefOid, branch, baseCommit) {
+			continue
 		}
 		if st == "MERGED" || st == "CLOSED" {
 			pr.State = st

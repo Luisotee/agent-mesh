@@ -767,31 +767,6 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if !slugRE.MatchString(m.Slug) {
 		return nil, invalid("slug %q: lowercase letters, digits and dashes", m.Slug)
 	}
-	if role != v1.AgentRole_AGENT_ROLE_ROOT {
-		d.warmUsage(ctx, d.store.Read(ctx), kind, agyResolveKey{model: m.Model, effort: m.Effort})
-	}
-	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
-	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
-	var model, effort string
-	if role != v1.AgentRole_AGENT_ROLE_ROOT || m.Tier != "" || m.Model != "" || m.Effort != "" {
-		if role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" {
-			// An effort alone: the CLI's default model at that effort.
-			if !validEffort(m.Effort) {
-				return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
-			}
-			effort = m.Effort
-		} else if model, effort, err = d.pick(d.store.Read(ctx), kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
-			return nil, err
-		}
-	}
-	if m.ExecTier != "" {
-		if !m.Plan {
-			return nil, invalid("exec_tier is for a task with a plan phase (plan)")
-		}
-		if _, _, err := d.tierChain(d.store.Read(ctx), kind, m.ExecTier); err != nil {
-			return nil, err
-		}
-	}
 	runID := m.RunId
 	if IsAgent(actor.Class) {
 		if runID == "" {
@@ -819,6 +794,31 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 				return nil, err
 			}
 			return connect.NewResponse(out), nil
+		}
+	}
+	if role != v1.AgentRole_AGENT_ROLE_ROOT {
+		d.warmUsage(ctx, r, kind, agyResolveKey{model: m.Model, effort: m.Effort})
+	}
+	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
+	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
+	var model, effort string
+	if role != v1.AgentRole_AGENT_ROLE_ROOT || m.Tier != "" || m.Model != "" || m.Effort != "" {
+		if role == v1.AgentRole_AGENT_ROLE_ROOT && m.Tier == "" && m.Model == "" {
+			// An effort alone: the CLI's default model at that effort.
+			if !validEffort(m.Effort) {
+				return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
+			}
+			effort = m.Effort
+		} else if model, effort, err = d.pick(r, kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
+			return nil, err
+		}
+	}
+	if m.ExecTier != "" {
+		if !m.Plan {
+			return nil, invalid("exec_tier is for a task with a plan phase (plan)")
+		}
+		if _, _, err := d.tierChain(r, kind, m.ExecTier); err != nil {
+			return nil, err
 		}
 	}
 	// The reserve, cap and memory floor, early, before a worktree is made for nothing; the launch checks cap and

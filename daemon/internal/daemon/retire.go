@@ -410,14 +410,15 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	busyWorktrees := map[string]bool{}
 	openRuns := map[string]bool{}
 	sr := d.store.Read(ctx)
-	if runs, rerr := sr.ListRuns(true); rerr == nil {
+	if runs, rerr := sr.ListRuns(false); rerr == nil {
 		for _, r := range runs {
 			openRuns[r.Id] = true
 		}
 	}
 	if all, aerr := sr.AllAgents(); aerr == nil {
 		for _, other := range all {
-			if other.RunId != req.Msg.RunId && other.Worktree != "" && (hasProcess(other) || openRuns[other.RunId]) {
+			if other.RunId != req.Msg.RunId && other.Worktree != "" &&
+				(hasProcess(other) || (openRuns[other.RunId] && !stopped(other))) {
 				busyWorktrees[other.Worktree] = true
 			}
 		}

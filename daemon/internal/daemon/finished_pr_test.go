@@ -305,3 +305,203 @@ func TestResumeRecreatesRemovedWorktreeAndSkipsNonGitHub(t *testing.T) {
 		t.Errorf("gh called %d times on non-GitHub repo", ghCalls.Load())
 	}
 }
+
+func TestFinishedPRMissingRemoteHeadCommitAndOpenPRPrecedence(t *testing.T) {
+	ctx := context.Background()
+	repo, bare := githubBackedRepo(t)
+	var ghResp atomic.Value
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{
+			DisableClaudeNetwork: true,
+			RunGH: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+				v, _ := ghResp.Load().(string)
+				return []byte(v), nil
+			},
+		}
+	})
+	run := startRun(t, w.device.Mesh, "")
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "fix", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	if err := os.WriteFile(filepath.Join(a.Worktree, "fix.txt"), []byte("v1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, a.Worktree, "add", "fix.txt")
+	runGit(t, a.Worktree, "commit", "-m", "fix")
+	localHead := runGit(t, a.Worktree, "rev-parse", "HEAD")
+
+	other := filepath.Join(t.TempDir(), "other")
+	runGit(t, "", "clone", bare, other)
+	if err := os.WriteFile(filepath.Join(other, "upstream.txt"), []byte("merged\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, other, "add", "upstream.txt")
+	runGit(t, other, "commit", "-m", "merged pr upstream")
+	runGit(t, other, "push", "origin", "main")
+	newMain := runGit(t, other, "rev-parse", "HEAD")
+
+	// Open PR with a non-local headRefOid must NOT be filtered out, and must prevent leaving the branch even
+	// if an older MERGED PR exists on the same branch.
+	openAndOldMerged, _ := json.Marshal([]map[string]any{
+		{"number": 30, "url": "https://github.com/acme/demo/pull/30", "state": "MERGED", "headRefOid": localHead},
+		{"number": 31, "url": "https://github.com/acme/demo/pull/31", "state": "OPEN", "headRefOid": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+	})
+	ghResp.Store(string(openAndOldMerged))
+	a = retireStoppedWorker(t, w, a)
+	oldBranch := a.Branch
+	oldTerm := a.TerminalId
+	rOpen, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
+		Meta: meta(""), Agent: a.Id, Task: "keep open pr",
+	}))
+	if err != nil || rOpen.Msg.LeftPr != "" || rOpen.Msg.Agent.Branch != oldBranch {
+		t.Fatalf("open PR with missing local SHA did not block move: %+v err=%v", rOpen, err)
+	}
+	a = w.waitReopened(t, a.Id, oldTerm)
+
+	// Merged PR whose headRefOid is missing locally (e.g. squash-merged / updated via GitHub UI) STILL counts.
+	mergedRemoteOnly, _ := json.Marshal([]map[string]any{{
+		"number": 32, "url": "https://github.com/acme/demo/pull/32", "state": "MERGED",
+		"headRefOid": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+	}})
+	ghResp.Store(string(mergedRemoteOnly))
+	a = retireStoppedWorker(t, w, a)
+	oldTerm = a.TerminalId
+	rMerged, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
+		Meta: meta(""), Agent: a.Id, Task: "follow-up after squash merge",
+	}))
+	if err != nil {
+		t.Fatalf("ResumeAgent: %v", err)
+	}
+	if rMerged.Msg.LeftPr != "https://github.com/acme/demo/pull/32" {
+		t.Errorf("LeftPr = %q, want PR #32", rMerged.Msg.LeftPr)
+	}
+	if rMerged.Msg.Agent.Branch != "mesh/"+run.Id+"/fix-2" || rMerged.Msg.Agent.BaseCommit != newMain {
+		t.Errorf("branch/base = %q / %q, want mesh/%s/fix-2 / %q", rMerged.Msg.Agent.Branch, rMerged.Msg.Agent.BaseCommit, run.Id, newMain)
+	}
+	_ = w.waitReopened(t, a.Id, oldTerm)
+}
+
+func TestEnsureWorktreePrunesManuallyRemovedDir(t *testing.T) {
+	ctx := context.Background()
+	repo := gitRepo(t)
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true}
+	})
+	run := startRun(t, w.device.Mesh, "")
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "manualrm", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	wt := a.Worktree
+	a = retireStoppedWorker(t, w, a)
+
+	// Delete the directory directly outside `git worktree remove` so git still lists it as missing.
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+	rres, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
+		Meta: meta(""), Agent: a.Id, Task: "work again",
+	}))
+	if err != nil {
+		t.Fatalf("ResumeAgent after manual rm -rf: %v", err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Errorf("worktree %s was not recreated: %v", wt, err)
+	}
+	if len(rres.Msg.Notes) == 0 || !strings.Contains(rres.Msg.Notes[0], "recreated worktree") {
+		t.Errorf("Notes = %v, want recreated worktree", rres.Msg.Notes)
+	}
+}
+
+func TestSendMessageWorktreePrepErrorsAndFailedReviveBranchNote(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := githubBackedRepo(t)
+	var ghResp atomic.Value
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{
+			DisableClaudeNetwork: true,
+			RunGH: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+				v, _ := ghResp.Load().(string)
+				return []byte(v), nil
+			},
+		}
+	})
+	run := startRun(t, w.device.Mesh, "")
+	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.waitState(leadRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "cap", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if err := os.WriteFile(filepath.Join(a.Worktree, "x.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, a.Worktree, "add", "x.txt")
+	runGit(t, a.Worktree, "commit", "-m", "pr commit")
+	prHead := runGit(t, a.Worktree, "rev-parse", "HEAD")
+
+	b, _ := json.Marshal([]map[string]any{{
+		"number": 44, "url": "https://github.com/acme/demo/pull/44", "state": "MERGED", "headRefOid": prHead,
+	}})
+	ghResp.Store(string(b))
+	a = retireStoppedWorker(t, w, a)
+	oldBranch := a.Branch
+
+	// Hit caps.agents=1 (lead holds the 1 live slot) during SendMessage resume preparation:
+	// prep fails/rolls back in revive -> ResumeError returned, message kept WITHOUT stale branch note.
+	w.set(t, "caps.agents", 1)
+	sres, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{
+		Meta: meta(""), To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task\ntry under cap",
+	}))
+	if err != nil {
+		t.Fatalf("SendMessage under cap failed unexpectedly: %v", err)
+	}
+	if sres.Msg.ResumeError == "" {
+		t.Fatalf("expected ResumeError under cap, got resumed=%+v", sres.Msg.Resumed)
+	}
+	if strings.Contains(sres.Msg.Message.GetBody(), "moved onto new branch") {
+		t.Errorf("stored message kept stale branch-move note after refused resume: %q", sres.Msg.Message.GetBody())
+	}
+	if cur := runGit(t, a.Worktree, "symbolic-ref", "--short", "HEAD"); cur != oldBranch {
+		t.Errorf("worktree branch = %q, want rolled-back %q", cur, oldBranch)
+	}
+
+	// Lift cap, delete both the worktree AND the repo so prepareWorktreeForTask errors:
+	// SendMessage keeps the message and reports preparing worktree in ResumeError.
+	w.set(t, "caps.agents", 8)
+	if err := os.RemoveAll(a.Worktree); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(repo); err != nil {
+		t.Fatal(err)
+	}
+	sres2, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{
+		Meta: meta(""), To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task\nmissing repo",
+	}))
+	if err != nil {
+		t.Fatalf("SendMessage with missing repo returned RPC error instead of ResumeError: %v", err)
+	}
+	if !strings.Contains(sres2.Msg.ResumeError, "preparing worktree") {
+		t.Errorf("ResumeError = %q, want preparing worktree error", sres2.Msg.ResumeError)
+	}
+	if sres2.Msg.Message == nil {
+		t.Error("expected message to be stored despite worktree prep error")
+	}
+}

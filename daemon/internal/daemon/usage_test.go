@@ -146,11 +146,16 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 		t.Errorf("SendMessage(TASK) under reserve: %v", err)
 	}
 
-	// Answers STILL go through while at reserve, and plain ResumeAgent (without task) succeeds.
+	// Answers STILL go through while at reserve, plain ResumeAgent succeeds, and a device task to ROOT succeeds.
 	if _, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{
 		Meta: meta(""), To: worker.Id, Type: v1.MessageType_MESSAGE_TYPE_ANSWER, Body: "allowed answer",
 	})); err != nil {
 		t.Errorf("SendMessage(ANSWER) blocked by reserve: %v", err)
+	}
+	if _, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{
+		Meta: meta(""), To: lead.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "user task to lead",
+	})); err != nil {
+		t.Errorf("SendMessage(TASK) to ROOT blocked by reserve: %v", err)
 	}
 	if _, err := rootCli.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
 		Meta: meta(""), Agent: retWorker.Id,
@@ -321,5 +326,134 @@ func TestPeriodicReserveAlertPostedOnceToRunLead(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("got %d reserve alerts, want 1 (deduped)", count)
+	}
+}
+
+func TestAgyStaleUsageAndFailedModelLookupRecovery(t *testing.T) {
+	ctx := context.Background()
+	var usageResp atomic.Value
+	var usageFail atomic.Bool
+	var modelsFail atomic.Bool
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{
+			DisableClaudeNetwork: true,
+			ReadAgyUsage: func(context.Context) (string, error) {
+				if usageFail.Load() {
+					return "", os.ErrNotExist
+				}
+				v, _ := usageResp.Load().(string)
+				return v, nil
+			},
+			ReadAgyModels: func(context.Context) (string, error) {
+				if modelsFail.Load() {
+					return "", os.ErrNotExist
+				}
+				return "gemini-4-neon-high\tGemini 4 Neon (High)\n" +
+					"gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n", nil
+			},
+		}
+	})
+	w.set(t, "tiers.agy.strong.model", []any{"neon", "hydrogen"})
+	run := startRun(t, w.device.Mesh, "")
+	repo := gitRepo(t)
+
+	// Write a stale agy-usage.txt (> 15m old) showing Neon at 5%: while ReadAgyUsage fails, it must be ignored.
+	agyPath := statedir.Paths{Dir: w.state}.AgyUsage()
+	if err := os.WriteFile(agyPath, []byte("Gemini 4 Neon\tNeon\t5%\t1h\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * time.Minute)
+	if err := os.Chtimes(agyPath, old, old); err != nil {
+		t.Fatal(err)
+	}
+	usageFail.Store(true)
+	uStale, err := w.device.Mesh.GetUsage(ctx, connect.NewRequest(&v1.GetUsageRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uStale.Msg.AgyRows) != 0 {
+		t.Errorf("stale agy-usage.txt still trusted: %+v", uStale.Msg.AgyRows)
+	}
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "agy", "neon", "high", "test"); err != nil {
+		t.Errorf("stale agy usage blocked ReserveGuard: %v", err)
+	}
+
+	// Transient ReadAgyModels failure must not be cached permanently: once it recovers, ReserveGuard catches neon.
+	usageFail.Store(false)
+	usageResp.Store("Gemini 4 Neon\tNeon\t5%\t1h\nGemini and Claude models\tShared\t80%\t2h\n")
+	modelsFail.Store(true)
+	_, _ = w.device.Mesh.GetUsage(ctx, connect.NewRequest(&v1.GetUsageRequest{Refresh: true}))
+	modelsFail.Store(false)
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "agy", "neon", "high", "test"); code(err) != connect.CodeResourceExhausted {
+		t.Errorf("after ReadAgyModels recovery, ReserveGuard(neon) = %v, want ResourceExhausted", err)
+	}
+	_ = repo
+}
+
+func TestWarmUsageSkipsAgyWhenQuotaStopDisabledAndRunInvalid(t *testing.T) {
+	ctx := context.Background()
+	var agyUsageCalls atomic.Int32
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{
+			DisableClaudeNetwork: true,
+			ReadAgyUsage: func(context.Context) (string, error) {
+				agyUsageCalls.Add(1)
+				return "Gemini 4 Hydrogen\tHydrogen\t90%\t1h\n", nil
+			},
+			ReadAgyModels: func(context.Context) (string, error) {
+				return "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n", nil
+			},
+		}
+	})
+	repo := gitRepo(t)
+	run := startRun(t, w.device.Mesh, "")
+
+	// Invalid/missing run stops SpawnAgent before warmUsage calls ReadAgyUsage even with quota_stop < 100.
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: "r_missing", Repo: repo, Slug: "miss", Kind: "agy", Tier: "strong", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	})); code(err) != connect.CodeNotFound {
+		t.Fatalf("missing run code = %v, want NotFound", err)
+	}
+	if agyUsageCalls.Load() != 0 {
+		t.Errorf("ReadAgyUsage called %d times on invalid run, want 0", agyUsageCalls.Load())
+	}
+
+	// With quota_stop = 100, SpawnAgent/SendMessage/SwitchAgent/ResumeAgent never run `agy -p /usage`.
+	w.set(t, "quota_stop", 100)
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: repo, Slug: "agy-w", Kind: "agy", Tier: "strong", Role: v1.AgentRole_AGENT_ROLE_WORKER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if _, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{
+		Meta: meta(""), To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task\ndo work",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "agy session id", func() bool {
+		got, err := w.device.Mesh.GetAgent(ctx, connect.NewRequest(&v1.GetAgentRequest{Agent: a.Id}))
+		if err != nil || got.Msg.Agent.SessionId == "" || got.Msg.Agent.State != v1.AgentState_AGENT_STATE_IDLE {
+			return false
+		}
+		a = got.Msg.Agent
+		return true
+	})
+	oldTerm := a.TerminalId
+	if _, err := w.device.Mesh.SwitchAgent(ctx, connect.NewRequest(&v1.SwitchAgentRequest{
+		Meta: meta(""), Agent: a.Id, Effort: "low",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	a = w.waitReopened(t, a.Id, oldTerm)
+	a = retireStoppedWorker(t, w, a)
+	if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{
+		Meta: meta(""), Agent: a.Id, Task: "more",
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if agyUsageCalls.Load() != 0 {
+		t.Errorf("ReadAgyUsage called %d times with quota_stop=100, want 0", agyUsageCalls.Load())
 	}
 }

@@ -36,6 +36,8 @@ import (
 const (
 	claudeUsageTTL    = 5 * time.Minute
 	agyUsageTTL       = 5 * time.Minute
+	agyUsageMaxAge    = 3 * agyUsageTTL
+	agyResolveTTL     = agyUsageTTL
 	usageFailureTTL   = 2 * time.Minute
 	claudeUsageURL    = "https://api.anthropic.com/api/oauth/usage"
 	claudeUsageBeta   = "oauth-2025-04-20"
@@ -62,8 +64,9 @@ type agyResolveKey struct {
 }
 
 type agyResolvedName struct {
-	id      string
-	display string
+	id         string
+	display    string
+	resolvedAt time.Time
 }
 
 type usageState struct {
@@ -393,28 +396,48 @@ func (d *Daemon) agyBinary() (string, bool) {
 	return bin, err == nil
 }
 
+func (d *Daemon) cachedAgyUsageRows(now time.Time) []agy.UsageRow {
+	usageFile := d.paths.AgyUsage()
+	if b, err := os.ReadFile(usageFile); err == nil && len(bytes.TrimSpace(b)) > 0 {
+		if st, serr := os.Stat(usageFile); serr == nil && now.Sub(st.ModTime()) <= agyUsageMaxAge {
+			if rows := agy.ParseUsage(string(b)); len(rows) > 0 {
+				d.rt.usage.mu.Lock()
+				d.rt.usage.agyRows = rows
+				d.rt.usage.agyFetched = st.ModTime()
+				d.rt.usage.mu.Unlock()
+				return rows
+			}
+		}
+	}
+	d.rt.usage.mu.Lock()
+	var rows []agy.UsageRow
+	if !d.rt.usage.agyFetched.IsZero() && now.Sub(d.rt.usage.agyFetched) <= agyUsageMaxAge {
+		rows = append([]agy.UsageRow(nil), d.rt.usage.agyRows...)
+	}
+	d.rt.usage.mu.Unlock()
+	return rows
+}
+
 // agyUsageRows returns parsed `agy -p /usage` rows from <state>/agy-usage.txt or (when allowExec is true and
-// cached rows are absent/stale) by running `agy -p /usage`. Never spawns `agy` when allowExec is false.
+// cached rows are absent/stale) by running `agy -p /usage`. Never spawns `agy` when allowExec is false, and
+// ignores readings older than agyUsageMaxAge.
 func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) []agy.UsageRow {
 	now := d.now()
 	usageFile := d.paths.AgyUsage()
 	failedFile := d.paths.AgyUsageFailed()
 
-	var diskText string
-	var diskFresh bool
-	if b, err := os.ReadFile(usageFile); err == nil && len(bytes.TrimSpace(b)) > 0 {
-		diskText = string(b)
-		if st, err := os.Stat(usageFile); err == nil && now.Sub(st.ModTime()) <= agyUsageTTL {
-			diskFresh = true
+	if !force {
+		if b, err := os.ReadFile(usageFile); err == nil && len(bytes.TrimSpace(b)) > 0 {
+			if st, serr := os.Stat(usageFile); serr == nil && now.Sub(st.ModTime()) <= agyUsageTTL {
+				if rows := agy.ParseUsage(string(b)); len(rows) > 0 {
+					d.rt.usage.mu.Lock()
+					d.rt.usage.agyRows = rows
+					d.rt.usage.agyFetched = now
+					d.rt.usage.mu.Unlock()
+					return rows
+				}
+			}
 		}
-	}
-	if !force && diskFresh {
-		rows := agy.ParseUsage(diskText)
-		d.rt.usage.mu.Lock()
-		d.rt.usage.agyRows = rows
-		d.rt.usage.agyFetched = now
-		d.rt.usage.mu.Unlock()
-		return rows
 	}
 
 	if allowExec && (force || !failedWithin(failedFile, usageFailureTTL, now)) {
@@ -444,17 +467,7 @@ func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) []agy.
 		}
 	}
 
-	if diskText != "" {
-		rows := agy.ParseUsage(diskText)
-		d.rt.usage.mu.Lock()
-		d.rt.usage.agyRows = rows
-		d.rt.usage.mu.Unlock()
-		return rows
-	}
-	d.rt.usage.mu.Lock()
-	rows := append([]agy.UsageRow(nil), d.rt.usage.agyRows...)
-	d.rt.usage.mu.Unlock()
-	return rows
+	return d.cachedAgyUsageRows(now)
 }
 
 func envSlice(m map[string]string) []string {
@@ -470,11 +483,12 @@ func (d *Daemon) resolveAgyModelDisplay(ctx context.Context, model, effort strin
 	if model == "" {
 		return "", ""
 	}
+	now := d.now()
 	key := agyResolveKey{model: model, effort: effort}
 	d.rt.usage.mu.Lock()
 	cached, ok := d.rt.usage.agyResolved[key]
 	d.rt.usage.mu.Unlock()
-	if ok {
+	if ok && now.Sub(cached.resolvedAt) <= agyResolveTTL {
 		return cached.id, cached.display
 	}
 	if !allowExec {
@@ -498,26 +512,28 @@ func (d *Daemon) resolveAgyModelDisplay(ctx context.Context, model, effort strin
 		}
 	}
 	if resolvedID == "" {
-		resolvedID = model
+		// Never cache a failed lookup, so a transient error doesn't leave the model unchecked.
+		return model, ""
 	}
 	d.rt.usage.mu.Lock()
 	if d.rt.usage.agyResolved == nil {
 		d.rt.usage.agyResolved = map[agyResolveKey]agyResolvedName{}
 	}
-	d.rt.usage.agyResolved[key] = agyResolvedName{id: resolvedID, display: display}
+	d.rt.usage.agyResolved[key] = agyResolvedName{id: resolvedID, display: display, resolvedAt: now}
 	d.rt.usage.mu.Unlock()
 	return resolvedID, display
 }
 
 // warmUsage pre-fetches vendor usage and resolves model display names outside store.Write so pick()/reserveCheck()
-// never shell out or hit the network under SQLite's writer lock.
+// never shell out or hit the network under SQLite's writer lock. Skipped when quota_stop >= 100.
 func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, extra ...agyResolveKey) {
 	stop := d.quotaStop(r)
+	if stop >= 100 {
+		return
+	}
 	switch kind {
 	case "claude":
-		if stop < 100 {
-			_ = d.claudeUsage(ctx, true, false)
-		}
+		_ = d.claudeUsage(ctx, true, false)
 	case "agy":
 		rows := d.agyUsageRows(ctx, true, false)
 		if len(rows) > 0 || (d.rt.cfg.Usage != nil && d.rt.cfg.Usage.ReadAgyModels != nil) {
@@ -544,14 +560,7 @@ func (d *Daemon) agyModelAtReserveCached(model, effort string, stop float64) *ag
 		return nil
 	}
 	minQuota := int(math.Round(100 - stop))
-	var rows []agy.UsageRow
-	if b, err := os.ReadFile(d.paths.AgyUsage()); err == nil && len(bytes.TrimSpace(b)) > 0 {
-		rows = agy.ParseUsage(string(b))
-	} else {
-		d.rt.usage.mu.Lock()
-		rows = append([]agy.UsageRow(nil), d.rt.usage.agyRows...)
-		d.rt.usage.mu.Unlock()
-	}
+	rows := d.cachedAgyUsageRows(d.now())
 	if len(rows) == 0 {
 		return nil
 	}
@@ -985,11 +994,11 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 	}
 }
 
-func (d *Daemon) shouldSendReserveAlert(runID, key string, now time.Time) bool {
+func (d *Daemon) shouldSendReserveAlert(runID, key string, _ time.Time) bool {
 	d.rt.usage.mu.Lock()
 	defer d.rt.usage.mu.Unlock()
 	if m := d.rt.usage.alerted[runID]; m != nil {
-		if prev, ok := m[key]; ok && now.Sub(prev) < time.Hour {
+		if _, ok := m[key]; ok {
 			return false
 		}
 	}

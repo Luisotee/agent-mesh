@@ -436,6 +436,13 @@ func (r Reader) AgentsNamedAll(name string) ([]*v1.Agent, error) {
 		func() *v1.Agent { return &v1.Agent{} })
 }
 
+// AgentsNamedClosed returns every agent with this name in closed runs, newest first.
+func (r Reader) AgentsNamedClosed(name string) ([]*v1.Agent, error) {
+	return scanAll(r, `SELECT a.data FROM agents a JOIN runs r ON r.id = a.run_id
+		WHERE a.name = ? AND r.status = ? ORDER BY a.created_at DESC, a.id DESC`,
+		[]any{name, int32(v1.RunStatus_RUN_STATUS_CLOSED)}, func() *v1.Agent { return &v1.Agent{} })
+}
+
 // AllAgents returns every agent across all runs (open and closed), oldest first.
 func (r Reader) AllAgents() ([]*v1.Agent, error) {
 	return scanAll(r, `SELECT data FROM agents ORDER BY created_at, id`, nil,

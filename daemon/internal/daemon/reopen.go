@@ -559,7 +559,7 @@ func uniqueAgentName(r store.Reader, runID, base string) (string, error) {
 	}
 }
 
-func canResume(actor *v1.Actor, a *v1.Agent, targetRunID string) error {
+func canResume(r store.Reader, actor *v1.Actor, a *v1.Agent, targetRunID string) error {
 	if targetRunID == "" || a.RunId == targetRunID {
 		return mayMove(actor, a, "resume")
 	}
@@ -568,6 +568,14 @@ func canResume(actor *v1.Actor, a *v1.Agent, targetRunID string) error {
 	}
 	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
 		return denied("only non-root agents may be resumed across runs")
+	}
+	src, err := r.GetRun(a.RunId)
+	if err != nil {
+		return err
+	}
+	if src.Status == v1.RunStatus_RUN_STATUS_OPEN {
+		return denied("cannot resume %s from open run %s into %s: cross-run resume is only from closed runs",
+			a.Name, a.RunId, targetRunID)
 	}
 	return nil
 }
@@ -634,7 +642,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	} else if targetRunID == "" {
 		targetRunID = a0.RunId
 	}
-	if err := canResume(actor, a0, targetRunID); err != nil {
+	if err := canResume(r0, actor, a0, targetRunID); err != nil {
 		return nil, err
 	}
 	if !stopped(a0) {
@@ -643,13 +651,15 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if task != "" {
 		d.warmUsage(ctx, r0, a0.Kind, agyResolveKey{model: a0.Model, effort: a0.Effort}, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
-	d.learnSession(ctx, actor, a0.Id, func(a *v1.Agent) bool { return canResume(actor, a, targetRunID) == nil && stopped(a) })
+	d.learnSession(ctx, actor, a0.Id, func(a *v1.Agent) bool {
+		return canResume(d.store.Read(ctx), actor, a, targetRunID) == nil && stopped(a)
+	})
 	r1 := d.store.Read(ctx)
 	a0, err = d.findAgentCrossRun(r1, actor, a0.Id)
 	if err != nil {
 		return nil, err
 	}
-	if err := canResume(actor, a0, targetRunID); err != nil {
+	if err := canResume(r1, actor, a0, targetRunID); err != nil {
 		return nil, err
 	}
 	if !stopped(a0) {
@@ -672,7 +682,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		return nil, err
 	}
 	spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why}
-	if task != "" {
+	if task != "" && a0.Role == v1.AgentRole_AGENT_ROLE_WORKER {
 		pm, pe, err := d.previewReviveTarget(r1, a0, spec)
 		if err != nil {
 			return nil, err
@@ -689,15 +699,13 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	}
 
 	out := &v1.ResumeAgentResponse{}
-	var prep *preparedWorktree
 	err = func() error {
 		if a0.Worktree != "" {
 			mu := d.worktreeLock(a0.Worktree)
 			mu.Lock()
 			defer mu.Unlock()
 		}
-		var perr error
-		prep, perr = d.prepareWorktreeForTask(ctx, a0, targetRunID, task != "")
+		prep, perr := d.prepareWorktreeForTask(ctx, a0, targetRunID, task != "")
 		if perr != nil {
 			return failedPrecondition("preparing worktree for %s: %v", a0.Name, perr)
 		}
@@ -706,7 +714,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			if err != nil {
 				return err
 			}
-			if err := canResume(tx.Actor, a, targetRunID); err != nil {
+			if err := canResume(tx.Reader, tx.Actor, a, targetRunID); err != nil {
 				return err
 			}
 			if !stopped(a) {
@@ -819,10 +827,12 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			}
 			return nil
 		})
+		if werr != nil {
+			prep.rollback(ctx, a0.Repo, a0.Worktree)
+		}
 		return werr
 	}()
 	if err != nil {
-		prep.rollback(ctx, a0.Repo, a0.Worktree)
 		if out.Reopen != nil {
 			d.rt.guard.release(out.Agent.GetId()) // the write failed after the guard passed: nothing was requested
 		}
@@ -901,8 +911,10 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 			tier = "" // a named model has no chain to walk
 		}
 		a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
-		if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
-			return nil, err
+		if a.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
+				return nil, err
+			}
 		}
 		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, "planned task"); err != nil {
 			return nil, err
@@ -923,8 +935,10 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 			effort = spec.effort
 		}
 		a.Pinned, deny = spec.model != "" || spec.effort != "", adapter.ReadOnly(a.Role)
-		if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
-			return nil, err
+		if a.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
+				return nil, err
+			}
 		}
 		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, "direct task"); err != nil {
 			return nil, err
