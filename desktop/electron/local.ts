@@ -216,7 +216,9 @@ export class Local {
 
   private async distros(): Promise<{ names: string[]; wsl: boolean }> {
     const r = await this.deps.run(this.deps.wslExe, ['-l', '-q'], undefined, 15_000)
-    if (r.code !== 0 && r.stdout.length === 0) return { names: [], wsl: false }
+    // -1: wsl.exe couldn't run (no WSL). Another failure is WSL answering that it has no distro (its message is not a list).
+    if (r.code === -1) return { names: [], wsl: false }
+    if (r.code !== 0) return { names: [], wsl: true }
     return { names: parseDistros(r.stdout), wsl: true }
   }
 
@@ -284,7 +286,10 @@ export class Local {
     if (names.length === 0) {
       return [{ id: 'wsl', label: 'WSL', state: 'not-installed', detail: 'WSL has no Linux distro yet, and the agent-mesh daemon runs in one. Install one, then look again.', fixes: [], commands: ['wsl --install -d Ubuntu'] }]
     }
-    return Promise.all(names.map(async (n) => this.classify(await this.probe(n))))
+    const all = await Promise.all(names.map(async (n) => this.classify(await this.probe(n))))
+    // A distro that has no agent-mesh is noise once another one has it; shown alone, it is where to install.
+    const withMesh = all.filter((c) => c.state !== 'not-installed')
+    return withMesh.length > 0 ? withMesh : all
   }
 
   // ── acting ──

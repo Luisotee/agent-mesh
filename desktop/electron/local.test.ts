@@ -127,14 +127,17 @@ describe('Local, on Windows', () => {
     const none = fake('win32')
     none.deps.run = async () => ({ code: -1, stdout: Buffer.alloc(0) })
     expect((await new Local(newHosts(), none.deps).detect())[0]).toMatchObject({ id: 'wsl', state: 'not-installed', commands: ['wsl --install'] })
+    // WSL answering "no distributions" (not a list) with a failing exit code is the same.
+    const noDistro = fake('win32')
+    noDistro.deps.run = async () => ({ code: 1, stdout: utf16('Windows Subsystem for Linux has no installed distributions.\r\n') })
+    expect((await new Local(newHosts(), noDistro.deps).detect())[0]).toMatchObject({ id: 'wsl', state: 'not-installed', commands: ['wsl --install -d Ubuntu'] })
     const empty = fake('win32', [])
     expect((await new Local(newHosts(), empty.deps).detect())[0]).toMatchObject({ id: 'wsl', state: 'not-installed' })
   })
 
   it('tells each state apart, per distro', async () => {
-    const f = fake('win32', ['A', 'B', 'C', 'D', 'E', 'F'])
+    const f = fake('win32', ['B', 'C', 'D', 'E', 'F'])
     f.probes = {
-      A: probeOut({ installed: false }),
       B: probeOut({ hello: undefined }),
       C: probeOut({ hello: ['mutations'], listen: '' }),
       D: probeOut({ hello: ['mutations', 'tls'], listen: '127.0.0.1:9443' }),
@@ -142,8 +145,6 @@ describe('Local, on Windows', () => {
       F: probeOut({ hello: ['mutations'], listenconf: true }),
     }
     const got = Object.fromEntries((await new Local(newHosts(), f.deps).detect()).map((c) => [c.id, c]))
-    expect(got['wsl:A']).toMatchObject({ state: 'not-installed', fixes: [] })
-    expect(got['wsl:A']!.commands?.join(' ')).toContain('install.sh')
     expect(got['wsl:B']).toMatchObject({ state: 'not-running', fixes: ['start'] })
     expect(got['wsl:C']).toMatchObject({ state: 'no-listen', fixes: ['enable-listen'] })
     expect(got['wsl:D']).toMatchObject({ state: 'ready', fixes: [] })
@@ -154,6 +155,20 @@ describe('Local, on Windows', () => {
     const again = Object.fromEntries((await new Local(newHosts(), f.deps).detect()).map((c) => [c.id, c]))
     expect(again['wsl:D']).toMatchObject({ state: 'unreachable', fixes: [] })
     expect(again['wsl:D']!.detail).toContain('mirrored')
+  })
+
+  it('says where to install when no distro has agent-mesh', async () => {
+    const f = fake('win32', ['A'])
+    f.probes = { A: probeOut({ installed: false }) }
+    const [c] = await new Local(newHosts(), f.deps).detect()
+    expect(c).toMatchObject({ id: 'wsl:A', state: 'not-installed', fixes: [] })
+    expect(c!.commands?.join(' ')).toContain('install.sh')
+  })
+
+  it('leaves out the distros that have no agent-mesh once another one has it', async () => {
+    const f = fake('win32', ['Debian', 'Ubuntu'])
+    f.probes = { Debian: probeOut({ installed: false }), Ubuntu: probeOut({ hello: ['tls'], listen: '127.0.0.1:9443' }) }
+    expect((await new Local(newHosts(), f.deps).detect()).map((c) => c.id)).toEqual(['wsl:Ubuntu'])
   })
 
   it('runs the probe as a script on stdin, never as arguments built from anything the renderer sent', async () => {

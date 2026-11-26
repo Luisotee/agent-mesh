@@ -30,10 +30,10 @@ export function EmptyPane({ host }: { host: HostRuntime }) {
         <Button disabled={busy} onClick={() => void setup()}>
           <MessageCircle /> {busy ? 'Starting…' : 'Set up with the assistant'}
         </Button>
-        <NewRunDialog host={host} />
+        {empty && <NewRunDialog host={host} label="Start your first run" variant="outline" />}
         {mayPair && (
           <Button variant="outline" onClick={() => app.openPairing(true)}>
-            <QrCode /> Pair a device
+            <QrCode /> Pair your phone
           </Button>
         )}
       </div>

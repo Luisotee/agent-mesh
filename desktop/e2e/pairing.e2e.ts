@@ -60,6 +60,8 @@ async function pairedApp(link: string, name: string): Promise<App> {
   const app = await launchApp({ home })
   others.push(app)
   const { page } = app
+  // No host yet: the first-run screen looks for a daemon here (there is none, in a test's home), and the form is behind this.
+  await page.getByRole('button', { name: 'Connect another way' }).click()
   await page.getByLabel('How to reach it').selectOption('pair')
   await page.getByLabel('Pairing link').fill(link)
   await page.getByLabel("This device's name").fill(name)
@@ -117,6 +119,7 @@ test('a link whose direct address is dead falls back to the relay, and a used li
   const home = mkdtempSync(path.join(os.tmpdir(), 'amd-h3-'))
   const fourth = await launchApp({ home })
   others.push(fourth)
+  await fourth.page.getByRole('button', { name: 'Connect another way' }).click()
   await fourth.page.getByLabel('How to reach it').selectOption('pair')
   await fourth.page.getByLabel('Pairing link').fill(link)
   await fourth.page.getByRole('button', { name: 'Add host' }).click()
@@ -130,6 +133,7 @@ test('a link naming a certificate the host doesn\'t have is refused before anyth
   const home = mkdtempSync(path.join(os.tmpdir(), 'amd-h4-'))
   const app = await launchApp({ home })
   others.push(app)
+  await app.page.getByRole('button', { name: 'Connect another way' }).click()
   await app.page.getByLabel('How to reach it').selectOption('pair')
   await app.page.getByLabel('Pairing link').fill(link)
   await app.page.getByRole('button', { name: 'Add host' }).click()

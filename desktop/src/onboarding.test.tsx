@@ -101,6 +101,15 @@ describe('the first-run screen', () => {
     expect(api.local.connect).not.toHaveBeenCalled()
   })
 
+  it('does not look for a daemon here when the app was opened by a pairing link: the link\'s form is what the user came for', async () => {
+    const api = fakeApi({ detect: [cand({ id: 'native' })] })
+    api.links.take = vi.fn(async () => ({ link: 'agentmesh://pair?v=1&h=h_1&t=amp_one', hostName: 'Home server' })) as never
+    render(<App api={api as unknown as DesktopApi} />)
+    expect(await screen.findByLabelText('Pairing link')).toHaveValue('agentmesh://pair?v=1&h=h_1&t=amp_one')
+    expect(api.local.detect).not.toHaveBeenCalled()
+    expect(api.local.connect).not.toHaveBeenCalled()
+  })
+
   it('has nothing to detect when the host list is fixed by the environment', async () => {
     const api = fakeApi({ fixed: true })
     render(<App api={api as unknown as DesktopApi} />)
