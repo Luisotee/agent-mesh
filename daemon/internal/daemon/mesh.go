@@ -338,8 +338,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	var resumedID string
 	if req.Msg.To != "" && req.Msg.To != "parent" && resumes(req.Msg.Type) {
 		r := d.store.Read(ctx)
+		// A stopped asker or reviewer that this task makes a worker (takeChange, in the write below) gets the
+		// worktree a worker gets: recreated if StopRun removed it, moved off a finished PR's branch.
+		isTask := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK
 		if cand, cerr := d.FindAgent(r, actor, req.Msg.To); cerr == nil && stopped(cand) &&
-			!adapter.ReadOnly(cand.Role) && cand.Role != v1.AgentRole_AGENT_ROLE_ROOT &&
+			(!adapter.ReadOnly(cand.Role) || isTask && d.becomesWorker(r, cand, req.Msg.Body)) &&
+			cand.Role != v1.AgentRole_AGENT_ROLE_ROOT &&
 			cand.Worktree != "" && cand.Repo != "" &&
 			(!IsAgent(actor.Class) || cand.ParentId == actor.Id) {
 			mu := d.worktreeLock(cand.Worktree)
@@ -357,7 +361,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 						d.capGuard(r2, "resuming "+cur.Name, cur.Id) == nil &&
 						d.checkMemoryGuard(r2, "resuming "+cur.Name) == nil {
 						prepCandID = cur.Id
-						if p, perr := d.prepareWorktreeForTask(ctx, cur, cur.RunId, req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK); perr != nil {
+						asWorker := proto.Clone(cur).(*v1.Agent)
+						if isTask && d.becomesWorker(r2, cur, req.Msg.Body) {
+							asWorker.Role = v1.AgentRole_AGENT_ROLE_WORKER
+						}
+						if p, perr := d.prepareWorktreeForTask(ctx, asWorker, cur.RunId, isTask); perr != nil {
 							prepErr = perr
 						} else {
 							prepTarget, prep = cur, p
@@ -470,6 +478,8 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					// The agent stays stopped with the task stored. A planner keeps its phase (a refusal leaves it as
 					// it was), but an asker or reviewer this direct task just made a worker has no plan phase and no
 					// deny list to come back under: the next resume brings it back to do the task.
+					// Its DenyEdits changes with no event: the apps don't show it, and a stopped agent's launch reads
+					// the stored value, so the next reopen or snapshot carries it.
 					if direct && wasReadOnly && !adapter.ReadOnly(to.Role) {
 						if err := d.directTask(t, to); err != nil {
 							return err
