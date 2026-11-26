@@ -78,6 +78,9 @@ type Config struct {
 
 	// Agents (agents.go). With no TermLaunch the daemon runs without terminals and can't spawn agents.
 	Agents AgentConfig
+
+	// Push tunes the push sender (push.go).
+	Push PushConfig
 }
 
 // Paths of the files in a state dir.
@@ -101,6 +104,7 @@ type Daemon struct {
 	lock        *fsutil.Lock
 	store       *store.Store
 	bus         *events.Bus
+	push        *pusher
 	reg         *registry.Registry
 	schema      *settings.Schema
 	daemonID    string
@@ -151,7 +155,7 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	d := &Daemon{cfg: cfg, paths: Paths{Dir: dir}, log: cfg.Logger, now: cfg.Now, stopping: make(chan struct{}),
 		instanceID: ids.New("i", 10), mux: http.NewServeMux(),
-		capabilities: []string{"events.resume", "mutations", "pairing"},
+		capabilities: []string{"events.resume", "mutations", "pairing", "push"},
 		streams:      map[string]map[uint64]context.CancelFunc{}}
 	if d.lock, err = fsutil.TryLock(d.paths.Lock()); err != nil {
 		if errors.Is(err, fsutil.ErrLocked) {
@@ -175,7 +179,11 @@ func New(cfg Config) (*Daemon, error) {
 		d.schema = settings.Default()
 	}
 	d.bus = events.New(d.store)
-	d.store.OnCommit = d.bus.Publish
+	d.push = newPusher(d, cfg.Push)
+	d.store.OnCommit = func(evs []*v1.Event) {
+		d.bus.Publish(evs)
+		d.push.enqueue(evs)
+	}
 	if d.rt, err = newRuntime(cfg.Agents); err != nil {
 		return nil, err
 	}
@@ -422,6 +430,7 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	bg, stopBG := context.WithCancel(ctx)
 	defer stopBG()
 	d.runBackground(bg)
+	go d.push.run(bg)
 	if d.relay != nil {
 		go func() { _ = d.relay.Run(bg) }()
 		go func() {

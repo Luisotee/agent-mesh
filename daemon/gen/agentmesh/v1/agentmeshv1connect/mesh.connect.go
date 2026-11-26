@@ -101,6 +101,14 @@ const (
 	// MeshServiceRevokeDeviceProcedure is the fully-qualified name of the MeshService's RevokeDevice
 	// RPC.
 	MeshServiceRevokeDeviceProcedure = "/agentmesh.v1.MeshService/RevokeDevice"
+	// MeshServiceRegisterPushProcedure is the fully-qualified name of the MeshService's RegisterPush
+	// RPC.
+	MeshServiceRegisterPushProcedure = "/agentmesh.v1.MeshService/RegisterPush"
+	// MeshServiceUnregisterPushProcedure is the fully-qualified name of the MeshService's
+	// UnregisterPush RPC.
+	MeshServiceUnregisterPushProcedure = "/agentmesh.v1.MeshService/UnregisterPush"
+	// MeshServiceTestPushProcedure is the fully-qualified name of the MeshService's TestPush RPC.
+	MeshServiceTestPushProcedure = "/agentmesh.v1.MeshService/TestPush"
 	// MeshServiceGetUsageProcedure is the fully-qualified name of the MeshService's GetUsage RPC.
 	MeshServiceGetUsageProcedure = "/agentmesh.v1.MeshService/GetUsage"
 	// MeshServiceSetReserveProcedure is the fully-qualified name of the MeshService's SetReserve RPC.
@@ -225,6 +233,15 @@ type MeshServiceClient interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
+	// closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
+	// A device registers only itself; revoking the device deletes it.
+	RegisterPush(context.Context, *connect.Request[v1.RegisterPushRequest]) (*connect.Response[v1.RegisterPushResponse], error)
+	// Remove a device's push endpoint: the caller's own, or (the host's own device only) another device's.
+	UnregisterPush(context.Context, *connect.Request[v1.UnregisterPushRequest]) (*connect.Response[v1.UnregisterPushResponse], error)
+	// Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
+	// another device's. Answers once the push service took it, or with its error.
+	TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error)
 	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
@@ -461,6 +478,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		registerPush: connect.NewClient[v1.RegisterPushRequest, v1.RegisterPushResponse](
+			httpClient,
+			baseURL+MeshServiceRegisterPushProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RegisterPush")),
+			connect.WithClientOptions(opts...),
+		),
+		unregisterPush: connect.NewClient[v1.UnregisterPushRequest, v1.UnregisterPushResponse](
+			httpClient,
+			baseURL+MeshServiceUnregisterPushProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("UnregisterPush")),
+			connect.WithClientOptions(opts...),
+		),
+		testPush: connect.NewClient[v1.TestPushRequest, v1.TestPushResponse](
+			httpClient,
+			baseURL+MeshServiceTestPushProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("TestPush")),
+			connect.WithClientOptions(opts...),
+		),
 		getUsage: connect.NewClient[v1.GetUsageRequest, v1.GetUsageResponse](
 			httpClient,
 			baseURL+MeshServiceGetUsageProcedure,
@@ -621,6 +656,9 @@ type meshServiceClient struct {
 	createPairing    *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices      *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice     *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	registerPush     *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
+	unregisterPush   *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
+	testPush         *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
 	getUsage         *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
 	setReserve       *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
 	ask              *connect.Client[v1.AskRequest, v1.AskResponse]
@@ -787,6 +825,21 @@ func (c *meshServiceClient) ListDevices(ctx context.Context, req *connect.Reques
 // RevokeDevice calls agentmesh.v1.MeshService.RevokeDevice.
 func (c *meshServiceClient) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return c.revokeDevice.CallUnary(ctx, req)
+}
+
+// RegisterPush calls agentmesh.v1.MeshService.RegisterPush.
+func (c *meshServiceClient) RegisterPush(ctx context.Context, req *connect.Request[v1.RegisterPushRequest]) (*connect.Response[v1.RegisterPushResponse], error) {
+	return c.registerPush.CallUnary(ctx, req)
+}
+
+// UnregisterPush calls agentmesh.v1.MeshService.UnregisterPush.
+func (c *meshServiceClient) UnregisterPush(ctx context.Context, req *connect.Request[v1.UnregisterPushRequest]) (*connect.Response[v1.UnregisterPushResponse], error) {
+	return c.unregisterPush.CallUnary(ctx, req)
+}
+
+// TestPush calls agentmesh.v1.MeshService.TestPush.
+func (c *meshServiceClient) TestPush(ctx context.Context, req *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error) {
+	return c.testPush.CallUnary(ctx, req)
 }
 
 // GetUsage calls agentmesh.v1.MeshService.GetUsage.
@@ -969,6 +1022,15 @@ type MeshServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
+	// closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
+	// A device registers only itself; revoking the device deletes it.
+	RegisterPush(context.Context, *connect.Request[v1.RegisterPushRequest]) (*connect.Response[v1.RegisterPushResponse], error)
+	// Remove a device's push endpoint: the caller's own, or (the host's own device only) another device's.
+	UnregisterPush(context.Context, *connect.Request[v1.UnregisterPushRequest]) (*connect.Response[v1.UnregisterPushResponse], error)
+	// Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
+	// another device's. Answers once the push service took it, or with its error.
+	TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error)
 	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
 	// Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
@@ -1201,6 +1263,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceRegisterPushHandler := connect.NewUnaryHandler(
+		MeshServiceRegisterPushProcedure,
+		svc.RegisterPush,
+		connect.WithSchema(meshServiceMethods.ByName("RegisterPush")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceUnregisterPushHandler := connect.NewUnaryHandler(
+		MeshServiceUnregisterPushProcedure,
+		svc.UnregisterPush,
+		connect.WithSchema(meshServiceMethods.ByName("UnregisterPush")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceTestPushHandler := connect.NewUnaryHandler(
+		MeshServiceTestPushProcedure,
+		svc.TestPush,
+		connect.WithSchema(meshServiceMethods.ByName("TestPush")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceGetUsageHandler := connect.NewUnaryHandler(
 		MeshServiceGetUsageProcedure,
 		svc.GetUsage,
@@ -1387,6 +1467,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListDevicesHandler.ServeHTTP(w, r)
 		case MeshServiceRevokeDeviceProcedure:
 			meshServiceRevokeDeviceHandler.ServeHTTP(w, r)
+		case MeshServiceRegisterPushProcedure:
+			meshServiceRegisterPushHandler.ServeHTTP(w, r)
+		case MeshServiceUnregisterPushProcedure:
+			meshServiceUnregisterPushHandler.ServeHTTP(w, r)
+		case MeshServiceTestPushProcedure:
+			meshServiceTestPushHandler.ServeHTTP(w, r)
 		case MeshServiceGetUsageProcedure:
 			meshServiceGetUsageHandler.ServeHTTP(w, r)
 		case MeshServiceSetReserveProcedure:
@@ -1552,6 +1638,18 @@ func (UnimplementedMeshServiceHandler) ListDevices(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeDevice is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RegisterPush(context.Context, *connect.Request[v1.RegisterPushRequest]) (*connect.Response[v1.RegisterPushResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RegisterPush is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) UnregisterPush(context.Context, *connect.Request[v1.UnregisterPushRequest]) (*connect.Response[v1.UnregisterPushResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.UnregisterPush is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.TestPush is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
