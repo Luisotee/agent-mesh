@@ -2314,6 +2314,76 @@ public  final class Agent extends
 
   }
 
+  public static final int ADOPTED_PID_FIELD_NUMBER = 40;
+  private int adoptedPid_;
+  /**
+   * <pre>
+   * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+   * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+   * daemon's, and the daemon never signals it.
+   * </pre>
+   *
+   * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+   * @return The adoptedPid.
+   */
+  @java.lang.Override
+  public int getAdoptedPid() {
+    return adoptedPid_;
+  }
+  /**
+   * <pre>
+   * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+   * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+   * daemon's, and the daemon never signals it.
+   * </pre>
+   *
+   * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+   * @param value The adoptedPid to set.
+   */
+  private void setAdoptedPid(int value) {
+    
+    adoptedPid_ = value;
+  }
+  /**
+   * <pre>
+   * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+   * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+   * daemon's, and the daemon never signals it.
+   * </pre>
+   *
+   * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+   */
+  private void clearAdoptedPid() {
+
+    adoptedPid_ = 0;
+  }
+
+  public static final int ADOPTED_PID_START_FIELD_NUMBER = 41;
+  private long adoptedPidStart_;
+  /**
+   * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+   * @return The adoptedPidStart.
+   */
+  @java.lang.Override
+  public long getAdoptedPidStart() {
+    return adoptedPidStart_;
+  }
+  /**
+   * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+   * @param value The adoptedPidStart to set.
+   */
+  private void setAdoptedPidStart(long value) {
+    
+    adoptedPidStart_ = value;
+  }
+  /**
+   * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+   */
+  private void clearAdoptedPidStart() {
+
+    adoptedPidStart_ = 0L;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -4767,6 +4837,80 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+     * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+     * daemon's, and the daemon never signals it.
+     * </pre>
+     *
+     * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+     * @return The adoptedPid.
+     */
+    @java.lang.Override
+    public int getAdoptedPid() {
+      return instance.getAdoptedPid();
+    }
+    /**
+     * <pre>
+     * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+     * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+     * daemon's, and the daemon never signals it.
+     * </pre>
+     *
+     * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+     * @param value The adoptedPid to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAdoptedPid(int value) {
+      copyOnWrite();
+      instance.setAdoptedPid(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+     * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+     * daemon's, and the daemon never signals it.
+     * </pre>
+     *
+     * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAdoptedPid() {
+      copyOnWrite();
+      instance.clearAdoptedPid();
+      return this;
+    }
+
+    /**
+     * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+     * @return The adoptedPidStart.
+     */
+    @java.lang.Override
+    public long getAdoptedPidStart() {
+      return instance.getAdoptedPidStart();
+    }
+    /**
+     * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+     * @param value The adoptedPidStart to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAdoptedPidStart(long value) {
+      copyOnWrite();
+      instance.setAdoptedPidStart(value);
+      return this;
+    }
+    /**
+     * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAdoptedPidStart() {
+      copyOnWrite();
+      instance.clearAdoptedPidStart();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -4823,14 +4967,16 @@ public  final class Agent extends
             "toolsAdded_",
             "mcpAll_",
             "reviewBy_",
+            "adoptedPid_",
+            "adoptedPidStart_",
           };
           java.lang.String info =
-              "\u0000\'\u0000\u0001\u0001\'\'\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000)\u0000\u0001\u0001))\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
               "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
-              "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208";
+              "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208(\u0004)\u0003";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

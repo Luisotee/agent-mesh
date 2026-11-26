@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/skip2/go-qrcode"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -33,6 +34,8 @@ var renderers = map[string]struct {
 	"brief":           {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
 	"reset":           {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
 	"ring":            {func() proto.Message { return &v1.RingAgentResponse{} }, renderRing},
+	"check":           {func() proto.Message { return &v1.CheckAgentResponse{} }, renderCheck},
+	"pair":            {func() proto.Message { return &v1.CreatePairingResponse{} }, renderPair},
 }
 
 type streamState struct {
@@ -556,4 +559,30 @@ func renderRing(m proto.Message, w io.Writer) {
 	default:
 		fmt.Fprintf(w, "not rung %s (%d unread)\n", name, r.Unread)
 	}
+}
+
+// renderPair prints a pairing as a QR code of its link (two rows of modules to a line, half blocks) and the
+// link itself, for a phone's camera or for copying. `--format json` prints the whole response.
+func renderPair(m proto.Message, w io.Writer) {
+	p := m.(*v1.CreatePairingResponse)
+	if code, err := qrcode.New(p.Uri, qrcode.Medium); err == nil {
+		fmt.Fprint(w, code.ToSmallString(false))
+	} else {
+		fmt.Fprintf(w, "(no QR code: %v)\n", err)
+	}
+	fmt.Fprintf(w, "\nScan it with the app, or open the link:\n%s\n", p.Uri)
+	if p.HostName != "" {
+		fmt.Fprintf(w, "host: %s\n", p.HostName)
+	}
+	if p.CertFingerprint != "" {
+		fmt.Fprintf(w, "certificate: %s\n", p.CertFingerprint)
+	}
+	if p.ExpiresAt != nil {
+		fmt.Fprintf(w, "expires: %s\n", p.ExpiresAt.AsTime().UTC().Format("2006-01-02T15:04:05Z"))
+	}
+}
+
+// renderCheck prints a worker's check report as it is.
+func renderCheck(m proto.Message, w io.Writer) {
+	fmt.Fprintln(w, strings.TrimRight(m.(*v1.CheckAgentResponse).Text, "\n"))
 }

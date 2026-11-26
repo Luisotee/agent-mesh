@@ -688,9 +688,21 @@ func resumes(t v1.MessageType) bool {
 func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error) {
 	out := &v1.ReadInboxResponse{}
 	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceReadInboxProcedure, out, func(t *store.Tx) error {
-		msgs, err := t.Inbox(t.Actor.Id, req.Msg.All)
-		if err != nil {
-			return err
+		var msgs []*v1.Message
+		if id := req.Msg.Id; id != "" {
+			m, err := t.Message(t.Actor.Id, id)
+			if errors.Is(err, store.ErrNotFound) {
+				return notFound("no message %q in your inbox", id)
+			}
+			if err != nil {
+				return err
+			}
+			msgs = []*v1.Message{m}
+		} else {
+			var err error
+			if msgs, err = t.Inbox(t.Actor.Id, req.Msg.All); err != nil {
+				return err
+			}
 		}
 		for _, m := range msgs {
 			if m.ReadAt == nil && !req.Msg.Peek {
@@ -701,6 +713,13 @@ func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInbo
 			}
 		}
 		out.Messages = msgs
+		if t.Actor.Class == v1.ActorClass_ACTOR_CLASS_ROOT && !req.Msg.Full && req.Msg.Id == "" {
+			over, err := d.Setting(t.Reader, "inbox.summary_over")
+			if err != nil {
+				return err
+			}
+			out.Messages = d.summarizeInbox(msgs, int(over.(float64)))
+		}
 		return nil
 	})
 	return connect.NewResponse(out), err

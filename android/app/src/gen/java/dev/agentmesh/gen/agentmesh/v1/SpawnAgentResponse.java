@@ -15,6 +15,7 @@ public  final class SpawnAgentResponse extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.SpawnAgentResponse)
     SpawnAgentResponseOrBuilder {
   private SpawnAgentResponse() {
+    capacity_ = "";
   }
   private int bitField0_;
   public static final int AGENT_FIELD_NUMBER = 1;
@@ -62,6 +63,83 @@ public  final class SpawnAgentResponse extends
   private void clearAgent() {
     agent_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int CAPACITY_FIELD_NUMBER = 2;
+  private java.lang.String capacity_;
+  /**
+   * <pre>
+   * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+   * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+   * a retried spawn.
+   * </pre>
+   *
+   * <code>string capacity = 2 [json_name = "capacity"];</code>
+   * @return The capacity.
+   */
+  @java.lang.Override
+  public java.lang.String getCapacity() {
+    return capacity_;
+  }
+  /**
+   * <pre>
+   * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+   * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+   * a retried spawn.
+   * </pre>
+   *
+   * <code>string capacity = 2 [json_name = "capacity"];</code>
+   * @return The bytes for capacity.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getCapacityBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(capacity_);
+  }
+  /**
+   * <pre>
+   * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+   * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+   * a retried spawn.
+   * </pre>
+   *
+   * <code>string capacity = 2 [json_name = "capacity"];</code>
+   * @param value The capacity to set.
+   */
+  private void setCapacity(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    capacity_ = value;
+  }
+  /**
+   * <pre>
+   * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+   * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+   * a retried spawn.
+   * </pre>
+   *
+   * <code>string capacity = 2 [json_name = "capacity"];</code>
+   */
+  private void clearCapacity() {
+
+    capacity_ = getDefaultInstance().getCapacity();
+  }
+  /**
+   * <pre>
+   * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+   * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+   * a retried spawn.
+   * </pre>
+   *
+   * <code>string capacity = 2 [json_name = "capacity"];</code>
+   * @param value The bytes for capacity to set.
+   */
+  private void setCapacityBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    capacity_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse parseFrom(
@@ -208,6 +286,85 @@ public  final class SpawnAgentResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+     * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+     * a retried spawn.
+     * </pre>
+     *
+     * <code>string capacity = 2 [json_name = "capacity"];</code>
+     * @return The capacity.
+     */
+    @java.lang.Override
+    public java.lang.String getCapacity() {
+      return instance.getCapacity();
+    }
+    /**
+     * <pre>
+     * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+     * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+     * a retried spawn.
+     * </pre>
+     *
+     * <code>string capacity = 2 [json_name = "capacity"];</code>
+     * @return The bytes for capacity.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getCapacityBytes() {
+      return instance.getCapacityBytes();
+    }
+    /**
+     * <pre>
+     * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+     * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+     * a retried spawn.
+     * </pre>
+     *
+     * <code>string capacity = 2 [json_name = "capacity"];</code>
+     * @param value The capacity to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCapacity(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setCapacity(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+     * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+     * a retried spawn.
+     * </pre>
+     *
+     * <code>string capacity = 2 [json_name = "capacity"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCapacity() {
+      copyOnWrite();
+      instance.clearCapacity();
+      return this;
+    }
+    /**
+     * <pre>
+     * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+     * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+     * a retried spawn.
+     * </pre>
+     *
+     * <code>string capacity = 2 [json_name = "capacity"];</code>
+     * @param value The bytes for capacity to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCapacityBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setCapacityBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SpawnAgentResponse)
   }
   @java.lang.Override
@@ -226,9 +383,11 @@ public  final class SpawnAgentResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
             "agent_",
+            "capacity_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";
+              "\u0000\u0002\u0000\u0001\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

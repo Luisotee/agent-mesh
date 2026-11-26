@@ -480,7 +480,7 @@ func roundsOf(r store.Reader, pr string) ([]*v1.Ask, error) {
 	}
 	var out []*v1.Ask
 	for _, a := range all {
-		if a.Kind == v1.AskKind_ASK_KIND_REVIEW && a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED && answered(a) > 0 {
+		if a.Kind == v1.AskKind_ASK_KIND_REVIEW && a.RelayStep == 0 && a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED && answered(a) > 0 {
 			out = append(out, a)
 		}
 	}
@@ -500,6 +500,9 @@ func answered(a *v1.Ask) int {
 // roundsHint is the line under a round's result: where it stands against `review.rounds.<size>`, a ceiling and
 // not a quota.
 func (d *Daemon) roundsHint(r store.Reader, a *v1.Ask, finished bool) string {
+	if a.RelayStep > 0 {
+		return relayHint(a, finished)
+	}
 	key := sizeKey(a.Size)
 	if key == "" {
 		return ""

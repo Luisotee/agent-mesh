@@ -238,6 +238,9 @@ func (d *Daemon) ResetRoot(ctx context.Context, req *connect.Request[v1.ResetRoo
 		if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 			return failedPrecondition("run %s is closed", runID)
 		}
+		if isAdopted(root) {
+			return failedPrecondition("the run's root is your own Claude Code session: it resets itself (/clear, then `mesh brief`)")
+		}
 		rootID = root.Id
 		if out.RootReset, err = d.requestReset(tx, root, "command", m.Next, m.Focus, m.Compact, usage); err != nil {
 			return err

@@ -40,4 +40,38 @@ public interface ReadInboxRequestOrBuilder extends
    * @return The all.
    */
   boolean getAll();
+
+  /**
+   * <pre>
+   * Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+   * back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+   * always get whole bodies.
+   * </pre>
+   *
+   * <code>bool full = 4 [json_name = "full"];</code>
+   * @return The full.
+   */
+  boolean getFull();
+
+  /**
+   * <pre>
+   * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+   * read unless peek is set.
+   * </pre>
+   *
+   * <code>string id = 5 [json_name = "id"];</code>
+   * @return The id.
+   */
+  java.lang.String getId();
+  /**
+   * <pre>
+   * Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+   * read unless peek is set.
+   * </pre>
+   *
+   * <code>string id = 5 [json_name = "id"];</code>
+   * @return The bytes for id.
+   */
+  com.google.protobuf.ByteString
+      getIdBytes();
 }

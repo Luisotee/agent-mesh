@@ -72,48 +72,22 @@ func (d *Daemon) ListWaiting(ctx context.Context, req *connect.Request[v1.ListWa
 			continue
 		}
 		if lead := agents[0]; lead.Role == v1.AgentRole_AGENT_ROLE_ROOT {
-			inbox, err := r.Inbox(lead.Id, true)
+			// The store keeps what waits (plans and questions no answer has followed): a read of the open items,
+			// not of the lead's and each author's whole inbox.
+			open, err := r.Waiting(lead.Id)
 			if err != nil {
 				return nil, err
 			}
-			answers := map[string][]*v1.Message{} // author id → the answers it was sent, read once per author
-			read := map[string]bool{}
-			for _, m := range inbox {
-				kind := v1.WaitingKind_WAITING_KIND_UNSPECIFIED
-				switch m.Type {
-				case v1.MessageType_MESSAGE_TYPE_PLAN:
+			for _, m := range open {
+				kind := v1.WaitingKind_WAITING_KIND_QUESTION
+				if m.Type == v1.MessageType_MESSAGE_TYPE_PLAN {
 					kind = v1.WaitingKind_WAITING_KIND_PLAN
-				case v1.MessageType_MESSAGE_TYPE_QUESTION:
-					kind = v1.WaitingKind_WAITING_KIND_QUESTION
-				default:
-					continue
 				}
 				author := byID[m.From.GetId()]
 				if author == nil || author.State == v1.AgentState_AGENT_STATE_EXITED {
 					continue
 				}
-				if !read[author.Id] {
-					read[author.Id] = true
-					to, err := r.Inbox(author.Id, true)
-					if err != nil {
-						return nil, err
-					}
-					for _, a := range to {
-						if a.Type == v1.MessageType_MESSAGE_TYPE_ANSWER {
-							answers[author.Id] = append(answers[author.Id], a)
-						}
-					}
-				}
-				answered := false
-				for _, a := range answers[author.Id] {
-					if before(m, a) {
-						answered = true
-						break
-					}
-				}
-				if !answered {
-					items = append(items, item{&v1.Waiting{Kind: kind, RunId: run.Id, AgentId: author.Id, Message: m}, m})
-				}
+				items = append(items, item{&v1.Waiting{Kind: kind, RunId: run.Id, AgentId: author.Id, Message: m}, m})
 			}
 		}
 		for _, a := range agents {

@@ -3,6 +3,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/Ask
+  /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
   /agentmesh.v1.MeshService/CreateWorktree
@@ -118,7 +119,9 @@ ACTOR_CLASS_REVIEWER
 ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/AddPeer
   /agentmesh.v1.MeshService/AddTools
+  /agentmesh.v1.MeshService/AdoptSession
   /agentmesh.v1.MeshService/ApproveAgent
+  /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
   /agentmesh.v1.MeshService/CreatePairing
@@ -170,6 +173,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/UnregisterPush
   permission terminal.input
 ACTOR_CLASS_READ_ONLY_DEVICE
+  /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/GetBrief

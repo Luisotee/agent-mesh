@@ -220,6 +220,35 @@ service MeshService {
     };
   }
 
+  // Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+  // calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+  // id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+  // accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+  // it runs in.
+  rpc AdoptSession(AdoptSessionRequest) returns (AdoptSessionResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "adopt"
+      summary: "Make this Claude Code session the run's root"
+    };
+  }
+
+  // A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
+  // pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
+  // root otherwise fetches, diffs and lists by hand.
+  rpc CheckAgent(CheckAgentRequest) returns (CheckAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "check"
+      summary: "Check a worker's branch, diff and PR"
+    };
+  }
+
   // The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
   // mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
   // the next page's `after_id`.
@@ -875,6 +904,10 @@ message SpawnAgentRequest {
 
 message SpawnAgentResponse {
   Agent agent = 1;
+  // How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+  // "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+  // a retried spawn.
+  string capacity = 2;
 }
 
 message ListAgentsRequest {
@@ -928,10 +961,42 @@ message ReadInboxRequest {
   bool peek = 2;
   // Include messages already read.
   bool all = 3;
+  // Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+  // back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+  // always get whole bodies.
+  bool full = 4;
+  // Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+  // read unless peek is set.
+  string id = 5;
 }
 
 message ReadInboxResponse {
   repeated Message messages = 1;
+}
+
+message AdoptSessionRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+  // The Claude Code process to adopt and its start in clock ticks (`mesh adopt` finds the session above it
+  // and fills both in).
+  int32 pid = 3;
+  uint64 pid_start_ticks = 4;
+}
+
+message AdoptSessionResponse {
+  Agent agent = 1;
+  // What changed, in a line: a new root, or the run's own taken over.
+  string note = 2;
+}
+
+message CheckAgentRequest {
+  // An agent id, or a name (within the caller's run, or unique across open runs).
+  string agent = 1;
+}
+
+message CheckAgentResponse {
+  // The report, as text: commits, diff stat, pushed and clean, PRs and their checks.
+  string text = 1;
 }
 
 message ListMessagesRequest {

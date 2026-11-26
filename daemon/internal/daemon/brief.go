@@ -217,7 +217,7 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			case v1.MessageType_MESSAGE_TYPE_PLAN:
 				out = append(out, fmt.Sprintf("NOW: %s's plan waits: before you approve or answer it, `mesh protocol root.6`", rw.name))
 			case v1.MessageType_MESSAGE_TYPE_DONE:
-				out = append(out, fmt.Sprintf("NOW: %s's done waits: before you check it, `mesh protocol root.8` and `mesh protocol questions-and-reviews`", rw.name))
+				out = append(out, fmt.Sprintf("NOW: %s's done waits: before you check it, `mesh protocol root.8` and `mesh protocol reviewing-a-pr`", rw.name))
 			}
 		}
 		if c := d.rootContext(ctx, root); c != nil {
@@ -254,6 +254,9 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 	}
 	if len(needs) > 0 {
 		out = append(out, "waiting on you: "+strings.Join(needs, ", "))
+	}
+	if c, err := d.capacity(r); err == nil {
+		out = append(out, "host: "+c.Line())
 	}
 	if me != nil {
 		mail, err := r.Inbox(me.Id, false)

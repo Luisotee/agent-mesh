@@ -187,7 +187,7 @@ func TestOnlyADeviceOrARootWritesSettingsAndEveryoneReadsThem(t *testing.T) {
 	reviewer := h.seedAgent(run.Id, "v1", "repo-rev", "r1", v1.AgentRole_AGENT_ROLE_REVIEWER)
 	for name, tok := range map[string]string{"worker": worker, "asker": asker, "reviewer": reviewer, "root": root} {
 		c := h.as(tok)
-		if res, err := c.ListSettings(ctx, connect.NewRequest(&v1.ListSettingsRequest{Prefix: "caps."})); err != nil || len(res.Msg.Settings) != 1 {
+		if res, err := c.ListSettings(ctx, connect.NewRequest(&v1.ListSettingsRequest{Prefix: "caps."})); err != nil || len(res.Msg.Settings) != 2 {
 			t.Errorf("%s lists: %v, %v", name, res, err)
 		}
 		_, err := c.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta(""), Key: "caps.agents", Value: val(t, 4.0)}))
@@ -247,7 +247,7 @@ func TestASettingChangeReachesARunsSubscribersAndSurvivesARestart(t *testing.T) 
 	if v, err := h2.d.Setting(h2.d.Store().Read(ctx), "idle_retire"); err != nil || v != 60.0 {
 		t.Errorf("the daemon reads %v, %v", v, err)
 	}
-	if v, err := h2.d.Setting(h2.d.Store().Read(ctx), "caps.agents"); err != nil || v != 16.0 {
+	if v, err := h2.d.Setting(h2.d.Store().Read(ctx), "caps.agents"); err != nil || v != "auto" {
 		t.Errorf("an unset setting reads %v, %v, want its default", v, err)
 	}
 	// A stored value the leaf's rule no longer takes falls back to the default, and the API still shows it.

@@ -1141,6 +1141,10 @@ type reviveSpec struct {
 // revive requests the reopen that brings a stopped agent back, applying spec to the agent (the caller stores
 // it). The launch is refused (ResourceExhausted) when it would pass the host's agent cap or its memory floor.
 func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen, error) {
+	if isAdopted(a) {
+		return nil, failedPrecondition("%s was your own Claude Code session (process %d): it is not the daemon's to resume; resume it yourself "+
+			"(`claude --resume %s`) and adopt it again", a.Name, a.AdoptedPid, a.SessionId)
+	}
 	if a.SessionId == "" {
 		return nil, failedPrecondition("%s never reported a conversation id, so there is nothing to resume", a.Name)
 	}
