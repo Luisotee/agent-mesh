@@ -7,7 +7,8 @@ package dev.agentmesh.gen.agentmesh.v1;
 
 /**
  * <pre>
- * The daemon found the agent's terminal still running at boot and took it back.
+ * The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
+ * the daemon found it still running at boot and took it back.
  * </pre>
  *
  * Protobuf type {@code agentmesh.v1.AgentAdopted}
@@ -153,7 +154,8 @@ public  final class AgentAdopted extends
 
   /**
    * <pre>
-   * The daemon found the agent's terminal still running at boot and took it back.
+   * The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
+   * the daemon found it still running at boot and took it back.
    * </pre>
    *
    * Protobuf type {@code agentmesh.v1.AgentAdopted}

@@ -1012,7 +1012,8 @@ export const AgentExitedSchema: GenMessage<AgentExited> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_types, 16);
 
 /**
- * The daemon found the agent's terminal still running at boot and took it back.
+ * The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
+ * the daemon found it still running at boot and took it back.
  *
  * @generated from message agentmesh.v1.AgentAdopted
  */

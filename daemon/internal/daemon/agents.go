@@ -1143,7 +1143,14 @@ func (d *Daemon) launch(ctx context.Context, a *v1.Agent, token string, plan *ad
 		}
 		cur.TerminalId = tid
 		out = cur
-		return tx.PutAgent(cur)
+		if err := tx.PutAgent(cur); err != nil {
+			return err
+		}
+		// Tell the apps which terminal it is: AgentSpawned was written before it existed, and without this they learn
+		// it only when they list the agents again (their Terminal tab would be missing for the first half minute).
+		_, err = tx.AppendEvent(&v1.Event{RunId: cur.RunId, AgentId: cur.Id,
+			Payload: &v1.Event_AgentAdopted{AgentAdopted: &v1.AgentAdopted{TerminalId: tid}}})
+		return err
 	})
 	if err != nil {
 		// A terminal no agent records would run on unseen: stop it.

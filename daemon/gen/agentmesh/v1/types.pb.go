@@ -2253,7 +2253,8 @@ func (x *AgentExited) GetReason() string {
 	return ""
 }
 
-// The daemon found the agent's terminal still running at boot and took it back.
+// The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
+// the daemon found it still running at boot and took it back.
 type AgentAdopted struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`

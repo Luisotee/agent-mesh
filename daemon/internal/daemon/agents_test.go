@@ -644,3 +644,28 @@ func TestToolActivityReachesLiveSubscribersAsEphemeralFrames(t *testing.T) {
 		}
 	}
 }
+
+// AgentSpawned is written before the terminal exists, so the stream says which terminal it is once the launch recorded
+// it: an app learns it from the event, not from the next listing of the agents.
+func TestALaunchTellsTheStreamWhichTerminalTheAgentGot(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	h := startWithAgents(t, state, t.TempDir())
+	t.Cleanup(func() { stopTermHost(t, state) })
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	stream, _ := h.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{RunId: run.Id}))
+	defer stream.Close()
+	recv(t, stream) // snapshot
+	a := h.spawn(run.Id, gitRepo(t), "term", "")
+
+	var got string
+	for got == "" {
+		ev := recv(t, stream).GetEvent()
+		if ad := ev.GetAgentAdopted(); ad != nil && ev.AgentId == a.Id {
+			got = ad.TerminalId
+		}
+	}
+	if want := h.agent(a.Id).TerminalId; got == "" || got != want {
+		t.Errorf("the stream said terminal %q, the agent has %q", got, want)
+	}
+}

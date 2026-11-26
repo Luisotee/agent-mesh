@@ -43,6 +43,15 @@ describe('applyFrame', () => {
     expect(s.cursor?.seq).toBe(5n)
   })
 
+  it('an agent that just launched gets its terminal from the event that records it, not from the next listing', () => {
+    const s = run([
+      snapshot([]),
+      ev(6, { case: 'agentSpawned', value: { $typeName: 'agentmesh.v1.AgentSpawned', agent: agent('a1') } }),
+      ev(7, { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 'term-1' } }),
+    ])
+    expect(s.agents.a1).toMatchObject({ id: 'a1', terminalId: 'term-1' })
+  })
+
   it('a retire, a stopped run and a reopen change what the host says they change', () => {
     const waiting = agent('a1', { state: AgentState.NEEDS_INPUT, needsInput: 2, stateDetail: 'Bash', model: 'sonnet' })
     let s = run([snapshot([waiting]), ev(6, { case: 'agentRetired', value: { $typeName: 'agentmesh.v1.AgentRetired', reason: 'requested' } })])
