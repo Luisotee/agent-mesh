@@ -1,6 +1,7 @@
 // Package hook is what a CLI's hook runs (`mesh hook <kind> <event>`): it reports the hook to the daemon,
 // finding the daemon's address at call time, and spools the report while the daemon is down. It never fails
-// the CLI: whatever happens, the hook exits 0 and prints nothing (but a PreToolUse denial).
+// the CLI: whatever happens, the hook exits 0 and prints nothing (but a PreToolUse denial, and the reminder a Claude
+// SessionStart prints for a session that started again).
 package hook
 
 import (
@@ -150,25 +151,51 @@ func report(o Options, p statedir.Paths, payload []byte, fired time.Time) error 
 	defer unlock()
 	conn, err := client.Dial(o.StateDir, tok, client.Options{DialTimeout: o.DialTimeout})
 	if err != nil {
+		printFallback(o, payload)
 		return spool(p, o.AgentID, req, o.Now())
 	}
+	var reply string
 	send := func(r *v1.ReportHookRequest) error {
 		ctx, cancel := context.WithTimeout(context.Background(), o.CallTimeout)
 		defer cancel()
-		_, err := conn.Mesh.ReportHook(ctx, connect.NewRequest(r))
+		res, err := conn.Mesh.ReportHook(ctx, connect.NewRequest(r))
+		if err == nil && r == req {
+			reply = res.Msg.Context
+		}
 		return err
 	}
 	// Older spooled hooks go first, so the daemon sees them in order.
 	if err := Drain(p, o.AgentID, send); err != nil {
+		printFallback(o, payload)
 		return errors.Join(err, spool(p, o.AgentID, req, o.Now()))
 	}
 	if err := send(req); err != nil {
 		if Retryable(err) {
+			printFallback(o, payload)
 			return errors.Join(err, spool(p, o.AgentID, req, o.Now()))
 		}
 		return fmt.Errorf("the daemon refused the hook: %w", err)
 	}
+	if reply != "" && o.Event == "SessionStart" && o.Stdout != nil {
+		fmt.Fprintln(o.Stdout, reply) // Claude adds a SessionStart hook's output to the session
+	}
 	return nil
+}
+
+// printFallback is what a SessionStart that couldn't reach the daemon prints (Claude: compact, clear, resume): the
+// daemon would have written the reminder, so the session is only told where to find what it lost.
+func printFallback(o Options, payload []byte) {
+	if o.Event != "SessionStart" || o.Kind != claude.Kind || o.Stdout == nil {
+		return
+	}
+	var p struct {
+		Source string `json:"source"`
+	}
+	if json.Unmarshal(payload, &p) != nil || (p.Source != "compact" && p.Source != "clear" && p.Source != "resume") {
+		return
+	}
+	fmt.Fprintf(o.Stdout, "agent-mesh reminder (%s): the daemon wasn't reachable, so this is all it can say now. Your earlier context may be gone: "+
+		"run `mesh whoami`, then `mesh inbox` (a root: `mesh brief`).\n", p.Source)
 }
 
 // reportQuick is report for a hook the CLI's tool call waits on: it never drains, and spools at once when another

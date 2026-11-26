@@ -25,6 +25,8 @@ func TestTheSharedProtocolNamesOnlyCommandsAndFlagsTheCLIHas(t *testing.T) {
 		"whoami":  flag.NewFlagSet("whoami", flag.ContinueOnError),
 		"hook":    flag.NewFlagSet("hook", flag.ContinueOnError),
 		"version": flag.NewFlagSet("version", flag.ContinueOnError),
+		// Hand-written, with no flags: its one argument names a part.
+		"protocol": flag.NewFlagSet("protocol", flag.ContinueOnError),
 	}
 	flags["help"] = flag.NewFlagSet("help", flag.ContinueOnError)
 	for _, name := range []string{"dir", "whoami", "hook", "version"} {

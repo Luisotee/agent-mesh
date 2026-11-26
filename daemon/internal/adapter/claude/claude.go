@@ -65,7 +65,7 @@ var _ adapter.Adapter = (*Adapter)(nil)
 // Describe says what the adapter is.
 func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeRequest]) (*connect.Response[adapterv1.DescribeResponse], error) {
 	return connect.NewResponse(&adapterv1.DescribeResponse{Kind: Kind, DisplayName: "Claude Code",
-		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook"}}), nil
+		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook", "context", "compact-live"}}), nil
 }
 
 // LookupSession returns empty: Claude picks its session id up front in PlanLaunch.
@@ -241,6 +241,10 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid}), nil
 }
 
+// MeshPromptPrefix starts every doorbell the daemon types (`Doorbell`): a turn that began with it is the mesh's,
+// not the user's.
+const MeshPromptPrefix = "📬 [mesh]"
+
 // payload is the part of a hook's stdin the adapter reads; anything else is ignored.
 type payload struct {
 	SessionID        string `json:"session_id"`
@@ -249,7 +253,9 @@ type payload struct {
 	Reason           string `json:"reason"`
 	NotificationType string `json:"notification_type"`
 	Message          string `json:"message"`
-	ToolName         string `json:"tool_name"`
+	// Prompt is the text of a UserPromptSubmit.
+	Prompt   string `json:"prompt"`
+	ToolName string `json:"tool_name"`
 	// ToolInput is read only for a Bash call: another tool's (an MCP tool's) may hold anything, a `command` that
 	// isn't a string included, and must not fail the decoding of the whole payload.
 	ToolInput json.RawMessage `json:"tool_input"`
@@ -286,7 +292,8 @@ func (a *Adapter) DecodeHook(_ context.Context, req *connect.Request[adapterv1.D
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_SessionStarted{SessionStarted: &adapterv1.SessionStarted{
 			SessionId: p.SessionID, Source: p.Source}}})
 	case "UserPromptSubmit":
-		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnStarted{TurnStarted: &adapterv1.TurnStarted{}}})
+		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnStarted{TurnStarted: &adapterv1.TurnStarted{
+			ByMesh: strings.HasPrefix(strings.TrimSpace(p.Prompt), MeshPromptPrefix)}}})
 	case "PreToolUse", "PostToolUse":
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Activity{Activity: &adapterv1.Activity{Detail: p.ToolName}}})
 	case "Notification":

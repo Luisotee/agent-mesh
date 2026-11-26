@@ -8,6 +8,10 @@
 //	/ask          UserPromptSubmit, then Notification (permission_prompt) and waits for a line; then
 //	              PostToolUse and Stop
 //	/clear        SessionEnd (clear), then SessionStart (clear) under a new session id
+//	/compact <focus>
+//	              PreCompact, SubagentStop, then SessionStart (compact) under the same session id, and a
+//	              compact_boundary line appended to the session's transcript under $HOME/.claude/projects; with
+//	              $FAKECLAUDE_COMPACT=none it only prints "Not enough messages" and fires nothing
 //	/hold         UserPromptSubmit and PreToolUse, then waits for a line (a long turn); then PostToolUse and
 //	              Stop
 //	/exit         SessionEnd, then exits 0
@@ -17,6 +21,22 @@
 //	              invokes settings.statusLine.command with rate_limits JSON on stdin
 //	/bash <cmd>   UserPromptSubmit, PreToolUse (Bash, <cmd>), then PostToolUse and Stop; "denied: <reason>" is
 //	              printed instead of the tool's, when a PreToolUse hook printed a permission denial
+//
+// With $FAKECLAUDE_INPUT_LOG set, every line typed into it is appended there, one per line.
+//
+// With $FAKECLAUDE_COMPACT_LOG set, the focus of every typed /compact is appended there, one per line.
+//
+// With $FAKECLAUDE_HANG_FILE naming a file that exists, a fresh start (not a resume) draws nothing and fires no hook
+// for an hour: a launch too slow to reach its prompt.
+//
+// With $FAKECLAUDE_CLEAR_CRASH_FILE naming a file that exists, /clear exits 7 before any hook.
+//
+// With $FAKECLAUDE_FAIL_FILE naming a file that exists, a fresh start (not a resume) exits 3 before anything is
+// drawn or reported: a launch that fails.
+//
+// With -p (print mode: the last argument is the prompt) it runs no hooks and reads no input: a prompt that starts
+// with /compact appends the compact_boundary line and exits 0 (1 with $FAKECLAUDE_PRINT_FAIL set), as a headless
+// compaction does.
 //
 // With $FAKECLAUDE_TRUST_DIALOG set it draws the folder-trust dialog and fires no hook until a line is typed,
 // unless $HOME/.claude.json trusts the folder or a parent (`projects[<path>].hasTrustDialogAccepted`).
@@ -33,7 +53,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 type settings struct {
@@ -72,9 +94,11 @@ func main() {
 			f.Close()
 		}
 	}
-	source := "startup"
+	source, printMode := "startup", false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "-p":
+			printMode = true
 		case "--session-id":
 			i++
 			session = args[i]
@@ -96,6 +120,28 @@ func main() {
 			}
 		}
 	}
+	if printMode {
+		prompt := args[len(args)-1]
+		if strings.HasPrefix(prompt, "/compact") {
+			boundary()
+			fmt.Printf("compacted: %s\n", prompt)
+		}
+		if os.Getenv("FAKECLAUDE_PRINT_FAIL") != "" {
+			fmt.Fprintln(os.Stderr, "fakeclaude: print mode failed")
+			os.Exit(1)
+		}
+		return
+	}
+	if file := os.Getenv("FAKECLAUDE_FAIL_FILE"); file != "" && source == "startup" {
+		if _, err := os.Stat(file); err == nil {
+			os.Exit(3)
+		}
+	}
+	if file := os.Getenv("FAKECLAUDE_HANG_FILE"); file != "" && source == "startup" {
+		if _, err := os.Stat(file); err == nil {
+			time.Sleep(time.Hour) // a fresh start that never reaches its prompt
+		}
+	}
 	fmt.Printf("fake claude %s\r\n", session)
 	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
 		fmt.Print("Quick safety check: Is this a project you created or one you trust?\r\n" +
@@ -107,6 +153,12 @@ func main() {
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
 		line := strings.TrimSpace(strings.NewReplacer("\x1b[200~", "", "\x1b[201~", "").Replace(in.Text()))
+		if log := os.Getenv("FAKECLAUDE_INPUT_LOG"); log != "" && line != "" {
+			if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+				f.WriteString(line + "\n")
+				f.Close()
+			}
+		}
 		switch {
 		case strings.HasPrefix(line, "/limit "):
 			hook("UserPromptSubmit", map[string]any{"prompt": line})
@@ -151,6 +203,11 @@ func main() {
 			prompt()
 			continue
 		}
+		if strings.HasPrefix(line, "/compact ") {
+			compact(strings.TrimPrefix(line, "/compact "))
+			prompt()
+			continue
+		}
 		switch line {
 		case "":
 		case "/exit":
@@ -159,7 +216,14 @@ func main() {
 			return
 		case "/crash":
 			os.Exit(7)
+		case "/compact":
+			compact("")
 		case "/clear":
+			if file := os.Getenv("FAKECLAUDE_CLEAR_CRASH_FILE"); file != "" {
+				if _, err := os.Stat(file); err == nil {
+					os.Exit(7) // dies on /clear, before any hook
+				}
+			}
 			hook("SessionEnd", map[string]any{"reason": "clear"})
 			session += "-cleared"
 			hook("SessionStart", map[string]any{"source": "clear"})
@@ -245,4 +309,42 @@ func hook(event string, fields map[string]any) []byte {
 	}
 	os.Stderr.Write(printed.Bytes())
 	return printed.Bytes()
+}
+
+// compact acts out a `/compact <focus>`: the hooks Claude Code 2.1.332 fires for one, and the transcript's
+// boundary line.
+func compact(focus string) {
+	if os.Getenv("FAKECLAUDE_COMPACT") == "none" {
+		fmt.Print("Not enough messages to compact\r\n")
+		return
+	}
+	fmt.Printf("compacting: %s\r\n", focus)
+	if log := os.Getenv("FAKECLAUDE_COMPACT_LOG"); log != "" {
+		if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			f.WriteString(focus + "\n")
+			f.Close()
+		}
+	}
+	hook("PreCompact", map[string]any{"trigger": "manual"})
+	boundary()
+	hook("SubagentStop", map[string]any{})
+	hook("SessionStart", map[string]any{"source": "compact"})
+}
+
+var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// boundary appends a compact_boundary line to the session's transcript, as Claude Code does, when the transcript
+// exists (a test that sizes a conversation writes one).
+func boundary() {
+	home := os.Getenv("HOME")
+	if home == "" || session == "" {
+		return
+	}
+	path := filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"), session+".jsonl")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.WriteString(`{"type":"system","subtype":"compact_boundary"}` + "\n")
 }

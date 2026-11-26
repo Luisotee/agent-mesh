@@ -320,7 +320,7 @@ func (d *Daemon) RelayOnline() bool { return d.relay != nil && d.relay.Online() 
 func (d *Daemon) Handler() http.Handler {
 	d.handlerOnce.Do(func() {
 		path, h := agentmeshv1connect.NewMeshServiceHandler(d,
-			connect.WithInterceptors(auth.NewInterceptor(d.reg, d)))
+			connect.WithInterceptors(auth.NewInterceptor(d.reg, d), d.hintInterceptor()))
 		d.mux.Handle(path, h)
 		ppath, ph := agentmeshv1connect.NewPairingServiceHandler(d)
 		d.mux.Handle(ppath, ph)

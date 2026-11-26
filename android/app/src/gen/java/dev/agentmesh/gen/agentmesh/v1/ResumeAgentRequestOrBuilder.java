@@ -130,4 +130,44 @@ public interface ResumeAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRunIdBytes();
+
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @return The compact.
+   */
+  java.lang.String getCompact();
+  /**
+   * <pre>
+   * Compact the conversation first: "" or "auto" when it is big enough (`compact.*`), "yes" always, "no" never.
+   * </pre>
+   *
+   * <code>string compact = 10 [json_name = "compact"];</code>
+   * @return The bytes for compact.
+   */
+  com.google.protobuf.ByteString
+      getCompactBytes();
+
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @return The focus.
+   */
+  java.lang.String getFocus();
+  /**
+   * <pre>
+   * What the compaction keeps, instead of the default for the task.
+   * </pre>
+   *
+   * <code>string focus = 11 [json_name = "focus"];</code>
+   * @return The bytes for focus.
+   */
+  com.google.protobuf.ByteString
+      getFocusBytes();
 }

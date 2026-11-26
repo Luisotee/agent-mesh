@@ -77,7 +77,7 @@ func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeR
 		Kind:             Kind,
 		DisplayName:      "Antigravity (agy)",
 		VerifiedVersions: VerifiedVersions,
-		Capabilities:     []string{"hooks", "session-lookup"},
+		Capabilities:     []string{"hooks", "session-lookup", "context"},
 	}), nil
 }
 

@@ -78,6 +78,10 @@ const (
 	// MeshServiceResetSettingProcedure is the fully-qualified name of the MeshService's ResetSetting
 	// RPC.
 	MeshServiceResetSettingProcedure = "/agentmesh.v1.MeshService/ResetSetting"
+	// MeshServiceResetRootProcedure is the fully-qualified name of the MeshService's ResetRoot RPC.
+	MeshServiceResetRootProcedure = "/agentmesh.v1.MeshService/ResetRoot"
+	// MeshServiceGetBriefProcedure is the fully-qualified name of the MeshService's GetBrief RPC.
+	MeshServiceGetBriefProcedure = "/agentmesh.v1.MeshService/GetBrief"
 	// MeshServiceReportHookProcedure is the fully-qualified name of the MeshService's ReportHook RPC.
 	MeshServiceReportHookProcedure = "/agentmesh.v1.MeshService/ReportHook"
 	// MeshServiceOpenTerminalProcedure is the fully-qualified name of the MeshService's OpenTerminal
@@ -172,6 +176,12 @@ type MeshServiceClient interface {
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
+	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
+	// bootstrap text. Acts on the caller's own run's root.
+	ResetRoot(context.Context, *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error)
+	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
+	// headers and the last reset. Marks nothing read.
+	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
 	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
@@ -343,6 +353,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ResetSetting")),
 			connect.WithClientOptions(opts...),
 		),
+		resetRoot: connect.NewClient[v1.ResetRootRequest, v1.ResetRootResponse](
+			httpClient,
+			baseURL+MeshServiceResetRootProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ResetRoot")),
+			connect.WithClientOptions(opts...),
+		),
+		getBrief: connect.NewClient[v1.GetBriefRequest, v1.GetBriefResponse](
+			httpClient,
+			baseURL+MeshServiceGetBriefProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetBrief")),
+			connect.WithClientOptions(opts...),
+		),
 		reportHook: connect.NewClient[v1.ReportHookRequest, v1.ReportHookResponse](
 			httpClient,
 			baseURL+MeshServiceReportHookProcedure,
@@ -476,6 +498,8 @@ type meshServiceClient struct {
 	listSettings    *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
 	setSetting      *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
 	resetSetting    *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
+	resetRoot       *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
+	getBrief        *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
 	reportHook      *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
 	openTerminal    *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
 	createPairing   *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
@@ -594,6 +618,16 @@ func (c *meshServiceClient) SetSetting(ctx context.Context, req *connect.Request
 // ResetSetting calls agentmesh.v1.MeshService.ResetSetting.
 func (c *meshServiceClient) ResetSetting(ctx context.Context, req *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error) {
 	return c.resetSetting.CallUnary(ctx, req)
+}
+
+// ResetRoot calls agentmesh.v1.MeshService.ResetRoot.
+func (c *meshServiceClient) ResetRoot(ctx context.Context, req *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error) {
+	return c.resetRoot.CallUnary(ctx, req)
+}
+
+// GetBrief calls agentmesh.v1.MeshService.GetBrief.
+func (c *meshServiceClient) GetBrief(ctx context.Context, req *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error) {
+	return c.getBrief.CallUnary(ctx, req)
 }
 
 // ReportHook calls agentmesh.v1.MeshService.ReportHook.
@@ -737,6 +771,12 @@ type MeshServiceHandler interface {
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
+	// Reset the root's context (`mesh reset`): at a quiet prompt it relaunches lean or `/clear`s, then rings the
+	// bootstrap text. Acts on the caller's own run's root.
+	ResetRoot(context.Context, *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error)
+	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
+	// headers and the last reset. Marks nothing read.
+	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
 	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
@@ -904,6 +944,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ResetSetting")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceResetRootHandler := connect.NewUnaryHandler(
+		MeshServiceResetRootProcedure,
+		svc.ResetRoot,
+		connect.WithSchema(meshServiceMethods.ByName("ResetRoot")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceGetBriefHandler := connect.NewUnaryHandler(
+		MeshServiceGetBriefProcedure,
+		svc.GetBrief,
+		connect.WithSchema(meshServiceMethods.ByName("GetBrief")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceReportHookHandler := connect.NewUnaryHandler(
 		MeshServiceReportHookProcedure,
 		svc.ReportHook,
@@ -1054,6 +1106,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceSetSettingHandler.ServeHTTP(w, r)
 		case MeshServiceResetSettingProcedure:
 			meshServiceResetSettingHandler.ServeHTTP(w, r)
+		case MeshServiceResetRootProcedure:
+			meshServiceResetRootHandler.ServeHTTP(w, r)
+		case MeshServiceGetBriefProcedure:
+			meshServiceGetBriefHandler.ServeHTTP(w, r)
 		case MeshServiceReportHookProcedure:
 			meshServiceReportHookHandler.ServeHTTP(w, r)
 		case MeshServiceOpenTerminalProcedure:
@@ -1177,6 +1233,14 @@ func (UnimplementedMeshServiceHandler) SetSetting(context.Context, *connect.Requ
 
 func (UnimplementedMeshServiceHandler) ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResetSetting is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ResetRoot(context.Context, *connect.Request[v1.ResetRootRequest]) (*connect.Response[v1.ResetRootResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ResetRoot is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetBrief is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error) {

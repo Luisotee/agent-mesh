@@ -25,6 +25,8 @@ var renderers = map[string]struct {
 	"cost":      {func() proto.Message { return &v1.GetCostResponse{} }, renderCost},
 	"models":    {func() proto.Message { return &v1.CheckModelsResponse{} }, renderModels},
 	"conflicts": {func() proto.Message { return &v1.CheckConflictsResponse{} }, renderConflicts},
+	"brief":     {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
+	"reset":     {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
 }
 
 // hasText reports whether a command has a text form (and so a --format flag).
@@ -141,6 +143,25 @@ func renderUsage(m proto.Message, w io.Writer) {
 		}
 	}
 	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota once %d%% of it is used (quota_stop)\n", u.QuotaStop)
+}
+
+// renderBrief prints the brief as the text it is.
+func renderBrief(m proto.Message, w io.Writer) {
+	fmt.Fprintln(w, strings.TrimRight(m.(*v1.GetBriefResponse).Text, "\n"))
+}
+
+// renderReset says a reset is pending, and what the root does next.
+func renderReset(m proto.Message, w io.Writer) {
+	res := m.(*v1.ResetRootResponse)
+	r := res.RootReset
+	fmt.Fprintf(w, "reset %s pending (%s)", r.GetId(), r.GetVia())
+	if r.GetCompact() {
+		fmt.Fprint(w, ", compacting")
+	}
+	fmt.Fprintln(w)
+	for _, n := range res.Notes {
+		fmt.Fprintln(w, n)
+	}
 }
 
 func printTable(w io.Writer, headers []string, rows [][]string) {

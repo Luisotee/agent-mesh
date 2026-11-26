@@ -48,6 +48,12 @@ const (
 	// CliAdapterServiceDescribeModelProcedure is the fully-qualified name of the CliAdapterService's
 	// DescribeModel RPC.
 	CliAdapterServiceDescribeModelProcedure = "/agentmesh.adapter.v1.CliAdapterService/DescribeModel"
+	// CliAdapterServiceMeasureContextProcedure is the fully-qualified name of the CliAdapterService's
+	// MeasureContext RPC.
+	CliAdapterServiceMeasureContextProcedure = "/agentmesh.adapter.v1.CliAdapterService/MeasureContext"
+	// CliAdapterServicePlanCompactProcedure is the fully-qualified name of the CliAdapterService's
+	// PlanCompact RPC.
+	CliAdapterServicePlanCompactProcedure = "/agentmesh.adapter.v1.CliAdapterService/PlanCompact"
 )
 
 // CliAdapterServiceClient is a client for the agentmesh.adapter.v1.CliAdapterService service.
@@ -58,6 +64,11 @@ type CliAdapterServiceClient interface {
 	LookupSession(context.Context, *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error)
 	// DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
 	DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error)
+	// MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
+	// compacts itself) is never compacted by mesh.
+	MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error)
+	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
+	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
 }
 
 // NewCliAdapterServiceClient constructs a client for the agentmesh.adapter.v1.CliAdapterService
@@ -101,16 +112,30 @@ func NewCliAdapterServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(cliAdapterServiceMethods.ByName("DescribeModel")),
 			connect.WithClientOptions(opts...),
 		),
+		measureContext: connect.NewClient[v1.MeasureContextRequest, v1.MeasureContextResponse](
+			httpClient,
+			baseURL+CliAdapterServiceMeasureContextProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("MeasureContext")),
+			connect.WithClientOptions(opts...),
+		),
+		planCompact: connect.NewClient[v1.PlanCompactRequest, v1.PlanCompactResponse](
+			httpClient,
+			baseURL+CliAdapterServicePlanCompactProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("PlanCompact")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // cliAdapterServiceClient implements CliAdapterServiceClient.
 type cliAdapterServiceClient struct {
-	describe      *connect.Client[v1.DescribeRequest, v1.DescribeResponse]
-	planLaunch    *connect.Client[v1.PlanLaunchRequest, v1.PlanLaunchResponse]
-	decodeHook    *connect.Client[v1.DecodeHookRequest, v1.DecodeHookResponse]
-	lookupSession *connect.Client[v1.LookupSessionRequest, v1.LookupSessionResponse]
-	describeModel *connect.Client[v1.DescribeModelRequest, v1.DescribeModelResponse]
+	describe       *connect.Client[v1.DescribeRequest, v1.DescribeResponse]
+	planLaunch     *connect.Client[v1.PlanLaunchRequest, v1.PlanLaunchResponse]
+	decodeHook     *connect.Client[v1.DecodeHookRequest, v1.DecodeHookResponse]
+	lookupSession  *connect.Client[v1.LookupSessionRequest, v1.LookupSessionResponse]
+	describeModel  *connect.Client[v1.DescribeModelRequest, v1.DescribeModelResponse]
+	measureContext *connect.Client[v1.MeasureContextRequest, v1.MeasureContextResponse]
+	planCompact    *connect.Client[v1.PlanCompactRequest, v1.PlanCompactResponse]
 }
 
 // Describe calls agentmesh.adapter.v1.CliAdapterService.Describe.
@@ -138,6 +163,16 @@ func (c *cliAdapterServiceClient) DescribeModel(ctx context.Context, req *connec
 	return c.describeModel.CallUnary(ctx, req)
 }
 
+// MeasureContext calls agentmesh.adapter.v1.CliAdapterService.MeasureContext.
+func (c *cliAdapterServiceClient) MeasureContext(ctx context.Context, req *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error) {
+	return c.measureContext.CallUnary(ctx, req)
+}
+
+// PlanCompact calls agentmesh.adapter.v1.CliAdapterService.PlanCompact.
+func (c *cliAdapterServiceClient) PlanCompact(ctx context.Context, req *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error) {
+	return c.planCompact.CallUnary(ctx, req)
+}
+
 // CliAdapterServiceHandler is an implementation of the agentmesh.adapter.v1.CliAdapterService
 // service.
 type CliAdapterServiceHandler interface {
@@ -147,6 +182,11 @@ type CliAdapterServiceHandler interface {
 	LookupSession(context.Context, *connect.Request[v1.LookupSessionRequest]) (*connect.Response[v1.LookupSessionResponse], error)
 	// DescribeModel says what a model name fixes by itself; an adapter without it fixes nothing.
 	DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error)
+	// MeasureContext reads how big a conversation is from the CLI's own record. An adapter without it (one whose CLI
+	// compacts itself) is never compacted by mesh.
+	MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error)
+	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
+	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
 }
 
 // NewCliAdapterServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -186,6 +226,18 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 		connect.WithSchema(cliAdapterServiceMethods.ByName("DescribeModel")),
 		connect.WithHandlerOptions(opts...),
 	)
+	cliAdapterServiceMeasureContextHandler := connect.NewUnaryHandler(
+		CliAdapterServiceMeasureContextProcedure,
+		svc.MeasureContext,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("MeasureContext")),
+		connect.WithHandlerOptions(opts...),
+	)
+	cliAdapterServicePlanCompactHandler := connect.NewUnaryHandler(
+		CliAdapterServicePlanCompactProcedure,
+		svc.PlanCompact,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("PlanCompact")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.adapter.v1.CliAdapterService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CliAdapterServiceDescribeProcedure:
@@ -198,6 +250,10 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 			cliAdapterServiceLookupSessionHandler.ServeHTTP(w, r)
 		case CliAdapterServiceDescribeModelProcedure:
 			cliAdapterServiceDescribeModelHandler.ServeHTTP(w, r)
+		case CliAdapterServiceMeasureContextProcedure:
+			cliAdapterServiceMeasureContextHandler.ServeHTTP(w, r)
+		case CliAdapterServicePlanCompactProcedure:
+			cliAdapterServicePlanCompactHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -225,4 +281,12 @@ func (UnimplementedCliAdapterServiceHandler) LookupSession(context.Context, *con
 
 func (UnimplementedCliAdapterServiceHandler) DescribeModel(context.Context, *connect.Request[v1.DescribeModelRequest]) (*connect.Response[v1.DescribeModelResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.DescribeModel is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) MeasureContext(context.Context, *connect.Request[v1.MeasureContextRequest]) (*connect.Response[v1.MeasureContextResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.MeasureContext is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.PlanCompact is not implemented"))
 }
