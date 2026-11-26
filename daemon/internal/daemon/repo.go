@@ -13,7 +13,8 @@ import (
 // the setting. Anything with a slash, `.`, `..` or a leading `~` is a path, resolved as before.
 
 func isBareRepoName(arg string) bool {
-	return arg != "" && arg != "." && arg != ".." && !strings.Contains(arg, "/") && !strings.HasPrefix(arg, "~")
+	return arg != "" && arg != "." && arg != ".." && !strings.Contains(arg, "/") && !strings.HasPrefix(arg, "~") &&
+		!strings.HasPrefix(arg, "-") && !strings.ContainsAny(arg, ":@") // an option or a URL is no name
 }
 
 // repoTop is the top folder of the git repository `arg` names: a path as topOf takes it, or a bare name looked up

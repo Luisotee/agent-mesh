@@ -123,6 +123,10 @@ func (d *Daemon) ImportSettings(ctx context.Context, req *connect.Request[v1.Imp
 				return err
 			}
 			out.Imported, out.Skipped = res.Imported, res.Skipped
+			// Applying the file meshd was started with is its import: no "changed since" warning at the next start.
+			if d.cfg.PolicyFile != "" && expandHome(path) == expandHome(d.cfg.PolicyFile) {
+				return d.recordPolicyImport(t, expandHome(path), b, res)
+			}
 			return nil
 		})
 	}
@@ -131,6 +135,16 @@ func (d *Daemon) ImportSettings(ctx context.Context, req *connect.Request[v1.Imp
 	}
 	out.File, out.DryRun = expandHome(path), m.DryRun
 	return connect.NewResponse(out), nil
+}
+
+// recordPolicyImport notes in the store that a policy file (these bytes) was imported.
+func (d *Daemon) recordPolicyImport(t *store.Tx, path string, file []byte, res *v1.ImportSettingsResponse) error {
+	raw, err := json.Marshal(policyImportRecord{Path: path, Sum: policySum(file), At: t.Now().Unix(),
+		Imported: len(res.Imported), Skipped: len(res.Skipped)})
+	if err != nil {
+		return err
+	}
+	return t.PutMeta(policyImportMetaKey, string(raw))
 }
 
 // importPolicyAtStart imports the file meshd was started with the first time it sees that path. A missing or
@@ -168,12 +182,7 @@ func (d *Daemon) importPolicyAtStart(ctx context.Context) {
 		if out, err = d.applyPolicy(t.Reader, t, vals, skips, false); err != nil {
 			return err
 		}
-		raw, err := json.Marshal(policyImportRecord{Path: expandHome(path), Sum: policySum(b), At: t.Now().Unix(),
-			Imported: len(out.Imported), Skipped: len(out.Skipped)})
-		if err != nil {
-			return err
-		}
-		return t.PutMeta(policyImportMetaKey, string(raw))
+		return d.recordPolicyImport(t, expandHome(path), b, out)
 	})
 	if err != nil {
 		d.log.Warn("policy file not imported", "path", path, "err", err)

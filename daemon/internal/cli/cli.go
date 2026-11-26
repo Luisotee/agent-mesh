@@ -589,7 +589,7 @@ func isRepoNameField(f protoreflect.FieldDescriptor) bool {
 
 func bareRepoName(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.Contains(s, "/") && !strings.HasPrefix(s, "~") &&
-		!strings.HasPrefix(s, "-") && !cliURLRE.MatchString(s)
+		!strings.HasPrefix(s, "-") && !strings.ContainsAny(s, ":@")
 }
 
 // localFolder reports whether a folder of that name is in the working directory: then it is the repo meant, as

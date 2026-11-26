@@ -125,6 +125,20 @@ func TestMeshdLogsAChangedPolicyFile(t *testing.T) {
 	if !strings.Contains(logs.String(), "policy file changed since its import") {
 		t.Errorf("log: %s", logs.String())
 	}
+	// Applying it by hand is its import: the next start says nothing.
+	h := startWith(t, state, withPolicy(file))
+	if _, err := h.device.Mesh.ImportSettings(context.Background(), connect.NewRequest(&v1.ImportSettingsRequest{Meta: meta("apply")})); err != nil {
+		t.Fatal(err)
+	}
+	h.stop()
+	logs = &syncBuffer{}
+	startWith(t, state, func(c *daemon.Config) {
+		c.PolicyFile = file
+		c.Logger = slog.New(slog.NewTextHandler(logs, nil))
+	}).stop()
+	if strings.Contains(logs.String(), "changed since") {
+		t.Errorf("a file applied by hand still warns: %s", logs.String())
+	}
 }
 
 func TestImportSettingsAppliesOnDemandAndKeepsWhatIsSet(t *testing.T) {
