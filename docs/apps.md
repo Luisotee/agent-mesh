@@ -277,7 +277,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ### Other
 
 - ★ A Docker image and a static binary for VPS installs (P). The daemon serving the UI to a browser is deferred (2026-11-25).
-- ★ First-run onboarding: detect CLIs, add projects, pair a phone (P).
+- ★ First-run onboarding: detect CLIs, add projects, pair a phone (P). Built for the desktop (2026-11-26): the app finds the daemon on this machine (a state dir; on Windows a WSL distro through `wsl.exe`, paired with a link made by `mesh pair` inside it) and opens a chat with the setup agent (`StartSetup`: a lead agent in a `setup` run, instructed by `protocol/SETUP.md`, with the rights to pair devices and read the tailnet that only the host's own device had). Open: detecting CLIs and logins in the app itself, the AI doing the pre-connection fixes (before a connection there is no chat), Android's first run.
 - Voice dictation; a realtime voice mode (P, O).
 - A diagnostics report (P, O).
 - Auto-updates (P, O).
