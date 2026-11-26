@@ -54,7 +54,7 @@ Each paired device has a relay token of its own, so the relay refuses a revoked 
 - **The link carries it.** `CreatePairing` mints the device's id together with the pairing (`pairings.device_id`). The link's `rt` is that device's token, valid for the redemption itself and, once redeemed, for the device's whole life. Apps store it as before.
 - **The daemon tells the relay which tokens are valid**, by SHA-256 hash (the relay never holds a token):
   - `Register.device_tokens = true` carries the first set in `client_tokens`, atomically with registration.
-  - Each change sends a `ClientTokens` frame that replaces the set: a pairing made, redeemed or pruned, a device revoked.
+  - Each change sends a `ClientTokens` frame that replaces the set: a pairing made, redeemed or pruned, a device revoked. A failed read of the set retries (1 s doubling to 30 s) until the frame is sent; the relay keeps the last set meanwhile.
   - The set holds every device whose token isn't revoked, and every open pairing with its remaining lifetime (`ClientToken.ttl_seconds`, relative so the relay's clock needn't match the host's), which the relay enforces by itself. At most 1000 entries per host, open pairings first.
 - **The relay's check:**
   - A host registered with `device_tokens` is reached only by a token in its set (and not expired); anything else gets `ERR auth` / `401`, the host-wide token included.

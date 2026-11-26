@@ -249,3 +249,64 @@ func TestConnectorPushesClientTokens(t *testing.T) {
 		t.Fatalf("device a after b's revoke: %v", err)
 	}
 }
+
+// A read of the set that fails after registration is retried until it reads and sends: a revoke doesn't wait for
+// the next change or reconnect.
+func TestConnectorRetriesAFailedTokenRead(t *testing.T) {
+	secret := NewSecret()
+	srv, hs, _ := startTestRelay(t, secret)
+	devA := DeviceToken(secret, "h-1", "dev-a")
+	devB := DeviceToken(secret, "h-1", "dev-b")
+	var mu sync.Mutex
+	current := []string{devA, devB}
+	failures, reads := 0, 0
+	conn, err := NewConnector(ConnectorConfig{
+		RelayURL: hs.URL, Secret: secret, HostID: "h-1",
+		HeartbeatInterval: 100 * time.Millisecond, HeartbeatTimeout: time.Second,
+		ClientTokens: func() ([]*relayv1.ClientToken, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			reads++
+			if failures > 0 {
+				failures--
+				return nil, errors.New("database is locked")
+			}
+			var out []*relayv1.ClientToken
+			for _, tok := range current {
+				out = append(out, tokenEntry(tok, 0))
+			}
+			return out, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.tokenRetry = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = conn.Run(ctx) }()
+	waitOnline(t, srv, "h-1")
+	if err := srv.authorizeClient("h-1", devB); err != nil {
+		t.Fatalf("device b before revoke: %v", err)
+	}
+
+	mu.Lock()
+	current, failures, reads = []string{devA}, 3, 0
+	mu.Unlock()
+	conn.TokensChanged()
+	deadline := time.Now().Add(5 * time.Second)
+	for srv.authorizeClient("h-1", devB) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the revoke never reached the relay after the failed reads")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if reads != 4 {
+		t.Fatalf("reads = %d, want 3 failed and 1 sent", reads)
+	}
+	if err := srv.authorizeClient("h-1", devA); err != nil {
+		t.Fatalf("device a: %v", err)
+	}
+}

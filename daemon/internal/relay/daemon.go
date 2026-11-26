@@ -54,6 +54,8 @@ type Connector struct {
 	listener *chanListener
 	// tokensChanged holds one pending "send the relay the client tokens again".
 	tokensChanged chan struct{}
+	// tokenRetry is the first wait after a failed read of the client tokens; it doubles up to tokenRetryMax.
+	tokenRetry time.Duration
 
 	online atomic.Bool
 }
@@ -97,6 +99,7 @@ func NewConnector(cfg ConnectorConfig) (*Connector, error) {
 		wsBase:        wsBase,
 		listener:      newChanListener(wsAddr("relay:" + cfg.HostID)),
 		tokensChanged: make(chan struct{}, 1),
+		tokenRetry:    time.Second,
 	}, nil
 }
 
@@ -160,6 +163,56 @@ func (c *Connector) Run(ctx context.Context) error {
 		if !acked {
 			backoff = min(backoff*2, maxBackoff)
 		}
+	}
+}
+
+// tokenRetryMax caps the wait between reads of the client tokens after a failure.
+const tokenRetryMax = 30 * time.Second
+
+// pushClientTokens sends the relay the client token set on each TokensChanged, for as long as connCtx lasts. A
+// failed read retries, 1 s doubling to 30 s, until it reads and sends (a new change restarts the wait at 1 s):
+// a revoke or a redeemed pairing must not stay unsent on a healthy link. A change it took but didn't send rings
+// again as it leaves, for the next connection.
+func (c *Connector) pushClientTokens(connCtx context.Context, ws *websocket.Conn, writeMu *sync.Mutex, done chan<- struct{}) {
+	defer close(done)
+	pending := false
+	defer func() {
+		if pending {
+			c.TokensChanged()
+		}
+	}()
+	var retry <-chan time.Time
+	wait := c.tokenRetry
+	for {
+		select {
+		case <-connCtx.Done():
+			return
+		case <-c.tokensChanged:
+			wait = c.tokenRetry
+		case <-retry:
+		}
+		pending, retry = true, nil
+		if connCtx.Err() != nil {
+			return
+		}
+		list, err := c.clientTokens()
+		if err != nil {
+			c.log.Error("listing the client relay tokens; the relay keeps its last set until a retry reads them",
+				"err", err, "retry", wait)
+			retry = time.After(wait)
+			wait = min(wait*2, tokenRetryMax)
+			continue
+		}
+		writeMu.Lock()
+		err = writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
+			Frame: &relayv1.ControlFrame_ClientTokens{ClientTokens: &relayv1.ClientTokens{Tokens: list}},
+		})
+		writeMu.Unlock()
+		if err != nil {
+			// The connection is going; the next registration carries the set (pending rings for it).
+			return
+		}
+		pending = false
 	}
 }
 
@@ -231,31 +284,10 @@ func (c *Connector) connectOnce(ctx context.Context) (heartbeatAcked bool, err e
 	}
 
 	if c.cfg.ClientTokens != nil {
-		go func() {
-			for {
-				select {
-				case <-connCtx.Done():
-					return
-				case <-c.tokensChanged:
-				}
-				list, err := c.clientTokens()
-				if err != nil {
-					// The relay keeps its last set; the next change or registration reads again.
-					c.log.Error("listing the client relay tokens; the relay keeps its last set", "err", err)
-					continue
-				}
-				writeMu.Lock()
-				err = writeControlFrame(connCtx, ws, &relayv1.ControlFrame{
-					Frame: &relayv1.ControlFrame_ClientTokens{ClientTokens: &relayv1.ClientTokens{Tokens: list}},
-				})
-				writeMu.Unlock()
-				if err != nil {
-					// The connection is going; the next registration carries the set. Ring again for it.
-					c.TokensChanged()
-					return
-				}
-			}
-		}()
+		tokensDone := make(chan struct{})
+		go c.pushClientTokens(connCtx, ws, &writeMu, tokensDone)
+		// The pusher is gone before the next connection drains the signal, so it can't take one meant for it.
+		defer func() { cancel(); <-tokensDone }()
 	}
 
 	pongCh := make(chan int64, 8)
