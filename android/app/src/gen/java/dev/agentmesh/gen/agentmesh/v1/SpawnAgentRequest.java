@@ -528,7 +528,8 @@ public  final class SpawnAgentRequest extends
   private java.lang.String base_;
   /**
    * <pre>
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    * </pre>
    *
    * <code>string base = 9 [json_name = "base"];</code>
@@ -540,7 +541,8 @@ public  final class SpawnAgentRequest extends
   }
   /**
    * <pre>
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    * </pre>
    *
    * <code>string base = 9 [json_name = "base"];</code>
@@ -553,7 +555,8 @@ public  final class SpawnAgentRequest extends
   }
   /**
    * <pre>
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    * </pre>
    *
    * <code>string base = 9 [json_name = "base"];</code>
@@ -567,7 +570,8 @@ public  final class SpawnAgentRequest extends
   }
   /**
    * <pre>
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    * </pre>
    *
    * <code>string base = 9 [json_name = "base"];</code>
@@ -578,7 +582,8 @@ public  final class SpawnAgentRequest extends
   }
   /**
    * <pre>
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    * </pre>
    *
    * <code>string base = 9 [json_name = "base"];</code>
@@ -1450,7 +1455,8 @@ public  final class SpawnAgentRequest extends
 
     /**
      * <pre>
-     * The branch or commit to start the worktree from; empty means the repo's HEAD.
+     * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+     * last fetched), else the repo's HEAD.
      * </pre>
      *
      * <code>string base = 9 [json_name = "base"];</code>
@@ -1462,7 +1468,8 @@ public  final class SpawnAgentRequest extends
     }
     /**
      * <pre>
-     * The branch or commit to start the worktree from; empty means the repo's HEAD.
+     * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+     * last fetched), else the repo's HEAD.
      * </pre>
      *
      * <code>string base = 9 [json_name = "base"];</code>
@@ -1475,7 +1482,8 @@ public  final class SpawnAgentRequest extends
     }
     /**
      * <pre>
-     * The branch or commit to start the worktree from; empty means the repo's HEAD.
+     * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+     * last fetched), else the repo's HEAD.
      * </pre>
      *
      * <code>string base = 9 [json_name = "base"];</code>
@@ -1490,7 +1498,8 @@ public  final class SpawnAgentRequest extends
     }
     /**
      * <pre>
-     * The branch or commit to start the worktree from; empty means the repo's HEAD.
+     * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+     * last fetched), else the repo's HEAD.
      * </pre>
      *
      * <code>string base = 9 [json_name = "base"];</code>
@@ -1503,7 +1512,8 @@ public  final class SpawnAgentRequest extends
     }
     /**
      * <pre>
-     * The branch or commit to start the worktree from; empty means the repo's HEAD.
+     * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+     * last fetched), else the repo's HEAD.
      * </pre>
      *
      * <code>string base = 9 [json_name = "base"];</code>

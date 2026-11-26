@@ -35,11 +35,13 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/cleanenv"
 )
 
 var bins string
 
 func TestMain(m *testing.M) {
+	cleanenv.Agent()
 	dir, err := os.MkdirTemp("", "meshd-e2e-bins-")
 	if err != nil {
 		panic(err)
@@ -305,7 +307,7 @@ func TestEndToEnd(t *testing.T) {
 	if get(set, "setting", "value") != 3.0 || get(set, "setting", "isSet") != true || get(set, "setting", "default") != 8.0 {
 		t.Fatalf("set %v", set)
 	}
-	if got := w.ctl("settings", "--prefix", "caps."); len(get(got, "settings").([]any)) != 1 {
+	if got := w.ctl("settings", "--format", "json", "--prefix", "caps."); len(get(got, "settings").([]any)) != 1 {
 		t.Fatalf("settings %v", got)
 	}
 	w.waitFor("the setting on the stream", func() bool {

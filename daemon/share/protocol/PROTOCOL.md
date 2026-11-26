@@ -2,7 +2,7 @@
 
 You are an agent in an **agent mesh** run by the agent-mesh daemon (`meshd`): a supervisor (your *parent*) gave you work and is waiting for your report. Your terminal belongs to the daemon, and the user can watch it and type into it from the app. This file is for every agent; a root also reads `ORCHESTRATE.md` and `ROOT_CARD.md` (same folder), and a worker follows its "Worker" section.
 
-Every `mesh` command here is the daemon's CLI. It answers in JSON, and finds your identity and the daemon in your environment, so you never pass ids by hand. `mesh help` lists the commands and `mesh help <command>` the flags of one.
+Every `mesh` command here is the daemon's CLI. It answers in JSON (except `mesh inbox` and `mesh settings`, which print short text by default: add `--format json` for the whole response), and finds your identity and the daemon in your environment, so you never pass ids by hand. `mesh help` lists the commands and `mesh help <command>` the flags of one.
 
 ## Who you are
 
@@ -16,7 +16,7 @@ mesh dir           # the run's folder: plans/, reports/ and tasks/ go in it
 A line starting with `📬 [mesh]` in your input is a **doorbell**: the daemon types it into your terminal when you are idle, never while you work and never into what the user is typing. It shows only who sent what; the message is in your mailbox:
 
 ```bash
-mesh inbox         # prints your unread messages (JSON: type, from, body) and marks them read
+mesh inbox         # prints your unread messages (a header line with type, sender and time, then the body; `--format json` for the whole response) and marks them read
 ```
 
 Run `mesh inbox` whenever a doorbell rings, and reply only with `mesh send`. The first doorbell of a process also names this file: read it once. Messages from `mesh` itself (an `info` from the daemon) are the daemon's: a nudge for you, or an alert about an agent of yours.

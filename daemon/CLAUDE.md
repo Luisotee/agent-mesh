@@ -6,6 +6,8 @@ The Go daemon (`meshd`), its terminal host (`mesh-term`), the generated CLI (`me
 
 Off PATH on this machine: Go in `~/.local/go`, buf in `~/.local/opt/buf/bin`, and `~/.local/opt/zigcc/cc` (a `zig cc` wrapper) as the C compiler `go test -race` needs. `scripts/check.sh` finds them itself; for anything else run `export PATH="$PATH:$HOME/.local/go/bin:$HOME/.local/opt/buf/bin"` first. The code generators are pinned as `tool` directives in `go.mod`, so `buf generate` installs nothing.
 
+An agent's shell carries `AGENT_MESH_TOKEN` and `AGENT_MESH_STATE`: `check.sh` unsets every `AGENT_MESH_*`, and the daemon and e2e `TestMain`s call `testutil/cleanenv`, so a hand-run `go test` works too.
+
 ## Commands
 
 ```bash
@@ -22,11 +24,11 @@ Run `check.sh` before you report a change here: the repo runs no hosted CI, so i
 
 ## Layout
 
-`cmd/` holds the four binaries; `internal/` one package per concern (`daemon` the server and handlers, `registry` who may call what, `store` SQLite and migrations, `settings` the settings table, `events`, `termhost`/`termclient`, `adapter/claude` and `adapter/agy`, `shellmatch`, `reducer`, `hook`, `relay`, `pairing`, `tlsutil`, `auth`, `cli`); `gen/` the generated Go; `e2e/` the end-to-end test of the real binaries; `packaging/` the systemd units and the relay's container. `share/` the protocol and skills daemon agents read (`README.md`, "Protocol and skills"). `README.md` "Layout" maps every package.
+`cmd/` holds the four binaries (and `protoc-gen-flagdocs`, a build-time buf plugin, not shipped); `internal/` one package per concern (`daemon` the server and handlers, `registry` who may call what, `store` SQLite and migrations, `settings` the settings table, `events`, `termhost`/`termclient`, `adapter/claude` and `adapter/agy`, `shellmatch`, `reducer`, `hook`, `relay`, `pairing`, `tlsutil`, `auth`, `cli`); `gen/` the generated Go; `e2e/` the end-to-end test of the real binaries; `packaging/` the systemd units and the relay's container. `share/` the protocol and skills daemon agents read (`README.md`, "Protocol and skills"). `README.md` "Layout" maps every package.
 
 ## Conventions
 
-- **Generated code:** never edit `gen/` by hand; change the `.proto` and regenerate (`cd proto && buf generate`). `check.sh` fails when it is stale.
+- **Generated code:** never edit `gen/` by hand; change the `.proto` and regenerate (`cd proto && buf generate`; it also writes each package's `FieldDocs`, the field comments `mesh help` shows, by `cmd/protoc-gen-flagdocs`). `check.sh` fails when it is stale.
 - **Who may call what** is pinned by `internal/registry/testdata/actors.golden`. Update it only with `-update` after reading its diff: a changed line changes an actor class's rights.
 - **State dirs:** a dev or test meshd always gets a temp state dir of its own (meshd has no default, so it can't land in a real one). Keep the path short: a unix socket path holds about 107 bytes, and meshd refuses a longer one.
 - **No real CLIs in tests:** tests run the fakes (`internal/testutil/fakeclaude`, `internal/testutil/fakeagy`) in an isolated HOME. `scripts/capture-claude-hooks.sh` and `scripts/capture-agy-hooks.sh` run the real CLI on the user's account: run them **by hand only**, never from a test or CI, and read the fixtures' diff before committing it.

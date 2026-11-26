@@ -13,3 +13,6 @@ plugins:
   - local: ["go", "-C", "../daemon", "tool", "protoc-gen-connect-go"]
     out: ../daemon/gen
     opt: paths=source_relative
+  - local: ["go", "-C", "../daemon", "run", "./cmd/protoc-gen-flagdocs"]
+    out: ../daemon/gen
+    opt: paths=source_relative

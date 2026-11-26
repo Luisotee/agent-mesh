@@ -156,7 +156,8 @@ public interface SpawnAgentRequestOrBuilder extends
 
   /**
    * <pre>
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    * </pre>
    *
    * <code>string base = 9 [json_name = "base"];</code>
@@ -165,7 +166,8 @@ public interface SpawnAgentRequestOrBuilder extends
   java.lang.String getBase();
   /**
    * <pre>
-   * The branch or commit to start the worktree from; empty means the repo's HEAD.
+   * The branch or commit to start the worktree from; empty means the remote's default branch (origin/HEAD, as
+   * last fetched), else the repo's HEAD.
    * </pre>
    *
    * <code>string base = 9 [json_name = "base"];</code>

@@ -490,6 +490,7 @@ def test_a_refused_sessions_ask_starts_no_run(mesh, fake, run, repo, monkeypatch
 
 def test_init_refuses_a_claude_that_isnt_the_panes_process(mesh, fake, monkeypatch, capsys):
     fake.on("agent", "list", result={"agents": [{"pane_id": "w1:p1", "agent": "claude", "cwd": "/x/repo"}]})
+    monkeypatch.setenv("HERDR_ENV", "1")  # the daemon agents running this suite have no herdr
     monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
     as_claude(monkeypatch, "child-s", 6000)
     in_pane(fake, "w1:p1", 4000)

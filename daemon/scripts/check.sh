@@ -16,6 +16,9 @@ if [ -z "${CC:-}" ] && ! command -v cc >/dev/null 2>&1 && [ -x "$HOME/.local/opt
   export CC="$HOME/.local/opt/zigcc/cc"
 fi
 export CGO_ENABLED=1
+# An agent of the daemon runs this with its own identity in the environment (AGENT_MESH_TOKEN, AGENT_MESH_STATE, …):
+# the tests start daemons of their own, which would refuse that token ("unknown or revoked token").
+for name in $(compgen -e | grep '^AGENT_MESH_' || true); do unset "$name"; done
 
 step() { printf '\n== %s\n' "$*"; }
 
