@@ -2,7 +2,7 @@ import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { AgentRole, AgentState, MessageType, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
 import type { AgentTab } from './model'
 
-export type NotifyKind = 'input' | 'plan' | 'question' | 'report' | 'failed' | 'exited'
+export type NotifyKind = 'input' | 'plan' | 'question' | 'report' | 'failed' | 'exited' | 'limited' | 'error'
 
 export interface Notice {
   kind: NotifyKind
@@ -33,7 +33,7 @@ function brief(text: string): string {
 
 /**
  * What an event means to the person, if anything: an agent stopped at a prompt, a plan, a question, a report or a
- * failure sent to a run's lead, an agent that died. Only live events (history replayed after a reconnect stays
+ * failure sent to a run's lead, an agent that died, one that hit its usage limit or is in error. Only live events (history replayed after a reconnect stays
  * quiet), and never what the user did themselves. `agents` is the state before the event; `clockSkewMs` is how
  * far the host's clock is ahead of ours.
  */
@@ -45,8 +45,17 @@ export function noticeFor(e: Event, agents: Record<string, Agent>, now: number, 
   switch (p.case) {
     case 'agentStateChanged': {
       const a = agents[e.agentId]
-      if (!a || p.value.to !== AgentState.NEEDS_INPUT || p.value.from === AgentState.NEEDS_INPUT) return undefined
-      return { kind: 'input', tag: a.id, title: `${a.name} needs you`, body: brief(p.value.detail) || 'It is stopped at a prompt in its terminal.', agentId: a.id, tab: 'terminal' }
+      if (!a || p.value.to === p.value.from) return undefined
+      const detail = brief(p.value.detail)
+      switch (p.value.to) {
+        case AgentState.NEEDS_INPUT:
+          return { kind: 'input', tag: a.id, title: `${a.name} needs you`, body: detail || 'It is stopped at a prompt in its terminal.', agentId: a.id, tab: 'terminal' }
+        case AgentState.LIMITED:
+          return { kind: 'limited', tag: a.id, title: `${a.name} hit its usage limit`, body: detail, agentId: a.id, tab: 'terminal' }
+        case AgentState.ERROR:
+          return { kind: 'error', tag: a.id, title: `${a.name} is in error`, body: detail, agentId: a.id, tab: 'terminal' }
+      }
+      return undefined
     }
     case 'messageSent': {
       const m = p.value.message
