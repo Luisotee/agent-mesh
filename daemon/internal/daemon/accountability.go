@@ -398,6 +398,10 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 	if err != nil || verdict == owesNothing {
 		return err
 	}
+	// A Claude agent whose background command still runs is waiting on it (background.go).
+	if d.waitsOnBackground(ctx, a, waitMax) {
+		return nil
+	}
 	extras := ""
 	if verdict == owesAlert { // read before the write: it runs git and gh and reads the screen
 		extras = d.silentExtras(ctx, a)

@@ -54,6 +54,9 @@ type Options struct {
 	// DialTimeout and CallTimeout bound how long a down daemon holds the CLI up.
 	DialTimeout time.Duration
 	CallTimeout time.Duration
+	// PermissionTimeout bounds how long a PermissionRequest waits for its parent's answer (default: just under
+	// the hook's own timeout).
+	PermissionTimeout time.Duration
 }
 
 // QuickTimeout bounds a quick report (a PreToolUse): the tool waits on the hook, agy denies a tool whose
@@ -125,6 +128,10 @@ func Run(o Options) error {
 		if captureErr = capture(o.CaptureDir, o.Event, payload, fired); captureErr != nil {
 			captureErr = fmt.Errorf("capturing the payload: %w", captureErr)
 		}
+	}
+	if o.Kind == claude.Kind && o.Event == "PermissionRequest" {
+		// Held for the agent's parent: reported to nobody else, and no spool (an answer can't wait for a daemon).
+		return errors.Join(captureErr, requestPermission(o, p, payload))
 	}
 	if preTool {
 		return errors.Join(captureErr, reportQuick(o, p, payload, fired))
@@ -449,4 +456,40 @@ func Log(stateDir string, format string, args ...any) {
 	}
 	defer f.Close()
 	fmt.Fprintf(f, "%s %s\n", time.Now().UTC().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
+
+// requestPermission asks the daemon for the answer to a Claude permission prompt and prints it. It prints nothing
+// (the prompt stays on the screen for the person there) when nobody answers in time, the daemon can't be reached,
+// or the tool is one the parent may not decide: a plan to approve, a question for the user.
+func requestPermission(o Options, p statedir.Paths, payload []byte) error {
+	var in struct {
+		Tool  string          `json:"tool_name"`
+		Input json.RawMessage `json:"tool_input"`
+	}
+	if err := json.Unmarshal(payload, &in); err != nil || in.Tool == "" || in.Tool == "ExitPlanMode" || in.Tool == "AskUserQuestion" {
+		return nil
+	}
+	tok, err := fsutil.ReadSecret(p.AgentToken(o.AgentID))
+	if err != nil {
+		return fmt.Errorf("no token for agent %s: %w", o.AgentID, err)
+	}
+	conn, err := client.Dial(o.StateDir, tok, client.Options{DialTimeout: o.DialTimeout})
+	if err != nil {
+		return nil
+	}
+	timeout := o.PermissionTimeout
+	if timeout == 0 {
+		timeout = (claude.PermissionTimeout - 10) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	res, err := conn.Mesh.RequestPermission(ctx, connect.NewRequest(&v1.RequestPermissionRequest{
+		Tool: in.Tool, Summary: claude.PermissionSummary(in.Input)}))
+	if err != nil {
+		return fmt.Errorf("asking for a permission decision: %w", err)
+	}
+	if out := claude.PermissionJSON(res.Msg.Decision, res.Msg.Reason); out != nil && o.Stdout != nil {
+		o.Stdout.Write(out)
+	}
+	return nil
 }

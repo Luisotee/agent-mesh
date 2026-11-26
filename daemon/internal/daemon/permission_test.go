@@ -1,0 +1,182 @@
+package daemon_test
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+)
+
+// worker starts a Claude worker of the run's root and waits for its prompt.
+func (w *reviewWorld) worker(t *testing.T, slug string) *v1.Agent {
+	t.Helper()
+	res, err := w.asRoot.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+		Repo: gitRepo(t), Slug: slug, Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// pendingFor waits for a worker's permission prompt to reach its root and returns it.
+func (w *reviewWorld) pendingFor(t *testing.T, agentID string) *v1.PendingPermission {
+	t.Helper()
+	var p *v1.PendingPermission
+	waitFor(t, "the permission prompt to be pending", func() bool {
+		res, err := w.asRoot.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, q := range res.Msg.Permissions {
+			if q.AgentId == agentID {
+				p = q
+			}
+		}
+		return p != nil
+	})
+	return p
+}
+
+func (w *reviewWorld) decide(t *testing.T, c interface {
+	DecidePermission(context.Context, *connect.Request[v1.DecidePermissionRequest]) (*connect.Response[v1.DecidePermissionResponse], error)
+}, id, decision, why string) error {
+	t.Helper()
+	_, err := c.DecidePermission(context.Background(), connect.NewRequest(&v1.DecidePermissionRequest{Meta: meta(""), Id: id, Decision: decision, Why: why}))
+	return err
+}
+
+// A Claude worker at a permission prompt reaches its root with the prompt's text; the root allows it, or denies it
+// with the reason Claude reads. Before, the root heard only "waiting at a prompt" two minutes later, with no text,
+// and could answer nothing.
+func TestAWorkersPermissionPromptIsAnsweredByItsRoot(t *testing.T) {
+	w := startReviews(t)
+	wk := w.worker(t, "wk")
+	if wk.ParentId != w.lead.Id {
+		t.Fatalf("the worker's parent is %s, want the root", wk.ParentId)
+	}
+	for _, tc := range []struct{ line, tool, summary, decision, why, want string }{
+		{"/perm Bash rm -rf build", "Bash", "rm -rf build", "allow", "", "permission: allow"},
+		{"/perm Bash git push origin HEAD", "Bash", "git push origin HEAD", "deny", "open a PR instead", "permission: deny open a PR instead"},
+	} {
+		w.typeInto(wk, tc.line+"\r")
+		p := w.pendingFor(t, wk.Id)
+		if p.Tool != tc.tool || p.Summary != tc.summary || p.ParentId != w.lead.Id {
+			t.Fatalf("pending = %v", p)
+		}
+		if m := w.infoTo(t, w.lead, permissionTag+p.Id+"] "+wk.Name+" asks to use "+tc.tool+": "+tc.summary); m == nil {
+			t.Fatalf("the root was not told of the prompt %s", p.Id)
+		}
+		if err := w.decide(t, w.asRoot, p.Id, tc.decision, tc.why); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, tc.want, func() bool { return strings.Contains(w.screen(t, wk), tc.want) })
+		w.waitState(wk.Id, v1.AgentState_AGENT_STATE_IDLE)
+	}
+}
+
+const permissionTag = "[mesh permission "
+
+// Nobody answers: the hook prints nothing and the prompt stays for the person at the terminal, and the prompt is
+// gone from the list.
+func TestAPermissionPromptNobodyAnswersStaysOnTheScreen(t *testing.T) {
+	w := startReviews(t)
+	w.set(t, "permission.wait", 1)
+	wk := w.worker(t, "wk")
+	w.typeInto(wk, "/perm Bash make deploy\r")
+	waitFor(t, "the prompt left to the pane", func() bool { return strings.Contains(w.screen(t, wk), "permission: pane") })
+	res, err := w.asRoot.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+	if err != nil || len(res.Msg.Permissions) != 0 {
+		t.Fatalf("pending after the wait: %v, %v", res, err)
+	}
+}
+
+// What the root is told is the tool and its command or path, cut short, and never what the tool would write.
+func TestAPermissionMessageNeverCarriesFileContentsAndIsCutShort(t *testing.T) {
+	w := startReviews(t)
+	wk := w.worker(t, "wk")
+	w.typeInto(wk, "/perm Edit /repo/internal/auth.go\r")
+	p := w.pendingFor(t, wk.Id)
+	if p.Summary != "/repo/internal/auth.go" {
+		t.Errorf("summary = %q, want the path only", p.Summary)
+	}
+	m := w.infoTo(t, w.lead, permissionTag+p.Id+"]")
+	if m == nil || strings.Contains(m.Body, "SECRET FILE CONTENTS") {
+		t.Fatalf("the root's message: %v", m)
+	}
+	if err := w.decide(t, w.asRoot, p.Id, "deny", "no"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "denied", func() bool { return strings.Contains(w.screen(t, wk), "permission: deny no") })
+	w.waitState(wk.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	long := strings.Repeat("x", 1000)
+	w.typeInto(wk, "/perm Bash "+long+"\r")
+	p = w.pendingFor(t, wk.Id)
+	if n := len([]rune(p.Summary)); n > 301 {
+		t.Errorf("a command of 1000 characters is told as %d", n)
+	}
+	m = w.infoTo(t, w.lead, permissionTag+p.Id+"]")
+	if m == nil || strings.Contains(m.Body, long) {
+		t.Fatalf("the long command was told whole")
+	}
+	_ = w.decide(t, w.asRoot, p.Id, "allow", "")
+}
+
+// Only the agent's parent, or a device, may answer its prompt; a denial needs a reason; an answer that comes after
+// the agent went on (it was answered at its terminal) finds nothing.
+func TestOnlyTheParentOrADeviceAnswersAPermissionPrompt(t *testing.T) {
+	w := startReviews(t)
+	wk, other := w.worker(t, "wk"), w.worker(t, "other")
+	w.typeInto(wk, "/perm Bash ls\r")
+	p := w.pendingFor(t, wk.Id)
+
+	if err := w.decide(t, w.as(w.token(t, other.Id)), p.Id, "allow", ""); code(err) != connect.CodePermissionDenied {
+		t.Errorf("a sibling answering: %v, want PermissionDenied", err)
+	}
+	if err := w.decide(t, w.asRoot, p.Id, "deny", ""); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("a denial without a reason: %v, want InvalidArgument", err)
+	}
+	if err := w.decide(t, w.asRoot, p.Id, "maybe", ""); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("a decision of maybe: %v, want InvalidArgument", err)
+	}
+	if err := w.decide(t, w.asRoot, "p-nope", "allow", ""); code(err) != connect.CodeNotFound {
+		t.Errorf("an unknown id: %v, want NotFound", err)
+	}
+	if err := w.decide(t, w.device.Mesh, p.Id, "deny", "the user said no"); err != nil {
+		t.Fatalf("a device answering: %v", err)
+	}
+	waitFor(t, "the device's denial", func() bool { return strings.Contains(w.screen(t, wk), "permission: deny the user said no") })
+}
+
+func TestAPermissionPromptEndsWhenItsAgentGoesOn(t *testing.T) {
+	w := startReviews(t)
+	wk := w.worker(t, "wk")
+	w.typeInto(wk, "/perm Bash ls\r")
+	p := w.pendingFor(t, wk.Id)
+	// The prompt was answered at the terminal: the next thing its CLI reports is the turn's end.
+	if _, err := w.as(w.token(t, wk.Id)).ReportHook(context.Background(), connect.NewRequest(&v1.ReportHookRequest{
+		Meta: meta(""), Kind: "claude", EventName: "Stop", Payload: []byte(`{"hook_event_name":"Stop"}`)})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the pending prompt to end", func() bool {
+		res, err := w.asRoot.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+		return err == nil && len(res.Msg.Permissions) == 0
+	})
+	if err := w.decide(t, w.asRoot, p.Id, "allow", ""); code(err) != connect.CodeNotFound {
+		t.Errorf("a late answer: %v, want NotFound", err)
+	}
+}
+
+// A root's own prompt is the user's: nothing is held.
+func TestARootsPermissionPromptIsNotHeld(t *testing.T) {
+	w := startReviews(t)
+	start := time.Now()
+	res, err := w.asRoot.RequestPermission(context.Background(), connect.NewRequest(&v1.RequestPermissionRequest{Tool: "Bash", Summary: "ls"}))
+	if err != nil || res.Msg.Decision != "" || time.Since(start) > 2*time.Second {
+		t.Fatalf("a root's request: %v, %v after %s", res, err, time.Since(start))
+	}
+}

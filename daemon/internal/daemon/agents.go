@@ -499,6 +499,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 				go func() {
 					defer alertRunning.Store(false)
 					d.reserveAlertPass(ctx)
+					d.agyLoginAlertPass(ctx)
 				}()
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
@@ -721,6 +722,7 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 			out.Context = hookText(d.reminderText(ctx, cur, src))
 		}
 	}
+	d.permissionEnded(a.Id, req.EventName, req.Payload) // an agent that went on has no prompt waiting
 	// A doorbell in flight is checked against this very activity, not at the next tick.
 	if takesDoorbell(out.State) || d.hasRing(actor.Id) {
 		d.deliverSoon(actor.Id)

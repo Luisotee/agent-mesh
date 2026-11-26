@@ -17,6 +17,7 @@ public  final class GetUsageResponse extends
   private GetUsageResponse() {
     agyRows_ = emptyProtobufList();
     agyTiers_ = emptyProtobufList();
+    notes_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int CLAUDE_FIELD_NUMBER = 1;
@@ -304,6 +305,135 @@ public  final class GetUsageResponse extends
   private void clearMinQuota() {
 
     minQuota_ = 0;
+  }
+
+  public static final int NOTES_FIELD_NUMBER = 6;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> notes_;
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @return A list containing the notes.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getNotesList() {
+    return notes_;
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @return The count of notes.
+   */
+  @java.lang.Override
+  public int getNotesCount() {
+    return notes_.size();
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param index The index of the element to return.
+   * @return The notes at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getNotes(int index) {
+    return notes_.get(index);
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the notes at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getNotesBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        notes_.get(index));
+  }
+  private void ensureNotesIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        notes_;  if (!tmp.isModifiable()) {
+      notes_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param index The index to set the value at.
+   * @param value The notes to set.
+   */
+  private void setNotes(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureNotesIsMutable();
+    notes_.set(index, value);
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param value The notes to add.
+   */
+  private void addNotes(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureNotesIsMutable();
+    notes_.add(value);
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param values The notes to add.
+   */
+  private void addAllNotes(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureNotesIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, notes_);
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   */
+  private void clearNotes() {
+    notes_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param value The bytes of the notes to add.
+   */
+  private void addNotesBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureNotesIsMutable();
+    notes_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.GetUsageResponse parseFrom(
@@ -710,6 +840,134 @@ public  final class GetUsageResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @return A list containing the notes.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getNotesList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getNotesList());
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @return The count of notes.
+     */
+    @java.lang.Override
+    public int getNotesCount() {
+      return instance.getNotesCount();
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @param index The index of the element to return.
+     * @return The notes at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getNotes(int index) {
+      return instance.getNotes(index);
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the notes at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getNotesBytes(int index) {
+      return instance.getNotesBytes(index);
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @param index The index to set the value at.
+     * @param value The notes to set.
+     * @return This builder for chaining.
+     */
+    public Builder setNotes(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setNotes(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @param value The notes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addNotes(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addNotes(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @param values The notes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllNotes(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllNotes(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearNotes() {
+      copyOnWrite();
+      instance.clearNotes();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+     * </pre>
+     *
+     * <code>repeated string notes = 6 [json_name = "notes"];</code>
+     * @param value The bytes of the notes to add.
+     * @return This builder for chaining.
+     */
+    public Builder addNotesBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addNotesBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetUsageResponse)
   }
   @java.lang.Override
@@ -734,10 +992,11 @@ public  final class GetUsageResponse extends
             dev.agentmesh.gen.agentmesh.v1.AgyTierPick.class,
             "quotaStop_",
             "minQuota_",
+            "notes_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0002\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u0004\u0005\u0004";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0003\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u001b\u0004\u0004\u0005\u0004\u0006\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

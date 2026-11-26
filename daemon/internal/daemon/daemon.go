@@ -23,6 +23,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/events"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -139,6 +140,7 @@ type Daemon struct {
 
 	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
 	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
+	perms permTable   // permission prompts waiting for an answer (permission.go)
 }
 
 // New opens a state dir: takes its lock, opens (or migrates) the database, and makes the daemon's id and the
@@ -193,6 +195,11 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	if d.rt, err = newRuntime(cfg.Agents); err != nil {
 		return nil, err
+	}
+	if a, err := d.rt.adapters.Get(agy.Kind); err == nil {
+		if ag, ok := a.(*agy.Adapter); ok {
+			ag.LoginNeeded = d.noteAgyLogin // a probe of agy that tried to open a login is recorded
+		}
 	}
 	d.notify = d.deliverSoon
 	d.bus.AgentView = d.view

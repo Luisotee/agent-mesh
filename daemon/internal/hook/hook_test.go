@@ -382,3 +382,20 @@ func TestASessionStartThatCantReachTheDaemonPrintsAShortReminder(t *testing.T) {
 		t.Errorf("a Stop printed %q", out.String())
 	}
 }
+
+// A PermissionRequest for a plan to approve or a question for the user is nobody's to decide: the hook asks no
+// one and prints nothing, so the prompt stays. (With no token file, a tool the parent may decide is an error: it
+// would have asked.)
+func TestAPermissionRequestForAPlanOrAQuestionAsksNoOne(t *testing.T) {
+	for _, tc := range []struct {
+		tool    string
+		wantErr bool
+	}{{"ExitPlanMode", false}, {"AskUserQuestion", false}, {"Bash", true}} {
+		var out bytes.Buffer
+		err := Run(Options{StateDir: t.TempDir(), AgentID: "a1", Kind: "claude", Event: "PermissionRequest",
+			Stdin: strings.NewReader(`{"tool_name":"` + tc.tool + `","tool_input":{}}`), Stdout: &out})
+		if (err != nil) != tc.wantErr || out.Len() != 0 {
+			t.Errorf("%s: err = %v, printed %q", tc.tool, err, out.String())
+		}
+	}
+}

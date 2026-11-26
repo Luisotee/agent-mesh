@@ -32,6 +32,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/hook"
+	"github.com/Luisotee/agent-mesh/daemon/internal/probe"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -467,18 +468,23 @@ func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) ([]agy
 		}
 	}
 
-	if allowExec && (force || !failedWithin(failedFile, usageFailureTTL, now)) {
+	// An agy that wanted a login is left alone for a while (until its token file changes): asking again would
+	// only try to open the login again.
+	_, loginHold := d.agyLoginState(now)
+	if allowExec && !loginHold && (force || !failedWithin(failedFile, usageFailureTTL, now)) {
 		var text string
 		var err error
 		if d.rt.cfg.Usage != nil && d.rt.cfg.Usage.ReadAgyUsage != nil {
 			text, err = d.rt.cfg.Usage.ReadAgyUsage(ctx)
 		} else if bin, ok := d.agyBinary(); ok {
-			runCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-			defer cancel()
-			cmd := exec.CommandContext(runCtx, bin, "-p", "/usage", "--dangerously-skip-permissions")
-			cmd.Env = envSlice(d.cliBaseEnv())
-			out, cerr := cmd.Output()
+			// A probe: it can't open a login (internal/probe), and says so if it tries.
+			out, cerr := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"-p", "/usage", "--dangerously-skip-permissions"},
+				Env: envSlice(d.cliBaseEnv()), Timeout: 45 * time.Second})
 			text, err = string(out), cerr
+		}
+		if errors.Is(err, probe.ErrLoginNeeded) {
+			d.noteAgyLogin()
+			d.agyLoginAlertPass(ctx) // the roots of runs that use agy are told now, not at the next pass
 		}
 		if err != nil {
 			noteUsageFailure(failedFile)
@@ -486,6 +492,7 @@ func (d *Daemon) agyUsageRows(ctx context.Context, allowExec, force bool) ([]agy
 			_ = os.MkdirAll(filepath.Dir(usageFile), 0o700)
 			_ = fsutil.WriteAtomic(usageFile, []byte(text), 0o600)
 			_ = os.Remove(failedFile)
+			d.clearAgyLogin()
 			d.rt.usage.mu.Lock()
 			d.rt.usage.agyRows = rows
 			d.rt.usage.agyFetched = now
@@ -785,6 +792,9 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 	}
 
 	rows, _ := d.agyUsageRows(ctx, true, refresh)
+	if since, _ := d.agyLoginState(d.now()); !since.IsZero() {
+		out.Notes = append(out.Notes, agyLoginNote)
+	}
 	for _, row := range rows {
 		out.AgyRows = append(out.AgyRows, &v1.AgyUsageRow{
 			Group:  row.Group,

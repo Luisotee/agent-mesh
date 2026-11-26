@@ -246,3 +246,35 @@ func TestAnAgentCannotBriefAnotherAgent(t *testing.T) {
 		t.Errorf("a worker briefing itself: %v", err)
 	}
 }
+
+// The root's brief says how it leans on tier picks (`tier_lean`), and follows the setting; a worker's brief, which
+// has nothing to pick, doesn't.
+func TestTheBriefSaysHowTheRootLeansOnTiers(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	brief := func(c interface {
+		GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
+	}) string {
+		res, err := c.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Text
+	}
+	if got := brief(w.asRoot); !strings.Contains(got, "tier lean (`tier_lean`: quality, balanced, thrifty): balanced: no lean either way") {
+		t.Errorf("default brief:\n%s", got)
+	}
+	for lean, want := range map[string]string{
+		"thrifty": "thrifty: when a task could go either way, take the cheaper tier",
+		"quality": "quality: when a task could go either way, take the stronger tier",
+	} {
+		w.set(t, "tier_lean", lean)
+		if got := brief(w.asRoot); !strings.Contains(got, want) {
+			t.Errorf("brief with tier_lean=%s lacks %q:\n%s", lean, want, got)
+		}
+	}
+	wk := w.worker(t, "wk")
+	if got := brief(w.as(w.token(t, wk.Id))); strings.Contains(got, "tier lean") {
+		t.Errorf("a worker's brief carries the tier lean:\n%s", got)
+	}
+}
