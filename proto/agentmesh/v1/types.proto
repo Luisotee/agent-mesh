@@ -140,6 +140,9 @@ message Agent {
   bool tools_added = 37;
   // True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
   bool mcp_all = 38;
+  // Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+  // a relay for a risky PR). Empty means the `review.by` setting.
+  string review_by = 39;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.

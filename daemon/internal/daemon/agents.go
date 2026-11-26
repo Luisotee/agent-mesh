@@ -850,6 +850,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if !mayStart(actor.Class, role) {
 		return nil, denied("%s may not start a %s", actor.Class, role)
 	}
+	if err := checkReviewBy(m.Reviews); err != nil {
+		return nil, err
+	}
 	if d.rt.term == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("this daemon runs without a terminal host"))
 	}
@@ -941,7 +944,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return nil, err
 		}
 	}
-	if err := d.capGuard(r, "an agent in "+m.Repo, ""); err != nil {
+	if err := d.capGuard(r, "an agent in "+m.Repo, "", capShared(ctx)...); err != nil {
 		return nil, err
 	}
 	if err := d.checkMemoryGuard(r, "an agent in "+m.Repo); err != nil {
@@ -1001,7 +1004,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
-		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: mcpNames,
+		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: mcpNames, ReviewBy: m.Reviews,
 		// A named model or effort covers the whole task: no plan phase, now or later.
 		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
 	if m.Plan {
@@ -1036,7 +1039,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		} else if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 			return failedPrecondition("run %s is closed", runID)
 		}
-		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
+		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id, capShared(ctx)...); err != nil {
 			return err
 		}
 		if err := d.checkMCPLease(tx.Reader, agent.Mcp, agent.Id, tx.Actor); err != nil {

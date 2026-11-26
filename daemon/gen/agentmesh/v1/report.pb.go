@@ -849,18 +849,20 @@ func (x *ReviewCostSummary) GetByCli() map[string]float64 {
 }
 
 type VerdictCostSummary struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
-	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
-	Tier          string                 `protobuf:"bytes,3,opt,name=tier,proto3" json:"tier,omitempty"`
-	Reviews       int64                  `protobuf:"varint,4,opt,name=reviews,proto3" json:"reviews,omitempty"`
-	Agree         int64                  `protobuf:"varint,5,opt,name=agree,proto3" json:"agree,omitempty"`
-	Other         int64                  `protobuf:"varint,6,opt,name=other,proto3" json:"other,omitempty"`
-	Disagree      int64                  `protobuf:"varint,7,opt,name=disagree,proto3" json:"disagree,omitempty"`
-	Blocking      int64                  `protobuf:"varint,8,opt,name=blocking,proto3" json:"blocking,omitempty"`
-	Findings      int64                  `protobuf:"varint,9,opt,name=findings,proto3" json:"findings,omitempty"`
-	AgreedPct     int32                  `protobuf:"varint,10,opt,name=agreed_pct,json=agreedPct,proto3" json:"agreed_pct,omitempty"`
-	HasAgreedPct  bool                   `protobuf:"varint,11,opt,name=has_agreed_pct,json=hasAgreedPct,proto3" json:"has_agreed_pct,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Kind         string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Model        string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
+	Tier         string                 `protobuf:"bytes,3,opt,name=tier,proto3" json:"tier,omitempty"`
+	Reviews      int64                  `protobuf:"varint,4,opt,name=reviews,proto3" json:"reviews,omitempty"`
+	Agree        int64                  `protobuf:"varint,5,opt,name=agree,proto3" json:"agree,omitempty"`
+	Other        int64                  `protobuf:"varint,6,opt,name=other,proto3" json:"other,omitempty"`
+	Disagree     int64                  `protobuf:"varint,7,opt,name=disagree,proto3" json:"disagree,omitempty"`
+	Blocking     int64                  `protobuf:"varint,8,opt,name=blocking,proto3" json:"blocking,omitempty"`
+	Findings     int64                  `protobuf:"varint,9,opt,name=findings,proto3" json:"findings,omitempty"`
+	AgreedPct    int32                  `protobuf:"varint,10,opt,name=agreed_pct,json=agreedPct,proto3" json:"agreed_pct,omitempty"`
+	HasAgreedPct bool                   `protobuf:"varint,11,opt,name=has_agreed_pct,json=hasAgreedPct,proto3" json:"has_agreed_pct,omitempty"`
+	// Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
+	ByAuthor      int64 `protobuf:"varint,12,opt,name=by_author,json=byAuthor,proto3" json:"by_author,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -970,6 +972,13 @@ func (x *VerdictCostSummary) GetHasAgreedPct() bool {
 		return x.HasAgreedPct
 	}
 	return false
+}
+
+func (x *VerdictCostSummary) GetByAuthor() int64 {
+	if x != nil {
+		return x.ByAuthor
+	}
+	return 0
 }
 
 type GetCostResponse struct {
@@ -1827,7 +1836,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\n" +
 	"ByCliEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xb1\x02\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xce\x02\n" +
 	"\x12VerdictCostSummary\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x12\n" +
@@ -1841,7 +1850,8 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\n" +
 	"agreed_pct\x18\n" +
 	" \x01(\x05R\tagreedPct\x12$\n" +
-	"\x0ehas_agreed_pct\x18\v \x01(\bR\fhasAgreedPct\"\x8d\x04\n" +
+	"\x0ehas_agreed_pct\x18\v \x01(\bR\fhasAgreedPct\x12\x1b\n" +
+	"\tby_author\x18\f \x01(\x03R\bbyAuthor\"\x8d\x04\n" +
 	"\x0fGetCostResponse\x12\x14\n" +
 	"\x05scope\x18\x01 \x01(\tR\x05scope\x12 \n" +
 	"\fprices_as_of\x18\x02 \x01(\tR\n" +

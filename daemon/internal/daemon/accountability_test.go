@@ -497,3 +497,52 @@ func TestOnlyAToolsAddedReopenHoldsTheNudge(t *testing.T) {
 		}
 	}
 }
+
+// An agent that waits on background jobs is woken by each job's notification and ends the turn still waiting.
+// Each wait it declares after a nudge answers it: the next silent wake is nudged again, and only an agent that
+// ends a turn with no report and no fresh wait, after a nudge, is told to its parent (the run's three
+// `[mesh alert silent]` on workers that were working).
+func TestAWaitDeclaredAfterANudgeAnswersIt(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	a.taskRead()
+	nudges := func() int { return a.mailOf("a-w1", "[mesh nudge]") }
+	alerts := func() int { return a.mailOf("a-root", "[mesh alert silent a-w1]") }
+
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if nudges() != 1 {
+		t.Fatalf("nudges %d, want 1", nudges())
+	}
+
+	// It declares a wait and sleeps; a job finishes and wakes it; it ends the turn, still waiting, twice over.
+	for round := 2; round <= 3; round++ {
+		if err := a.send(a.workerTok, "repo-lead", v1.MessageType_MESSAGE_TYPE_WAIT, "a background job"); err != nil {
+			t.Fatal(err)
+		}
+		a.pass() // the first reading of the wait: its baseline
+		time.Sleep(1200 * time.Millisecond)
+		a.pass()
+		if nudges() != round-1 || alerts() != 0 {
+			t.Fatalf("round %d: during the wait: nudges %d, alerts %d", round, nudges(), alerts())
+		}
+		a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now()) // woken, and idle again
+		a.pass()
+		time.Sleep(1200 * time.Millisecond)
+		a.pass()
+		a.pass()
+		if nudges() != round || alerts() != 0 {
+			t.Fatalf("round %d: after the wake: nudges %d, alerts %d, want %d and 0", round, nudges(), alerts(), round)
+		}
+	}
+
+	// A turn that ends the same way after that nudge, with no fresh wait, is told to the parent.
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	a.pass()
+	if alerts() != 1 || nudges() != 3 {
+		t.Fatalf("with no fresh wait: alerts %d, nudges %d, want 1 and 3", alerts(), nudges())
+	}
+}

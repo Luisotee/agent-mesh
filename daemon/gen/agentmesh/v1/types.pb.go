@@ -542,7 +542,10 @@ type Agent struct {
 	// True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
 	ToolsAdded bool `protobuf:"varint,37,opt,name=tools_added,json=toolsAdded,proto3" json:"tools_added,omitempty"`
 	// True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
-	McpAll        bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
+	McpAll bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
+	// Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+	// a relay for a risky PR). Empty means the `review.by` setting.
+	ReviewBy      string `protobuf:"bytes,39,opt,name=review_by,json=reviewBy,proto3" json:"review_by,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -841,6 +844,13 @@ func (x *Agent) GetMcpAll() bool {
 		return x.McpAll
 	}
 	return false
+}
+
+func (x *Agent) GetReviewBy() string {
+	if x != nil {
+		return x.ReviewBy
+	}
+	return ""
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -3317,8 +3327,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
-	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xf9\n" +
-	"\n" +
+	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\x96\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -3367,7 +3376,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"addedTools\x12\x1f\n" +
 	"\vtools_added\x18% \x01(\bR\n" +
 	"toolsAdded\x12\x17\n" +
-	"\amcp_all\x18& \x01(\bR\x06mcpAll\"\x9c\x02\n" +
+	"\amcp_all\x18& \x01(\bR\x06mcpAll\x12\x1b\n" +
+	"\treview_by\x18' \x01(\tR\breviewBy\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +

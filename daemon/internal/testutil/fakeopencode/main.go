@@ -11,7 +11,10 @@
 //	/push          prints "pushed" unless OPENCODE_PERMISSION denies git push
 //	/limit-free    writes FreeUsageLimitError reply and prints retry banner
 //	/limit-429     writes 429 reply
-//	/limit-pane    writes open assistant reply and prints [retrying ... attempt #4] banner
+//	/limit-pane    leaves the assistant reply open and draws the footer line OpenCode 1.19.6 shows under the input
+//	               box while it retries a limit in its own loop (`■■⬝⬝⬝⬝⬝⬝ Too Many Requests [retrying in 30s attempt #4]`)
+//	/limit-pane-free  the same with `Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]` (seen live)
+//	/limit-pane-gutter  the same line in the `┃` callout older versions drew
 //	/unavailable   writes "Upstream request failed: Model is unavailable." reply (status 400)
 //	/error         writes 500 error reply
 //	/exit          exits 0
@@ -320,6 +323,10 @@ func main() {
 			writeAssistantMessage(db, sessionID, asstID, providerID, modelID, created, "", errObj)
 			fmt.Print("  \u2503  Too Many Requests\r\n")
 		case "/limit-pane":
+			fmt.Print("   \u25a0\u25a0\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d Too Many Requests [retrying in 30s attempt #4]        esc interrupt\r\n")
+		case "/limit-pane-free":
+			fmt.Print("   \u25a0\u25a0\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]        esc interrupt\r\n")
+		case "/limit-pane-gutter":
 			fmt.Print("  \u2503  Too Many Requests [retrying in 30s attempt #4]\r\n")
 		case "/unavailable":
 			errObj := map[string]any{
