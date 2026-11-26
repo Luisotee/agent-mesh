@@ -22,6 +22,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
+	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
 )
 
 // Kind is the adapter's kind.
@@ -146,6 +147,12 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 		env[k] = v
 	}
 	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid}), nil
+}
+
+// ReadInputBox reads the input box from a repaint: Copilot's `┃` gutter box between `╻▄▄` and `╹▀▀`, its
+// placeholder dim.
+func (a *Adapter) ReadInputBox(_ context.Context, req *connect.Request[adapterv1.ReadInputBoxRequest]) (*connect.Response[adapterv1.ReadInputBoxResponse], error) {
+	return connect.NewResponse(adapter.ReadInputBox(req.Msg, inputbox.Copilot)), nil
 }
 
 // ── session events ──

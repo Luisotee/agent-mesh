@@ -16,6 +16,7 @@ public  final class MessageDelivered extends
     MessageDeliveredOrBuilder {
   private MessageDelivered() {
     messageId_ = "";
+    via_ = "";
   }
   public static final int MESSAGE_ID_FIELD_NUMBER = 1;
   private java.lang.String messageId_;
@@ -62,6 +63,121 @@ public  final class MessageDelivered extends
     checkByteStringIsUtf8(value);
     messageId_ = value.toStringUtf8();
 
+  }
+
+  public static final int VIA_FIELD_NUMBER = 2;
+  private java.lang.String via_;
+  /**
+   * <pre>
+   * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+   * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+   * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+   * </pre>
+   *
+   * <code>string via = 2 [json_name = "via"];</code>
+   * @return The via.
+   */
+  @java.lang.Override
+  public java.lang.String getVia() {
+    return via_;
+  }
+  /**
+   * <pre>
+   * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+   * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+   * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+   * </pre>
+   *
+   * <code>string via = 2 [json_name = "via"];</code>
+   * @return The bytes for via.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getViaBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(via_);
+  }
+  /**
+   * <pre>
+   * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+   * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+   * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+   * </pre>
+   *
+   * <code>string via = 2 [json_name = "via"];</code>
+   * @param value The via to set.
+   */
+  private void setVia(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    via_ = value;
+  }
+  /**
+   * <pre>
+   * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+   * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+   * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+   * </pre>
+   *
+   * <code>string via = 2 [json_name = "via"];</code>
+   */
+  private void clearVia() {
+
+    via_ = getDefaultInstance().getVia();
+  }
+  /**
+   * <pre>
+   * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+   * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+   * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+   * </pre>
+   *
+   * <code>string via = 2 [json_name = "via"];</code>
+   * @param value The bytes for via to set.
+   */
+  private void setViaBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    via_ = value.toStringUtf8();
+
+  }
+
+  public static final int TRIES_FIELD_NUMBER = 3;
+  private int tries_;
+  /**
+   * <pre>
+   * How many times the doorbell was typed or written before one counted.
+   * </pre>
+   *
+   * <code>int32 tries = 3 [json_name = "tries"];</code>
+   * @return The tries.
+   */
+  @java.lang.Override
+  public int getTries() {
+    return tries_;
+  }
+  /**
+   * <pre>
+   * How many times the doorbell was typed or written before one counted.
+   * </pre>
+   *
+   * <code>int32 tries = 3 [json_name = "tries"];</code>
+   * @param value The tries to set.
+   */
+  private void setTries(int value) {
+    
+    tries_ = value;
+  }
+  /**
+   * <pre>
+   * How many times the doorbell was typed or written before one counted.
+   * </pre>
+   *
+   * <code>int32 tries = 3 [json_name = "tries"];</code>
+   */
+  private void clearTries() {
+
+    tries_ = 0;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.MessageDelivered parseFrom(
@@ -210,6 +326,125 @@ public  final class MessageDelivered extends
       return this;
     }
 
+    /**
+     * <pre>
+     * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+     * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+     * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+     * </pre>
+     *
+     * <code>string via = 2 [json_name = "via"];</code>
+     * @return The via.
+     */
+    @java.lang.Override
+    public java.lang.String getVia() {
+      return instance.getVia();
+    }
+    /**
+     * <pre>
+     * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+     * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+     * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+     * </pre>
+     *
+     * <code>string via = 2 [json_name = "via"];</code>
+     * @return The bytes for via.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getViaBytes() {
+      return instance.getViaBytes();
+    }
+    /**
+     * <pre>
+     * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+     * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+     * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+     * </pre>
+     *
+     * <code>string via = 2 [json_name = "via"];</code>
+     * @param value The via to set.
+     * @return This builder for chaining.
+     */
+    public Builder setVia(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setVia(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+     * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+     * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+     * </pre>
+     *
+     * <code>string via = 2 [json_name = "via"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearVia() {
+      copyOnWrite();
+      instance.clearVia();
+      return this;
+    }
+    /**
+     * <pre>
+     * How the doorbell was known to have got through: "socket" (written into the CLI's inbox, then the agent
+     * worked), "turn" (typed, then the agent started working), "screen" (its ref showed above the input box),
+     * "read" (the agent read the message first). Empty: a message stored delivered (no doorbell was needed).
+     * </pre>
+     *
+     * <code>string via = 2 [json_name = "via"];</code>
+     * @param value The bytes for via to set.
+     * @return This builder for chaining.
+     */
+    public Builder setViaBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setViaBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * How many times the doorbell was typed or written before one counted.
+     * </pre>
+     *
+     * <code>int32 tries = 3 [json_name = "tries"];</code>
+     * @return The tries.
+     */
+    @java.lang.Override
+    public int getTries() {
+      return instance.getTries();
+    }
+    /**
+     * <pre>
+     * How many times the doorbell was typed or written before one counted.
+     * </pre>
+     *
+     * <code>int32 tries = 3 [json_name = "tries"];</code>
+     * @param value The tries to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTries(int value) {
+      copyOnWrite();
+      instance.setTries(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How many times the doorbell was typed or written before one counted.
+     * </pre>
+     *
+     * <code>int32 tries = 3 [json_name = "tries"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTries() {
+      copyOnWrite();
+      instance.clearTries();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.MessageDelivered)
   }
   @java.lang.Override
@@ -227,9 +462,12 @@ public  final class MessageDelivered extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "messageId_",
+            "via_",
+            "tries_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0208";
+              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

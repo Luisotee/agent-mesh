@@ -15,6 +15,7 @@ public  final class ReportHookResponse extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.ReportHookResponse)
     ReportHookResponseOrBuilder {
   private ReportHookResponse() {
+    context_ = "";
   }
   public static final int STATE_FIELD_NUMBER = 1;
   private int state_;
@@ -77,6 +78,73 @@ public  final class ReportHookResponse extends
   private void clearState() {
 
     state_ = 0;
+  }
+
+  public static final int CONTEXT_FIELD_NUMBER = 2;
+  private java.lang.String context_;
+  /**
+   * <pre>
+   * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+   * </pre>
+   *
+   * <code>string context = 2 [json_name = "context"];</code>
+   * @return The context.
+   */
+  @java.lang.Override
+  public java.lang.String getContext() {
+    return context_;
+  }
+  /**
+   * <pre>
+   * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+   * </pre>
+   *
+   * <code>string context = 2 [json_name = "context"];</code>
+   * @return The bytes for context.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getContextBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(context_);
+  }
+  /**
+   * <pre>
+   * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+   * </pre>
+   *
+   * <code>string context = 2 [json_name = "context"];</code>
+   * @param value The context to set.
+   */
+  private void setContext(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    context_ = value;
+  }
+  /**
+   * <pre>
+   * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+   * </pre>
+   *
+   * <code>string context = 2 [json_name = "context"];</code>
+   */
+  private void clearContext() {
+
+    context_ = getDefaultInstance().getContext();
+  }
+  /**
+   * <pre>
+   * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+   * </pre>
+   *
+   * <code>string context = 2 [json_name = "context"];</code>
+   * @param value The bytes for context to set.
+   */
+  private void setContextBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    context_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.ReportHookResponse parseFrom(
@@ -243,6 +311,75 @@ public  final class ReportHookResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+     * </pre>
+     *
+     * <code>string context = 2 [json_name = "context"];</code>
+     * @return The context.
+     */
+    @java.lang.Override
+    public java.lang.String getContext() {
+      return instance.getContext();
+    }
+    /**
+     * <pre>
+     * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+     * </pre>
+     *
+     * <code>string context = 2 [json_name = "context"];</code>
+     * @return The bytes for context.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getContextBytes() {
+      return instance.getContextBytes();
+    }
+    /**
+     * <pre>
+     * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+     * </pre>
+     *
+     * <code>string context = 2 [json_name = "context"];</code>
+     * @param value The context to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContext(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setContext(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+     * </pre>
+     *
+     * <code>string context = 2 [json_name = "context"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearContext() {
+      copyOnWrite();
+      instance.clearContext();
+      return this;
+    }
+    /**
+     * <pre>
+     * Text the hook prints, which the CLI adds to the session's context (a SessionStart reminder).
+     * </pre>
+     *
+     * <code>string context = 2 [json_name = "context"];</code>
+     * @param value The bytes for context to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContextBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setContextBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ReportHookResponse)
   }
   @java.lang.Override
@@ -260,9 +397,11 @@ public  final class ReportHookResponse extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "state_",
+            "context_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\f";
+              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\f\u0002\u0208" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

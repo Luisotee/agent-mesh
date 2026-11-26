@@ -75,6 +75,9 @@ func DefaultState(env Env) string {
 	return dir
 }
 
+// HintHeader is the response header that carries a root command's hint about the root's own context.
+const HintHeader = "Agent-Mesh-Hint"
+
 // Exit codes.
 const (
 	ExitOK    = 0
@@ -189,7 +192,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		fmt.Fprintln(env.Stderr, "mesh:", err)
 		return ExitError
 	}
-	if err := call(context.Background(), conn, a, req, env.Stdout, cmd.format == "text"); err != nil {
+	if err := call(context.Background(), conn, a, req, env.Stdout, env.Stderr, cmd.format == "text"); err != nil {
 		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", a.CLI, err)
 		return ExitError
 	}
@@ -610,7 +613,7 @@ var (
 
 // call runs the action. A unary response is printed as indented JSON (or in its short text form, when text is set); a stream prints one JSON object per
 // line as it arrives, until the daemon ends it.
-func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynamicpb.Message, out io.Writer, text bool) error {
+func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynamicpb.Message, out, errOut io.Writer, text bool) error {
 	c := connect.NewClient[dynamicpb.Message, dynamicpb.Message](conn.HTTP, client.BaseURL+a.Procedure,
 		connect.WithSchema(a.Method), connect.WithResponseInitializer(initDynamic),
 		connect.WithInterceptors(auth.ClientToken(conn.Token)))
@@ -632,6 +635,11 @@ func call(ctx context.Context, conn *client.Conn, a *registry.Action, req *dynam
 	res, err := c.CallUnary(ctx, connect.NewRequest(req))
 	if err != nil {
 		return err
+	}
+	// What the daemon wants a root to know about its own context (`mesh brief`, design §15): on stderr, so the
+	// response on stdout stays what a script reads.
+	if hint := res.Header().Get(HintHeader); hint != "" {
+		fmt.Fprintf(errOut, "mesh: %s (see ORCHESTRATE.md, \"Notes and your own context\")\n", hint)
 	}
 	if text {
 		return renderText(a.CLI, res.Msg, out)

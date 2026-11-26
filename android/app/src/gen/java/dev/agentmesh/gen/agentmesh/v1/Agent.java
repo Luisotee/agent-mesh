@@ -1805,7 +1805,229 @@ public  final class Agent extends
     mcp_.add(value.toStringUtf8());
   }
 
-  public static final int ADDED_TOOLS_FIELD_NUMBER = 32;
+  public static final int PENDING_COMPACTION_FIELD_NUMBER = 32;
+  private dev.agentmesh.gen.agentmesh.v1.PendingCompaction pendingCompaction_;
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPendingCompaction() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PendingCompaction getPendingCompaction() {
+    return pendingCompaction_ == null ? dev.agentmesh.gen.agentmesh.v1.PendingCompaction.getDefaultInstance() : pendingCompaction_;
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  private void setPendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+    java.util.Objects.requireNonNull(value);
+    pendingCompaction_ = value;
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergePendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+    java.util.Objects.requireNonNull(value);
+    if (pendingCompaction_ != null &&
+        pendingCompaction_ != dev.agentmesh.gen.agentmesh.v1.PendingCompaction.getDefaultInstance()) {
+      pendingCompaction_ =
+        dev.agentmesh.gen.agentmesh.v1.PendingCompaction.newBuilder(pendingCompaction_).mergeFrom(value).buildPartial();
+    } else {
+      pendingCompaction_ = value;
+    }
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+   */
+  private void clearPendingCompaction() {
+    pendingCompaction_ = null;
+    bitField0_ = (bitField0_ & ~0x00000008);
+  }
+
+  public static final int PENDING_RESET_FIELD_NUMBER = 33;
+  private dev.agentmesh.gen.agentmesh.v1.RootReset pendingReset_;
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPendingReset() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RootReset getPendingReset() {
+    return pendingReset_ == null ? dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance() : pendingReset_;
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  private void setPendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    pendingReset_ = value;
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergePendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    if (pendingReset_ != null &&
+        pendingReset_ != dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance()) {
+      pendingReset_ =
+        dev.agentmesh.gen.agentmesh.v1.RootReset.newBuilder(pendingReset_).mergeFrom(value).buildPartial();
+    } else {
+      pendingReset_ = value;
+    }
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A root's reset asked for and not done yet, and the last one finished (or failed).
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+   */
+  private void clearPendingReset() {
+    pendingReset_ = null;
+    bitField0_ = (bitField0_ & ~0x00000010);
+  }
+
+  public static final int LAST_RESET_FIELD_NUMBER = 34;
+  private dev.agentmesh.gen.agentmesh.v1.RootReset lastReset_;
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  @java.lang.Override
+  public boolean hasLastReset() {
+    return ((bitField0_ & 0x00000020) != 0);
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RootReset getLastReset() {
+    return lastReset_ == null ? dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance() : lastReset_;
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  private void setLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    lastReset_ = value;
+    bitField0_ |= 0x00000020;
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    java.util.Objects.requireNonNull(value);
+    if (lastReset_ != null &&
+        lastReset_ != dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance()) {
+      lastReset_ =
+        dev.agentmesh.gen.agentmesh.v1.RootReset.newBuilder(lastReset_).mergeFrom(value).buildPartial();
+    } else {
+      lastReset_ = value;
+    }
+    bitField0_ |= 0x00000020;
+  }
+  /**
+   * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+   */
+  private void clearLastReset() {
+    lastReset_ = null;
+    bitField0_ = (bitField0_ & ~0x00000020);
+  }
+
+  public static final int LAST_TURN_BY_MESH_FIELD_NUMBER = 35;
+  private boolean lastTurnByMesh_;
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   * @return The lastTurnByMesh.
+   */
+  @java.lang.Override
+  public boolean getLastTurnByMesh() {
+    return lastTurnByMesh_;
+  }
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   * @param value The lastTurnByMesh to set.
+   */
+  private void setLastTurnByMesh(boolean value) {
+    
+    lastTurnByMesh_ = value;
+  }
+  /**
+   * <pre>
+   * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+   * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+   * </pre>
+   *
+   * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+   */
+  private void clearLastTurnByMesh() {
+
+    lastTurnByMesh_ = false;
+  }
+
+  public static final int ADDED_TOOLS_FIELD_NUMBER = 36;
   private com.google.protobuf.Internal.ProtobufList<java.lang.String> addedTools_;
   /**
    * <pre>
@@ -1813,7 +2035,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @return A list containing the addedTools.
    */
   @java.lang.Override
@@ -1826,7 +2048,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @return The count of addedTools.
    */
   @java.lang.Override
@@ -1839,7 +2061,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param index The index of the element to return.
    * @return The addedTools at the given index.
    */
@@ -1853,7 +2075,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param index The index of the value to return.
    * @return The bytes of the addedTools at the given index.
    */
@@ -1876,7 +2098,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param index The index to set the value at.
    * @param value The addedTools to set.
    */
@@ -1892,7 +2114,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param value The addedTools to add.
    */
   private void addAddedTools(
@@ -1907,7 +2129,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param values The addedTools to add.
    */
   private void addAllAddedTools(
@@ -1922,7 +2144,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    */
   private void clearAddedTools() {
     addedTools_ = emptyProtobufList();
@@ -1933,7 +2155,7 @@ public  final class Agent extends
    * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
    * </pre>
    *
-   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
    * @param value The bytes of the addedTools to add.
    */
   private void addAddedToolsBytes(
@@ -1943,14 +2165,14 @@ public  final class Agent extends
     addedTools_.add(value.toStringUtf8());
   }
 
-  public static final int TOOLS_ADDED_FIELD_NUMBER = 33;
+  public static final int TOOLS_ADDED_FIELD_NUMBER = 37;
   private boolean toolsAdded_;
   /**
    * <pre>
    * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
    * </pre>
    *
-   * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+   * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
    * @return The toolsAdded.
    */
   @java.lang.Override
@@ -1962,7 +2184,7 @@ public  final class Agent extends
    * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
    * </pre>
    *
-   * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+   * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
    * @param value The toolsAdded to set.
    */
   private void setToolsAdded(boolean value) {
@@ -1974,21 +2196,21 @@ public  final class Agent extends
    * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
    * </pre>
    *
-   * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+   * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
    */
   private void clearToolsAdded() {
 
     toolsAdded_ = false;
   }
 
-  public static final int MCP_ALL_FIELD_NUMBER = 34;
+  public static final int MCP_ALL_FIELD_NUMBER = 38;
   private boolean mcpAll_;
   /**
    * <pre>
    * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
    * </pre>
    *
-   * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+   * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
    * @return The mcpAll.
    */
   @java.lang.Override
@@ -2000,7 +2222,7 @@ public  final class Agent extends
    * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
    * </pre>
    *
-   * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+   * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
    * @param value The mcpAll to set.
    */
   private void setMcpAll(boolean value) {
@@ -2012,7 +2234,7 @@ public  final class Agent extends
    * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
    * </pre>
    *
-   * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+   * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
    */
   private void clearMcpAll() {
 
@@ -3951,11 +4173,243 @@ public  final class Agent extends
 
     /**
      * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPendingCompaction() {
+      return instance.hasPendingCompaction();
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PendingCompaction getPendingCompaction() {
+      return instance.getPendingCompaction();
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder setPendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+      copyOnWrite();
+      instance.setPendingCompaction(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder setPendingCompaction(
+        dev.agentmesh.gen.agentmesh.v1.PendingCompaction.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPendingCompaction(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder mergePendingCompaction(dev.agentmesh.gen.agentmesh.v1.PendingCompaction value) {
+      copyOnWrite();
+      instance.mergePendingCompaction(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A `/compact` asked for while it is live (approve, follow-up round), typed at its next quiet prompt.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.PendingCompaction pending_compaction = 32 [json_name = "pendingCompaction"];</code>
+     */
+    public Builder clearPendingCompaction() {  copyOnWrite();
+      instance.clearPendingCompaction();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPendingReset() {
+      return instance.hasPendingReset();
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RootReset getPendingReset() {
+      return instance.getPendingReset();
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder setPendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.setPendingReset(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder setPendingReset(
+        dev.agentmesh.gen.agentmesh.v1.RootReset.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPendingReset(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder mergePendingReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.mergePendingReset(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A root's reset asked for and not done yet, and the last one finished (or failed).
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RootReset pending_reset = 33 [json_name = "pendingReset"];</code>
+     */
+    public Builder clearPendingReset() {  copyOnWrite();
+      instance.clearPendingReset();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    @java.lang.Override
+    public boolean hasLastReset() {
+      return instance.hasLastReset();
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RootReset getLastReset() {
+      return instance.getLastReset();
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder setLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.setLastReset(value);
+      return this;
+      }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder setLastReset(
+        dev.agentmesh.gen.agentmesh.v1.RootReset.Builder builderForValue) {
+      copyOnWrite();
+      instance.setLastReset(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder mergeLastReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+      copyOnWrite();
+      instance.mergeLastReset(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RootReset last_reset = 34 [json_name = "lastReset"];</code>
+     */
+    public Builder clearLastReset() {  copyOnWrite();
+      instance.clearLastReset();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+     * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+     * </pre>
+     *
+     * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+     * @return The lastTurnByMesh.
+     */
+    @java.lang.Override
+    public boolean getLastTurnByMesh() {
+      return instance.getLastTurnByMesh();
+    }
+    /**
+     * <pre>
+     * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+     * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+     * </pre>
+     *
+     * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+     * @param value The lastTurnByMesh to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLastTurnByMesh(boolean value) {
+      copyOnWrite();
+      instance.setLastTurnByMesh(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one,
+     * 30 after the user's). Unknown for a CLI whose hooks carry no prompt.
+     * </pre>
+     *
+     * <code>bool last_turn_by_mesh = 35 [json_name = "lastTurnByMesh"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLastTurnByMesh() {
+      copyOnWrite();
+      instance.clearLastTurnByMesh();
+      return this;
+    }
+
+    /**
+     * <pre>
      * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @return A list containing the addedTools.
      */
     @java.lang.Override
@@ -3970,7 +4424,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @return The count of addedTools.
      */
     @java.lang.Override
@@ -3983,7 +4437,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @param index The index of the element to return.
      * @return The addedTools at the given index.
      */
@@ -3997,7 +4451,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @param index The index of the value to return.
      * @return The bytes of the addedTools at the given index.
      */
@@ -4012,7 +4466,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @param index The index to set the value at.
      * @param value The addedTools to set.
      * @return This builder for chaining.
@@ -4029,7 +4483,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @param value The addedTools to add.
      * @return This builder for chaining.
      */
@@ -4045,7 +4499,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @param values The addedTools to add.
      * @return This builder for chaining.
      */
@@ -4061,7 +4515,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @return This builder for chaining.
      */
     public Builder clearAddedTools() {
@@ -4075,7 +4529,7 @@ public  final class Agent extends
      * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
      * </pre>
      *
-     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * <code>repeated string added_tools = 36 [json_name = "addedTools"];</code>
      * @param value The bytes of the addedTools to add.
      * @return This builder for chaining.
      */
@@ -4091,7 +4545,7 @@ public  final class Agent extends
      * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
      * </pre>
      *
-     * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+     * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
      * @return The toolsAdded.
      */
     @java.lang.Override
@@ -4103,7 +4557,7 @@ public  final class Agent extends
      * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
      * </pre>
      *
-     * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+     * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
      * @param value The toolsAdded to set.
      * @return This builder for chaining.
      */
@@ -4117,7 +4571,7 @@ public  final class Agent extends
      * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
      * </pre>
      *
-     * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+     * <code>bool tools_added = 37 [json_name = "toolsAdded"];</code>
      * @return This builder for chaining.
      */
     public Builder clearToolsAdded() {
@@ -4131,7 +4585,7 @@ public  final class Agent extends
      * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
      * </pre>
      *
-     * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+     * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
      * @return The mcpAll.
      */
     @java.lang.Override
@@ -4143,7 +4597,7 @@ public  final class Agent extends
      * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
      * </pre>
      *
-     * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+     * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
      * @param value The mcpAll to set.
      * @return This builder for chaining.
      */
@@ -4157,7 +4611,7 @@ public  final class Agent extends
      * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
      * </pre>
      *
-     * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+     * <code>bool mcp_all = 38 [json_name = "mcpAll"];</code>
      * @return This builder for chaining.
      */
     public Builder clearMcpAll() {
@@ -4214,17 +4668,21 @@ public  final class Agent extends
             "resumedFromAgentId_",
             "peer_",
             "mcp_",
+            "pendingCompaction_",
+            "pendingReset_",
+            "lastReset_",
+            "lastTurnByMesh_",
             "addedTools_",
             "toolsAdded_",
             "mcpAll_",
           };
           java.lang.String info =
-              "\u0000\"\u0000\u0001\u0001\"\"\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000&\u0000\u0001\u0001&&\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
-              "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u021a!" +
-              "\u0007\"\u0007";
+              "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
+              "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -362,3 +362,23 @@ func TestClaudePreToolUsePublishDenyEvaluatesLocallyEvenWhenDaemonIsDown(t *test
 		}
 	}
 }
+
+func TestASessionStartThatCantReachTheDaemonPrintsAShortReminder(t *testing.T) {
+	_, o := setup(t)
+	for source, want := range map[string]bool{"compact": true, "clear": true, "resume": true, "startup": false} {
+		var out bytes.Buffer
+		o.Event, o.Stdout = "SessionStart", &out
+		o.Stdin = strings.NewReader(`{"session_id":"s","source":"` + source + `"}`)
+		Run(o)
+		if got := strings.Contains(out.String(), "agent-mesh reminder ("+source+")"); got != want {
+			t.Errorf("source %s: printed %q", source, out.String())
+		}
+	}
+	// Another event, or another CLI, prints nothing.
+	var out bytes.Buffer
+	o.Event, o.Stdout, o.Stdin = "Stop", &out, strings.NewReader(`{"session_id":"s"}`)
+	Run(o)
+	if out.Len() != 0 {
+		t.Errorf("a Stop printed %q", out.String())
+	}
+}

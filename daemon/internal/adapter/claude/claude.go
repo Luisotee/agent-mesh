@@ -20,6 +20,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
 	"github.com/Luisotee/agent-mesh/daemon/internal/shellmatch"
 )
 
@@ -55,6 +56,10 @@ type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
 	// NewSessionID picks a launch's conversation id; tests may fix it.
 	NewSessionID func() string
+	// ManagedDir is where managed policy is read from (default ManagedDir); tests point it at a folder of their own.
+	ManagedDir string
+	// ProcDir is where a process's command line is read from (default /proc); tests point it at a folder of their own.
+	ProcDir string
 }
 
 // New returns the adapter.
@@ -65,7 +70,7 @@ var _ adapter.Adapter = (*Adapter)(nil)
 // Describe says what the adapter is.
 func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeRequest]) (*connect.Response[adapterv1.DescribeResponse], error) {
 	return connect.NewResponse(&adapterv1.DescribeResponse{Kind: Kind, DisplayName: "Claude Code",
-		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook"}}), nil
+		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook", "context", "compact-live", CapInboxSocket}}), nil
 }
 
 // LookupSession returns empty: Claude picks its session id up front in PlanLaunch.
@@ -104,7 +109,9 @@ func settingsWith(hookArgv []string, denyPublish bool, extra map[string]any) (st
 		cmd := adapter.ShellQuote(append(argv, ev.name)...)
 		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: HookTimeout}}}}
 	}
-	doc := map[string]any{"hooks": hooks}
+	// Every launch takes cross-session messages unprompted (the daemon writes its doorbells into the inbox socket),
+	// which beats the user's own value; only managed policy or a tightening repo overrides it (inboundSetting).
+	doc := map[string]any{"hooks": hooks, "crossSessionInbound": InboundAccept}
 	for k, v := range extra {
 		doc[k] = v
 	}
@@ -241,6 +248,10 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid}), nil
 }
 
+// MeshPromptPrefix starts every doorbell the daemon types (`Doorbell`): a turn that began with it is the mesh's,
+// not the user's.
+const MeshPromptPrefix = "📬 [mesh]"
+
 // payload is the part of a hook's stdin the adapter reads; anything else is ignored.
 type payload struct {
 	SessionID        string `json:"session_id"`
@@ -249,7 +260,9 @@ type payload struct {
 	Reason           string `json:"reason"`
 	NotificationType string `json:"notification_type"`
 	Message          string `json:"message"`
-	ToolName         string `json:"tool_name"`
+	// Prompt is the text of a UserPromptSubmit.
+	Prompt   string `json:"prompt"`
+	ToolName string `json:"tool_name"`
 	// ToolInput is read only for a Bash call: another tool's (an MCP tool's) may hold anything, a `command` that
 	// isn't a string included, and must not fail the decoding of the whole payload.
 	ToolInput json.RawMessage `json:"tool_input"`
@@ -286,7 +299,8 @@ func (a *Adapter) DecodeHook(_ context.Context, req *connect.Request[adapterv1.D
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_SessionStarted{SessionStarted: &adapterv1.SessionStarted{
 			SessionId: p.SessionID, Source: p.Source}}})
 	case "UserPromptSubmit":
-		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnStarted{TurnStarted: &adapterv1.TurnStarted{}}})
+		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_TurnStarted{TurnStarted: &adapterv1.TurnStarted{
+			ByMesh: strings.HasPrefix(strings.TrimSpace(p.Prompt), MeshPromptPrefix)}}})
 	case "PreToolUse", "PostToolUse":
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Activity{Activity: &adapterv1.Activity{Detail: p.ToolName}}})
 	case "Notification":
@@ -481,4 +495,9 @@ func DenyJSON(reason string) []byte {
 	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse",
 		"permissionDecision": "deny", "permissionDecisionReason": reason}})
 	return append(b, '\n')
+}
+
+// ReadInputBox reads the input box from a repaint: Claude's rules box, its `Try …` placeholder dim.
+func (a *Adapter) ReadInputBox(_ context.Context, req *connect.Request[adapterv1.ReadInputBoxRequest]) (*connect.Response[adapterv1.ReadInputBoxResponse], error) {
+	return connect.NewResponse(adapter.ReadInputBox(req.Msg, inputbox.Claude)), nil
 }
