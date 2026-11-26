@@ -110,18 +110,34 @@ func (c *rootCtx) text(now time.Time) string {
 
 // ── asking for a reset ──
 
-// runRoot is a run's root agent.
-func (d *Daemon) runRoot(r store.Reader, runID string) (*v1.Agent, error) {
+// runRootAndWorkers returns a run's root agent and whether any non-root agent (worker, asker or reviewer) has
+// a live process: a live asker or reviewer is still work the root waits on, so autoReset holds off for it too.
+func (d *Daemon) runRootAndWorkers(r store.Reader, runID string) (*v1.Agent, bool, error) {
 	agents, err := r.ListAgents(runID)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	var root *v1.Agent
+	liveWorker := false
 	for _, a := range agents {
 		if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
-			return a, nil
+			if root == nil {
+				root = a
+			}
+		} else if hasProcess(a) {
+			liveWorker = true
 		}
 	}
-	return nil, failedPrecondition("run %s has no root", runID)
+	if root == nil {
+		return nil, false, failedPrecondition("run %s has no root", runID)
+	}
+	return root, liveWorker, nil
+}
+
+// runRoot is a run's root agent.
+func (d *Daemon) runRoot(r store.Reader, runID string) (*v1.Agent, error) {
+	root, _, err := d.runRootAndWorkers(r, runID)
+	return root, err
 }
 
 // unreadBlocking lists the root's unread plans and questions: a worker waits on each, and the root answers them
@@ -732,8 +748,8 @@ func (d *Daemon) autoReset(ctx context.Context) {
 		if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 			continue
 		}
-		root, err := d.runRoot(r, run.Id)
-		if err != nil || root.PendingReset != nil || root.PendingReopen != nil || stopped(root) || root.TerminalId == "" ||
+		root, liveWorker, err := d.runRootAndWorkers(r, run.Id)
+		if err != nil || !liveWorker || root.PendingReset != nil || root.PendingReopen != nil || stopped(root) || root.TerminalId == "" ||
 			!takesDoorbell(root.State) || !d.rt.adapters.HasCapability(root.Kind, capContext) {
 			continue
 		}
@@ -756,11 +772,11 @@ func (d *Daemon) autoReset(ctx context.Context) {
 		}
 		usage := c.usage
 		err = d.store.Write(ctx, &v1.Actor{Class: v1.ActorClass_ACTOR_CLASS_DEVICE, Name: "mesh keeper"}, "", func(tx *store.Tx) error {
-			cur, err := tx.GetAgent(root.Id)
+			cur, live, err := d.runRootAndWorkers(tx.Reader, run.Id)
 			if err != nil {
 				return err
 			}
-			if cur.PendingReset != nil || !takesDoorbell(cur.State) {
+			if !live || cur.Id != root.Id || cur.PendingReset != nil || cur.PendingReopen != nil || !takesDoorbell(cur.State) {
 				return nil
 			}
 			_, err = d.requestReset(tx, cur, "keeper", autoresetNext, "", false, usage)

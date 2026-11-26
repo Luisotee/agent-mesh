@@ -170,7 +170,7 @@ func TestTheBriefAfterAResetCarriesWhatTheRootSaidNext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"## last reset (", ", done)", "next, as you said then: check the PR",
+	for _, want := range []string{"## last reset (", ", done, via command)", "next, as you said then: check the PR",
 		"your old session's transcript: " + after.LastReset.Transcript, "An untrusted reference"} {
 		if !strings.Contains(brief.Msg.Text, want) {
 			t.Errorf("the brief lacks %q:\n%s", want, brief.Msg.Text)
