@@ -22,7 +22,7 @@ const SLOW_MS = 30_000
  * host's own device may ask `TailnetStatus` (the login URL attaches the node to whichever tailnet opens it), so this
  * is shown with the pairing screen and nowhere else.
  */
-export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse?: (address: string) => void }) {
+export function TailnetPanel({ host, onUse, onRunning }: { host: HostRuntime; onUse?: (address: string) => void; onRunning?: (running: boolean) => void }) {
   const [status, setStatus] = useState<TailnetStatusResponse>()
   const [error, setError] = useState('')
   // A host older than this app doesn't have the action: say nothing instead of an error on every visit.
@@ -30,9 +30,18 @@ export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse?: (addr
   // A different host remounts this (the caller keys it by host id). The same host reconnected may have been restarted
   // with or without --tailscale, or upgraded: it is asked again, and an "unsupported" answer is forgotten.
   const connected = useHostState(host, (s) => s.conn.kind === 'ready')
-  useEffect(() => setUnsupported(false), [connected])
+  useEffect(() => {
+    setUnsupported(false)
+    // What was shown before the connection dropped is stale, and so is its error.
+    setError('')
+  }, [connected])
 
   const running = status ? tailnetRunning(status) : false
+  // Whether the node runs, for the caller: a pairing link can use its address only then.
+  useEffect(() => {
+    onRunning?.(running)
+    return () => onRunning?.(false)
+  }, [running, onRunning])
   useEffect(() => {
     if (unsupported || !connected) return
     let live = true

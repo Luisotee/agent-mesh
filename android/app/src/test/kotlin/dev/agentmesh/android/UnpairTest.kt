@@ -50,10 +50,12 @@ class UnpairTest {
         val api = RecordingApi()
         // OkHttp and ConnectRPC wrap what the socket threw: the refusal is found anywhere in the causes.
         api.failRevokeSelf = ApiException(Code.UNAVAILABLE, "transport", IOException("closed", RelayRefused("auth", "the relay refused this device's token")))
-        assertEquals(UnpairResult.Done, unpairFromHost(api))
+        assertEquals(UnpairResult.Done, unpairFromHost(api, afterFailedTry = true))
+        // On a first try the relay's word is no proof (it says the same for a token it doesn't know): the user decides.
+        assertEquals(UnpairResult.Failed("transport"), unpairFromHost(api))
         // Any other relay refusal is not proof the token is dead.
         api.failRevokeSelf = ApiException(Code.UNAVAILABLE, "transport", RelayRefused("busy", "try later"))
-        assertEquals(UnpairResult.Failed("transport"), unpairFromHost(api))
+        assertEquals(UnpairResult.Failed("transport"), unpairFromHost(api, afterFailedTry = true))
     }
 
     @Test fun `a host that can't be reached or doesn't know the call is a failure the user decides about`() = runBlocking {
@@ -68,7 +70,7 @@ class UnpairTest {
         assertEquals(UnpairResult.Failed("not allowed"), unpairFromHost(api))
     }
 
-    private fun show(canUnpair: Boolean, unpair: suspend () -> UnpairResult, removed: () -> Unit, dismissed: () -> Unit = {}) =
+    private fun show(canUnpair: Boolean, unpair: suspend (Boolean) -> UnpairResult, removed: () -> Unit, dismissed: () -> Unit = {}) =
         compose.setContent { AgentMeshTheme(theme) { RemoveHostDialog("Home", canUnpair, unpair, removed, dismissed) } }
 
     @Test fun `a connected host is unpaired first, then removed`() {
@@ -152,5 +154,21 @@ class UnpairTest {
         compose.onNodeWithText("Try again").performClick()
         compose.waitForIdle()
         assertEquals(0, removed)
+    }
+
+    @Test fun `a retry tells the call it follows a failed try, and the choices stay on screen while it runs`() {
+        val tries = mutableListOf<Boolean>()
+        val gate = kotlinx.coroutines.CompletableDeferred<UnpairResult>()
+        show(true, { retry -> tries += retry; if (tries.size == 1) UnpairResult.Failed("down") else gate.await() }, {})
+        compose.onNodeWithText("Remove").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Try again").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(false, true), tries)
+        // The retry is in flight: still "Try again" and "Remove here only" (both disabled), no box to untick.
+        compose.onNodeWithText("Try again").assertIsNotEnabled()
+        compose.onNodeWithText("Remove here only").assertIsNotEnabled()
+        compose.onAllNodesWithTag("also-unpair").assertCountEquals(0)
+        gate.complete(UnpairResult.Done)
     }
 }

@@ -46,8 +46,10 @@ const when = (d: Device) => (d.createdAt ? new Date(Number(d.createdAt.seconds) 
 export function PairPanel({ host }: { host: HostRuntime }) {
   const devices = useHostState(host, (s) => s.devices)
   const caps = useHostState(host, (s) => s.daemon?.capabilities ?? NONE)
-  // A direct route is the --listen address or the built-in Tailscale node (--tailscale): either one is reachable.
-  const direct = caps.includes('tls') || caps.includes('tailscale')
+  // A direct route is the --listen address, or the built-in Tailscale node (--tailscale) while it runs: a node that
+  // needs a login or is stopped has no address to put in a link.
+  const [tailnetUp, setTailnetUp] = useState(false)
+  const direct = caps.includes('tls') || (caps.includes('tailscale') && tailnetUp)
   const reachable = direct || caps.includes('relay')
   const [name, setName] = useState('')
   const [readOnly, setReadOnly] = useState(false)
@@ -122,7 +124,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
         </p>
       </header>
 
-      <TailnetPanel key={host.info.id} host={host} onUse={made ? undefined : setDirectUrl} />
+      <TailnetPanel key={host.info.id} host={host} onUse={made ? undefined : setDirectUrl} onRunning={setTailnetUp} />
 
       {!made && (
         <form onSubmit={create} className="flex max-w-md flex-col gap-3">
@@ -141,7 +143,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
             hint={
               direct
                 ? 'https://host:port of this host\'s --listen address, or its tailnet address above, if another device reaches it directly (the host\'s own tailnet or listen address when empty). A relay needs no address.'
-                : 'This host does not listen for other machines (no --listen or --tailscale). With a relay set up the device needs no address.'
+                : 'This host does not listen for other machines (no --listen, and no running --tailscale node). With a relay set up the device needs no address.'
             }
           >
             <Input value={directUrl} onChange={(e) => setDirectUrl(e.target.value)} placeholder="https://192.168.1.5:9443" spellCheck={false} />
@@ -151,7 +153,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
           </label>
           {!reachable && (
             <p role="note" className="text-xs text-state-needs">
-              This host has no direct TLS listener, no Tailscale node and no relay, so a device on another machine can't reach it. Start meshd with <code className="font-mono">--listen</code>, <code className="font-mono">--tailscale</code> or the relay flags first.
+              This host has no direct TLS listener, no running Tailscale node and no relay, so a device on another machine can't reach it. Start meshd with <code className="font-mono">--listen</code>, or with <code className="font-mono">--tailscale</code> and log the node in, or with the relay flags.
             </p>
           )}
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}

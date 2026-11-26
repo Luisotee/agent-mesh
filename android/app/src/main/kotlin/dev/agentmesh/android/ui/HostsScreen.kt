@@ -84,7 +84,7 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
         RemoveHostDialog(
             hostName = h.name,
             canUnpair = ready,
-            unpair = { unpairFromHost(runtime?.api()) },
+            unpair = { retry -> unpairFromHost(runtime?.api(), afterFailedTry = retry) },
             onRemove = { container.hosts.remove(h.id); removing = null },
             onDismiss = { removing = null },
         )
@@ -98,7 +98,7 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
  * revokes the device with `mesh revoke-device`): the host is never forgotten without one of those two being chosen.
  */
 @Composable
-fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend () -> UnpairResult, onRemove: () -> Unit, onDismiss: () -> Unit) {
+fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend (afterFailedTry: Boolean) -> UnpairResult, onRemove: () -> Unit, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     // Ticked by default: it only counts while the host is connected, so a connection that comes up with the dialog open is covered.
     var alsoUnpair by remember { mutableStateOf(true) }
@@ -133,9 +133,9 @@ fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend () ->
                 // Only a first try may remove without unpairing (box unticked, or no connection): a retry never does.
                 if (!retry && !(canUnpair && alsoUnpair)) return@TextButton onRemove()
                 busy = true
-                error = null
                 scope.launch {
-                    when (val r = unpair()) {
+                    // The error stays until the host is unpaired, so the choices of a failed try stay on screen while a retry runs.
+                    when (val r = unpair(retry)) {
                         UnpairResult.Done -> onRemove()
                         is UnpairResult.Failed -> { busy = false; error = r.message }
                     }

@@ -237,7 +237,7 @@ describe('PairPanel', () => {
     const { host, client, wrap } = fixture([])
     client.createPairing.mockRejectedValueOnce(new Error('[permission_denied] only the host\'s own device may manage paired devices'))
     render(wrap(<PairPanel host={host} />))
-    expect(await screen.findByRole('note')).toHaveTextContent(/no direct TLS listener, no Tailscale node and no relay/)
+    expect(await screen.findByRole('note')).toHaveTextContent(/no direct TLS listener, no running Tailscale node and no relay/)
     await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
     expect(await screen.findByRole('alert')).toHaveTextContent("only the host's own device may manage paired devices")
   })
@@ -330,12 +330,31 @@ describe('the Tailscale section of the pair screen', () => {
     expect(await screen.findByText('node-b')).toBeInTheDocument()
   })
 
-  it('does not call a --tailscale-only host unreachable', async () => {
-    const { host, wrap } = fixture(['tailscale'])
+  it('does not call a --tailscale-only host unreachable while its node runs', async () => {
+    const { host, wrap } = fixture(['tailscale'], 'device-local', tailnet({ enabled: true, state: 'Running', directUrl: 'https://100.64.0.7:8443' }))
     render(wrap(<PairPanel host={host} />))
-    expect(await screen.findByRole('button', { name: 'Create pairing link' })).toBeInTheDocument()
+    expect(await screen.findByTestId('tailnet-state')).toHaveTextContent('Connected')
     expect(screen.queryByRole('note')).toBeNull()
     expect(screen.getByText(/--listen address, or its tailnet address/)).toBeInTheDocument()
+  })
+
+  it('keeps the warning for a --tailscale host whose node is not running: it has no address for a link', async () => {
+    const { host, wrap } = fixture(['tailscale'], 'device-local', tailnet({ enabled: true, state: 'NeedsLogin', authUrl: 'https://login.tailscale.com/a/abc' }))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByTestId('tailnet-state')).toHaveTextContent('Needs login')
+    expect(screen.getByRole('note')).toHaveTextContent(/no running Tailscale node/)
+  })
+
+  it('drops an error from before the connection dropped once it is back', async () => {
+    const { host, client, store, wrap } = fixture()
+    client.tailnetStatus.mockRejectedValueOnce(new Error('[unavailable] connection reset'))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByText(/connection reset/)).toBeInTheDocument()
+    client.tailnetStatus.mockImplementation(() => new Promise(() => {}))
+    await act(async () => store.setState({ conn: { kind: 'connecting' } as never }))
+    await act(async () => store.setState({ conn: { kind: 'ready', hello: { actor: { id: 'device-local', name: 'local' }, capabilities: ['tls'], version: 'v' } as never } }))
+    await waitFor(() => expect(client.tailnetStatus).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText(/connection reset/)).toBeNull()
   })
 
   it('offers no address to use once the link is made (the form is gone)', async () => {

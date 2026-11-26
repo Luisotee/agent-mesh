@@ -1,6 +1,7 @@
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, Notification, app, ipcMain, session, shell } from 'electron'
+import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
 import type { BridgeEvent, BridgeRequest, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
 import { Hosts, toInfo } from './hosts.js'
@@ -9,7 +10,7 @@ import { redeemPairing } from './pair.js'
 import { Shell } from './shell.js'
 import { validNotice } from './shell-rules.js'
 import { openSocket, type Socket } from './socket.js'
-import { startUpdates } from './updates.js'
+import { NSIS_UNINSTALLER, startUpdates } from './updates.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -184,11 +185,10 @@ if (!app.requestSingleInstanceLock()) {
       isolated: !!userData,
       platform: process.platform,
       env: process.env,
+      nsis: existsSync(path.join(path.dirname(process.execPath), NSIS_UNINSTALLER)),
       load: async () => (await import('electron-updater')).default.autoUpdater,
       log: (m) => console.warn(m),
-      notify: (version) => {
-        if (Notification.isSupported()) new Notification({ title: 'agent-mesh update ready', body: `${version ? `Version ${version} is` : 'A new version is'} downloaded and installs when you quit.` }).show()
-      },
+      notify: (version) => appShell.notifyUpdate(version),
     })
   })
   // A second launch (another link clicked) reaches this running app; macOS opens links through this event instead.

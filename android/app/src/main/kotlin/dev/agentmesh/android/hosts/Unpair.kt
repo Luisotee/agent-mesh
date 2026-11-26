@@ -15,11 +15,12 @@ sealed interface UnpairResult {
 /**
  * Asks the host to revoke this device's own pairing (`RevokeSelf`), before the app forgets the host: otherwise the
  * device token stays valid on the host until its owner revokes it by hand. [api] is null while no connection was built.
- * A host that no longer knows the token (UNAUTHENTICATED), or a relay that refuses the revoked relay token at the
- * connection (a retry after a RevokeSelf whose answer was lost), has nothing left to revoke, so that counts as done;
- * a permission refusal of the call itself does not.
+ * A host that no longer knows the token (UNAUTHENTICATED) has nothing left to revoke, so that counts as done; a
+ * permission refusal of the call itself does not. A relay that refuses the relay token at the connection counts as done
+ * only for a retry ([afterFailedTry]: the first try may have revoked the device and lost its answer): the relay answers
+ * the same for a revoked token as for one it doesn't know, so on a first try it is a failure the user decides about.
  */
-suspend fun unpairFromHost(api: MeshApi?): UnpairResult {
+suspend fun unpairFromHost(api: MeshApi?, afterFailedTry: Boolean = false): UnpairResult {
     if (api == null) return UnpairResult.Failed("not connected to the host")
     return try {
         api.revokeSelf()
@@ -28,7 +29,7 @@ suspend fun unpairFromHost(api: MeshApi?): UnpairResult {
         throw e
     } catch (e: Exception) {
         when {
-            relayRefusal(e)?.code == "auth" -> UnpairResult.Done
+            afterFailedTry && relayRefusal(e)?.code == "auth" -> UnpairResult.Done
             e is ApiException && e.code == Code.UNAUTHENTICATED -> UnpairResult.Done
             e is ApiException -> UnpairResult.Failed(e.message ?: e.code.name.lowercase())
             else -> UnpairResult.Failed(e.message ?: e.javaClass.simpleName)
