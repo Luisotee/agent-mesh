@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	pricesAsOf   = "2026-10-28, claude-api skill (Claude Code 2.1.312)"
+	pricesAsOf   = "2026-11-26, platform.claude.com pricing"
 	coldWriteMin = int64(20_000)
 	costCacheTTL = time.Hour
 	costTTL5m    = 5 * time.Minute
@@ -44,6 +44,11 @@ var priceOrder = []struct {
 	{"sonnet", [5]float64{2.0, 2.5, 4.0, 0.20, 10.0}},
 	{"haiku", [5]float64{0.10, 0.125, 0.20, 0.01, 0.50}},
 }
+
+// haikuLongPrompt is the prompt size (input + cache writes + cache reads) above which Haiku 5.5
+// bills every rate at 5x: $0.50 / $0.625 / $1 / $0.05 / $2.50 per MTok.
+// (The table's Haiku row is 5.5's: only that model has the long-prompt tier.)
+const haikuLongPrompt = int64(100_000)
 
 var (
 	spanRE        = regexp.MustCompile(`^(\d+)([dhm])$`)
@@ -63,6 +68,17 @@ func claudeCallCost(model string, input, w5, w1, read, output int64) float64 {
 		if strings.Contains(ml, p.family) {
 			rates = p.rates
 			break
+		}
+	}
+	if strings.Contains(ml, "fable-5-2") || strings.Contains(ml, "fable-5.2") {
+		rates = [5]float64{8.0, 10.0, 16.0, 0.20, 40.0} // Fable 5.2; the table's fable row is 5.1's
+	}
+	if strings.Contains(ml, "sonnet-5-5") || strings.Contains(ml, "sonnet-5.5") {
+		rates[3] = 0.10 // Sonnet 5.5 cache hits bill 0.05x its input price
+	}
+	if (strings.Contains(ml, "haiku-5-5") || strings.Contains(ml, "haiku-5.5")) && input+w5+w1+read > haikuLongPrompt {
+		for i := range rates {
+			rates[i] *= 5
 		}
 	}
 	return (float64(input)*rates[0] +
