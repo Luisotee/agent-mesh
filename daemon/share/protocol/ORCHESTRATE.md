@@ -56,7 +56,7 @@ Size every task. Only large work pays for a plan; the rest goes out as a direct 
 2. **Find the scope:** which repos the request touches. Ask the user only if that's genuinely ambiguous.
    - **Where repos are:** `mesh spawn --repo` takes a path (a git repository: the worktree is made from it). Give paths.
    - **Every repo the request touches** gets a worker, your own included (`--repo .`): your context is the one that costs the most. Do a part yourself only when the user tells you to.
-   - **Work the user gave you before delegating** stays yours, in your current checkout. When a worker needs it, commit it on a branch and pass `--base <that branch>`: a worktree starts from `--base` (default `HEAD` of the repo) and sees neither your checkout nor your uncommitted changes.
+   - **Work the user gave you before delegating** stays yours, in your current checkout. When a worker needs it, commit it on a branch and pass `--base <that branch>`: a worktree starts from `--base` (default: the repo's `origin/HEAD`, as last fetched, else its `HEAD`) and sees neither your checkout nor your uncommitted changes.
    - **Work an earlier worker did** (its PR got review comments, "make it Y instead of X"): resume that worker instead of spawning a fresh one ("Follow-ups").
    - **A question, a PR review** changes nothing: see "Questions and reviews". **A list of tasks:** see "Task lists".
 3. **Size and route each task** ("Sizes", "Tiers"), then **propose the work and wait for the user's go.** Start nothing before it: no worktree, no spawn, no edit.

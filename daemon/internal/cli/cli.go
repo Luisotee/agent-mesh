@@ -153,6 +153,11 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", a.CLI, err, a.CLI)
 		return ExitUsage
 	}
+	// A command with a text form has --format, "text" unless given: only text and json are valid, an empty one too.
+	if hasText(a.CLI) && cmd.format != "text" && cmd.format != "json" {
+		fmt.Fprintf(env.Stderr, "mesh %s: --format is text or json, not %q\n", a.CLI, cmd.format)
+		return ExitUsage
+	}
 	if cmd.state == "" {
 		fmt.Fprintln(env.Stderr, "mesh: give --state or $"+client.StateEnv)
 		return ExitUsage
@@ -161,10 +166,6 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	if err != nil {
 		fmt.Fprintln(env.Stderr, "mesh:", err)
 		return ExitError
-	}
-	if cmd.format != "" && cmd.format != "text" && cmd.format != "json" {
-		fmt.Fprintf(env.Stderr, "mesh %s: --format is text or json, not %q\n", a.CLI, cmd.format)
-		return ExitUsage
 	}
 	if err := call(context.Background(), conn, a, req, env.Stdout, cmd.format == "text"); err != nil {
 		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", a.CLI, err)
@@ -298,8 +299,12 @@ func (c *command) usage(w io.Writer) {
 func flagHelp(f protoreflect.FieldDescriptor) string {
 	if doc := v1.FieldDocs[string(f.FullName())]; doc != "" {
 		// Text and switches need no word on the value: usage says once what a text flag's @ does.
-		if k := f.Kind(); !f.IsList() && (k == protoreflect.StringKind || k == protoreflect.BytesKind || k == protoreflect.BoolKind) {
+		k := f.Kind()
+		switch {
+		case k == protoreflect.BoolKind && !f.IsList(), (k == protoreflect.StringKind || k == protoreflect.BytesKind) && !f.IsList():
 			return doc
+		case k == protoreflect.StringKind || k == protoreflect.BytesKind: // a repeated text flag
+			return doc + " (repeatable)"
 		}
 		return doc + " (" + describe(f) + ")"
 	}

@@ -2,7 +2,7 @@
 
 You are an agent in an **agent mesh** run by the agent-mesh daemon (`meshd`): a supervisor (your *parent*) gave you work and is waiting for your report. Your terminal belongs to the daemon, and the user can watch it and type into it from the app. This file is for every agent; a root also reads `ORCHESTRATE.md` and `ROOT_CARD.md` (same folder), and a worker follows its "Worker" section.
 
-Every `mesh` command here is the daemon's CLI. It answers in JSON, and finds your identity and the daemon in your environment, so you never pass ids by hand. `mesh help` lists the commands and `mesh help <command>` the flags of one.
+Every `mesh` command here is the daemon's CLI. It answers in JSON (except `mesh inbox` and `mesh settings`, which print short text by default: add `--format json` for the whole response), and finds your identity and the daemon in your environment, so you never pass ids by hand. `mesh help` lists the commands and `mesh help <command>` the flags of one.
 
 ## Who you are
 

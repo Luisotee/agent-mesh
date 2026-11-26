@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -498,5 +499,43 @@ func TestInboxAndSettingsHaveATextForm(t *testing.T) {
 	}
 	if !strings.HasSuffix(out.String(), "no messages\n") || !hasText("inbox") || hasText("spawn") {
 		t.Errorf("renderText: %q", out.String())
+	}
+}
+
+// --format is checked before the daemon is dialled: a bad or empty one is a usage error, with no daemon needed.
+func TestAFormatThatIsNeitherTextNorJSONIsAUsageError(t *testing.T) {
+	for _, format := range []string{"yaml", ""} {
+		var out, errb bytes.Buffer
+		env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+		code := Main([]string{"--state", t.TempDir(), "inbox", "--format", format}, env, nil)
+		if code != ExitUsage || out.Len() != 0 || !strings.Contains(errb.String(), "--format is text or json") ||
+			strings.Contains(errb.String(), "device token") {
+			t.Errorf("--format %q: %d stdout %q stderr %q", format, code, out.String(), errb.String())
+		}
+	}
+	// A command without a text form has no --format at all.
+	var errb bytes.Buffer
+	env := Env{Stdout: io.Discard, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Main([]string{"--state", t.TempDir(), "spawn", "--format", "json"}, env, nil); code != ExitUsage {
+		t.Errorf("spawn --format: %d %s", code, errb.String())
+	}
+}
+
+func TestARepeatedTextFlagIsDescribedAsRepeatable(t *testing.T) {
+	f := (&v1.HelloResponse{}).ProtoReflect().Descriptor().Fields().ByName("capabilities")
+	if f == nil || !f.IsList() || f.Kind() != protoreflect.StringKind {
+		t.Fatalf("the test needs a repeated string field: %v", f)
+	}
+	key := string(f.FullName())
+	defer func(old string, had bool) {
+		if had {
+			v1.FieldDocs[key] = old
+		} else {
+			delete(v1.FieldDocs, key)
+		}
+	}(v1.FieldDocs[key], v1.FieldDocs[key] != "")
+	v1.FieldDocs[key] = "What it can do."
+	if got := flagHelp(f); got != "What it can do. (repeatable)" {
+		t.Errorf("repeated text flag: %q", got)
 	}
 }
