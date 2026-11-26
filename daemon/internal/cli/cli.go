@@ -46,7 +46,7 @@ func OSEnv() Env {
 	return Env{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: os.Getenv}
 }
 
-// DefaultStateDir is where the installed daemon (`install.sh --daemon`, the systemd units) keeps its state,
+// DefaultStateDir is where the installed daemon (`install.sh`, the systemd units) keeps its state,
 // relative to $XDG_STATE_HOME (else ~/.local/state).
 const DefaultStateDir = "agent-mesh-daemon"
 

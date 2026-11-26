@@ -51,6 +51,7 @@ has() { command -v "$1" >/dev/null; }
 set_block() { # set_block <file> <add: 0|1>
   local file="$1" add="$2"
   [[ -f "$file" ]] || { [[ "$add" == 1 ]] || return 0; mkdir -p "$(dirname "$file")"; touch "$file"; }
+  [[ "$add" == 1 ]] || grep -qF "$BEGIN" "$file" || return 0  # nothing to remove: leave the file alone
   if grep -qF "$BEGIN" "$file" || [[ "$add" == 1 ]]; then
     cp "$file" "$file.bak-agent-mesh"
   fi
@@ -119,7 +120,10 @@ unit_path_dropin() { # a unit's drop-in: the PATH of this shell (systemd's own i
 daemon_install() {
   local go stage unit created=() d
   go="$(find_go)" || { echo "install.sh: needs Go (go on PATH, or ~/.local/go/bin/go)" >&2; return 1; }
-  [[ -d "$REPO/daemon/cmd" ]] || { echo "install.sh: $REPO/daemon/cmd is missing" >&2; return 1; }
+  local need
+  for need in cmd share/protocol share/skills; do
+    [[ -d "$REPO/daemon/$need" ]] || { echo "install.sh: $REPO/daemon/$need is missing; nothing was changed" >&2; return 1; }
+  done
   has claude || has agy || echo "warning: neither Claude Code (claude) nor agy is on PATH; the daemon needs at least one to run agents (and its units get this PATH)" >&2
   # The folders this run creates are removed again if it fails before installing anything.
   d="$DAEMON_LIB"
@@ -138,7 +142,7 @@ daemon_install() {
     [[ -x "$stage/bin/$b" ]] || { echo "install.sh: the build made no $b; nothing was changed" >&2; return 1; }
   done
   # Every fallible copy is made before the first replacement; what follows is renames.
-  [[ ! -d "$REPO/daemon/share" ]] || cp -R "$REPO/daemon/share" "$stage/share" \
+  cp -R "$REPO/daemon/share" "$stage/share" \
     || { echo "install.sh: copying daemon/share failed; nothing was changed" >&2; return 1; }
   mkdir -p "$DAEMON_LIB/bin"
   # One rename per file: a running meshd or mesh-term keeps the old inode, so an upgrade never breaks it.
@@ -147,15 +151,11 @@ daemon_install() {
   same "$stage/bin/mesh-term" "$DAEMON_LIB/bin/mesh-term" || term_changed=1
   for b in "${DAEMON_BINS[@]}"; do mv -f "$stage/bin/$b" "$DAEMON_LIB/bin/$b"; done
   echo "installed ${DAEMON_BINS[*]} in $DAEMON_LIB/bin"
-  if [[ -d "$REPO/daemon/share" ]]; then
-    rm -rf "$DAEMON_LIB/share.old"
-    [[ ! -e "$DAEMON_LIB/share" ]] || mv "$DAEMON_LIB/share" "$DAEMON_LIB/share.old"
-    mv "$stage/share" "$DAEMON_LIB/share"
-    rm -rf "$DAEMON_LIB/share.old"
-    echo "installed $DAEMON_LIB/share"
-  else
-    rm -rf "$DAEMON_LIB/share"  # an earlier install's share/ is stale once the checkout has none
-  fi
+  rm -rf "$DAEMON_LIB/share.old"
+  [[ ! -e "$DAEMON_LIB/share" ]] || mv "$DAEMON_LIB/share" "$DAEMON_LIB/share.old"
+  mv "$stage/share" "$DAEMON_LIB/share"
+  rm -rf "$DAEMON_LIB/share.old"
+  echo "installed $DAEMON_LIB/share"
   mkdir -p "$UNIT_DIR"
   for unit in "${DAEMON_UNITS[@]}"; do
     [[ "$unit" != agent-mesh-term.service ]] || same "$REPO/daemon/packaging/systemd/$unit" "$UNIT_DIR/$unit" || term_changed=1
@@ -260,7 +260,6 @@ if [[ "$UNINSTALL" == 1 ]]; then
   exit 0
 fi
 
-has claude || has agy || echo "warning: neither Claude Code (claude) nor agy is on PATH; mesh needs at least one" >&2
 # The daemon is built and installed first: a failed build or copy leaves every link as it was, so an install of the
 # old mesh keeps working. Then the links move to it.
 daemon_install || exit $?

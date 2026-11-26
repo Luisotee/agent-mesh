@@ -50,7 +50,7 @@ type AgentConfig struct {
 	// Mesh is the absolute path of the CLI whose `hook` command the agents' hooks run.
 	Mesh string
 	// Share is the absolute path of the daemon's share folder (protocol/ and skills/, installed by
-	// `install.sh --daemon`): agents get it as $AGENT_MESH_SHARE, their first doorbell names its protocol, and a
+	// `install.sh`): agents get it as $AGENT_MESH_SHARE, their first doorbell names its protocol, and a
 	// Claude agent loads its skills. Empty: none of that.
 	Share string
 	// Binaries maps an adapter kind to its CLI's path ("claude" → /usr/bin/claude); tests point it at fakes.

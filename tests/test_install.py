@@ -271,6 +271,8 @@ def copy_of_repo(tmp_path: Path) -> Path:
     shutil.copy(ROOT / "install.sh", repo / "install.sh")
     shutil.copytree(ROOT / "rules", repo / "rules")
     shutil.copytree(ROOT / "daemon" / "cmd", repo / "daemon" / "cmd")
+    (repo / "daemon" / "share" / "protocol").mkdir(parents=True)
+    (repo / "daemon" / "share" / "skills").mkdir()
     shutil.copytree(ROOT / "daemon" / "packaging", repo / "daemon" / "packaging")
     return repo
 
@@ -278,7 +280,7 @@ def copy_of_repo(tmp_path: Path) -> Path:
 def test_install_copies_share_and_is_safe_to_rerun(tmp_path):
     repo, home = copy_of_repo(tmp_path), tmp_path / "home"
     home.mkdir()
-    (repo / "daemon" / "share" / ".claude-plugin").mkdir(parents=True)
+    (repo / "daemon" / "share" / ".claude-plugin").mkdir()
     (repo / "daemon" / "share" / ".claude-plugin" / "plugin.json").write_text("{}")  # a hidden folder is copied too
     (repo / "daemon" / "share" / "marker.md").write_text("x")
     assert install(home, repo=repo).returncode == 0
@@ -326,16 +328,33 @@ def test_a_changed_terminal_unit_is_noted_too(tmp_path):
     assert "restart agent-mesh-term.service" in install(home, repo=repo).stderr
 
 
-def test_a_stale_share_goes_when_the_checkout_has_none(tmp_path):
-    repo = copy_of_repo(tmp_path)
-    home = tmp_path / "home"
-    home.mkdir()
-    (repo / "daemon" / "share").mkdir()
-    (repo / "daemon" / "share" / "marker.md").write_text("x")
-    assert install(home, repo=repo).returncode == 0
-    shutil.rmtree(repo / "daemon" / "share")
-    assert install(home, repo=repo).returncode == 0
-    assert not (lib(home) / "share").exists()
+def test_a_checkout_without_share_protocol_or_skills_changes_nothing(tmp_path):
+    for missing in ("protocol", "skills"):
+        repo = copy_of_repo(tmp_path / missing)
+        home = tmp_path / missing / "home"
+        home.mkdir()
+        assert install(home, repo=repo).returncode == 0
+        before = sorted(str(p) for p in home.rglob("*") if p.is_symlink())
+        shutil.rmtree(repo / "daemon" / "share" / missing)
+        done = install(home, repo=repo)
+        assert done.returncode == 1 and f"daemon/share/{missing} is missing" in done.stderr
+        assert sorted(str(p) for p in home.rglob("*") if p.is_symlink()) == before
+        assert (lib(home) / "share" / missing).is_dir()  # the installed copy is still there
+
+
+def test_a_rules_file_without_a_block_is_left_alone_even_when_read_only(tmp_path):
+    for rel in (".copilot/copilot-instructions.md", ".config/opencode/AGENTS.md"):
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("# my own rules\n")
+        f.chmod(0o444)
+    before = {rel: (tmp_path / rel).stat().st_mtime_ns for rel in (".copilot/copilot-instructions.md", ".config/opencode/AGENTS.md")}
+    done = install(tmp_path)
+    assert done.returncode == 0, done.stderr
+    assert "cleaned" not in done.stdout
+    for rel, mtime in before.items():
+        assert (tmp_path / rel).read_text() == "# my own rules\n" and (tmp_path / rel).stat().st_mtime_ns == mtime
+        assert not (tmp_path / (rel + ".bak-agent-mesh")).exists()
 
 
 def bare_path(home: Path, *tools: str) -> str:
