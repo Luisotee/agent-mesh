@@ -17,6 +17,8 @@ export class Shell {
   private closeToTray = DEFAULT_CLOSE_TO_TRAY
   private quitting = false
   private readonly shown = new Map<string, Notification>()
+  // Apart from `shown`, which is keyed by what the renderer sends: no agent notice's tag can replace it.
+  private updateNote?: Notification
 
   constructor(
     private readonly window: () => BrowserWindow | undefined,
@@ -93,13 +95,13 @@ export class Shell {
     const n = updateNotice(version)
     this.log({ type: 'update', version })
     if (this.logFile || !Notification.isSupported()) return
-    this.shown.get('update')?.close()
+    this.updateNote?.close()
     const note = new Notification(n)
     note.on('click', () => this.show())
     note.on('close', () => {
-      if (this.shown.get('update') === note) this.shown.delete('update')
+      if (this.updateNote === note) this.updateNote = undefined
     })
-    this.shown.set('update', note)
+    this.updateNote = note
     note.show()
   }
 

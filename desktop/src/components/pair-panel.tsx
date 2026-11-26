@@ -47,9 +47,9 @@ export function PairPanel({ host }: { host: HostRuntime }) {
   const devices = useHostState(host, (s) => s.devices)
   const caps = useHostState(host, (s) => s.daemon?.capabilities ?? NONE)
   // A direct route is the --listen address, or the built-in Tailscale node (--tailscale) while it runs: a node that
-  // needs a login or is stopped has no address to put in a link.
-  const [tailnetUp, setTailnetUp] = useState(false)
-  const direct = caps.includes('tls') || (caps.includes('tailscale') && tailnetUp)
+  // needs a login or is stopped has no address to put in a link. Until the node has answered, it is not called down.
+  const [tailnetUp, setTailnetUp] = useState<boolean>()
+  const direct = caps.includes('tls') || (caps.includes('tailscale') && tailnetUp !== false)
   const reachable = direct || caps.includes('relay')
   const [name, setName] = useState('')
   const [readOnly, setReadOnly] = useState(false)

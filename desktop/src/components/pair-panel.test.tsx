@@ -345,6 +345,16 @@ describe('the Tailscale section of the pair screen', () => {
     expect(screen.getByRole('note')).toHaveTextContent(/no running Tailscale node/)
   })
 
+  it('does not warn while the node has not answered yet, and warns once the connection drops with the answer unknown', async () => {
+    const { host, client, store, wrap } = fixture(['tailscale'])
+    client.tailnetStatus.mockImplementation(() => new Promise(() => {}))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByRole('button', { name: 'Create pairing link' })).toBeInTheDocument()
+    expect(screen.queryByRole('note')).toBeNull()
+    await act(async () => store.setState({ conn: { kind: 'connecting' } as never }))
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
   it('drops an error from before the connection dropped once it is back', async () => {
     const { host, client, store, wrap } = fixture()
     client.tailnetStatus.mockRejectedValueOnce(new Error('[unavailable] connection reset'))

@@ -22,7 +22,7 @@ const SLOW_MS = 30_000
  * host's own device may ask `TailnetStatus` (the login URL attaches the node to whichever tailnet opens it), so this
  * is shown with the pairing screen and nowhere else.
  */
-export function TailnetPanel({ host, onUse, onRunning }: { host: HostRuntime; onUse?: (address: string) => void; onRunning?: (running: boolean) => void }) {
+export function TailnetPanel({ host, onUse, onRunning }: { host: HostRuntime; onUse?: (address: string) => void; onRunning?: (running: boolean | undefined) => void }) {
   const [status, setStatus] = useState<TailnetStatusResponse>()
   const [error, setError] = useState('')
   // A host older than this app doesn't have the action: say nothing instead of an error on every visit.
@@ -37,11 +37,13 @@ export function TailnetPanel({ host, onUse, onRunning }: { host: HostRuntime; on
   }, [connected])
 
   const running = status ? tailnetRunning(status) : false
-  // Whether the node runs, for the caller: a pairing link can use its address only then.
+  // Whether the node runs, for the caller: a pairing link can use its address only then. Unknown (undefined) until the
+  // host has answered on this connection.
+  const known = connected && status ? running : undefined
   useEffect(() => {
-    onRunning?.(running)
-    return () => onRunning?.(false)
-  }, [running, onRunning])
+    onRunning?.(known)
+    return () => onRunning?.(undefined)
+  }, [known, onRunning])
   useEffect(() => {
     if (unsupported || !connected) return
     let live = true
