@@ -57,6 +57,14 @@ func TestAnAdoptedSessionsMeshActsAsItsRoot(t *testing.T) {
 	if got := withAdoptedIdentity(base, state).Getenv("AGENT_MESH_TOKEN"); got != "" {
 		t.Errorf("no adopted session above: %q", got)
 	}
+	// `mesh adopt` is the device's, even from a session that is a root already; every other command is the root's.
+	withAncestors(t, self)
+	if got := identityFor([]string{"adopt", "--run-id", "r1"}, base, state).Getenv("AGENT_MESH_TOKEN"); got != "" {
+		t.Errorf("mesh adopt took the adopted identity: %q", got)
+	}
+	if got := identityFor([]string{"agents"}, base, state).Getenv("AGENT_MESH_TOKEN"); got != "tok" {
+		t.Errorf("mesh agents lacks the adopted identity: %q", got)
+	}
 }
 
 // `mesh adopt` finds the Claude Code session above it (a process with a record under the Claude config folder) and
@@ -69,7 +77,7 @@ func TestAdoptFindsTheClaudeSessionAboveIt(t *testing.T) {
 	}
 	cfg := t.TempDir()
 	os.MkdirAll(filepath.Join(cfg, "sessions"), 0o700)
-	os.WriteFile(filepath.Join(cfg, "sessions", strconv.Itoa(self)+".json"), []byte(`{"pid":`+strconv.Itoa(self)+`}`), 0o600)
+	os.WriteFile(filepath.Join(cfg, "sessions", strconv.Itoa(self)+".json"), []byte(`{"pid":`+strconv.Itoa(self)+`,"procStart":"`+strconv.FormatUint(start, 10)+`"}`), 0o600)
 	env := Env{Getenv: func(k string) string { return map[string]string{"CLAUDE_CONFIG_DIR": cfg}[k] }}
 	reg, err := registry.Mesh()
 	if err != nil {
@@ -99,5 +107,12 @@ func TestAdoptFindsTheClaudeSessionAboveIt(t *testing.T) {
 	withAncestors(t, 1234567)
 	if pid, _ := parse("--run-id", "r1"); pid != 0 {
 		t.Errorf("no session above, yet pid %d", pid)
+	}
+	// A record an earlier process with this pid left (another procStart) is not this session.
+	os.WriteFile(filepath.Join(cfg, "sessions", strconv.Itoa(self)+".json"),
+		[]byte(`{"pid":`+strconv.Itoa(self)+`,"procStart":"`+strconv.FormatUint(start+1, 10)+`"}`), 0o600)
+	withAncestors(t, 1234567, self)
+	if pid, _ := parse("--run-id", "r1"); pid != 0 {
+		t.Errorf("a stale record was taken for the session: pid %d", pid)
 	}
 }

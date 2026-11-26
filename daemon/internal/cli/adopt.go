@@ -6,13 +6,12 @@ package cli
 
 import (
 	"os"
-	"path/filepath"
-	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
@@ -36,22 +35,15 @@ func ancestors() []int {
 }
 
 // claudeSessionAbove is the nearest process above this one that is a Claude Code session: one with a record
-// under the Claude config folder (`sessions/<pid>.json`).
+// under the Claude config folder (`sessions/<pid>.json`) whose `procStart` is that process's own.
 func claudeSessionAbove(env Env) (pid int, start uint64, ok bool) {
-	home := env.Getenv("CLAUDE_CONFIG_DIR")
-	if home == "" {
-		if h := env.Getenv("HOME"); h != "" {
-			home = filepath.Join(h, ".claude")
-		}
-	}
-	if home == "" {
-		return 0, 0, false
-	}
+	cfg := map[string]string{"CLAUDE_CONFIG_DIR": env.Getenv("CLAUDE_CONFIG_DIR"), "HOME": env.Getenv("HOME")}
 	for _, p := range ancestorsOf() {
-		if _, err := os.Stat(filepath.Join(home, "sessions", strconv.Itoa(p)+".json")); err != nil {
+		t, err := proc.StartTicks(p)
+		if err != nil {
 			continue
 		}
-		if t, err := proc.StartTicks(p); err == nil {
+		if _, ok := claude.ReadSession(cfg, p, t); ok {
 			return p, t, true
 		}
 	}
@@ -85,6 +77,16 @@ func withAdoptedIdentity(env Env, state string) Env {
 		return env
 	}
 	return env
+}
+
+// identityFor is the environment a command runs in: an adopted session's `mesh` acts as its root, except
+// `mesh adopt`, which acts as the user's device (the daemon refuses anyone else, and says what a session that is
+// a root already needs).
+func identityFor(args []string, env Env, state string) Env {
+	if len(args) > 0 && args[0] == "adopt" {
+		return env
+	}
+	return withAdoptedIdentity(env, state)
 }
 
 // fillAdoptRequest gives `mesh adopt` the session it runs in, unless --pid was given.

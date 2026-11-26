@@ -127,7 +127,7 @@ func planSummary(body string) []string {
 	var out []string
 	for i, ln := range strings.Split(head, "\n") {
 		if ln = strings.TrimSpace(ln); ln != "" && i < 4 {
-			out = append(out, ln)
+			out = append(out, capRunes(ln, summaryDoneChars))
 		}
 	}
 	var names []string
@@ -154,7 +154,7 @@ func doneSummary(body string) []string {
 			out = append(out, "…")
 			break
 		}
-		out = append(out, ln)
+		out = append(out, capRunes(ln, summaryDoneChars)) // a one-paragraph report is one line: cut it too
 		n += utf8.RuneCountInString(ln) + 1
 	}
 	seen := map[string]bool{}

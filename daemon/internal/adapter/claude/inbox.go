@@ -257,6 +257,9 @@ type Session struct {
 	ID, Cwd, SocketPath, Status string
 }
 
+// ConfigHome is the Claude config folder env names (CLAUDE_CONFIG_DIR, else HOME/.claude); "" when neither is set.
+func ConfigHome(env map[string]string) string { return configHome(env) }
+
 // ReadSession reads the record of the process pid that started at startTicks, under the Claude config folder env
 // names. Not ok: no such file, or one an earlier process with that pid left.
 func ReadSession(env map[string]string, pid int, startTicks uint64) (Session, bool) {

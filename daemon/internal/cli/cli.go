@@ -141,7 +141,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	if helpAsked {
 		rest = append([]string{"help"}, rest...)
 	}
-	env = withAdoptedIdentity(env, *state)
+	env = identityFor(rest, env, *state)
 	if len(rest) > 0 {
 		if h, ok := hand[rest[0]]; ok {
 			// The hand-written command sees the global --state as it would $AGENT_MESH_STATE (its own --state wins).

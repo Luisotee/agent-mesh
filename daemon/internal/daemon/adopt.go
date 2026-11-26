@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
@@ -65,8 +66,9 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	env := d.claudeEnv()
 	sess, ok := claude.ReadSession(env, pid, m.PidStartTicks)
 	if !ok {
-		return nil, failedPrecondition("process %d has no Claude Code session record: `mesh adopt` is for a Claude Code session "+
-			"(an agy, Copilot or OpenCode session can't be adopted)", pid)
+		return nil, failedPrecondition("process %d has no Claude Code session record under %s (the folder meshd reads: CLAUDE_CONFIG_DIR of its own "+
+			"environment, else ~/.claude): `mesh adopt` is for a Claude Code session (an agy, Copilot or OpenCode session can't be adopted), "+
+			"and one that keeps its config elsewhere needs meshd started with the same CLAUDE_CONFIG_DIR", pid, filepath.Join(claude.ConfigHome(env), "sessions"))
 	}
 	if sess.SocketPath == "" {
 		return nil, failedPrecondition("the session has no inbox socket: it can't be rung")
@@ -77,6 +79,13 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 			"mesh never edits your settings", value, source)
 	}
 	r := d.store.Read(ctx)
+	// An adopted session has no typed lane: only the inbox socket rings it.
+	if on, err := d.Setting(r, "delivery.socket"); err != nil {
+		return nil, err
+	} else if on != true {
+		return nil, failedPrecondition("`delivery.socket` is off, and an adopted session can only be rung through its inbox socket " +
+			"(it has no terminal of the daemon's to type to): turn it on (`mesh set --key delivery.socket --value true`) and adopt again")
+	}
 	run, err := r.GetRun(m.RunId)
 	if err != nil {
 		return nil, notFound("no run %q", m.RunId)
@@ -114,32 +123,24 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	token := auth.NewToken()
 	out := &v1.AdoptSessionResponse{}
 	var agent *v1.Agent
+	var old *v1.Agent // the run's own root as it was, when this call took its row over
 	if root != nil {
 		mu := d.agentLock(root.Id)
 		mu.Lock()
 		defer mu.Unlock()
-		// The run's own root stops first (its conversation stays on disk); its row, mailbox and workers are the
-		// adopted session's from here on.
-		if err := d.store.Write(ctx, auth.ActorFrom(ctx), "", func(tx *store.Tx) error {
-			cur, err := tx.GetAgent(root.Id)
-			if err != nil {
-				return err
-			}
-			_, err = retireTx(tx, cur, "adopted by a session")
-			return err
-		}); err != nil {
-			return nil, err
-		}
-		if err := d.finishRetire(ctx, root.Id); err != nil {
-			return nil, err
-		}
-		d.setRing(root.Id, nil) // a doorbell of the old process, typed to nobody now
 	}
-	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAdoptSessionProcedure, out, func(tx *store.Tx) error {
+	replayed, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAdoptSessionProcedure, out, func(tx *store.Tx) error {
 		now := tx.Now()
 		if root != nil {
 			cur, err := tx.GetAgent(root.Id)
 			if err != nil {
+				return err
+			}
+			// The run's own root stops in the same write that makes its row the adopted session's (its
+			// conversation stays on disk; its row, mailbox and workers are the session's from here on): a write
+			// that fails leaves the root as it was. Its process is stopped once this commits.
+			old = proto.Clone(cur).(*v1.Agent)
+			if _, err := retireTx(tx, cur, "adopted by a session"); err != nil {
 				return err
 			}
 			from := cur.State
@@ -190,10 +191,40 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	if err != nil {
 		return nil, err
 	}
+	if replayed {
+		return connect.NewResponse(out), nil // the first call did all of it; its token and file stand
+	}
+	if old != nil {
+		d.endTakenOverRoot(ctx, old, agent, out)
+	}
+	d.rt.mu.Lock()
+	delete(d.rt.introduced, agent.Id) // a session that takes this row over is introduced to the protocol afresh
+	d.rt.mu.Unlock()
 	if err := d.writeAdoptedFile(agent, token); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(out), nil
+}
+
+// endTakenOverRoot stops what the run's own root left running once its row has become an adopted session's: its
+// terminal (the host's exit report finds no agent claiming it, and only forgets it), its launch's memory, its
+// lean MCP file, a doorbell typed to it, and the identity file of an adopted session it was before. A process
+// that will not stop is said in the response: the adoption stands.
+func (d *Daemon) endTakenOverRoot(ctx context.Context, old, now *v1.Agent, out *v1.AdoptSessionResponse) {
+	ctx = context.WithoutCancel(ctx)
+	d.rt.guard.release(old.Id)
+	_ = os.Remove(d.leanMCPFile(old.Id))
+	d.setRing(old.Id, nil)
+	if isAdopted(old) && old.AdoptedPid != now.AdoptedPid {
+		_ = os.Remove(d.paths.Adopted(int(old.AdoptedPid)))
+	}
+	if old.TerminalId == "" || d.rt.term == nil {
+		return
+	}
+	if err := d.stopTerminal(ctx, old.TerminalId); err != nil {
+		d.log.Warn("stopping the root an adopted session replaced", "agent", old.Name, "terminal", old.TerminalId, "err", err)
+		out.Note += fmt.Sprintf(" (its own process did not stop: %v; stop terminal %s yourself)", err, old.TerminalId)
+	}
 }
 
 // writeAdoptedFile keeps the adopted session's identity where its `mesh` finds it (0600, like the device token).
@@ -297,9 +328,15 @@ func (d *Daemon) adoptedGone(ctx context.Context, a *v1.Agent) {
 	_ = os.Remove(d.paths.Adopted(int(a.AdoptedPid)))
 }
 
+// refusedPrefix starts the StateDetail of an adopted session whose doorbells are refused.
+const refusedPrefix = "doorbells not delivered: "
+
 // deliverAdopted rings an adopted session: one frame into its inbox socket for the messages it hasn't been rung
 // about, marked delivered when it was written. There is no ring to follow (the session sends the daemon no
-// hooks) and no typed lane: the daemon can't see the session's input box.
+// hooks) and no typed lane: the daemon can't see the session's input box. So a message counts as delivered
+// once the frame is written, not once the session took it (daemon/CLAUDE.md, "Doorbells"); a frame it drops
+// is not rung again, and the root finds the message with `mesh inbox` (`mesh brief` lists unread mail). A
+// refusal is told: logged at Warn, and shown in the agent's detail until a frame is written.
 func (d *Daemon) deliverAdopted(ctx context.Context, a *v1.Agent) error {
 	if stopped(a) {
 		return nil
@@ -308,12 +345,22 @@ func (d *Daemon) deliverAdopted(ctx context.Context, a *v1.Agent) error {
 	if err != nil || len(msgs) == 0 {
 		return err
 	}
-	if on, err := d.Setting(d.store.Read(ctx), "delivery.socket"); err != nil || on != true {
+	if on, err := d.Setting(d.store.Read(ctx), "delivery.socket"); err != nil {
 		return err
+	} else if on != true {
+		d.adoptedRefused(ctx, a, "`delivery.socket` is off")
+		return nil
 	}
 	ad, err := d.rt.adapters.Get(a.Kind)
 	if err != nil {
 		return nil
+	}
+	env := d.claudeEnv()
+	// The policy is read where the session runs (repo settings may only tighten it), as AdoptSession read it:
+	// the row's repo is the git top, which a session started in a subfolder doesn't share.
+	cwd := a.Repo
+	if sess, ok := claude.ReadSession(env, int(a.AdoptedPid), a.AdoptedPidStart); ok && sess.Cwd != "" {
+		cwd = sess.Cwd
 	}
 	line := Doorbell(msgs, ringToken())
 	d.rt.mu.Lock()
@@ -323,16 +370,45 @@ func (d *Daemon) deliverAdopted(ctx context.Context, a *v1.Agent) error {
 		line += d.protocolPointer(a)
 	}
 	res, err := ad.DeliverNative(ctx, connect.NewRequest(&adapterv1.DeliverNativeRequest{AgentId: a.Id, Pid: int64(a.AdoptedPid),
-		PidStartTicks: a.AdoptedPidStart, Cwd: a.Repo, Env: d.claudeEnv(), Text: line}))
+		PidStartTicks: a.AdoptedPidStart, Cwd: cwd, Env: env, Text: line}))
 	if err != nil {
 		return nil
 	}
 	if !res.Msg.Delivered {
-		d.log.Debug("doorbell not written to an adopted session", "agent", a.Name, "reason", res.Msg.Reason)
+		d.adoptedRefused(ctx, a, res.Msg.Reason)
 		return nil // the retry pass looks again
 	}
 	d.rt.mu.Lock()
 	d.rt.introduced[a.Id] = true
 	d.rt.mu.Unlock()
+	if strings.HasPrefix(a.StateDetail, refusedPrefix) {
+		d.setDetail(ctx, a.Id, refusedPrefix, "")
+	}
 	return d.markDelivered(ctx, msgs, "socket", 1)
+}
+
+// adoptedRefused tells that an adopted session's doorbell was not written: once per reason (the retry pass
+// comes back every few seconds), at Warn and in the agent's detail, where the apps show it.
+func (d *Daemon) adoptedRefused(ctx context.Context, a *v1.Agent, reason string) {
+	detail := refusedPrefix + reason
+	if a.StateDetail == detail {
+		return
+	}
+	d.log.Warn("doorbell not written to an adopted session", "agent", a.Name, "reason", reason)
+	d.setDetail(ctx, a.Id, "", detail)
+}
+
+// setDetail sets an agent's StateDetail when it now starts with only (any detail when only is empty).
+func (d *Daemon) setDetail(ctx context.Context, id, only, detail string) {
+	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+		cur, err := tx.GetAgent(id)
+		if err != nil || stopped(cur) || cur.StateDetail == detail || (only != "" && !strings.HasPrefix(cur.StateDetail, only)) {
+			return err
+		}
+		cur.StateDetail = detail
+		return tx.PutAgent(cur)
+	})
+	if err != nil && ctx.Err() == nil {
+		d.log.Warn("setting an adopted session's detail", "agent", id, "err", err)
+	}
 }

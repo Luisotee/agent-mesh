@@ -45,6 +45,9 @@ func TestARootsInboxSummarisesLongPlansAndReports(t *testing.T) {
 	pm := send(v1.MessageType_MESSAGE_TYPE_PLAN, plan)
 	dm := send(v1.MessageType_MESSAGE_TYPE_DONE, done)
 	short := send(v1.MessageType_MESSAGE_TYPE_DONE, "short report, all good")
+	// One paragraph on one line is cut too, a done's and a plan's header alike.
+	paragraph := send(v1.MessageType_MESSAGE_TYPE_DONE, strings.Repeat("one long paragraph. ", 300))
+	longHead := send(v1.MessageType_MESSAGE_TYPE_PLAN, "# Plan: "+strings.Repeat("a very long title ", 300)+"\n\n## Goal\nFix it.\n")
 
 	inbox, err := asLead.ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Meta: meta(""), Peek: true}))
 	if err != nil {
@@ -75,6 +78,11 @@ func TestARootsInboxSummarisesLongPlansAndReports(t *testing.T) {
 	if strings.Contains(d, "file: ") {
 		t.Errorf("a report file that doesn't exist is named: %s", d)
 	}
+	for name, m := range map[string]*v1.Message{"a one-line done": paragraph, "a plan with a long title": longHead} {
+		if n := len([]rune(byID[m.Id].Body)); n > 1800 || !strings.Contains(byID[m.Id].Body, "…") {
+			t.Errorf("%s was not cut (%d characters)", name, n)
+		}
+	}
 	if got := byID[short.Id].Body; got != "short report, all good" {
 		t.Errorf("a short report was summarised: %q", got)
 	}
@@ -89,7 +97,7 @@ func TestARootsInboxSummarisesLongPlansAndReports(t *testing.T) {
 	if err != nil || len(one.Msg.Messages) != 1 || one.Msg.Messages[0].Body != done {
 		t.Fatalf("--id: %v %v", one, err)
 	}
-	if left, _ := asLead.ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Meta: meta(""), Peek: true})); len(left.Msg.Messages) != 2 {
+	if left, _ := asLead.ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Meta: meta(""), Peek: true})); len(left.Msg.Messages) != 4 {
 		t.Errorf("--id read more than its own message: %d unread", len(left.Msg.Messages))
 	}
 	// Not someone else's message, and not by a name that doesn't exist.

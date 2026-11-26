@@ -43,7 +43,7 @@ func (d *Daemon) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgen
 			return nil, invalid("%s is still running: omit --model, --effort and extra arguments to attach", a.Name)
 		}
 		if a.PendingReopen != nil && a.TerminalId == "" {
-			return nil, failedPrecondition("%s is reopening; try again in a moment", a.Name)
+			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("%s is reopening; try again in a moment", a.Name))
 		}
 		if a.TerminalId == "" || d.rt.term == nil {
 			return nil, failedPrecondition("%s has no terminal", a.Name)
@@ -57,7 +57,7 @@ func (d *Daemon) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgen
 	}
 
 	if a.PendingReopen != nil {
-		return nil, failedPrecondition("%s is reopening; try again in a moment", a.Name)
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("%s is reopening; try again in a moment", a.Name))
 	}
 	if a.SessionId == "" {
 		d.learnSession(ctx, actor, a.Id, func(*v1.Agent) bool { return true })

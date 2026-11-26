@@ -357,6 +357,11 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			return err
 		}
 		claimed, owner = true, a.Id
+		if isAdopted(a) {
+			// The terminal of the root an adopted session took the row over from: its process was stopped on
+			// purpose, and the row is a session the daemon never ran. Only the terminal is forgotten.
+			return nil
+		}
 		if a.State == v1.AgentState_AGENT_STATE_RETIRED {
 			// Stopped on purpose: nothing to record, only the terminal to forget.
 			if a.TerminalId == terminalID {

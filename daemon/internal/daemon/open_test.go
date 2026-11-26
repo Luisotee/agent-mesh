@@ -134,8 +134,8 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.device.Mesh.OpenAgent(ctx, connect.NewRequest(&v1.OpenAgentRequest{Agent: stoppedAsker.Id})); code(err) != connect.CodeFailedPrecondition {
-		t.Fatalf("stopped with PendingReopen: %v, want FailedPrecondition", err)
+	if _, err := w.device.Mesh.OpenAgent(ctx, connect.NewRequest(&v1.OpenAgentRequest{Agent: stoppedAsker.Id})); code(err) != connect.CodeUnavailable {
+		t.Fatalf("stopped with PendingReopen: %v, want Unavailable (a client tries again)", err)
 	}
 	if err := w.d.Store().Write(ctx, &v1.Actor{Id: "test", Class: v1.ActorClass_ACTOR_CLASS_DEVICE}, "", func(tx *store.Tx) error {
 		cur, gerr := tx.GetAgent(stoppedAsker.Id)
