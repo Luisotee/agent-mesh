@@ -77,6 +77,8 @@ type AgentConfig struct {
 	MeminfoPath, PressurePath string
 	// RetireEvery is how often agents idle past `idle_retire` after their report are looked for (default 10 s).
 	RetireEvery time.Duration
+	// AccountEvery is how often the accountability pass runs (default 5 s).
+	AccountEvery time.Duration
 	// NoTerminalWatch leaves out the watch on the terminal host's exits, so only adopt and the calls the daemon
 	// makes reconcile terminals. For tests of those paths: the host's watch replays exited terminals, which
 	// would pass them either way.
@@ -267,6 +269,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 		}
 	}
 	claimed, replaced, realExit, owner := false, false, false, ""
+	var alert *v1.Message
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
 		if errors.Is(err, store.ErrNotFound) && agentID != "" {
@@ -322,10 +325,18 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 			AgentExited: &v1.AgentExited{ExitCode: code, Signal: signal, Reason: reason}}}); err != nil {
 			return err
 		}
+		// Its parent hears of it when it still owed a report (a stop someone asked for is told too: it is the
+		// parent's agent that ended).
+		if alert, err = alertExitTx(tx, a, code, signal, reason); err != nil {
+			return err
+		}
 		return tx.RevokeTokens(a.Id)
 	})
 	if err != nil || !claimed {
 		return err
+	}
+	if alert != nil && d.notify != nil {
+		d.notify(alert.ToId)
 	}
 	if realExit {
 		d.rt.guard.release(owner) // it launched, or failed to, and holds no more of the host's memory
@@ -354,7 +365,11 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired time.Time
+		var pruned, retired, accounted time.Time
+		accountEvery := d.rt.cfg.AccountEvery
+		if accountEvery == 0 {
+			accountEvery = accountEveryDefault
+		}
 		var retiring atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
@@ -371,6 +386,10 @@ func (d *Daemon) runBackground(ctx context.Context) {
 					defer retiring.Store(false)
 					d.retireIdle(ctx)
 				}()
+			}
+			if now := d.now(); now.Sub(accounted) >= accountEvery {
+				accounted = now
+				d.accountability(ctx)
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now

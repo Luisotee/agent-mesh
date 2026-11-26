@@ -97,6 +97,7 @@ func TestATaskSentByTheParentEndsThePlanPhase(t *testing.T) {
 	}
 	waitFor(t, "the follow-up delivered", func() bool { return w.delivered(t, a.Id, task.Msg.Message.Id) })
 	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	readInbox(t, w.as(w.token(t, a.Id)))
 	if _, err := w.as(w.token(t, a.Id)).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
 		Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "a plan for the follow-up"})); err != nil {
 		t.Fatal(err)
@@ -239,6 +240,7 @@ func TestAPlanFromAnExecutingWorkerEntersThePlanPhaseAgain(t *testing.T) {
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 	a := w.approvedOnLight(t, asLead, "again")
+	readInbox(t, w.as(w.token(t, a.Id)))
 	if _, err := w.as(w.token(t, a.Id)).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
 		Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "this needs a plan after all"})); err != nil {
 		t.Fatal(err)

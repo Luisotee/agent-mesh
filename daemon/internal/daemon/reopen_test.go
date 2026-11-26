@@ -175,6 +175,7 @@ func TestApproveReopensThePlannersConversationOnItsExecutionTier(t *testing.T) {
 	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: worker.Id, Tier: "mid"})); code(err) != connect.CodeFailedPrecondition {
 		t.Errorf("approve with no plan: %v", err)
 	}
+	readInbox(t, asWorker)
 	if _, err := asWorker.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
 		Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "the plan"})); err != nil {
 		t.Fatal(err)
