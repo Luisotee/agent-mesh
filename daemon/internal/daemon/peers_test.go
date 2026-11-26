@@ -343,7 +343,16 @@ func TestAskingPeersCollectsOneFileResumesTheirConversationAndKeepsTheirWorktree
 	if res2.Msg.Ask.Members[0].How != "resumed its conversation" {
 		t.Errorf("how %q", res2.Msg.Ask.Members[0].How)
 	}
-	all := w.launches(t, sid)
+	// The fake logs its argv once its process is up, which can be after the ask returned.
+	var all [][]string
+	waitFor(t, "run 2's launch in the argv log", func() bool {
+		all = w.launches(t, sid)
+		if len(all) == 0 {
+			return false
+		}
+		f, _ := flags(all[len(all)-1])
+		return f["--resume"] != ""
+	})
 	if f, deny := flags(all[len(all)-1]); f["--resume"] != sid || f["--session-id"] != "" || !deny {
 		t.Errorf("run 2's launch %v", all)
 	}
