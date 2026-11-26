@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -247,6 +246,37 @@ func prAuthorKind(r store.Reader, top, headRef string) string {
 	return ""
 }
 
+// authorLast moves the PR author's kind to the end of a slot's chain, but before OpenCode when the slot listed
+// it first: the other CLI, then the author's CLI in a fresh session, then OpenCode.
+func authorLast(chain []string, author string) []string {
+	ai, oi := -1, -1
+	for i, k := range chain {
+		switch k {
+		case author:
+			ai = i
+		case opencode.Kind:
+			oi = i
+		}
+	}
+	if ai < 0 {
+		return chain
+	}
+	out := make([]string, 0, len(chain))
+	for _, k := range chain {
+		if k != author {
+			out = append(out, k)
+		}
+	}
+	if oi >= 0 && ai < oi {
+		for i, k := range out {
+			if k == opencode.Kind {
+				return append(out[:i], append([]string{author}, out[i:]...)...)
+			}
+		}
+	}
+	return append(out, author)
+}
+
 // pickReviewers chooses the kinds of a round (bin/mesh's pick_reviewers): "auto" fills the size's slots, each
 // with its first installed kind not picked yet and the author's kind moved last; "all" every installed kind;
 // otherwise a comma list. A re-review asks the kinds of the last round again, except those in
@@ -278,8 +308,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 			for _, x := range sl.([]any) {
 				chain = append(chain, x.(string))
 			}
-			// The author's kind last, whatever the slot lists first.
-			sort.SliceStable(chain, func(a, b int) bool { return chain[a] != author && chain[b] == author })
+			chain = authorLast(chain, author)
 			picked := false
 			var missing, held []string
 			for _, k := range chain {

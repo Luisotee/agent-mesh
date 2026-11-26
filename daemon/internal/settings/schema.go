@@ -242,7 +242,9 @@ func chain(models ...string) []any {
 	return out
 }
 
-var opencodeChain = []string{"opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"}
+// OpenCode runs on its one free model that the cost study (docs/cost-research/roles-and-reviews.md) found worth
+// checking, with no `free` fallback: the others' findings were mostly rejected.
+var opencodeChain = []string{"opencode/deepseek-v4.1-flash-free"}
 
 // tierDefaults mirrors `bin/mesh`'s TIER_DEFAULTS.
 var tierDefaults = []struct {
@@ -260,7 +262,7 @@ var tierDefaults = []struct {
 	{"copilot", "light", []string{"auto"}, "low"},
 	{"copilot", "mid", []string{"auto"}, "medium"},
 	{"copilot", "strong", []string{"auto"}, "high"},
-	{"opencode", "light", []string{"free"}, "low"},
+	{"opencode", "light", opencodeChain, "low"},
 	{"opencode", "mid", opencodeChain, "high"},
 	{"opencode", "strong", opencodeChain, "high"},
 }
@@ -306,9 +308,9 @@ func DefaultLeaves() []Leaf {
 				Summary: "the /code-review level of a worker's self-review of a " + sz + " PR, before its done"})
 	}
 	ls = append(ls,
-		Leaf{Key: "review.reviewers.small", Type: Slots, Default: []any{chain("opencode", "agy")}, Choices: AgentKinds,
+		Leaf{Key: "review.reviewers.small", Type: Slots, Default: []any{chain("agy", "claude", "opencode")}, Choices: AgentKinds,
 			Summary: "reviewer slots of a small PR: each takes its first available kind not picked yet"},
-		Leaf{Key: "review.reviewers.large", Type: Slots, Default: []any{chain("claude", "agy", "copilot", "opencode")},
+		Leaf{Key: "review.reviewers.large", Type: Slots, Default: []any{chain("agy", "claude", "opencode")},
 			Choices: AgentKinds,
 			Summary: "reviewer slots of a large PR: each takes its first available kind not picked yet"},
 		Leaf{Key: "review.re_review.skip", Type: Kinds, Default: chain("copilot"), Choices: AgentKinds,

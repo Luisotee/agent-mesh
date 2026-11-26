@@ -24,12 +24,12 @@ The root sizes every task before it starts a worker, and picks its tier (the vie
 |---|---|---|---|---|
 | trivial | translations, copy, config | `light` | background | no |
 | small | a bug fix, a UI tweak, a test | `mid` (`strong` for an unknown cause) | background | no |
-| large | a feature, a cross-repo contract | `strong` to plan, `mid` or `strong` to execute | a pane | yes |
+| large | several PRs, a new subsystem, or design choices still open | `strong` to plan, `mid` to execute (`strong` if the plan leaves something open or the work is risky) | a pane | yes |
 
-- **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described.
+- **No plan:** a trivial or small worker goes straight to the change, verifies it and opens a PR. It asks first if the task turns out bigger than described. The root sizes by the change, not the topic (a feature that is one contained change is small), and a follow-up task to a worker always goes direct, with no re-planning. While iterating a worker runs the tests its change affects, and the full suite once before it reports, unless its repo's rules say otherwise.
 - **Groups** of tasks (see "Task lists") are sized by their combined work: a few independent small fixes stay `small`, one worker with no plan, and a group plans only when a task in it is large, its tasks build on each other, or the whole change is worth reviewing before it's built.
 - **Plan reviewed by you:** for a large Claude task you can approve the plan yourself, in the worker's pane. Say so in the request. The worker then plans in plan mode on the tier the root picks and, once you approve, executes on the same model in the same conversation (there's no `mesh approve`).
-- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, or mid and light work to agy or OpenCode to save your Claude limits; it proposes, and your go confirms it. Every PR a worker opens is reviewed by its author first (the `self-review` skill), then by outside reviewers without your asking: by default one cheap reviewer for a small PR (OpenCode, else agy; never Claude by itself), and one reviewer of another CLI than the author's for a large one, at the tier the root picks by the PR's risk, only among the CLIs you have installed. A small PR gets one review round; a large one's re-reviews after a fix go to the same reviewers except Copilot, or to a cheap fresh one of only the fix commits. A large task's diff is checked against its plan by the root first. All of these are [settings](#configuration).
+- **Routing:** the root may propose sending a large agy task to Claude when Argon and Opus quota run low, or mid and light work to agy or OpenCode to save your Claude limits; it proposes, and your go confirms it. Every PR a worker opens is reviewed by its author first (the `self-review` skill), then by outside reviewers without your asking: one outside reviewer, from the CLI that isn't the author's (the author's own CLI in a fresh session when the other isn't available, OpenCode last), at `mid` for a small PR and `strong` for a large one, only among the CLIs you have installed. Two strong reviewers from different families are for a risky PR only (security, money, data migrations, concurrency, a very large diff), when the root asks for them. A small PR gets one review round; a large one's re-reviews after a fix go to the same reviewers except Copilot, or to a fresh one of only the fix commits. (This is the recommended setup, a config below; `mesh`'s built-in slots are older.) A large task's diff is checked against its plan by the root first. All of these are [settings](#configuration).
 - **Reviews and fixes:** a fresh reviewer runs at high effort (`review.effort`) whatever its tier. A real review finding, or a worker stuck on its task, goes back to the same worker; the root records its verdict on each reviewer's findings (`mesh verdict`), which `mesh cost` turns into each reviewer model's precision.
 
 ### Background workers
@@ -142,7 +142,7 @@ Hand the root a whole list, and it supervises instead of coding:
 
 1. **Triage:** the root sorts the tasks into a few themed groups, writes a board (`$(mesh dir)/board.md`), and waits for your go on it, as it does for any request (unless you told it to run on its own).
 2. **Workers:** one per group, in its own worktree, with at most four working at a time. A group is tasks that share a theme, or where one task's context helps another; small unrelated ones join a group rather than get a worker. There's no size cap: workers run as strong a model as the root, so one takes on a whole batch. A group is sized by its combined work, so a few small independent fixes go out with no plan; a group that plans gets **one plan** for all its tasks. Its worker does them in order, a commit each, and opens **one PR**. New work it proposes, and small follow-ups, go back to it rather than to a fresh agent. The root writes no code itself, in its own repo too.
-3. **Reviewers per PR:** each PR is reviewed by its author first (the `self-review` skill), then gets read-only outside reviews by default, as every PR a run makes does (the defaults below; [Configuration](#configuration) changes them): one cheap reviewer for a small PR (OpenCode, else agy), one reviewer of another CLI than the author's for a large or risky one, at the tier the root picks. Rounds are a ceiling, not a quota: a round with nothing the root agrees with to fix ends the PR's reviews. A small PR gets no re-review: the root checks its fix itself. A large one's fix is re-reviewed once, by the same reviewers except Copilot, or by a cheap fresh one of only the fix commits. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
+3. **Reviewers per PR:** each PR is reviewed by its author first (the `self-review` skill), then gets read-only outside reviews by default, as every PR a run makes does (the defaults below; [Configuration](#configuration) changes them): one reviewer from the CLI that isn't the author's for any PR (`mid` for a small one, `strong` for a large one), and two strong ones of different families only for a risky PR, when the root asks for them. See the recommended config under Configuration. Rounds are a ceiling, not a quota: a round with nothing the root agrees with to fix ends the PR's reviews. A small PR gets no re-review: the root checks its fix itself. A large one's fix is re-reviewed once, by the same reviewers except Copilot, or by a fresh one of only the fix commits. The findings go back to the worker that wrote it, as claims to check: the root and the author each confirm a bug is real and pick the best fix before changing anything.
 4. **Conflicts:** `mesh conflicts` checks the run's branches against the default branch and against each other, without touching any checkout. It also notes when two workers change the same files, which needs nothing by itself: a conflict is rebased when the PRs merge. The root suggests a merge order, and when you merge a PR it asks the affected workers to rebase.
 5. **Report:** the board as a table, with the PRs, worker names, statuses and the merge order.
 
@@ -433,6 +433,21 @@ This file reproduces the built-in policy, plus a `repos_dir`:
     "mcp_about": {},
     "mcp_exclusive": ["playwright"]
   }
+}
+```
+
+**Recommended** (the cost study's result, `docs/cost-research/roles-and-reviews.md`): one reviewer slot per size, `agy, claude, opencode`, so a PR is read by the CLI that isn't its author's, the author's CLI in a fresh session when that one is unavailable, and OpenCode last; and OpenCode on `deepseek-v4.1-flash-free` alone, with no `free` fallback, because the other free models' findings were mostly rejected. Copilot stays out until it has been verified live; add it to a slot if you want it. `mesh`'s built-in values above are older; put this in `~/.config/agent-mesh.json` (the daemon's built-in defaults already are this):
+
+```json
+{
+  "tiers": {
+    "opencode": {
+      "light": {"model": ["opencode/deepseek-v4.1-flash-free"]},
+      "mid": {"model": ["opencode/deepseek-v4.1-flash-free"]},
+      "strong": {"model": ["opencode/deepseek-v4.1-flash-free"]}
+    }
+  },
+  "review": {"reviewers": {"small": [["agy", "claude", "opencode"]], "large": [["agy", "claude", "opencode"]]}}
 }
 ```
 

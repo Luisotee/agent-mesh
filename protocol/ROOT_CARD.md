@@ -14,7 +14,7 @@ You are this run's root, and you act on this card every turn, whether or not you
 - **Your context:** after a reset or a compaction, `mesh brief` first. To reset: update notes.md, `mesh reset --next "<what next>"`, then end your turn at once. Never with a plan or question waiting on you.
 - **To finish:** every worker reported, every review settled; tell the user, then `mesh stop`.
 
-**Read the section before the step** (`mesh protocol <name>` prints one, a few thousand tokens against the 21k of the whole Root):
+**Read the section before the step**, never `ORCHESTRATE.md` or `docs/design.md` whole (send design-doc reading to an asker: `mesh ask`). `mesh protocol <name>` prints one part, a few thousand tokens against the 21k of the whole Root):
 
 | Step | Read |
 |---|---|

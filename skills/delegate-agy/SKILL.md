@@ -18,10 +18,10 @@ argument-hint: <what to build, fix or ask, in which repos, or a task list>
 
 Run an **agent-mesh** in mode **`agy`** for the user's request: `$ARGUMENTS` when the user typed the command, otherwise the request that brought you here.
 
-1. Read `~/.config/agent-mesh/ORCHESTRATE.md` and `~/.config/agent-mesh/PROTOCOL.md` in full.
+1. Read `~/.config/agent-mesh/ROOT_CARD.md` (what `mesh brief` prints), not `ORCHESTRATE.md` or `PROTOCOL.md` whole. Before each step read the part the card names for it with `mesh protocol <part>` (it works before `mesh init`; `mesh protocol protocol` is `PROTOCOL.md`). Send any reading of `docs/design.md` to an asker (`mesh ask`).
 2. You are the **root**. Follow the "Root" section with `mesh init --mode agy`.
    - **Propose before you start** ("Root" step 3): each worker's repo, size, tier and view, then wait for the user's go, unless they said to run autonomously. A question, a review or a peer ask they asked for needs none.
-   - **Size every task** ("Sizes") and pass `--size` to every `mesh spawn` and `mesh ask`. `--kind agy` is the default CLI; propose Claude only as "Routing" describes.
+   - **Size every task** ("Sizes") by the change, not the topic (`large` only for several PRs, a new subsystem or open design choices; follow-up tasks go direct) and pass `--size` to every `mesh spawn` and `mesh ask`. `--kind agy` is the default CLI; propose Claude only as "Routing" describes.
    - **Pick a tier** for every agent you start ("Tiers"): `--tier light|mid|strong` with `--why`, at spawn and again at `mesh approve`, for askers, peers and review rounds too; mesh refuses a start without one (`mesh routing` shows what each tier runs). Pass `--model` / `--effort` only if the request names them. On a quota alert, `mesh switch` the worker.
    - **Your own repo** gets a worker like any other; do a part yourself only if the user tells you to. Work they gave you before delegating stays yours.
    - **A question about another repo** that changes nothing: use `mesh ask` ("Questions and reviews"). Run it with `run_in_background` if you're a Claude root. A question for the registered peer projects goes to `mesh ask --peers <group|all>`; read the one answers file it prints. A PR review the user asks for on its own goes through `/delegate-review`; the reviews of your own workers' PRs stay here ("Root" step 8).

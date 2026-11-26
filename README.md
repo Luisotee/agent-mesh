@@ -23,7 +23,7 @@ You're building a feature in `shop-web` and find that `shop-api` doesn't return 
 2. **A worker starts inside `shop-api`,** in its own git worktree, in a terminal pane next to yours. It loads that repo's rules, skills and hooks.
 3. **It researches and sends a plan.** Your session reviews it (right files, right contract, real tests) and approves it or sends it back. Nothing is edited before approval.
 4. **The same agent does the work,** in the same conversation, switched to its execution model, so no research is lost in a hand-off. It runs the repo's tests, lint and build, then opens a PR.
-5. **Reviewers read the PR:** Claude, Gemini (agy), Copilot or OpenCode, picked by the PR's size, each inside the repo at the PR's head. Findings go back to the worker that wrote it.
+5. **Reviewers read the PR:** Claude, Gemini (agy), Copilot or OpenCode, one from the CLI that isn't the author's by default (more only for a risky PR), each inside the repo at the PR's head. Findings go back to the worker that wrote it.
 6. **You get one report** with the PR link, what changed and the checks that passed. Meanwhile your session kept building the badge.
 
 ```
@@ -123,7 +123,7 @@ No server or database to install: one stdlib Python script, a few skills and a p
 
 Every worker and reviewer is a full Claude Code or agy session drawing on your own subscription, so a large task with two reviewers is three or more sessions. agent-mesh keeps that down:
 
-- **Effort by size:** a translation or a one-line fix goes straight to a PR with no plan, on a light model; every PR is reviewed by its author first, then a small one by one cheap reviewer in one round.
+- **Effort by size:** a translation or a one-line fix goes straight to a PR with no plan, on a light model; every PR is reviewed by its author first, then by one outside reviewer from the other CLI in one round.
 - **Lean sessions:** Claude agents start without the tools, skills, plugins and MCP servers a mesh agent rarely needs (about 39k tokens that every call would re-read), with session flags only, never your settings; an agent that needs one adds it back with `mesh tools add`, and the root passes a worker the servers its task needs (`--mcp playwright`).
 - **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold); a big planner is compacted at approval, and a big worker before a follow-up.
 - **One machine's memory:** each worker gets a share of the cores (`worker_cpus`), so the test suites it runs start fewer workers; reviewers read the PR's CI before running tests; and no agent starts while memory runs short or the machine thrashes.

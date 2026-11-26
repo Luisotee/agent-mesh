@@ -4,6 +4,8 @@ Where this machine's Claude Code and agy quota goes, what we decided to change, 
 
 The first round ran on 2026-10-28 (run `mb3c1`). Its reports are under `~/.local/state/agent-mesh/mb3c1/reports/` (under `archive/mb3c1/` after `mesh stop`), and its raw per-call data under `data/` there.
 
+A second round (2026-11-26) on model tiers per role, the reviewer setup and the root's weight is in [`roles-and-reviews.md`](roles-and-reviews.md).
+
 ## How to use this file
 
 - **Checking an expectation:** re-run the scripts (below) over the week after a change landed, compare with the baseline, and fill the "Actual" column of the ledger. Say what else changed that week: several changes landing together can't be told apart, so note them.
@@ -15,7 +17,7 @@ The first round ran on 2026-10-28 (run `mb3c1`). Its reports are under `~/.local
 - **Source:** every Claude Code transcript in `~/.claude/projects/*/*.jsonl` and `*/*/subagents/*.jsonl` (819 transcripts, 29,881 API calls, 2026-09-16 → 10-28). Each assistant record's `message.usage` gives `input_tokens`, `cache_creation_input_tokens` (split into `ephemeral_1h` / `ephemeral_5m`), `cache_read_input_tokens` and `output_tokens`.
 - **Dedup by `message.id`:** Claude Code writes one record per content block (thinking, tool use, text), each with the same usage. Summing per record triples the totals (rove #942, Gas Town PR #1772). The ids must be deduped across files too: a background swap or resume copies the conversation into a new session file with the same ids, and so does a `/resume` that forks. The first round's `extract.py` deduped per file and over-counted by 7.3% (2026-10-21 → 10-28: $1,639 per file, $1,527 across files); it now shares one `seen`, so a copied call is counted in whichever file `glob` lists first, and `mesh cost` gives it to the file run state names.
 - **Classification:** a session is mapped to an agent through every `run.json` (live and archived runs: role, size, view, `read_only`, `peer`, `review_heads`), else by project directory (mesh worktrees, peer worktrees) and its first message.
-- **Weighting:** API-equivalent dollars stand in for what the subscription limit counts, which is undocumented. Opus 5.5 per MTok: input $4, 1h cache write $8 (2×), 5m write $5 (1.25×), cache read $0.20 (0.05×), output $20. Sonnet 5.5: $2 / $4 / $2.50 / $0.20 / $10 (from the `claude-api` skill). So a written token costs 40 reads, an output token 100. Every main session writes 1h cache; subagents write 5m. The ranking holds as long as writes and output cost more than reads.
+- **Weighting:** API-equivalent dollars stand in for what the subscription limit counts, which is undocumented. Opus 5.5 per MTok: input $4, 1h cache write $8 (2×), 5m write $5 (1.25×), cache read $0.20 (0.05×), output $20. Sonnet 5.5: $2 / $4 / $2.50 / $0.10 / $10 (cache read 0.05×; Anthropic's pricing page, 2026-11-26; the daemon's `mesh cost` has it since then, `bin/mesh`'s `PRICES` still charges $0.20). So a written token costs 40 reads, an output token 100. Every main session writes 1h cache; subagents write 5m. The ranking holds as long as writes and output cost more than reads.
 - **agy:** token counts only, from the step metadata in agy's conversation files (as `agy_context_tokens` reads them). Copilot not measured.
 
 ### Scripts
