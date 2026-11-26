@@ -89,6 +89,34 @@ const (
 // `tools-add`. Any other command keeps its words as arguments, so `mesh stop run` is not `stop-run`.
 var commandGroups = map[string]bool{"tools": true}
 
+// spoken is how a user types an action's name: `tools add` for `tools-add`.
+func spoken(cli string) string {
+	for g := range commandGroups {
+		if rest, ok := strings.CutPrefix(cli, g+"-"); ok {
+			return g + " " + rest
+		}
+	}
+	return cli
+}
+
+// subcommands are the words that may follow a group, sorted.
+func subcommands(reg *registry.Registry, group string) []string {
+	var out []string
+	for _, a := range reg.Actions() {
+		if rest, ok := strings.CutPrefix(a.CLI, group+"-"); ok {
+			out = append(out, rest)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// mistypedSubcommand reports that word, after a group, is a subcommand that doesn't exist rather than the agent
+// the group's own action takes: agent names hold a `-` and ids are 11 characters, so a short plain word is a typo.
+func mistypedSubcommand(word string) bool {
+	return !strings.Contains(word, "-") && len(word) < 11
+}
+
 // Main runs one command and returns its exit code. hand holds the hand-written commands (hook, version),
 // dispatched before the registry is even loaded (each gets the environment, with a global --state as $AGENT_MESH_STATE): a hook must work, and exit 0, whatever else fails.
 func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
@@ -157,6 +185,9 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	if len(rest) >= 2 && commandGroups[rest[0]] && !strings.HasPrefix(rest[1], "-") {
 		if sub := find(reg, rest[0]+"-"+rest[1]); sub != nil {
 			a, cmdArgs = sub, rest[2:]
+		} else if mistypedSubcommand(rest[1]) {
+			fmt.Fprintf(env.Stderr, "mesh %s: unknown subcommand %q (%s; or an agent's name)\n", rest[0], rest[1], strings.Join(subcommands(reg, rest[0]), ", "))
+			return ExitUsage
 		}
 	}
 	if a == nil {
@@ -175,12 +206,12 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	}
 	if err != nil {
 		// Said once: the flag package's own message is off, so a bad flag isn't reported twice with the full usage.
-		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", a.CLI, err, a.CLI)
+		fmt.Fprintf(env.Stderr, "mesh %s: %v (mesh help %s lists the flags)\n", spoken(a.CLI), err, spoken(a.CLI))
 		return ExitUsage
 	}
 	// A command with a text form has --format, "text" unless given: only text and json are valid, an empty one too.
 	if hasText(a.CLI) && cmd.format != "text" && cmd.format != "json" {
-		fmt.Fprintf(env.Stderr, "mesh %s: --format is text or json, not %q\n", a.CLI, cmd.format)
+		fmt.Fprintf(env.Stderr, "mesh %s: --format is text or json, not %q\n", spoken(a.CLI), cmd.format)
 		return ExitUsage
 	}
 	if cmd.state == "" {
@@ -193,7 +224,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 		return ExitError
 	}
 	if err := call(context.Background(), conn, a, req, env.Stdout, env.Stderr, cmd.format == "text"); err != nil {
-		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", a.CLI, err)
+		fmt.Fprintf(env.Stderr, "mesh %s: %v\n", spoken(a.CLI), err)
 		return ExitError
 	}
 	return ExitOK
@@ -225,7 +256,7 @@ func usage(w io.Writer, reg *registry.Registry, hand map[string]func(Env, []stri
 	fmt.Fprintln(w, "usage: mesh [--state <dir>] [--json <request>] <command> [flags]   (mesh help <command> for its flags)")
 	fmt.Fprintln(w, "\ncommands:")
 	for _, a := range reg.Actions() {
-		fmt.Fprintf(w, "  %-14s %s\n", a.CLI, a.Summary)
+		fmt.Fprintf(w, "  %-14s %s\n", spoken(a.CLI), a.Summary)
 	}
 	names := make([]string, 0, len(hand))
 	for n := range hand {
@@ -317,7 +348,7 @@ func (c *command) usage(w io.Writer) {
 			arg = " [<" + string(f.Name()) + ">]"
 		}
 	}
-	fmt.Fprintf(w, "usage: mesh %s%s [flags]\n  %s\n", c.action.CLI, arg, c.action.Summary)
+	fmt.Fprintf(w, "usage: mesh %s%s [flags]\n  %s\n", spoken(c.action.CLI), arg, c.action.Summary)
 	fmt.Fprintln(w, "  A text flag's value starting with @ reads a file (@- stdin); @@ starts it with a literal @.")
 	c.flags.SetOutput(w)
 	c.flags.PrintDefaults()

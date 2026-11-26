@@ -30,8 +30,8 @@ func (d *Daemon) leanOn(ctx context.Context) bool {
 	return err != nil || !ok || on // an unreadable setting keeps the default: lean
 }
 
-// filterAdded removes any item that the agent added back via `mesh tools add`. For namespaced plugin skills like
-// `agent-mesh-daemon:<name>`, adding the bare `<name>` also un-hides the namespaced entry.
+// filterAdded removes any item that the agent added back via `mesh tools add`. A plugin skill has two spellings, the
+// bare `<name>` and the namespaced `agent-mesh-daemon:<name>` (matchBarePluginSkill): adding either un-hides both.
 func filterAdded(xs, added []string, matchBarePluginSkill bool) []string {
 	if len(added) == 0 || len(xs) == 0 {
 		return xs
@@ -39,21 +39,21 @@ func filterAdded(xs, added []string, matchBarePluginSkill bool) []string {
 	have := make(map[string]bool, len(added))
 	for _, n := range added {
 		have[n] = true
+		if matchBarePluginSkill {
+			have[strings.TrimPrefix(n, pluginSkillPrefix)] = true
+		}
 	}
 	var out []string
 	for _, x := range xs {
-		if have[x] {
+		if have[x] || matchBarePluginSkill && have[strings.TrimPrefix(x, pluginSkillPrefix)] {
 			continue
-		}
-		if matchBarePluginSkill {
-			if prefix, rest, ok := strings.Cut(x, ":"); ok && prefix == "agent-mesh-daemon" && have[rest] {
-				continue
-			}
 		}
 		out = append(out, x)
 	}
 	return out
 }
+
+const pluginSkillPrefix = "agent-mesh-daemon:"
 
 func filterAddedPlugins(xs, added []string) []string {
 	if len(added) == 0 || len(xs) == 0 {
@@ -132,7 +132,17 @@ func (d *Daemon) leanLaunch(ctx context.Context, a *v1.Agent, env map[string]str
 	if mode != claude.MCPNone {
 		mode = claude.MCPRepo
 	}
-	cfg, missing, err := claude.LeanMCPConfig(env, a.Repo, mode, keep, a.Mcp)
+	// A server this launch loads unnamed (its repo's own) that another agent holds stays out of the file.
+	held, err := d.heldUnnamed(r, a, env)
+	if err != nil {
+		return nil, err
+	}
+	var except []string
+	for n, h := range held {
+		except = append(except, n)
+		d.log.Info("an exclusive MCP server another agent holds is left out", "agent", a.Name, "server", n, "holder", h.Name)
+	}
+	cfg, missing, err := claude.LeanMCPConfig(env, a.Repo, mode, keep, a.Mcp, except)
 	if err != nil {
 		return nil, err
 	}
@@ -248,13 +258,9 @@ func (d *Daemon) exclusiveHolders(r store.Reader, skipID string) (map[string]*v1
 	if err != nil {
 		return nil, err
 	}
-	lean := true
-	if v, err := d.Setting(r, "claude.lean"); err == nil {
-		if on, ok := v.(bool); ok {
-			lean = on
-		}
-	}
+	lean := d.leanSetting(r)
 	holders := map[string]*v1.Agent{}
+	cache := map[string]map[string]any{} // ~/.claude.json, read once for all the agents asked about
 	hold := func(n string, a *v1.Agent) {
 		if _, ok := holders[n]; !ok {
 			holders[n] = a
@@ -279,14 +285,14 @@ func (d *Daemon) exclusiveHolders(r store.Reader, skipID string) (map[string]*v1
 		}
 		env := d.agentEnv(other, "")
 		if !lean {
-			for n := range claude.KnownMCPServers(env, other.Repo) {
+			for n := range claude.KnownMCPServersCached(env, other.Repo, cache) {
 				if exclSet[n] {
 					hold(n, other)
 				}
 			}
 			continue
 		}
-		_, loaded, _, err := d.mcpLoad(r, other, env)
+		_, loaded, _, err := d.mcpLoad(r, other, env, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -297,6 +303,59 @@ func (d *Daemon) exclusiveHolders(r store.Reader, skipID string) (map[string]*v1
 		}
 	}
 	return holders, nil
+}
+
+// heldUnnamed maps the exclusive servers a's lean launch would load without a name (its repo's own, under
+// `claude.mcp` `repo`) that another live agent holds, to that agent. Servers it names are the lease check's, and
+// under `inherit` (or `mcp_all`) nothing is cut, so none are listed.
+func (d *Daemon) heldUnnamed(r store.Reader, a *v1.Agent, env map[string]string) (map[string]*v1.Agent, error) {
+	if a.Kind != claude.Kind {
+		return nil, nil
+	}
+	if !d.leanSetting(r) {
+		return nil, nil
+	}
+	mode, loaded, _, err := d.mcpLoad(r, a, env, nil)
+	if err != nil || mode == claude.MCPInherit {
+		return nil, err
+	}
+	holders, err := d.exclusiveHolders(r, a.Id)
+	if err != nil || len(holders) == 0 {
+		return nil, err
+	}
+	out := map[string]*v1.Agent{}
+	for _, n := range loaded {
+		if h, ok := holders[n]; ok && !slices.Contains(a.Mcp, n) {
+			out[n] = h
+		}
+	}
+	return out, nil
+}
+
+// noteHeldUnnamed tells a launched agent which servers of its repo another agent holds, so stayed out of its MCP
+// file (leanLaunch); false when none did.
+func (d *Daemon) noteHeldUnnamed(tx *store.Tx, a *v1.Agent) (bool, error) {
+	held, err := d.heldUnnamed(tx.Reader, a, d.agentEnv(a, ""))
+	if err != nil || len(held) == 0 {
+		return false, err
+	}
+	var left []string
+	for n, h := range held {
+		left = append(left, fmt.Sprintf("%s (held by %s)", n, holderLabelOrElse(h, a.RunId)))
+	}
+	slices.Sort(left)
+	_, err = tellTx(tx, a, "left this repo's exclusive MCP server(s) out of your MCP file: "+strings.Join(left, ", ")+" (`mesh tools add <name>` once the holder is done)")
+	return err == nil, err
+}
+
+// leanSetting reads `claude.lean` (an unreadable setting keeps the default: lean).
+func (d *Daemon) leanSetting(r store.Reader) bool {
+	if v, err := d.Setting(r, "claude.lean"); err == nil {
+		if on, ok := v.(bool); ok {
+			return on
+		}
+	}
+	return true
 }
 
 // checkMCPLease refuses when any requested server in names is an exclusive MCP server currently held by another live agent.
@@ -323,12 +382,26 @@ func (d *Daemon) checkMCPLease(r store.Reader, names []string, skipID string, vi
 // dropHeldExclusiveMCP drops any exclusive MCP server (or `mcp_all`) carried over on an implicit resume when another
 // live agent now holds it, returning a short explanatory note if anything was dropped.
 func (d *Daemon) dropHeldExclusiveMCP(r store.Reader, a *v1.Agent) (string, bool, error) {
-	if len(a.Mcp) == 0 && !a.McpAll {
-		return "", false, nil
-	}
 	holders, err := d.exclusiveHolders(r, a.Id)
 	if err != nil || len(holders) == 0 {
 		return "", false, err
+	}
+	// A server it loads unnamed (its repo's own) leaves its MCP file at launch (leanLaunch): say so.
+	unnamed, err := d.heldUnnamed(r, a, d.agentEnv(a, ""))
+	if err != nil {
+		return "", false, err
+	}
+	var left []string
+	for n, h := range unnamed {
+		left = append(left, fmt.Sprintf("%s (held by %s)", n, holderLabelOrElse(h, a.RunId)))
+	}
+	slices.Sort(left)
+	leftNote := ""
+	if len(left) > 0 {
+		leftNote = "left this repo's exclusive MCP server(s) out of its MCP file: " + strings.Join(left, ", ") + " (`mesh tools add <name>` once the holder is done)"
+	}
+	if len(a.Mcp) == 0 && !a.McpAll {
+		return leftNote, leftNote != "", nil
 	}
 	var kept []string
 	var dropped []string
@@ -345,7 +418,7 @@ func (d *Daemon) dropHeldExclusiveMCP(r store.Reader, a *v1.Agent) (string, bool
 		droppedAll = true
 	}
 	if len(dropped) == 0 && !droppedAll {
-		return "", false, nil
+		return leftNote, leftNote != "", nil
 	}
 	a.Mcp = kept
 	var held []string
@@ -354,13 +427,20 @@ func (d *Daemon) dropHeldExclusiveMCP(r store.Reader, a *v1.Agent) (string, bool
 	}
 	slices.Sort(held)
 	if len(dropped) == 0 {
-		return fmt.Sprintf("dropped claude.ai full MCP connectors on resume (exclusive servers held: %s)", strings.Join(held, ", ")), true, nil
+		return withNote(fmt.Sprintf("dropped claude.ai full MCP connectors on resume (exclusive servers held: %s; get them back with `mesh tools add claude.ai` once the holder is done)", strings.Join(held, ", ")), leftNote), true, nil
 	}
 	note := "dropped exclusive MCP server(s) on resume: " + strings.Join(dropped, ", ")
 	if droppedAll {
-		note += "; and claude.ai full MCP connectors (exclusive servers held: " + strings.Join(held, ", ") + ")"
+		note += "; and claude.ai full MCP connectors (exclusive servers held: " + strings.Join(held, ", ") + "; get them back with `mesh tools add claude.ai` once the holder is done)"
 	}
-	return note, true, nil
+	return withNote(note, leftNote), true, nil
+}
+
+func withNote(note, more string) string {
+	if more == "" {
+		return note
+	}
+	return note + "; and " + more
 }
 
 // viewerRun is the run an actor may see agents of: its own when it is an agent, any (empty) for a user or device.

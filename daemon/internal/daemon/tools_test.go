@@ -324,6 +324,35 @@ func TestAnExclusiveServerALaunchLoadsUnnamedIsHeld(t *testing.T) {
 	}
 }
 
+// A second agent in a repo whose own server another agent holds does not load it: the server stays out of its MCP
+// file, and it is told so.
+func TestAnAgentWhoseRepoLoadsAHeldExclusiveServerLeavesItOut(t *testing.T) {
+	w := startReopen(t)
+	w.userMCPServers(t, "context7", "playwright")
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	repo := gitRepo(t)
+	os.MkdirAll(filepath.Join(repo, ".claude"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".mcp.json"), []byte(`{"mcpServers":{"playwright":{"type":"stdio","command":"playwright-cmd"}}}`), 0o600)
+	os.WriteFile(filepath.Join(repo, ".claude", "settings.json"), []byte(`{"enableAllProjectMcpServers":true}`), 0o600)
+	holder := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{Repo: repo, Tier: "mid", Task: "work"})
+	second := w.spawnUnder(t, asLead, "docs", &v1.SpawnAgentRequest{Repo: repo, Tier: "mid", Task: "more work"})
+	if got := mcpFileServers(t, filepath.Join(w.state, "agents", second.Id, "mcp.json")); slices.Contains(got, "playwright") {
+		t.Errorf("the second agent loads the held server: %v", got)
+	}
+	msgs, err := w.d.Store().Read(context.Background()).Inbox(second.Id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	told := false
+	for _, m := range msgs {
+		told = told || (strings.Contains(m.Body, "playwright") && strings.Contains(m.Body, holder.Name))
+	}
+	if !told {
+		t.Errorf("the second agent was not told the held server stayed out: %v", msgs)
+	}
+}
+
 // A worker adding its own tools tells its parent it is waiting (PROTOCOL.md rule 10): a `wait`, not a report.
 func TestAWorkersToolsAddTellsItsParentItIsWaiting(t *testing.T) {
 	w := startReopen(t)
