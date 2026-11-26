@@ -47,6 +47,7 @@ var priceOrder = []struct {
 
 // haikuLongPrompt is the prompt size (input + cache writes + cache reads) above which Haiku 5.5
 // bills every rate at 5x: $0.50 / $0.625 / $1 / $0.05 / $2.50 per MTok.
+// (The table's Haiku row is 5.5's: only that model has the long-prompt tier.)
 const haikuLongPrompt = int64(100_000)
 
 var (
@@ -72,7 +73,7 @@ func claudeCallCost(model string, input, w5, w1, read, output int64) float64 {
 	if strings.Contains(ml, "sonnet-5-5") || strings.Contains(ml, "sonnet-5.5") {
 		rates[3] = 0.10 // Sonnet 5.5 cache hits bill 0.05x its input price
 	}
-	if strings.Contains(ml, "haiku") && input+w5+w1+read > haikuLongPrompt {
+	if (strings.Contains(ml, "haiku-5-5") || strings.Contains(ml, "haiku-5.5")) && input+w5+w1+read > haikuLongPrompt {
 		for i := range rates {
 			rates[i] *= 5
 		}

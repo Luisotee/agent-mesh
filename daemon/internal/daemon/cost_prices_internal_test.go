@@ -20,6 +20,7 @@ func TestClaudeCallCostPrices(t *testing.T) {
 		{"haiku 5.5 up to 100K", "claude-haiku-5-5", 40_000, 0, 0, 60_000, 0, 40_000*0.10/1e6 + 60_000*0.01/1e6},
 		{"haiku 5.5 over 100K bills 5x", "claude-haiku-5-5", 0, 0, 0, 200_000, 1_000_000, 200_000*0.05/1e6 + 2.50},
 		{"haiku 5.5 over 100K counts writes", "claude-haiku-5-5", 50_000, 60_000, 0, 0, 0, 50_000*0.50/1e6 + 60_000*0.625/1e6},
+		{"other haiku has no long-prompt tier", "claude-haiku-4-5", 0, 0, 0, 200_000, 0, 200_000 * 0.01 / 1e6},
 		{"agy is free", "agy", m, 0, 0, m, m, 0},
 	}
 	for _, c := range cases {

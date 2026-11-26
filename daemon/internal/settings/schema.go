@@ -242,8 +242,8 @@ func chain(models ...string) []any {
 	return out
 }
 
-// OpenCode runs on its one free model that the cost study (docs/cost-research/roles-and-reviews.md) found worth
-// checking, with no `free` fallback: the others' findings were mostly rejected.
+// OpenCode runs on the one free model whose findings were worth checking (cost study,
+// docs/cost-research/roles-and-reviews.md), with no `free` fallback: the others' were mostly rejected.
 var opencodeChain = []string{"opencode/deepseek-v4.1-flash-free"}
 
 // tierDefaults mirrors `bin/mesh`'s TIER_DEFAULTS.
