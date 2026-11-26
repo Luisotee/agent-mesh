@@ -363,10 +363,10 @@ func TestEndToEnd(t *testing.T) {
 	// committed before that is in no later frame (a client lists settings after a snapshot).
 	w.waitFor("the stream's snapshot", func() bool { return len(events.snapshot()) > 0 })
 	set := w.ctl("--json", `{"key":"caps.agents","value":3}`, "set")
-	if get(set, "setting", "value") != 3.0 || get(set, "setting", "isSet") != true || get(set, "setting", "default") != 8.0 {
+	if get(set, "setting", "value") != 3.0 || get(set, "setting", "isSet") != true || get(set, "setting", "default") != "auto" {
 		t.Fatalf("set %v", set)
 	}
-	if got := w.ctl("settings", "--format", "json", "--prefix", "caps."); len(get(got, "settings").([]any)) != 1 {
+	if got := w.ctl("settings", "--format", "json", "--prefix", "caps."); len(get(got, "settings").([]any)) != 2 {
 		t.Fatalf("settings %v", got)
 	}
 	w.waitFor("the setting on the stream", func() bool {
@@ -377,7 +377,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 		return false
 	})
-	if reset := w.ctl("unset", "--key", "caps.agents"); get(reset, "setting", "value") != 8.0 || get(reset, "setting", "isSet") == true {
+	if reset := w.ctl("unset", "--key", "caps.agents"); get(reset, "setting", "value") != "auto" || get(reset, "setting", "isSet") == true {
 		t.Fatalf("unset %v", reset)
 	}
 

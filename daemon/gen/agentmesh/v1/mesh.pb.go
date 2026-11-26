@@ -597,8 +597,12 @@ func (x *SpawnAgentRequest) GetMcp() []string {
 }
 
 type SpawnAgentResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Agent         *Agent                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Agent *Agent                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	// How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+	// "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+	// a retried spawn.
+	Capacity      string `protobuf:"bytes,2,opt,name=capacity,proto3" json:"capacity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -638,6 +642,13 @@ func (x *SpawnAgentResponse) GetAgent() *Agent {
 		return x.Agent
 	}
 	return nil
+}
+
+func (x *SpawnAgentResponse) GetCapacity() string {
+	if x != nil {
+		return x.Capacity
+	}
+	return ""
 }
 
 type ListAgentsRequest struct {
@@ -4557,9 +4568,10 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04tier\x18\v \x01(\tR\x04tier\x12\x12\n" +
 	"\x04plan\x18\f \x01(\bR\x04plan\x12\x1b\n" +
 	"\texec_tier\x18\r \x01(\tR\bexecTier\x12\x10\n" +
-	"\x03mcp\x18\x0e \x03(\tR\x03mcp\"?\n" +
+	"\x03mcp\x18\x0e \x03(\tR\x03mcp\"[\n" +
 	"\x12SpawnAgentResponse\x12)\n" +
-	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"*\n" +
+	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\x12\x1a\n" +
+	"\bcapacity\x18\x02 \x01(\tR\bcapacity\"*\n" +
 	"\x11ListAgentsRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"A\n" +
 	"\x12ListAgentsResponse\x12+\n" +

@@ -20,4 +20,28 @@ public interface SpawnAgentResponseOrBuilder extends
    * @return The agent.
    */
   dev.agentmesh.gen.agentmesh.v1.Agent getAgent();
+
+  /**
+   * <pre>
+   * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+   * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+   * a retried spawn.
+   * </pre>
+   *
+   * <code>string capacity = 2 [json_name = "capacity"];</code>
+   * @return The capacity.
+   */
+  java.lang.String getCapacity();
+  /**
+   * <pre>
+   * How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+   * "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+   * a retried spawn.
+   * </pre>
+   *
+   * <code>string capacity = 2 [json_name = "capacity"];</code>
+   * @return The bytes for capacity.
+   */
+  com.google.protobuf.ByteString
+      getCapacityBytes();
 }

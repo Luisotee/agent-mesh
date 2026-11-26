@@ -255,6 +255,9 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 	if len(needs) > 0 {
 		out = append(out, "waiting on you: "+strings.Join(needs, ", "))
 	}
+	if c, err := d.capacity(r); err == nil {
+		out = append(out, "host: "+c.Line())
+	}
 	if me != nil {
 		mail, err := r.Inbox(me.Id, false)
 		if err != nil {

@@ -389,7 +389,7 @@ message SettingChanged {
 
 // What a setting's value may be, enough for a client to draw its editor and validate before it sends.
 message SettingSchema {
-  // One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+  // One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
   //   string      a non-empty string
   //   strings     a list of strings
   //   int         a whole number, 0 or more
@@ -401,6 +401,7 @@ message SettingSchema {
   //   slots       a list of slots, each a non-empty list of choices (agent kinds)
   //   kinds       a list of choices (agent kinds)
   //   mb_or_auto  "auto" or a whole number of MB, 0 or more
+  //   int_or_auto "auto" or a whole number, 0 or more
   //   json        any JSON value
   string type = 1;
   string summary = 2;

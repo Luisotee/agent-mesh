@@ -812,6 +812,10 @@ message SpawnAgentRequest {
 
 message SpawnAgentResponse {
   Agent agent = 1;
+  // How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+  // "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+  // a retried spawn.
+  string capacity = 2;
 }
 
 message ListAgentsRequest {

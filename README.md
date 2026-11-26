@@ -92,7 +92,7 @@ Keep a running `TODO.md`, add to it as things come up, and when a batch has pile
 /delegate work through TODO.md
 ```
 
-The root sorts it into a few themed groups, shows you a board (which worker takes what, in which repo, on which model) and waits for your one go. Then up to eight workers run in parallel, one PR per group, each PR reviewed, and the findings go back to the worker that wrote it. You come back to a table of PRs with a suggested merge order. The root writes no code itself, so its context stays small however long the list is.
+The root sorts it into a few themed groups, shows you a board (which worker takes what, in which repo, on which model) and waits for your one go. Then as many workers run in parallel as the host carries (`caps.working`, sized from its cores), one PR per group, each PR reviewed, and the findings go back to the worker that wrote it. You come back to a table of PRs with a suggested merge order. The root writes no code itself, so its context stays small however long the list is.
 
 ### Reviews from several vendors
 

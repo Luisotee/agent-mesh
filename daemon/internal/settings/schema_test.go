@@ -21,8 +21,11 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 	if got := s.Keys("tiers.claude.mid."); len(got) != 3 {
 		t.Errorf("a tier has model, effort and note: %v", got)
 	}
-	if l, _ := s.Lookup("caps.agents"); l.Default != 8.0 {
-		t.Errorf("the agent cap defaults to %v, want 8", l.Default)
+	if l, _ := s.Lookup("caps.agents"); l.Type != IntOrAuto || l.Default != "auto" {
+		t.Errorf("the agent cap = %+v, want int_or_auto defaulting to auto", l)
+	}
+	if l, _ := s.Lookup("caps.working"); l.Type != IntOrAuto || l.Default != "auto" {
+		t.Errorf("the working cap = %+v, want int_or_auto defaulting to auto", l)
 	}
 	if l, _ := s.Lookup("worker_cpus"); l.Type != Percent || l.Default != 25.0 {
 		t.Errorf("worker_cpus = %+v", l)
@@ -79,6 +82,7 @@ func TestACheckNamesItsRule(t *testing.T) {
 		{Kinds, []any{list(), list("claude", "agy")}, []any{list("gpt"), "claude"}, "a list of claude, agy, copilot, opencode"},
 		{Slots, []any{list(list("claude")), list()}, []any{list(list()), list("claude"), list(list("nope"))}, "a list of slots"},
 		{MBOrAuto, []any{"auto", 0.0, 2048.0}, []any{"fast", -5.0, 1.5, true}, `"auto" or a whole number of MB`},
+		{IntOrAuto, []any{"auto", 0.0, 16.0}, []any{"fast", -5.0, 1.5, true}, `"auto" or a whole number, 0 or more`},
 		{JSON, []any{nil, 1.0, "x", list(1.0), map[string]any{"a": 1.0}}, nil, ""},
 	}
 	for _, c := range cases {

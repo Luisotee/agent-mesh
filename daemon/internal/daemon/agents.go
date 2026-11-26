@@ -85,6 +85,10 @@ type AgentConfig struct {
 	// MeminfoPath and PressurePath are the memory guard's sources (defaults /proc/meminfo and
 	// /proc/pressure/memory); tests point them at files.
 	MeminfoPath, PressurePath string
+	// Cores overrides the machine's core count in the auto sizing of `caps.working` (tests); 0 reads it.
+	Cores int
+	// CapacityEvery is how often the agents' memory and CPU are measured (default 30 s).
+	CapacityEvery time.Duration
 	// RetireEvery is how often agents idle past `idle_retire` after their report are looked for (default 10 s).
 	RetireEvery time.Duration
 	// AccountEvery is how often the accountability pass runs (default 5 s).
@@ -166,6 +170,7 @@ type runtime struct {
 	nativeOff     map[string]time.Time   // terminal id → a frame written to its inbox socket wasn't taken: type until then
 	deliverQueued map[string]bool        // agent id → a delivery is queued for it (deliverSoon)
 	guard         guard
+	sampler       capSampler // what the agents measured (capacity.go)
 	cpus          cpuTracker
 	usage         usageState      // usage cache / rate_limits (usage.go)
 	openCode      openCodeRuntime // OpenCode polling and model cache (opencode.go)
@@ -439,7 +444,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired, limited, accounted, reserved, contextTick time.Time
+		var pruned, retired, limited, accounted, reserved, contextTick, sampled time.Time
 		accountEvery := d.rt.cfg.AccountEvery
 		if accountEvery == 0 {
 			accountEvery = accountEveryDefault
@@ -448,7 +453,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		if reserveEvery == 0 {
 			reserveEvery = reserveAlertEvery
 		}
-		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot atomic.Bool
+		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot, sampling atomic.Bool
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -499,6 +504,14 @@ func (d *Daemon) runBackground(ctx context.Context) {
 				go func() {
 					defer alertRunning.Store(false)
 					d.reserveAlertPass(ctx)
+				}()
+			}
+			if now := d.now(); now.Sub(sampled) >= orDuration(d.rt.cfg.CapacityEvery, capacityEvery) && sampling.CompareAndSwap(false, true) {
+				sampled = now
+				// Off this loop: it reads /proc for every agent's process tree.
+				go func() {
+					defer sampling.Store(false)
+					d.sampleCapacity(ctx)
 				}()
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
@@ -1061,7 +1074,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	// Its first hooks may have come before its terminal was recorded: ring for its task now.
 	d.deliverSoon(agent.Id)
-	return connect.NewResponse(&v1.SpawnAgentResponse{Agent: d.view(launched)}), nil
+	return connect.NewResponse(&v1.SpawnAgentResponse{Agent: d.view(launched), Capacity: d.capacityLine(ctx)}), nil
 }
 
 // planLaunch asks the adapter for an agent's command line: a fresh conversation, or (resume set) a reopen of

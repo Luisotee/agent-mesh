@@ -28,7 +28,9 @@ const (
 	Slots    Type = "slots"
 	Kinds    Type = "kinds"
 	MBOrAuto Type = "mb_or_auto"
-	JSON     Type = "json"
+	// IntOrAuto is "auto" (the daemon works it out from the host) or a whole number, 0 or more.
+	IntOrAuto Type = "int_or_auto"
+	JSON      Type = "json"
 )
 
 // Efforts are the levels an effort takes, lowest first.
@@ -120,6 +122,8 @@ func (l Leaf) rule() string {
 		return "a list of " + strings.Join(l.kinds(), ", ")
 	case MBOrAuto:
 		return `"auto" or a whole number of MB, 0 or more`
+	case IntOrAuto:
+		return `"auto" or a whole number, 0 or more`
 	case JSON:
 		return "any JSON value"
 	}
@@ -213,6 +217,12 @@ func Check(l Leaf, v any) (any, error) {
 			return bad()
 		}
 	case MBOrAuto:
+		if s, ok := v.(string); !ok || s != "auto" {
+			if !whole(v, math.MaxInt32) {
+				return bad()
+			}
+		}
+	case IntOrAuto:
 		if s, ok := v.(string); !ok || s != "auto" {
 			if !whole(v, math.MaxInt32) {
 				return bad()
@@ -407,8 +417,12 @@ func DefaultLeaves() []Leaf {
 				"limit is over; off leaves it to the root or the user"},
 		Leaf{Key: "limits.hold", Type: Seconds, Default: 1800.0,
 			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
-		Leaf{Key: "caps.agents", Type: Int, Default: 16.0,
-			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
+		Leaf{Key: "caps.agents", Type: IntOrAuto, Default: "auto",
+			Summary: `live agent processes this host runs at once (agents still starting count); "auto" sizes it from this host's memory and ` +
+				"cores and what an agent measured holds (`mesh brief` prints the number); 0 means no cap"},
+		Leaf{Key: "caps.working", Type: IntOrAuto, Default: "auto",
+			Summary: `workers the root keeps working at once; "auto" sizes it from this host's cores and what a working agent measured uses ` +
+				"(advice to the root: the daemon refuses nothing over it); 0 means no limit"},
 	)
 	return append(ls, AppLeaves()...)
 }

@@ -2838,7 +2838,7 @@ func (x *SettingChanged) GetToDefault() bool {
 // What a setting's value may be, enough for a client to draw its editor and validate before it sends.
 type SettingSchema struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+	// One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
 	//   string      a non-empty string
 	//   strings     a list of strings
 	//   int         a whole number, 0 or more
@@ -2850,6 +2850,7 @@ type SettingSchema struct {
 	//   slots       a list of slots, each a non-empty list of choices (agent kinds)
 	//   kinds       a list of choices (agent kinds)
 	//   mb_or_auto  "auto" or a whole number of MB, 0 or more
+	//   int_or_auto "auto" or a whole number, 0 or more
 	//   json        any JSON value
 	Type    string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
 	Summary string `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`

@@ -106,3 +106,34 @@ func Signal(pid int, startTicks uint64, sig syscall.Signal) error {
 	}
 	return syscall.Kill(pid, sig)
 }
+
+// ClockTicks is the kernel's USER_HZ: the unit of the CPU times in /proc/<pid>/stat (100 on every Linux the
+// daemon runs on).
+const ClockTicks = 100
+
+// Usage is a process's resident memory in kB (/proc/<pid>/statm) and the CPU time it has used, user plus system,
+// in clock ticks (/proc/<pid>/stat fields 14 and 15).
+func Usage(pid int) (rssKB, cpuTicks uint64, err error) {
+	f, err := stat(pid)
+	if err != nil {
+		return 0, 0, err
+	}
+	utime, err1 := strconv.ParseUint(f[11], 10, 64)
+	stime, err2 := strconv.ParseUint(f[12], 10, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0, fmt.Errorf("unparseable CPU times in /proc/%d/stat", pid)
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/statm", pid))
+	if err != nil {
+		return 0, 0, err
+	}
+	m := strings.Fields(string(b))
+	if len(m) < 2 {
+		return 0, 0, fmt.Errorf("short /proc/%d/statm", pid)
+	}
+	pages, err := strconv.ParseUint(m[1], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	return pages * uint64(os.Getpagesize()) / 1024, utime + stime, nil
+}
