@@ -10,6 +10,7 @@ import { useHostState } from '@/context'
 import type { Setting } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { controlFor, fromText, groupOf, toText, type Control } from '@/settings-form'
+import { themeNames } from '@/theme'
 
 const json = (v: Setting['value']): unknown => (v ? toJson(ValueSchema, v) : undefined)
 const show = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v))
@@ -65,10 +66,20 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
   )
 }
 
+/**
+ * `app.theme` is a plain string on the host (a host can name a theme this build lacks, and themes may come from
+ * files later), so the desktop offers the themes it has, plus whatever the host has set.
+ */
+function controlOf(key: string, type: string, choices: string[], current: unknown): Control {
+  if (key !== 'app.theme') return controlFor(type, choices)
+  const names = themeNames()
+  return { kind: 'select', choices: typeof current === 'string' && !names.includes(current) ? [current, ...names] : names }
+}
+
 function SettingRow({ host, setting: s }: { host: HostRuntime; setting: Setting }) {
   const type = s.schema?.type ?? 'json'
-  const control = controlFor(type, s.schema?.choices ?? [])
   const current = json(s.value)
+  const control = controlOf(s.key, type, s.schema?.choices ?? [], current)
   const [draft, setDraft] = useState(() => toText(control, current))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)

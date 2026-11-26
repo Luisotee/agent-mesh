@@ -26,8 +26,8 @@
   --color-state-done: var(--state-done);
   --color-state-failed: var(--state-failed);
   --color-state-unknown: var(--state-unknown);
-  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace;
+  --font-sans: var(--font-ui, Inter, ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-code, 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace);
 }
 
 @layer base {
@@ -37,6 +37,6 @@
     scrollbar-color: var(--border) transparent;
   }
   body {
-    @apply bg-background text-foreground font-sans text-[13px] antialiased;
+    @apply bg-background text-foreground font-sans text-(length:--ui-text) antialiased;
   }
 }

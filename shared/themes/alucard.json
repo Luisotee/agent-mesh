@@ -1,6 +1,11 @@
 {
   "name": "Alucard",
   "dark": false,
+  "font": {
+    "sans": "Inter",
+    "mono": "JetBrains Mono"
+  },
+  "density": "compact",
   "tokens": {
     "background": "#fffbeb",
     "foreground": "#1f1f1f",

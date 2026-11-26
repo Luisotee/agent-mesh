@@ -57,7 +57,7 @@ class ScreensTest {
     @get:Rule val compose = createComposeRule()
     @get:Rule val tmp = TemporaryFolder()
 
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
 
     private fun runtime(): HostRuntime {
         val repo = HostRepository(tmp.newFile("hosts.json").also { it.delete() }, Plain)

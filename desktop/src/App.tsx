@@ -11,6 +11,8 @@ import { RunSidebar } from '@/components/run-sidebar'
 import { PairPanel, canPair } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
 import { joinWaiting } from '@/derive'
+import { appPrefs } from '@/prefs'
+import { applyTheme, themeByName } from '@/theme'
 import { cn } from '@/lib/utils'
 
 export function App({ api }: { api: DesktopApi }) {
@@ -47,6 +49,7 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
       <HostRail opened={opened} onOpenedDone={onOpenedDone} />
       {host && (
         <>
+          <ThemeSync host={host} />
           <aside className="flex w-80 shrink-0 flex-col border-r bg-surface">
             <HostHeader host={host} />
             <RunSidebar host={host} />
@@ -59,6 +62,13 @@ function Shell({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: ()
       )}
     </div>
   )
+}
+
+/** The look follows the selected host's `app.theme` (Dracula until it says, or when it names a theme this build lacks). */
+function ThemeSync({ host }: { host: HostRuntime }) {
+  const name = useHostState(host, (s) => appPrefs(s.settings).theme)
+  useEffect(() => applyTheme(themeByName(name)), [name])
+  return null
 }
 
 function Welcome({ opened, onDone }: { opened?: OpenedLink; onDone: () => void }) {

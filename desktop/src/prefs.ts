@@ -8,6 +8,8 @@ export interface AppPrefs {
   notifySound: boolean
   notifyEvents: ReadonlySet<string>
   closeToTray: boolean
+  /** The host's choice of theme (a name from `shared/themes`; an unknown one falls back to the default). */
+  theme: string
 }
 
 export function jsonOf(s: Setting | undefined): unknown {
@@ -23,6 +25,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   notifySound: true,
   notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed', 'error']),
   closeToTray: false,
+  theme: 'Dracula',
 }
 
 export function appPrefs(settings: Record<string, Setting>): AppPrefs {
@@ -36,5 +39,6 @@ export function appPrefs(settings: Record<string, Setting>): AppPrefs {
     notifySound: bool('app.notify.sound', DEFAULT_PREFS.notifySound),
     notifyEvents: Array.isArray(events) ? new Set(events.filter((e): e is string => typeof e === 'string')) : DEFAULT_PREFS.notifyEvents,
     closeToTray: bool('app.tray.close_to_tray', DEFAULT_PREFS.closeToTray),
+    theme: typeof jsonOf(settings['app.theme']) === 'string' ? (jsonOf(settings['app.theme']) as string) : DEFAULT_PREFS.theme,
   }
 }

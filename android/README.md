@@ -42,7 +42,7 @@ A host is a machine running meshd. The usual way is **pairing**; adding an addre
 
 - `app/src/main/kotlin/dev/agentmesh/android/`: `net/` (routes and pinning, the relay socket, pairing links, the one client wrapper `MeshApi`, `HostConnection`; the only package that reaches the network), `pair/` (the QR decoder and the camera scanner), `store/` (`HostState` and `applyFrame`, built only from snapshot and events), `derive/` (run trees, status sentences, what waits on the user), `hosts/` (the host list, sealed tokens, the pairing flow), `theme/`, `ui/` (Compose screens), `HostRuntime.kt` (one host's connection and state), `MeshApp.kt` (what lives as long as the process).
 - `app/src/gen/`: generated Java (protobuf lite) and Kotlin (ConnectRPC) code, committed; reviewers can skip it.
-- `app/src/main/assets/themes/`: one JSON file per theme.
+- `../shared/themes/`: one JSON file per theme, shared with the desktop and built into the APK as `assets/themes/`.
 - `app/src/test/`: JVM tests; `DaemonHarness` runs a real meshd with the fake `claude`.
 - `scripts/`: `setup.sh`, `env.sh`, `gen.sh`, `check.sh`, `protoc-gen-connect-kotlin`.
 

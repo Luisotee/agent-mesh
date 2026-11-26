@@ -58,6 +58,16 @@ describe('SettingsPanel', () => {
     expect(document.querySelector('[data-setting="min_free_mb"]')).toHaveTextContent('needs a restart')
   })
 
+  it('offers the desktop\'s themes for app.theme, and keeps a name the host set that this build lacks', async () => {
+    const { ui, client } = fixture([setting('app.theme', 'string', 'Dracula', 'Solarized', { isSet: true })])
+    render(ui)
+    const select = screen.getByRole('combobox', { name: 'Value of app.theme' })
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Solarized', 'Dracula', 'Alucard', 'Catppuccin Latte', 'Catppuccin Mocha', 'Nord', 'Tokyo Night'])
+    await userEvent.selectOptions(select, 'Nord')
+    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
+    expect(sentValue(client)).toMatchObject({ key: 'app.theme', value: 'Nord' })
+  })
+
   it('sets a bool at once, with a mutation id', async () => {
     const { ui, client } = fixture(list())
     render(ui)

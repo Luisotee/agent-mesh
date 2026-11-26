@@ -5,6 +5,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import dev.agentmesh.android.net.toJson
+import dev.agentmesh.android.store.HostState
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -21,7 +24,13 @@ data class ThemeSpec(
     val tokens: Map<String, String>,
     /** background, foreground, cursor, selection, and red green yellow blue magenta cyan; the rest is derived. */
     val terminal: Map<String, String> = emptyMap(),
+    /** The desktop's fonts and density (the files are shared); Android keeps its own type and spacing. */
+    val font: ThemeFont = ThemeFont(),
+    val density: String = "compact",
 )
+
+@Serializable
+data class ThemeFont(val sans: String = "Inter", val mono: String = "JetBrains Mono")
 
 /** The agent states' colours, which Material's scheme has no place for. */
 data class StateColors(
@@ -118,3 +127,7 @@ object Themes {
     /** Whether a theme is dark, judged by its background, for a file that doesn't say. */
     fun isDark(background: Color) = background.luminance() < 0.5f
 }
+
+/** The theme a host names with its `app.theme` setting, when it has set one. */
+fun hostTheme(s: HostState): String? =
+    (s.settings["app.theme"]?.value?.toJson() as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }

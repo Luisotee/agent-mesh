@@ -34,7 +34,7 @@ import dev.agentmesh.android.ui.LocalContainer
 import dev.agentmesh.android.ui.SectionHeader
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
 
-/** This device's own preferences. They aren't on a host: a theme here changes only this phone. */
+/** This device's own preferences. They aren't on a host: a theme chosen here overrides the host's `app.theme` on this phone only. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceSettingsScreen(onBack: () -> Unit) {
@@ -47,6 +47,7 @@ fun DeviceSettingsScreen(onBack: () -> Unit) {
             item { SectionHeader("Notifications") }
             item { NotificationSettings() }
             item { SectionHeader("Theme") }
+            item { ThemeRow(ThemeStore.HOST, null, choice == ThemeStore.HOST) { themes.choose(ThemeStore.HOST) } }
             item { ThemeRow(ThemeStore.SYSTEM, null, choice == ThemeStore.SYSTEM) { themes.choose(ThemeStore.SYSTEM) } }
             items(themes.available, key = { it.name }) { spec ->
                 ThemeRow(spec.name, spec, choice == spec.name) { themes.choose(spec.name) }
@@ -59,7 +60,13 @@ fun DeviceSettingsScreen(onBack: () -> Unit) {
 private fun ThemeRow(name: String, spec: dev.agentmesh.android.theme.ThemeSpec?, selected: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         RadioButton(selected, onClick = onClick)
-        Text(if (name == ThemeStore.SYSTEM) "Follow the system (${Themes.DEFAULT} or Alucard)" else name, Modifier.weight(1f).padding(start = 8.dp))
+        Text(
+            when (name) {
+                ThemeStore.HOST -> "Follow the host (its app.theme setting)"
+                ThemeStore.SYSTEM -> "Follow the system (${Themes.DEFAULT} or Alucard)"
+                else -> name
+            }, Modifier.weight(1f).padding(start = 8.dp),
+        )
         if (spec != null) {
             val t = Themes.resolve(spec)
             Row {

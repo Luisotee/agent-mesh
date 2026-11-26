@@ -1,6 +1,11 @@
 {
   "name": "Catppuccin Mocha",
   "dark": true,
+  "font": {
+    "sans": "Inter",
+    "mono": "Fira Code"
+  },
+  "density": "compact",
   "tokens": {
     "background": "#1e1e2e",
     "foreground": "#cdd6f4",

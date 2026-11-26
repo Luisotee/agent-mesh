@@ -262,3 +262,41 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   expect(notices()).toHaveLength(before)
   await host.client().resetSetting({ key: 'app.notify.events' })
 })
+
+test('the theme is a host setting: each of the six redraws the app, live, and an agent can change it', async () => {
+  const { page } = app
+  const themeOf = () => page.evaluate(() => ({ name: document.documentElement.dataset.theme, bg: getComputedStyle(document.body).backgroundColor, density: document.documentElement.dataset.density }))
+  expect((await themeOf()).name).toBe('Dracula')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const panel = page.getByRole('region', { name: 'Settings' })
+  await panel.getByLabel('Filter settings').fill('app.theme')
+  const select = panel.getByRole('combobox', { name: 'Value of app.theme' })
+  const seen = new Map<string, string>()
+  for (const [name, file, bg] of [
+    ['Alucard', 'alucard', 'rgb(255, 251, 235)'],
+    ['Catppuccin Mocha', 'catppuccin-mocha', 'rgb(30, 30, 46)'],
+    ['Catppuccin Latte', 'catppuccin-latte', 'rgb(239, 241, 245)'],
+    ['Tokyo Night', 'tokyo-night', 'rgb(26, 27, 38)'],
+    ['Nord', 'nord', 'rgb(46, 52, 64)'],
+    ['Dracula', 'dracula', 'rgb(40, 42, 54)'],
+  ] as const) {
+    await select.selectOption(name)
+    await expect.poll(async () => (await themeOf()).name).toBe(name)
+    expect((await themeOf()).bg).toBe(bg)
+    seen.set(name, (await themeOf()).density ?? '')
+    await page.screenshot({ path: path.join(shots, `theme-${file}.png`) })
+  }
+  expect(seen.get('Nord')).toBe('comfortable')
+  expect(seen.get('Dracula')).toBe('compact')
+  // The host has it, recorded as set by the device.
+  await expect.poll(async () => (await host.client().listSettings({ prefix: 'app.theme' })).settings[0]?.isSet).toBe(true)
+
+  // An agent (or the CLI) sets it and the open app follows, no reload.
+  await host.client().setSetting({ key: 'app.theme', value: { kind: { case: 'stringValue', value: 'Nord' } } })
+  await expect.poll(async () => (await themeOf()).name).toBe('Nord')
+  // A name this build lacks leaves the default look.
+  await host.client().setSetting({ key: 'app.theme', value: { kind: { case: 'stringValue', value: 'Solarized' } } })
+  await expect.poll(async () => (await themeOf()).name).toBe('Dracula')
+  await host.client().resetSetting({ key: 'app.theme' })
+  await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
+})
