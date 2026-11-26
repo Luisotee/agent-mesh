@@ -349,7 +349,7 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		}
 	}
 	d.warmOpenCodeModels(ctx, "opencode")
-	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, prAuthorKind(r, top, pr.HeadRef), earlierKinds)
+	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, prAuthorKind(r, top, pr.HeadRef), earlierKinds, top)
 	if err != nil {
 		return nil, err
 	}

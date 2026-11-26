@@ -285,6 +285,14 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 		return "", nil // a tier the settings no longer have: nothing to walk
 	}
 	chain = d.expandChain(a.Kind, chain)
+	// A repo set against free models (freemodels.go) never moves on to one: the next paid model, or none.
+	if off := d.freeOffFor(r, a.Kind, a.Repo); off != "" {
+		kept, err := d.dropFree(a.Repo, off, chain)
+		if err != nil {
+			return "", nil
+		}
+		chain = kept
+	}
 	if len(chain) == 0 {
 		return "", nil
 	}

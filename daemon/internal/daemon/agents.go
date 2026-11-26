@@ -883,6 +883,14 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		d.warmUsage(ctx, r, kind, agyResolveKey{model: m.Model, effort: m.Effort})
 	}
 	d.warmOpenCodeModels(ctx, kind)
+	// A repo set against free models (freemodels.go) gets no free OpenCode model; an unresolvable repo is the
+	// error repoTop gives below.
+	var freeOff, freeRepo string
+	if kind == opencode.Kind && strings.TrimSpace(m.Repo) != "" {
+		if t, err := d.repoTop(ctx, m.Repo); err == nil {
+			freeRepo, freeOff = t, d.freeModelsOff(r, t)
+		}
+	}
 	// What it runs on: a tier, or a model the user named; never a default (bin/mesh's need_tier). A root's model
 	// is the user's own (design §9): it launches on the CLI's default unless a tier or model is named.
 	var model, effort string
@@ -893,7 +901,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 				return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 			}
 			effort = m.Effort
-		} else if model, effort, err = d.pick(r, kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
+		} else if model, effort, err = d.pickIn(r, freeRepo, freeOff, kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
 			return nil, err
 		}
 	}

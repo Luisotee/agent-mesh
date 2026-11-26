@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
 import { SettingsPanel } from './components/settings-panel'
 import { AppContext } from './context'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, type Setting } from './gen/agentmesh/v1/types_pb'
+import { AgentSchema, SettingSchema$ as SettingDescriptor, SettingSchemaSchema, type Setting } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from './model'
 import { createHostStore } from './store'
 
@@ -66,6 +66,31 @@ describe('SettingsPanel', () => {
     await userEvent.selectOptions(select, 'Nord')
     await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
     expect(sentValue(client)).toMatchObject({ key: 'app.theme', value: 'Nord' })
+  })
+
+  it('lists the repos agents work in as switches on repos.no_free_models, and writes the whole list', async () => {
+    const { ui, client, store } = fixture([setting('repos.no_free_models', 'strings', [], ['/w/old'], { isSet: true })])
+    store.setState({ agents: { a1: create(AgentSchema, { id: 'a1', repo: '/w/shop-api' }), a2: create(AgentSchema, { id: 'a2', repo: '/w/web' }) } })
+    render(ui)
+    const section = screen.getByRole('region', { name: 'Free models by repo' })
+    // The repos agents work in, and a listed folder no agent works in (so it can be taken off).
+    expect(within(section).getByRole('checkbox', { name: 'May use free models: shop-api' })).toBeChecked()
+    expect(within(section).getByRole('checkbox', { name: 'May use free models: old' })).not.toBeChecked()
+    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: shop-api' }))
+    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
+    expect(sentValue(client)).toMatchObject({ key: 'repos.no_free_models', value: ['/w/old', '/w/shop-api'] })
+  })
+
+  it('takes a repo off the list, and shows the host\'s refusal', async () => {
+    const { ui, client } = fixture([setting('repos.no_free_models', 'strings', [], ['/w/a', '/w/b'], { isSet: true })])
+    client.setSetting.mockRejectedValueOnce(new Error('[invalid_argument] nope'))
+    render(ui)
+    const section = screen.getByRole('region', { name: 'Free models by repo' })
+    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: a' }))
+    await waitFor(() => expect(section).toHaveTextContent('nope'))
+    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: a' }))
+    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(2))
+    expect(sentValue(client, 1)).toMatchObject({ value: ['/w/b'] })
   })
 
   it('sets a bool at once, with a mutation id', async () => {

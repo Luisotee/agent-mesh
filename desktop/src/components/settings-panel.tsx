@@ -9,6 +9,7 @@ import { Input, Select, Textarea } from '@/components/ui/input'
 import { useHostState } from '@/context'
 import type { Setting } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
+import { knownRepos, repoName } from '@/derive'
 import { controlFor, fromText, groupOf, toText, type Control } from '@/settings-form'
 import { themeNames } from '@/theme'
 
@@ -34,6 +35,7 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
     return [...by.entries()]
   }, [settings, query, changed])
   const total = Object.keys(settings).length
+  const agents = useHostState(host, (s) => s.agents)
   return (
     <section aria-label="Settings" className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
       <header className="flex flex-col gap-1">
@@ -46,6 +48,7 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
           <input type="checkbox" checked={changed} onChange={(e) => setChanged(e.target.checked)} /> Only the ones I set
         </label>
       </div>
+      {settings[FREE_KEY] && <FreeModels host={host} setting={settings[FREE_KEY]} repos={knownRepos(agents)} />}
       {total === 0 && <p className="text-xs text-muted-foreground">The host hasn't sent its settings yet.</p>}
       {total > 0 && groups.length === 0 && <p className="text-xs text-muted-foreground">No setting matches.</p>}
       {groups.map(([group, list]) => (
@@ -62,6 +65,60 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
           </ul>
         </details>
       ))}
+    </section>
+  )
+}
+
+const FREE_KEY = 'repos.no_free_models'
+
+/**
+ * Which repos' code may go to OpenCode's free models (some of their providers keep prompts or train on them). The
+ * setting is a list of the repos kept away from them; here each repo the host knows is a switch on that list, and
+ * a listed folder no agent works in is shown too, so it can be taken off.
+ */
+function FreeModels({ host, setting, repos }: { host: HostRuntime; setting: Setting; repos: string[] }) {
+  const listed = useMemo(() => {
+    const v = json(setting.value)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  }, [setting.value])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const all = [...repos, ...listed.filter((l) => !repos.includes(l))]
+  async function toggle(repo: string, mayUse: boolean) {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await setSetting(host.client, FREE_KEY, (mayUse ? listed.filter((l) => l !== repo) : [...listed, repo]) as never)
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section aria-label="Free models by repo" className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5">
+      <h2 className="text-[13px] font-semibold">Free models by repo</h2>
+      <p className="text-xs text-muted-foreground">
+        Some of OpenCode's free models are served by providers that keep prompts or train on them. Switch a repo off to keep its code from them: nothing there is started on, switched to or picked as a reviewer on a zero-cost model. A paid OpenCode model stays allowed, and agents already running keep their model. Every repo may by default.
+      </p>
+      {all.length === 0 && <p className="text-xs text-muted-foreground">No repo yet: the ones agents work in show up here.</p>}
+      <ul className="flex flex-col divide-y">
+        {all.map((repo) => {
+          const mayUse = !listed.includes(repo)
+          return (
+            <li key={repo} className="flex items-center gap-3 py-1.5">
+              <label className="flex flex-1 items-center gap-2 text-[13px]" title={repo}>
+                <input type="checkbox" aria-label={`May use free models: ${repoName(repo)}`} checked={mayUse} disabled={busy} onChange={(e) => void toggle(repo, e.target.checked)} />
+                <span className="font-medium">{repoName(repo)}</span>
+                <span className="truncate font-mono text-[11px] text-muted-foreground">{repo}</span>
+              </label>
+              <span className="text-xs text-muted-foreground">{mayUse ? 'free models allowed' : 'kept from free models'}</span>
+            </li>
+          )
+        })}
+      </ul>
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     </section>
   )
 }

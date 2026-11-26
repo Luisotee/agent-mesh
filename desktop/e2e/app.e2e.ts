@@ -301,6 +301,29 @@ test('the theme is a host setting: each of the six redraws the app, live, and an
   await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
 })
 
+test('a repo is kept from free models by a switch in the settings, and the host then refuses OpenCode there', async () => {
+  const { page } = app
+  await page.getByRole('button', { name: 'Settings' }).click()
+  const section = page.getByRole('region', { name: 'Free models by repo' })
+  const box = section.getByRole('checkbox', { name: /May use free models: repo$/ })
+  await expect.poll(() => box.isChecked()).toBe(true)
+  await page.screenshot({ path: path.join(shots, 'free-models.png') })
+  await box.click()
+  await expect.poll(() => box.isChecked()).toBe(false)
+  const listed = async () => (await host.client().listSettings({ prefix: 'repos.no_free_models' })).settings[0]
+  await expect.poll(async () => (await listed())?.isSet).toBe(true)
+
+  // The host enforces it: an OpenCode agent there is refused, naming the setting.
+  const asLead = host.client(host.agentToken(await agentId('repo-lead')))
+  await expect(asLead.spawnAgent({ repo: host.repo, slug: 'free', role: AgentRole.WORKER, kind: 'opencode', tier: 'light' })).rejects.toThrow(/repos\.no_free_models/)
+
+  // Switched back on, and the list is empty again.
+  await box.click()
+  await expect.poll(() => box.isChecked()).toBe(true)
+  await expect.poll(async () => JSON.stringify((await listed())?.value?.kind)).toContain('"values":[]')
+  await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
+})
+
 test('the usage and cost screen asks the host for what mesh usage and mesh cost print', async () => {
   const { page } = app
   await page.getByRole('button', { name: 'Usage and cost' }).click()
