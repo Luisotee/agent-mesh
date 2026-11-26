@@ -17,11 +17,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protowire"
 	_ "modernc.org/sqlite"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
@@ -303,12 +305,61 @@ func (a *Adapter) resolveModel(ctx context.Context, bin, model, effort string, e
 	return PickModel(listing, model, effort)
 }
 
+// ModelFamily extracts the model family from an agy model ID (e.g. `gemini-4-neon-high` -> `neon`).
+func ModelFamily(id string) (string, bool) {
+	p, ok := parseAgyID(id)
+	if !ok {
+		return "", false
+	}
+	return p.family, true
+}
+
+// ListedFamilies returns the sorted unique model families listed by `agy models` (from the cached listing
+// unless fresh is true). Returns nil, nil when !fresh and no cached listing exists yet.
+func (a *Adapter) ListedFamilies(ctx context.Context, bin string, env map[string]string, fresh bool) ([]string, error) {
+	if bin == "" {
+		bin = "agy"
+	}
+	var listing string
+	if !fresh {
+		cacheFile := modelsCachePath(bin, env)
+		if cacheFile == "" {
+			return nil, nil
+		}
+		b, err := os.ReadFile(cacheFile)
+		if err != nil || !hasParsedID(string(b)) {
+			return nil, nil
+		}
+		listing = string(b)
+	} else {
+		var err error
+		listing, err = a.listModelsDirect(ctx, bin, env, true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	seen := map[string]bool{}
+	var families []string
+	for _, id := range listingIDs(listing) {
+		if p, ok := parseAgyID(id); ok && !seen[p.family] {
+			seen[p.family] = true
+			families = append(families, p.family)
+		}
+	}
+	sort.Strings(families)
+	return families, nil
+}
+
 func (a *Adapter) listModels(ctx context.Context, bin string, env map[string]string) (string, error) {
+	return a.listModelsDirect(ctx, bin, env, false)
+}
+
+func (a *Adapter) listModelsDirect(ctx context.Context, bin string, env map[string]string, force bool) (string, error) {
 	if a.ListModels != nil {
 		return a.ListModels(ctx, bin, env)
 	}
 	cacheFile := modelsCachePath(bin, env)
-	if cacheFile != "" {
+	if !force && cacheFile != "" {
 		if st, err := os.Stat(cacheFile); err == nil && time.Since(st.ModTime()) < modelsCacheTTL {
 			if b, err := os.ReadFile(cacheFile); err == nil && hasParsedID(string(b)) {
 				return string(b), nil
@@ -329,7 +380,7 @@ func (a *Adapter) listModels(ctx context.Context, bin string, env map[string]str
 		}
 		return string(out), nil
 	}
-	if cacheFile != "" {
+	if !force && cacheFile != "" {
 		if b, rerr := os.ReadFile(cacheFile); rerr == nil && hasParsedID(string(b)) {
 			return string(b), nil
 		}
@@ -932,4 +983,186 @@ func workspaceMatches(cwd string, workspaces []string) bool {
 // ReadInputBox reads the input box from a repaint: agy's rules box, its empty-box hint in colour 8 as well as dim.
 func (a *Adapter) ReadInputBox(_ context.Context, req *connect.Request[adapterv1.ReadInputBoxRequest]) (*connect.Response[adapterv1.ReadInputBoxResponse], error) {
 	return connect.NewResponse(adapter.ReadInputBox(req.Msg, inputbox.Agy)), nil
+}
+
+// ── cost / step usage ──
+
+// TokenCall is one model step decoded from an agy conversation SQLite DB.
+type TokenCall struct {
+	Time   time.Time
+	Input  int64
+	Read   int64
+	Output int64
+}
+
+// ConversationsDir returns the folder holding agy `<session>.db` files for env.
+func ConversationsDir(env map[string]string) string {
+	if p := env["AGENT_MESH_AGY_CONVERSATIONS"]; p != "" {
+		return p
+	}
+	if p := env["MESH_AGY_CONVERSATIONS"]; p != "" {
+		return p
+	}
+	home := env["HOME"]
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".gemini", "antigravity-cli", "conversations")
+}
+
+// RecentConversations returns conversation ids whose `<session>.db` mtime is at or after `since` (all if zero).
+func RecentConversations(convDir string, since time.Time) []string {
+	if convDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(convDir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".db") {
+			continue
+		}
+		if !since.IsZero() {
+			info, err := e.Info()
+			if err != nil || info.ModTime().Before(since) {
+				continue
+			}
+		}
+		out = append(out, strings.TrimSuffix(e.Name(), ".db"))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ConversationCalls decodes step timestamps and token usage from `<convDir>/<session>.db`.
+func ConversationCalls(convDir, session string) []TokenCall {
+	if convDir == "" || session == "" {
+		return nil
+	}
+	dbPath := filepath.Join(convDir, session+".db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil
+	}
+	uriPath := strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(filepath.Clean(dbPath))
+	db, err := sql.Open("sqlite", "file:"+uriPath+"?mode=ro&_pragma=busy_timeout(2000)")
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT metadata FROM steps ORDER BY idx`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var calls []TokenCall
+	for rows.Next() {
+		var meta []byte
+		if err := rows.Scan(&meta); err != nil || len(meta) == 0 {
+			continue
+		}
+		if c, ok := decodeStepMetadata(meta); ok {
+			calls = append(calls, c)
+		}
+	}
+	return calls
+}
+
+func decodeStepMetadata(meta []byte) (TokenCall, bool) {
+	var stampBytes, usageBytes []byte
+	for len(meta) > 0 {
+		num, typ, n := protowire.ConsumeTag(meta)
+		if n < 0 {
+			return TokenCall{}, false
+		}
+		meta = meta[n:]
+		if typ == protowire.BytesType {
+			v, vn := protowire.ConsumeBytes(meta)
+			if vn < 0 {
+				return TokenCall{}, false
+			}
+			meta = meta[vn:]
+			switch num {
+			case 1:
+				stampBytes = v
+			case 9:
+				usageBytes = v
+			}
+		} else {
+			sn := protowire.ConsumeFieldValue(num, typ, meta)
+			if sn < 0 {
+				return TokenCall{}, false
+			}
+			meta = meta[sn:]
+		}
+	}
+	if len(stampBytes) == 0 || len(usageBytes) == 0 {
+		return TokenCall{}, false
+	}
+	var sec int64
+	for len(stampBytes) > 0 {
+		num, typ, n := protowire.ConsumeTag(stampBytes)
+		if n < 0 {
+			return TokenCall{}, false
+		}
+		stampBytes = stampBytes[n:]
+		if typ == protowire.VarintType {
+			v, vn := protowire.ConsumeVarint(stampBytes)
+			if vn < 0 {
+				return TokenCall{}, false
+			}
+			stampBytes = stampBytes[vn:]
+			if num == 1 {
+				sec = int64(v)
+			}
+		} else {
+			sn := protowire.ConsumeFieldValue(num, typ, stampBytes)
+			if sn < 0 {
+				return TokenCall{}, false
+			}
+			stampBytes = stampBytes[sn:]
+		}
+	}
+	if sec <= 0 {
+		return TokenCall{}, false
+	}
+	var hasInput bool
+	var input, read, output int64
+	for len(usageBytes) > 0 {
+		num, typ, n := protowire.ConsumeTag(usageBytes)
+		if n < 0 {
+			return TokenCall{}, false
+		}
+		usageBytes = usageBytes[n:]
+		if typ == protowire.VarintType {
+			v, vn := protowire.ConsumeVarint(usageBytes)
+			if vn < 0 {
+				return TokenCall{}, false
+			}
+			usageBytes = usageBytes[vn:]
+			switch num {
+			case 2:
+				input = int64(v)
+				hasInput = true
+			case 5:
+				read = int64(v)
+			case 3:
+				output = int64(v)
+			}
+		} else {
+			sn := protowire.ConsumeFieldValue(num, typ, usageBytes)
+			if sn < 0 {
+				return TokenCall{}, false
+			}
+			usageBytes = usageBytes[sn:]
+		}
+	}
+	if !hasInput {
+		return TokenCall{}, false
+	}
+	return TokenCall{Time: time.Unix(sec, 0), Input: input, Read: read, Output: output}, true
 }

@@ -396,6 +396,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	delete(d.rt.introduced, terminalID)
 	delete(d.rt.nativeOff, terminalID)
 	delete(d.rt.firstOutput, terminalID)
+	delete(d.rt.held, owner) // a draft held for the old process says nothing of the next one's
 	d.rt.mu.Unlock()
 	d.clearOpenCodeTerminal(terminalID)
 	_, err = d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: terminalID}))

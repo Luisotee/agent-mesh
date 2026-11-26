@@ -20,4 +20,24 @@ public interface StartRunResponseOrBuilder extends
    * @return The run.
    */
   dev.agentmesh.gen.agentmesh.v1.Run getRun();
+
+  /**
+   * <pre>
+   * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+   * </pre>
+   *
+   * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+   * @return The modelNotice.
+   */
+  java.lang.String getModelNotice();
+  /**
+   * <pre>
+   * Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+   * </pre>
+   *
+   * <code>string model_notice = 2 [json_name = "modelNotice"];</code>
+   * @return The bytes for modelNotice.
+   */
+  com.google.protobuf.ByteString
+      getModelNoticeBytes();
 }

@@ -310,6 +310,17 @@ func (r Reader) EventsAfter(seq int64, runID string, limit int) ([]*v1.Event, er
 	return scanAll(r, query, args, func() *v1.Event { return &v1.Event{} })
 }
 
+// ListEvents returns every event ordered by seq, or one run's events when runID is non-empty.
+func (r Reader) ListEvents(runID string) ([]*v1.Event, error) {
+	query := `SELECT data FROM events ORDER BY seq`
+	var args []any
+	if runID != "" {
+		query = `SELECT data FROM events WHERE run_id = ? ORDER BY seq`
+		args = []any{runID}
+	}
+	return scanAll(r, query, args, func() *v1.Event { return &v1.Event{} })
+}
+
 func scanAll[T proto.Message](r Reader, query string, args []any, mk func() T) ([]T, error) {
 	rows, err := r.q.QueryContext(r.ctx, query, args...)
 	if err != nil {

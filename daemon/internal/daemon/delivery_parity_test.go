@@ -388,3 +388,50 @@ func TestABusySessionIsGivenLongerBeforeItsFrameIsTakenForLost(t *testing.T) {
 		t.Errorf("what the agent was given: %q", got)
 	}
 }
+
+func TestRingTriesCapsTheSocketWriteAndItsTypedFallbackTogether(t *testing.T) {
+	// One try allowed and the frame was written: a frame the session never takes ends the tries, so no
+	// doorbell is typed after it.
+	w, log := inboxWorld(t, map[string]string{"FAKECLAUDE_INBOX_HOLD": "1"})
+	w.set(t, "delivery.confirm_after", 1)
+	w.set(t, "delivery.ring_tries", 1)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "capped", &v1.SpawnAgentRequest{})
+	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
+	waitFor(t, "the doorbell given up", func() bool {
+		return w.count(t, run.Id, func(ev *v1.Event) bool { return ev.GetDoorbellFailed() != nil }) > 0
+	})
+	time.Sleep(2500 * time.Millisecond)
+	got := lines(t, log)
+	if len(got) != 1 || !strings.HasPrefix(got[0], "frame:") {
+		t.Errorf("what the agent was given: %q, want the one frame", got)
+	}
+	if n := w.count(t, run.Id, func(ev *v1.Event) bool { return ev.GetDoorbellFailed() != nil }); n != 1 {
+		t.Errorf("%d DoorbellFailed events, want 1", n)
+	}
+	if !w.deliveredAt(t, worker.Id, msg.Id).IsZero() {
+		t.Error("the message counts as delivered")
+	}
+}
+
+func TestAMessageTheAgentReadsBeforeAnyOtherSignIsDeliveredViaRead(t *testing.T) {
+	w, log := boxWorld(t, map[string]string{"FAKECLAUDE_DROP": "1"})
+	w.set(t, "delivery.confirm_after", 30)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "reader", &v1.SpawnAgentRequest{})
+	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
+	waitFor(t, "the doorbell typed", func() bool { return len(doorbells(lines(t, log))) == 1 })
+	// The agent never acts on the doorbell, but reads its inbox (a hook, or it saw the mail another way).
+	if _, err := w.as(w.token(t, worker.Id)).ReadInbox(context.Background(), connect.NewRequest(&v1.ReadInboxRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
+	if got := w.deliveries(t, run.Id, msg.Id); len(got) != 1 || got[0].Via != "read" || got[0].Tries != 1 {
+		t.Errorf("delivery events %+v, want one via read after 1 try", got)
+	}
+	if rung := doorbells(lines(t, log)); len(rung) != 1 {
+		t.Errorf("doorbells typed: %q", rung)
+	}
+}

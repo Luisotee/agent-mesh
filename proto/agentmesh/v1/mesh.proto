@@ -5,6 +5,7 @@ package agentmesh.v1;
 import "agentmesh/v1/actor.proto";
 import "agentmesh/v1/ask.proto";
 import "agentmesh/v1/options.proto";
+import "agentmesh/v1/report.proto";
 import "agentmesh/v1/types.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
@@ -499,6 +500,51 @@ service MeshService {
       summary: "Import the peers of bin/mesh's peers.json (read only), unbriefed"
     };
   }
+
+  // Spend per agent, kind and phase from session files, plus reviewer verdicts.
+  rpc GetCost(GetCostRequest) returns (GetCostResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "cost"
+      summary: "Spend per agent, kind and phase, from session files"
+    };
+  }
+
+  // Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
+  rpc CheckModels(CheckModelsRequest) returns (CheckModelsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "models"
+      summary: "Check model families each CLI lists against the tiers (new and retired); --ack records a decision"
+    };
+  }
+
+  // Find which run branches with commits conflict with their base or each other, and which workers share files.
+  rpc CheckConflicts(CheckConflictsRequest) returns (CheckConflictsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "conflicts"
+      summary: "Check which run branches conflict with their base or each other, and which workers share files"
+    };
+  }
 }
 
 message HelloRequest {
@@ -530,6 +576,8 @@ message StartRunRequest {
 
 message StartRunResponse {
   Run run = 1;
+  // Notice when a CLI lists model families no tier names (or no longer lists one a tier names).
+  string model_notice = 2;
 }
 
 message ListRunsRequest {
