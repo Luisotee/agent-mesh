@@ -16,7 +16,7 @@ pnpm test src/store.test.ts   # one file
 pnpm typecheck                # the renderer and the main process (two tsconfigs)
 pnpm gen                      # TypeScript from ../proto after a .proto change
 pnpm build && pnpm e2e        # the end-to-end tests: the built app over CDP, against a real meshd
-pnpm pack:win-zip             # a Windows zip of the app (builds on Linux too); the NSIS installer is built on Windows (`pnpm pack`), see README "Packaging"
+pnpm pack:win                 # a Windows zip (builds on Linux without wine); the NSIS installer (`pnpm pack`) needs wine or a Windows host, see README "Packaging"
 pnpm pack:dir                 # the unpacked installer app in release/ (electron-builder.json; `pnpm pack:check` builds the deb and checks its agentmesh:// entry, opt-in)
 ```
 
