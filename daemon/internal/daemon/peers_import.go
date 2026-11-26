@@ -39,8 +39,8 @@ type peerConversation struct {
 	session string
 	run     string
 	agent   string
-	// running: the agent that holds it was still starting or running in a run that isn't archived, so bin/mesh's
-	// process may still be on the conversation (one process per conversation).
+	// running: its agent is in a run that isn't archived and not retired (starting, running, or any state this
+	// doesn't know), so bin/mesh's process may still be on the conversation (one process per conversation).
 	running bool
 }
 
@@ -88,7 +88,7 @@ func findPeerConversation(stateDir, name, run, as, repo, kind string) (peerConve
 				continue
 			}
 			return peerConversation{session: e.Session, run: runID, agent: n,
-				running: !archived && (e.Status == "starting" || e.Status == "running")}, true
+				running: !archived && e.Status != "retired"}, true
 		}
 		return peerConversation{}, false
 	}
@@ -199,6 +199,7 @@ type peerUpgrade struct {
 	peer        *v1.Peer
 	oldWorktree string // the daemon's own worktree it leaves, to remove when clean
 	made        bool   // the worktree at the conversation's folder was made by this call
+	applied     bool   // the write took it
 }
 
 // upgradePeer prepares the upgrade of a registered peer, or says why not: a peer already asked (or running, or

@@ -342,6 +342,9 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	}
 	// The clone goes only if the daemon made it and no other peer works in it.
 	if m.DeleteClone {
+		if p.InClone {
+			return nil, invalid("%s works in the clone's own checkout (%s): remove that yourself, or remove the peer without --delete-clone", p.Name, p.Repo)
+		}
 		if !p.Cloned {
 			return nil, invalid("%s's clone is %s, which the daemon did not make: remove it yourself, or remove the peer without --delete-clone", p.Name, p.Repo)
 		}
@@ -364,10 +367,18 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	}); err != nil {
 		return nil, err
 	}
-	// The peer is gone from the registry either way; a worktree git won't remove is the daemon's own folder, so
-	// it is deleted, and one that still stands is said.
-	// A peer in the clone's own checkout has no worktree of its own: that folder is the user's.
-	if !p.InClone {
+	// The peer is gone from the registry either way. A worktree of the daemon's own that git won't remove is
+	// deleted, and one that still stands is said. A peer in the clone's own checkout has no worktree of its own
+	// (that folder is the user's), and one imported at bin/mesh's folder is removed only when git finds it clean:
+	// bin/mesh may still use it, and its uncommitted work is not the daemon's to delete.
+	own := strings.HasPrefix(filepath.Clean(p.Worktree)+string(filepath.Separator), filepath.Clean(d.peerWorktree(""))+string(filepath.Separator))
+	switch {
+	case p.InClone:
+	case !own:
+		if _, err := git(ctx, p.Repo, "worktree", "remove", p.Worktree); err != nil {
+			out.Worktree = "" // left where it is
+		}
+	default:
 		if _, err := git(ctx, p.Repo, "worktree", "remove", "--force", p.Worktree); err != nil {
 			os.RemoveAll(p.Worktree)
 			git(ctx, p.Repo, "worktree", "prune")
@@ -575,14 +586,19 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			out.Imported = append(out.Imported, p.Name)
 		}
 		for _, up := range upgrades {
+			up.applied = false
 			cur, err := tx.GetPeer(up.peer.Name)
 			if err != nil || cur.SessionId != "" || cur.Asked != nil {
 				out.Skipped = append(out.Skipped, up.peer.Name+": asked meanwhile, left alone")
 				continue
 			}
-			if err := tx.PutPeer(up.peer); err != nil {
+			// Only the conversation comes across: anything else changed meanwhile stays as it is.
+			cur.Worktree, cur.InClone, cur.SessionId, cur.Asked = up.peer.Worktree, up.peer.InClone, up.peer.SessionId, up.peer.Asked
+			cur.LastRun, cur.LastAgent, cur.LastAnswers = up.peer.LastRun, up.peer.LastAgent, up.peer.LastAnswers
+			if err := tx.PutPeer(cur); err != nil {
 				return err
 			}
+			up.applied = true
 			out.Imported = append(out.Imported, up.peer.Name+" (conversation "+short(up.peer.SessionId)+")")
 		}
 		return nil
@@ -594,8 +610,11 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		return nil, err
 	}
 	for _, up := range upgrades {
-		if up.oldWorktree != "" {
+		switch {
+		case up.applied && up.oldWorktree != "":
 			git(ctx, up.peer.Repo, "worktree", "remove", up.oldWorktree) // clean only: never --force a folder the daemon is done with
+		case !up.applied && up.made:
+			git(ctx, up.peer.Repo, "worktree", "remove", "--force", up.peer.Worktree) // an upgrade skipped in the write: the folder made for it goes
 		}
 	}
 	return connect.NewResponse(out), nil

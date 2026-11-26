@@ -691,3 +691,36 @@ func TestAPeerInTheClonesOwnCheckoutIsNeverMovedOrRemoved(t *testing.T) {
 		t.Errorf("removing the peer took the clone's checkout: %v", err)
 	}
 }
+
+func TestRemovingAnImportedPeerLeavesBinMeshsDirtyWorktreeAndTakesACleanOne(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up1, up2 := newUpstream(t, "clean"), newUpstream(t, "dirty")
+	c1, c2 := cloneOf(t, up1), cloneOf(t, up2)
+	wt1, wt2 := filepath.Join(t.TempDir(), "clean-research"), filepath.Join(t.TempDir(), "dirty-research")
+	worktreeOf(t, c1, wt1)
+	worktreeOf(t, c2, wt2)
+	os.WriteFile(filepath.Join(wt2, "wip.txt"), []byte("uncommitted"), 0o644)
+	exec.Command("git", "-C", wt2, "add", "wip.txt").Run()
+	st.run(t, "r1", true, map[string]map[string]any{
+		"clean-research": {"kind": "claude", "repo": c1, "session": "s1", "status": "retired"},
+		"dirty-research": {"kind": "claude", "repo": c2, "session": "s2", "status": "retired"}})
+	file := st.peersJSON(t, map[string]any{
+		"clean-research": map[string]any{"repo": c1, "group": "g", "about": "c", "cwd": wt1, "run": "r1", "as": "clean-research"},
+		"dirty-research": map[string]any{"repo": c2, "group": "g", "about": "d", "cwd": wt2, "run": "r1", "as": "dirty-research"}})
+	if _, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file})); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"clean-research", "dirty-research"} {
+		if _, err := w.device.Mesh.RemovePeer(ctx, connect.NewRequest(&v1.RemovePeerRequest{Meta: meta(""), Name: name})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(wt1); err == nil {
+		t.Errorf("a clean imported worktree stays")
+	}
+	if _, err := os.Stat(filepath.Join(wt2, "wip.txt")); err != nil {
+		t.Errorf("uncommitted work in bin/mesh's worktree was deleted: %v", err)
+	}
+}
