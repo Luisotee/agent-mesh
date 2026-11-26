@@ -138,6 +138,11 @@ func reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAfter, waitMax 
 		return owesNothing, task, nil
 	}
 	if nudged {
+		// Told only when the nudge had its turn and that turn ended the same way: an agent whose doorbell is held
+		// back (a user typing, a state that takes none) has not been given the chance to report yet.
+		if a.LastActivity == nil || !a.LastActivity.AsTime().After(nudgedAt) {
+			return owesNothing, task, nil
+		}
 		return owesAlert, task, nil
 	}
 	return owesNudge, task, nil

@@ -109,6 +109,12 @@ func TestAnIdleWorkerWithNoReportIsNudgedOnceThenItsParentIsTold(t *testing.T) {
 	if n := a.mailOf("a-root", "[mesh alert"); n != 0 {
 		t.Fatalf("the parent was told before the nudge had a turn: %d", n)
 	}
+	// No turn since the nudge (its doorbell is held back): the agent hasn't had its chance, so the parent isn't told.
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-root", "[mesh alert"); n != 0 {
+		t.Fatalf("the parent was told before the nudge had a turn: %d", n)
+	}
 	// The nudge rang a turn that ended the same way: idle again, no report.
 	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
 	time.Sleep(1200 * time.Millisecond)
