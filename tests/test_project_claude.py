@@ -105,15 +105,8 @@ def test_the_generated_tray_icons_are_guarded_too():
     assert guard(edit(str(ROOT / "desktop/electron/main.ts"))).stdout == ""
 
 
-def test_the_project_hooks_add_to_a_mesh_workers_hooks_and_leave_its_inbound_setting_alone(mesh, run, tmp_path):
-    """mesh launches a Claude worker with its own hooks in `--settings` (`worker_hooks`): Claude Code adds those to
-    the project's, and the two use different events, so neither replaces the other. The project file sets no
-    `crossSessionInbound` and turns no hooks off, so a worker here hears from mesh as one in a bare repo does."""
-    hooks = mesh.worker_hooks(run, "repo-fix-typo")
-    assert set(hooks) & set(SETTINGS["hooks"]) == set()
-    worker = json.loads(mesh.worker_settings(mesh.mesh_env(run, "repo-fix-typo", "repo-lead", "worker"), False))
-    assert set(worker["hooks"]) == set(hooks)
+def test_the_project_settings_leave_hooks_and_the_inbound_setting_alone():
+    """meshd launches a Claude agent with its own hooks in `--settings`, and Claude Code adds them to the project's
+    (different events, so neither replaces the other). The project file turns no hooks off and sets no
+    `crossSessionInbound`, so an agent here hears from the daemon as one in a bare repo does."""
     assert not {"disableAllHooks", "allowManagedHooksOnly", "crossSessionInbound"} & set(SETTINGS)
-    assert mesh.settings_inbound(ROOT / ".claude" / "settings.json") is None
-    assert mesh.inbound_setting(ROOT, "accept") == mesh.inbound_setting(tmp_path, "accept")
-    assert mesh.worker_accepts(ROOT) == mesh.worker_accepts(tmp_path)

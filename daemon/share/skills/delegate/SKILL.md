@@ -15,7 +15,7 @@ argument-hint: <what to build, fix or ask, in which repos, or a task list>
 
 Run an **agent-mesh** for the user's request: `$ARGUMENTS` when the user typed the command, otherwise the request that brought you here. You are the user's own session, not an agent of the mesh: you start the run and its **root**, and the user follows it in the app. You do not supervise, and you do not do the work yourself.
 
-1. **The daemon:** `mesh hello` must answer (it names the daemon and who you are to it). If it doesn't, tell the user the daemon isn't running (`systemctl --user status agent-mesh.service`, or `./install.sh --daemon` in the agent-mesh checkout) and stop.
+1. **The daemon:** `mesh hello` must answer (it names the daemon and who you are to it). If it doesn't, tell the user the daemon isn't running (`systemctl --user status agent-mesh.service`, or `./install.sh` in the agent-mesh checkout) and stop.
 2. **Start the run:** `mesh start-run --title "<one-line summary of the request>"`. Its output has the run id; `mesh dir --run <run id>` prints its folder.
 3. **Write the request** to `<run folder>/tasks/request.md`, for the root to read: the request in the user's own words, what you know that it needs (the repos and where they are, the contract between them, what you already tried, the files that matter), what is out of scope, any standing instruction ("run autonomously", "no Claude"), and the CLI to use (`claude` unless the request names agy). Say what you know and what you only assume.
 4. **Start the root,** in this repo's checkout (or the repo the request is mostly about):
@@ -29,4 +29,4 @@ Run an **agent-mesh** for the user's request: `$ARGUMENTS` when the user typed t
 5. **Tell the user** in one line: the run id and the root's name, and that the root proposes the work (sizes, tiers, repos) and waits for their go in the app (`mesh waiting` lists what waits on them). They can answer there, or tell the root by `mesh send <root name> --type answer --body "…"`. If they asked to run autonomously, the request file says so and the root starts at once.
 6. **Then stop.** Don't spawn workers, review PRs or poll: the root and the daemon do that, and tell the user.
 
-Read `$AGENT_MESH_SHARE/protocol/ORCHESTRATE.md` ("Root") only if the user asks how the run works; it is the root's file, not yours.
+Read `~/.config/agent-mesh/ORCHESTRATE.md` ("Root") only if the user asks how the run works; it is the root's file, not yours.

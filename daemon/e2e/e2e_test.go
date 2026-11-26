@@ -104,8 +104,8 @@ func (l *lockedBuffer) String() string {
 func (w *world) startMeshd() {
 	w.t.Helper()
 	w.log = &lockedBuffer{}
-	// A `mesh` that is not ours, first on the PATH meshd is told to give agents (as a login shell's would put the
-	// live bin/mesh): the agent must still get ours, which meshd puts ahead.
+	// A `mesh` that is not ours, first on the PATH meshd is told to give agents: the agent must still get ours, which
+	// meshd puts ahead.
 	decoy := filepath.Join(w.home, "decoy")
 	os.MkdirAll(decoy, 0o755)
 	if err := os.WriteFile(filepath.Join(decoy, "mesh"), []byte("#!/bin/sh\necho the wrong mesh >&2\nexit 99\n"), 0o755); err != nil {
@@ -524,9 +524,6 @@ func TestEndToEnd(t *testing.T) {
 	}
 	if got, want := envOf(agentEnv, "AGENT_MESH_SHARE"), filepath.Join(w.home, "share"); got != want {
 		t.Errorf("AGENT_MESH_SHARE = %q, want %q", got, want)
-	}
-	if got := envOf(agentEnv, "AGENT_MESH_CLI"); got != meshBin {
-		t.Errorf("AGENT_MESH_CLI = %q, want %q (the live bin/mesh hands over to it)", got, meshBin)
 	}
 	asAgent := func(args ...string) []byte {
 		cmd := exec.Command(meshBin, args...)

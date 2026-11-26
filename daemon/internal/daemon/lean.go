@@ -31,7 +31,7 @@ func (d *Daemon) leanOn(ctx context.Context) bool {
 }
 
 // filterAdded removes any item that the agent added back via `mesh tools add`. A plugin skill has two spellings, the
-// bare `<name>` and the namespaced `agent-mesh-daemon:<name>` (matchBarePluginSkill): adding either un-hides both.
+// bare `<name>` and the namespaced `agent-mesh:<name>` (matchBarePluginSkill): adding either un-hides both.
 func filterAdded(xs, added []string, matchBarePluginSkill bool) []string {
 	if len(added) == 0 || len(xs) == 0 {
 		return xs
@@ -53,7 +53,7 @@ func filterAdded(xs, added []string, matchBarePluginSkill bool) []string {
 	return out
 }
 
-const pluginSkillPrefix = "agent-mesh-daemon:"
+const pluginSkillPrefix = "agent-mesh:"
 
 func filterAddedPlugins(xs, added []string) []string {
 	if len(added) == 0 || len(xs) == 0 {

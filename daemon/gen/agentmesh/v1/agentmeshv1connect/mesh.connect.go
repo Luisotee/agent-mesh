@@ -214,7 +214,7 @@ type MeshServiceClient interface {
 	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
 	// headers and the last reset. Marks nothing read.
 	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
-	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
+	// A hook of the calling agent's CLI fired. Called by `mesh hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
@@ -958,7 +958,7 @@ type MeshServiceHandler interface {
 	// What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
 	// headers and the last reset. Marks nothing read.
 	GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
-	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
+	// A hook of the calling agent's CLI fired. Called by `mesh hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)

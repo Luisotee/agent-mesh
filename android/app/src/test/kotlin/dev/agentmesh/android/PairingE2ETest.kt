@@ -33,7 +33,7 @@ import org.junit.rules.TemporaryFolder
 
 /**
  * The relay route and pairing against the real binaries on loopback: a `mesh-relay`, and a `meshd` connected to it
- * that also serves TLS (`--listen`), as in daemon/e2e. A link comes from `meshctl pair`, and everything the app does
+ * that also serves TLS (`--listen`), as in daemon/e2e. A link comes from `mesh pair`, and everything the app does
  * with it runs the app's own code: parse, redeem over a route, save the host, connect, sync, open a terminal.
  */
 class PairingE2ETest {
@@ -73,7 +73,7 @@ class PairingE2ETest {
         while (!cond(state.value)) { delay(50) }
     }.also { check(cond(state.value)) { "timed out: $what" } }
 
-    @Test fun `the link from meshctl pair names both routes and the host's pin`() {
+    @Test fun `the link from mesh pair names both routes and the host's pin`() {
         val d = daemon!!
         val p = payload()
         assertEquals(d.daemonId, p.hostId)

@@ -41,7 +41,6 @@ func main() {
 	termBinary := flag.String("term-binary", filepath.Join(here, "mesh-term"), "mesh-term, for --term-launch detached")
 	termUnit := flag.String("term-unit", "agent-mesh-term.service", "the user unit, for --term-launch systemd")
 	mesh := flag.String("mesh", filepath.Join(here, "mesh"), "the mesh CLI: the agents' hooks run it, and its folder goes first on their PATH")
-	flag.StringVar(mesh, "meshctl", filepath.Join(here, "mesh"), "the old name of --mesh")
 	share := flag.String("share", filepath.Join(here, "..", "share"), "the daemon's protocol and skills (protocol/, skills/): agents get it as $"+client.ShareEnv+", their first doorbell names its protocol, and Claude agents load its skills; ignored when it isn't there")
 	worktrees := flag.String("worktrees", "", "where agents' worktrees go (default <state>/worktrees)")
 	policyFile := flag.String("policy-file", "", "bin/mesh's policy file (~/.config/agent-mesh.json): imported into the settings the first time meshd starts with this path (never read again; `mesh import-settings` re-applies it)")

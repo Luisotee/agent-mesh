@@ -83,7 +83,7 @@ func TestToolsListAndAddReopensSameConversationWithToolsSkillsPluginsMCPAndSnaps
 		if _, stillHidden := skillsMap["delegate"]; stillHidden {
 			t.Errorf("delegate still hidden in skillOverrides: %v", skillsMap)
 		}
-		if _, stillHidden := skillsMap["agent-mesh-daemon:delegate"]; stillHidden {
+		if _, stillHidden := skillsMap["agent-mesh:delegate"]; stillHidden {
 			t.Errorf("namespaced skill still hidden in skillOverrides: %v", skillsMap)
 		}
 	}
