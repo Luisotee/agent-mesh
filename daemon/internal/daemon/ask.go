@@ -701,7 +701,7 @@ func prKey(u string) string {
 }
 
 // RecordVerdict stores the judgement of one reviewer's findings on the PR's newest round: the PR author's (a
-// worker, for the rounds it asked) or the root's, which replaces it.
+// worker's own newest round: the rounds the root asked are skipped) or the root's, which replaces it.
 func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error) {
 	m := req.Msg
 	if m.Pr == "" || m.Reviewer == "" {
