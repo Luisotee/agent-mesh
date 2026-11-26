@@ -460,6 +460,22 @@ public class MeshServiceClient(
 
 
   /**
+   *  Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+   *  device can't be revoked.
+   */
+  override suspend fun revokeSelf(request: RevokeSelfRequest, headers: Headers): ResponseMessage<RevokeSelfResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RevokeSelf",
+      dev.agentmesh.gen.agentmesh.v1.RevokeSelfRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RevokeSelfResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
    *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
    *  tailnet opens it.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	relayv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/relay/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
@@ -313,11 +314,34 @@ func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.Revok
 	if id == "" {
 		return nil, invalid("no device_id given")
 	}
-	if id == localDeviceID {
-		return nil, invalid("cannot revoke the host's local device")
-	}
 	out := &v1.RevokeDeviceResponse{}
-	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRevokeDeviceProcedure, out, func(tx *store.Tx) error {
+	if err := d.revokeDevice(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRevokeDeviceProcedure, id, out, func(dev *v1.Device) { out.Device = dev }); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(out), nil
+}
+
+// RevokeSelf revokes the calling device's own token and closes its streams: how a phone unpairs itself, since it may
+// not call RevokeDevice. The host's own device can't be revoked.
+func (d *Daemon) RevokeSelf(ctx context.Context, req *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error) {
+	actor := auth.ActorFrom(ctx)
+	if actor == nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("no actor"))
+	}
+	out := &v1.RevokeSelfResponse{}
+	if err := d.revokeDevice(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRevokeSelfProcedure, actor.Id, out, func(dev *v1.Device) { out.Device = dev }); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(out), nil
+}
+
+// revokeDevice revokes device id's tokens, records DeviceRevoked, tells the relay and closes the device's streams.
+// out is the response the write records for a retry; set puts the revoked device into it, inside the write.
+func (d *Daemon) revokeDevice(ctx context.Context, meta *v1.RequestMeta, procedure, id string, out proto.Message, set func(*v1.Device)) error {
+	if id == localDeviceID {
+		return invalid("cannot revoke the host's local device")
+	}
+	_, err := d.write(ctx, meta, procedure, out, func(tx *store.Tx) error {
 		dev, err := tx.GetDevice(id)
 		if errors.Is(err, store.ErrNotFound) {
 			return notFound("no device %s", id)
@@ -336,15 +360,15 @@ func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.Revok
 				return err
 			}
 		}
-		out.Device = dev
+		set(dev)
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	d.relayTokensChanged()
 	d.disconnectActor(id)
-	return connect.NewResponse(out), nil
+	return nil
 }
 
 // relayTokensChanged tells the relay connector the devices' relay tokens changed (a pairing made, redeemed or

@@ -101,6 +101,8 @@ const (
 	// MeshServiceRevokeDeviceProcedure is the fully-qualified name of the MeshService's RevokeDevice
 	// RPC.
 	MeshServiceRevokeDeviceProcedure = "/agentmesh.v1.MeshService/RevokeDevice"
+	// MeshServiceRevokeSelfProcedure is the fully-qualified name of the MeshService's RevokeSelf RPC.
+	MeshServiceRevokeSelfProcedure = "/agentmesh.v1.MeshService/RevokeSelf"
 	// MeshServiceTailnetStatusProcedure is the fully-qualified name of the MeshService's TailnetStatus
 	// RPC.
 	MeshServiceTailnetStatusProcedure = "/agentmesh.v1.MeshService/TailnetStatus"
@@ -228,6 +230,9 @@ type MeshServiceClient interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+	// device can't be revoked.
+	RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error)
 	// The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
 	// tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
 	// tailnet opens it.
@@ -468,6 +473,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		revokeSelf: connect.NewClient[v1.RevokeSelfRequest, v1.RevokeSelfResponse](
+			httpClient,
+			baseURL+MeshServiceRevokeSelfProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RevokeSelf")),
+			connect.WithClientOptions(opts...),
+		),
 		tailnetStatus: connect.NewClient[v1.TailnetStatusRequest, v1.TailnetStatusResponse](
 			httpClient,
 			baseURL+MeshServiceTailnetStatusProcedure,
@@ -634,6 +645,7 @@ type meshServiceClient struct {
 	createPairing    *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices      *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice     *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	revokeSelf       *connect.Client[v1.RevokeSelfRequest, v1.RevokeSelfResponse]
 	tailnetStatus    *connect.Client[v1.TailnetStatusRequest, v1.TailnetStatusResponse]
 	getUsage         *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
 	setReserve       *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
@@ -801,6 +813,11 @@ func (c *meshServiceClient) ListDevices(ctx context.Context, req *connect.Reques
 // RevokeDevice calls agentmesh.v1.MeshService.RevokeDevice.
 func (c *meshServiceClient) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return c.revokeDevice.CallUnary(ctx, req)
+}
+
+// RevokeSelf calls agentmesh.v1.MeshService.RevokeSelf.
+func (c *meshServiceClient) RevokeSelf(ctx context.Context, req *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error) {
+	return c.revokeSelf.CallUnary(ctx, req)
 }
 
 // TailnetStatus calls agentmesh.v1.MeshService.TailnetStatus.
@@ -988,6 +1005,9 @@ type MeshServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+	// device can't be revoked.
+	RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error)
 	// The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
 	// tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
 	// tailnet opens it.
@@ -1224,6 +1244,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceRevokeSelfHandler := connect.NewUnaryHandler(
+		MeshServiceRevokeSelfProcedure,
+		svc.RevokeSelf,
+		connect.WithSchema(meshServiceMethods.ByName("RevokeSelf")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceTailnetStatusHandler := connect.NewUnaryHandler(
 		MeshServiceTailnetStatusProcedure,
 		svc.TailnetStatus,
@@ -1416,6 +1442,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListDevicesHandler.ServeHTTP(w, r)
 		case MeshServiceRevokeDeviceProcedure:
 			meshServiceRevokeDeviceHandler.ServeHTTP(w, r)
+		case MeshServiceRevokeSelfProcedure:
+			meshServiceRevokeSelfHandler.ServeHTTP(w, r)
 		case MeshServiceTailnetStatusProcedure:
 			meshServiceTailnetStatusHandler.ServeHTTP(w, r)
 		case MeshServiceGetUsageProcedure:
@@ -1583,6 +1611,10 @@ func (UnimplementedMeshServiceHandler) ListDevices(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeDevice is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeSelf is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) TailnetStatus(context.Context, *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error) {

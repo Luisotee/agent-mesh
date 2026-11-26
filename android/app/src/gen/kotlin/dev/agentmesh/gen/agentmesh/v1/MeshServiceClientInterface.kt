@@ -166,6 +166,12 @@ public interface MeshServiceClientInterface {
   public suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeDeviceResponse>
 
   /**
+   *  Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+   *  device can't be revoked.
+   */
+  public suspend fun revokeSelf(request: RevokeSelfRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeSelfResponse>
+
+  /**
    *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
    *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
    *  tailnet opens it.

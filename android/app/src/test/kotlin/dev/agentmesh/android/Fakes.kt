@@ -49,6 +49,14 @@ class RecordingApi : MeshApi {
     var listGate: CompletableDeferred<Unit>? = null
     var failSend: Exception? = null
 
+    var revokedSelf = 0
+    var failRevokeSelf: Exception? = null
+
+    override suspend fun revokeSelf() {
+        failRevokeSelf?.let { throw it }
+        revokedSelf++
+    }
+
     override suspend fun hello(): HelloResponse = CompletableDeferred<HelloResponse>().await()
     override fun subscribe(cursor: Cursor?): Flow<SubscribeEventsResponse> = emptyFlow()
 

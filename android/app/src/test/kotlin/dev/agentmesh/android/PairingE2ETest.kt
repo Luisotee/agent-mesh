@@ -122,6 +122,24 @@ class PairingE2ETest {
         } finally { rt.stop() }
     }
 
+    @Test fun `a device that unpairs itself is revoked on the host, which lists no device and refuses its token`() = runBlocking {
+        val d = daemon!!; val repo = repo()
+        val saved = PairingFlow(repo).pair(viaDirect(payload()), "Test phone")
+        val rt = runtime(repo, saved.id).also { it.start() }
+        try {
+            rt.until("Ready and synced") { it.conn is ConnState.Ready && it.synced }
+            assertTrue("the host lists the device", d.ctl("devices").getValue("devices").jsonArray.isNotEmpty())
+            assertEquals(dev.agentmesh.android.hosts.UnpairResult.Done, dev.agentmesh.android.hosts.unpairFromHost(rt.api()))
+            // An empty list is left out of the JSON.
+            assertEquals("the host's own list is empty again", 0, d.ctl("devices")["devices"]?.jsonArray?.size ?: 0)
+            // The token is dead: the app is stopped for it, not retried.
+            rt.until("Stopped for auth") { (it.conn as? ConnState.Stopped)?.reason == ConnState.Reason.Auth }
+        } finally { rt.stop() }
+        // Unpairing a second time (a retry, or a host that already refuses the token) is still done.
+        val api = ConnectMeshApi(DefaultRouteConnector().connect(repo.get(saved.id)!!.routes.first()) { repo.token(saved.id) ?: "" })
+        assertEquals(dev.agentmesh.android.hosts.UnpairResult.Done, dev.agentmesh.android.hosts.unpairFromHost(api))
+    }
+
     @Test fun `a wrong pin is refused before anything is sent, and the code still works with the right one`() = runBlocking {
         val p = viaDirect(payload()); val repo = repo()
         for (bad in listOf(p, viaRelay(payload()))) {

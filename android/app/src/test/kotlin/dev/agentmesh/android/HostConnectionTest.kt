@@ -57,6 +57,7 @@ private class FakeApi : MeshApi {
     override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value): Setting = error("unused")
     override suspend fun resetSetting(key: String): Setting = error("unused")
+    override suspend fun revokeSelf() = error("unused")
 }
 
 private class Sink(private val scope: TestScope) : ConnectionSink {
