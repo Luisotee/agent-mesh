@@ -20,7 +20,7 @@ import (
 func Whoami(env Env, args []string) int {
 	fs := flag.NewFlagSet("mesh whoami", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
-	state := fs.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
+	state := fs.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage
 	}
@@ -69,7 +69,7 @@ func Whoami(env Env, args []string) int {
 func Dir(env Env, args []string) int {
 	fs := flag.NewFlagSet("mesh dir", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
-	state := fs.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
+	state := fs.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
 	run := fs.String("run", "", "the run (default: your own)")
 	if err := fs.Parse(args); err != nil {
 		return ExitUsage

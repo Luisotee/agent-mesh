@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +45,32 @@ func OSEnv() Env {
 	return Env{Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr, Getenv: os.Getenv}
 }
 
+// DefaultStateDir is where the installed daemon (`install.sh --daemon`, the systemd units) keeps its state,
+// relative to $XDG_STATE_HOME (else ~/.local/state).
+const DefaultStateDir = "agent-mesh-daemon"
+
+// DefaultState is the state dir to use when neither --state nor $AGENT_MESH_STATE names one: the installed
+// daemon's, but only when its socket is there, so a host without it is told to give one rather than sent to a
+// dir nothing runs in. meshd itself has no default.
+func DefaultState(env Env) string {
+	if s := env.Getenv(client.StateEnv); s != "" {
+		return s
+	}
+	base := env.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		home := env.Getenv("HOME")
+		if home == "" {
+			return ""
+		}
+		base = filepath.Join(home, ".local", "state")
+	}
+	dir := filepath.Join(base, DefaultStateDir)
+	if _, err := os.Stat(statedir.Paths{Dir: dir}.Socket()); err != nil {
+		return ""
+	}
+	return dir
+}
+
 // Exit codes.
 const (
 	ExitOK    = 0
@@ -56,7 +83,7 @@ const (
 func Main(args []string, env Env, hand map[string]func([]string) int) int {
 	global := flag.NewFlagSet("mesh", flag.ContinueOnError)
 	global.SetOutput(env.Stderr)
-	state := global.String("state", env.Getenv(client.StateEnv), "the daemon's state dir (or $"+client.StateEnv+")")
+	state := global.String("state", DefaultState(env), "the daemon's state dir (or $"+client.StateEnv+", else "+DefaultStateDir+" when meshd runs there)")
 	// --json is also a command's own flag; given here, before the command, it is that command's.
 	whole := global.String("json", "", "the whole request as JSON, for the command that follows")
 	global.Usage = func() {

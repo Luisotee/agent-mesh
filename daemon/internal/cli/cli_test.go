@@ -15,6 +15,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/registry"
+	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 )
 
 func action(t *testing.T, name string) *registry.Action {
@@ -356,4 +357,29 @@ func mustReg(t *testing.T) *registry.Registry {
 		t.Fatal(err)
 	}
 	return reg
+}
+
+// With no --state and no $AGENT_MESH_STATE the CLI uses the installed daemon's state dir, only when it is there.
+func TestDefaultStateIsTheInstalledDaemonsWhenItsSocketExists(t *testing.T) {
+	home := t.TempDir()
+	envOf := func(m map[string]string) Env { return Env{Getenv: func(k string) string { return m[k] }} }
+	if got := DefaultState(envOf(map[string]string{"HOME": home})); got != "" {
+		t.Errorf("no daemon: %q", got)
+	}
+	dir := filepath.Join(home, ".local", "state", DefaultStateDir)
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(statedir.Paths{Dir: dir}.Socket(), nil, 0o600)
+	if got := DefaultState(envOf(map[string]string{"HOME": home})); got != dir {
+		t.Errorf("default %q, want %q", got, dir)
+	}
+	if got := DefaultState(envOf(map[string]string{"HOME": home, "AGENT_MESH_STATE": "/x"})); got != "/x" {
+		t.Errorf("the environment wins: %q", got)
+	}
+	xdg := filepath.Join(home, "xdg")
+	if got := DefaultState(envOf(map[string]string{"HOME": home, "XDG_STATE_HOME": xdg})); got != "" {
+		t.Errorf("XDG_STATE_HOME is read first: %q", got)
+	}
+	if got := DefaultState(envOf(map[string]string{})); got != "" {
+		t.Errorf("no HOME: %q", got)
+	}
 }
