@@ -90,7 +90,7 @@ func liveAgents(r store.Reader, except string, shared ...string) (int, error) {
 	}
 	n := 0
 	for _, a := range agents {
-		if a.Id != except && hasProcess(a) && !slices.Contains(shared, a.Id) {
+		if a.Id != except && hasProcess(a) && !isAdopted(a) && !slices.Contains(shared, a.Id) { // an adopted session is the user's own process
 			n++
 		}
 	}
@@ -118,22 +118,21 @@ func capShared(ctx context.Context) []string {
 // capGuard refuses a launch that would add an agent process past the cap (`caps.agents`; agents still starting
 // count, so a burst of spawns can't all pass).
 func (d *Daemon) capGuard(r store.Reader, what, except string, shared ...string) error {
-	capV, err := d.Setting(r, "caps.agents")
+	c, err := d.capacity(r)
 	if err != nil {
 		return err
 	}
-	limit := int(capV.(float64))
-	if limit <= 0 {
+	if c.Agents <= 0 {
 		return nil
 	}
 	n, err := liveAgents(r, except, shared...)
 	if err != nil {
 		return err
 	}
-	if n >= limit {
-		return exhausted("not starting %s: %d agents run on this host, at the limit (caps.agents %d). Retire agents "+
-			"that have reported, or raise the cap (`mesh set --key caps.agents --value <n>`; 0 is no cap)",
-			what, n, limit)
+	if n >= c.Agents {
+		return exhausted("not starting %s: %d agents run on this host, at the limit (caps.agents %d%s). Retire agents "+
+			"that have reported, or set the cap (`mesh set --key caps.agents --value <n>`; 0 is no cap)",
+			what, n, c.Agents, c.autoNote(c.AgentsAuto))
 	}
 	return nil
 }
@@ -171,6 +170,16 @@ func (d *Daemon) memInfo() map[string]int64 {
 		}
 	}
 	return info
+}
+
+// memFloorMB is the floor of `min_free_mb` in MB: the number set, or for "auto" 10% of RAM plus 10% of swap plus
+// 1 GB, at least 2 GB.
+func memFloorMB(v any, info map[string]int64) int64 {
+	if f, ok := v.(float64); ok {
+		return int64(f)
+	}
+	total := info["MemTotal"] + info["SwapTotal"]
+	return max(minFreeLeastMB, total/10/1024+minFreeHeadroomMB)
 }
 
 // memoryPressure is the share of the last minute in which every runnable task stalled on memory (`full avg60`
@@ -233,14 +242,7 @@ func (d *Daemon) checkMemory(r store.Reader, what, agentID string, reserve bool)
 	if _, ok := info["MemAvailable"]; !ok {
 		return nil // no /proc: nothing to tell by
 	}
-	floor := int64(minFreeLeastMB)
-	switch v := floorV.(type) {
-	case float64:
-		floor = int64(v)
-	default: // "auto"
-		total := info["MemTotal"] + info["SwapTotal"]
-		floor = max(minFreeLeastMB, total/10/1024+minFreeHeadroomMB)
-	}
+	floor := memFloorMB(floorV, info)
 	if floor == 0 {
 		return nil
 	}

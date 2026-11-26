@@ -854,3 +854,38 @@ func TestRenderLogAndRing(t *testing.T) {
 		}
 	}
 }
+
+// renderPair draws the link as a QR code of half blocks above the link itself.
+func TestRenderPairDrawsAQRCodeAndTheLink(t *testing.T) {
+	uri := "agentmesh://pair?v=1&h=host&t=tok"
+	var out bytes.Buffer
+	renderPair(&v1.CreatePairingResponse{Uri: uri, HostName: "box", CertFingerprint: "AB:CD"}, &out)
+	lines := strings.Split(out.String(), "\n")
+	var qr []string
+	for _, l := range lines {
+		if l == "" {
+			break
+		}
+		qr = append(qr, l)
+	}
+	if len(qr) < 10 {
+		t.Fatalf("QR has %d lines:\n%s", len(qr), out.String())
+	}
+	width := len([]rune(qr[0]))
+	for _, l := range qr {
+		if len([]rune(l)) != width {
+			t.Errorf("QR rows differ in width: %q", l)
+		}
+		if strings.Trim(l, " █▀▄") != "" {
+			t.Errorf("QR row holds more than blocks: %q", l)
+		}
+	}
+	for _, want := range []string{uri, "host: box", "certificate: AB:CD"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+	if !hasText("pair") {
+		t.Error("pair has no --format flag")
+	}
+}

@@ -176,6 +176,34 @@ func DenyRules(paths ...string) []string {
 	return args
 }
 
+// ProcedureReadRules are the deny rules that keep a root's Read tool off the whole of ORCHESTRATE.md (50 KB, most
+// of it for workers): the root reads the part for its step with `mesh protocol <part>`. A rule for the path as
+// given and for its symlink-resolved path (the user's config folder links into the install). It stops the Read
+// tool only: the card's rule is what stops a `cat`.
+func ProcedureReadRules(share string) []string {
+	if share == "" {
+		return nil
+	}
+	path := filepath.Join(share, "protocol", "ORCHESTRATE.md")
+	var rules []string
+	add := func(p string) {
+		if abs, err := filepath.Abs(p); err == nil {
+			r := "Read(/" + abs + ")"
+			for _, have := range rules {
+				if have == r {
+					return
+				}
+			}
+			rules = append(rules, r)
+		}
+	}
+	add(path)
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		add(real)
+	}
+	return rules
+}
+
 // DenyArgs is DenyRules as the flag's argv.
 func DenyArgs(paths ...string) []string {
 	return append([]string{"--disallowedTools"}, DenyRules(paths...)...)
@@ -262,6 +290,9 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	}
 	if m.Lean != nil {
 		rules = append(rules, m.Lean.DenyTools...)
+	}
+	if m.Role == agentmeshv1.AgentRole_AGENT_ROLE_ROOT {
+		rules = append(rules, ProcedureReadRules(m.Env["AGENT_MESH_SHARE"])...)
 	}
 	if len(rules) > 0 {
 		argv = append(append(argv, "--disallowedTools"), rules...)

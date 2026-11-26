@@ -15,6 +15,7 @@ describe('controlFor', () => {
     expect(controlFor('string', ['dock', 'tab'])).toEqual({ kind: 'select', choices: ['dock', 'tab'] })
     expect(controlFor('mb_or_auto', [])).toEqual({ kind: 'text' })
     expect(controlFor('shortcut', [])).toEqual({ kind: 'shortcut' })
+    expect(controlFor('int_or_auto', [])).toEqual({ kind: 'text' })
   })
   it('falls back to JSON for slots, json and any type it does not know', () => {
     for (const t of ['slots', 'json', 'something-newer']) expect(controlFor(t, [])).toEqual({ kind: 'json' })
@@ -39,6 +40,11 @@ describe('text and values', () => {
     expect(fromText('mb_or_auto', t, 'auto')).toEqual({ ok: true, value: 'auto' })
     expect(fromText('mb_or_auto', t, '2048')).toEqual({ ok: true, value: 2048 })
     expect(fromText('string', controlFor('string', []), '2048')).toEqual({ ok: true, value: '2048' })
+  })
+  it('int_or_auto is auto or a number', () => {
+    const t = controlFor('int_or_auto', [])
+    expect(fromText('int_or_auto', t, 'auto')).toEqual({ ok: true, value: 'auto' })
+    expect(fromText('int_or_auto', t, '12')).toEqual({ ok: true, value: 12 })
   })
   it('groups a key by its first segment', () => {
     expect(groupOf('tiers.claude.mid.model')).toBe('tiers')

@@ -67,6 +67,9 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 	if m.Since != "" && !commitRE.MatchString(m.Since) {
 		return nil, invalid("since %q: a commit id (hex, 7 to 40 characters)", m.Since)
 	}
+	if m.Relay && (m.Review == "" || m.Agent != "" || m.Peers != "") {
+		return nil, invalid("a relay reviews a pull request of a repo: give --repo and --review, and no agent or peers")
+	}
 	switch {
 	case m.Peers != "":
 		if len(m.Mcp) > 0 {
@@ -88,6 +91,9 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 			return nil, invalid("no question given (--body)")
 		}
 		return d.askFresh(ctx, m, body)
+	}
+	if m.Relay {
+		return d.relayStep(ctx, actor, m, body)
 	}
 	if _, ok := sizes[m.Size]; !ok {
 		return nil, invalid("size %q: trivial, small or large (it picks the reviewers, the /code-review level and the rounds)", m.Size)
@@ -348,6 +354,12 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 // reviewer of each at the PR's head (or, in the same run, asks the earlier round's own again), and records
 // the ask the answers are collected by.
 func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
+	return d.reviewRoundOf(ctx, actor, m, body, nil)
+}
+
+// reviewRoundOf is reviewRound, or one step of a relay (relay.go) when relay is set: the step names the
+// reviewer to resume, the commit to review from and its number, and is no round of the PR's.
+func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string, relay *relayJob) (*connect.Response[v1.AskResponse], error) {
 	if len(m.Mcp) > 0 {
 		return nil, invalid("mcp is for a fresh Claude asker or single reviewer, not a round")
 	}
@@ -385,11 +397,13 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 	}
 	// A re-review: the head the last round covered, or the one named.
 	since := m.Since
-	if since == "" && last != nil && last.Head != pr.Head {
+	if relay != nil {
+		last, since = relay.reuse, relay.since // a step reads what its own relay says, not the PR's rounds
+	} else if since == "" && last != nil && last.Head != pr.Head {
 		since = last.Head
 	}
 	var earlierKinds []string
-	if last != nil && last.Head != pr.Head {
+	if relay == nil && last != nil && last.Head != pr.Head {
 		for _, mem := range last.Members {
 			if mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
 				earlierKinds = append(earlierKinds, mem.Kind)
@@ -421,11 +435,17 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		Head: pr.Head, Since: since, Size: m.Size, Tier: m.Tier, Body: body, Collected: true, Round: int32(len(prior) + 1),
 		AnswersPath: d.answersPath(actor.RunId, pr.Number, now), CreatedAt: timestamppb.New(now),
 		Deadline: timestamppb.New(now.Add(timeout))}
+	if relay != nil {
+		ask.Round, ask.RelayStep, ask.RelayOf = int32(relay.step), int32(relay.step), relay.of
+		if ask.RelayOf == "" {
+			ask.RelayOf = ask.Id
+		}
+	}
 	out := &v1.AskResponse{Ask: ask, Notes: notes}
 	narrow := narrowSince(ctx, top, since, pr.Head)
 	// The same commit asked again is a new round of fresh reviewers; the earlier ones are reused only for a new head.
 	reuseFrom := last
-	if last != nil && last.Head == pr.Head {
+	if last != nil && last.Head == pr.Head && relay == nil {
 		reuseFrom = nil
 	}
 	// Reviewers of the earlier round already running are part of this one whichever slot comes first: they share
@@ -440,7 +460,15 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
 	}, func(r store.Reader, a *v1.Ask) string { return d.roundsHint(r, a, false) },
-		func(r store.Reader) error { return d.workerCeiling(r, actor, m.Meta, pr, m.Size) })
+		func(r store.Reader) error {
+			if relay != nil {
+				// Checked in the write that stores the ask: two calls at once both found no step open before it.
+				if err := d.relayOpenStep(r, actor.RunId, pr.URL); err != nil {
+					return err
+				}
+			}
+			return d.workerCeiling(r, actor, m.Meta, pr, m.Size)
+		})
 }
 
 // collectRound starts the members of a collected ask one after another and returns once they have started

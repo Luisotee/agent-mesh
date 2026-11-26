@@ -552,6 +552,7 @@ func TestTheMemoryGuardRefusesALaunchUnderTheFloorOrUnderPressure(t *testing.T) 
 	mem := writeProc(t, dir, "meminfo", meminfoText(1500, 0, 16000, 4000))
 	psi := writeProc(t, dir, "pressure", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 	w := startReopen(t, func(c *daemon.AgentConfig) { c.MeminfoPath, c.PressurePath = mem, psi })
+	w.set(t, "caps.agents", 0) // the agent cap (auto: sized from the memory file below) is not what this test is about
 	ctx := context.Background()
 	w.set(t, "min_free_mb", 1000)
 	run := startRun(t, w.device.Mesh, "")

@@ -120,6 +120,10 @@ message Ask {
   bool starting = 23;
   // What the answers file says before the question: the peers' groups' `about`.
   string context = 24;
+  // A relay for a risky PR (AskRequest.relay): which step this is (1 to 3), and the first step's ask. Relay
+  // steps are not counted as rounds.
+  int32 relay_step = 25;
+  string relay_of = 26;
 }
 
 message AskRequest {
@@ -158,6 +162,12 @@ message AskRequest {
   int32 timeout = 16;
   // Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
   repeated string mcp = 17;
+  // A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+  // to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+  // new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+  // review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+  // 3 steps.
+  bool relay = 18;
 }
 
 message AskResponse {
