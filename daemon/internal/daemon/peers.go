@@ -898,7 +898,10 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	member.Head, member.UpstreamNew = at, newCommits
 	// An ask refused after the checkout moved puts it back: the peer may be working for its caller on it.
 	restore := func() {
-		if before != "" && at != before && !p.InClone {
+		if before == "" || at == before || p.InClone {
+			return
+		}
+		if now, err := git(ctx, p.Worktree, "rev-parse", "HEAD"); err == nil && now == at { // not moved again meanwhile
 			git(ctx, p.Worktree, "checkout", "--quiet", "--detach", before)
 		}
 	}
@@ -934,6 +937,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	} else {
 		a, err := d.launchPeerAgent(ctx, actor, p, m.Tier, task)
 		if err != nil {
+			restore()
 			var ce *connect.Error
 			msg := err.Error()
 			if errors.As(err, &ce) {

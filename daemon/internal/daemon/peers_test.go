@@ -1317,3 +1317,25 @@ func TestAPeerSetWorkingMeanwhileIsNotTaken(t *testing.T) {
 		t.Fatalf("the peer's agent moved to %s", got.ParentId)
 	}
 }
+
+// An ask refused when the peer's agent can't be launched puts the checkout back too.
+func TestAPeerAskRefusedAtLaunchLeavesItsCheckoutWhereItWas(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	up.commit(t, "new.txt", "upstream moved")
+	w.set(t, "caps.agents", 1) // the root alone fills it: the peer's agent can't start
+	_, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err == nil {
+		t.Fatal("the ask went ahead past caps.agents 1")
+	}
+	peers, err := w.asRoot.ListPeers(ctx, connect.NewRequest(&v1.ListPeersRequest{}))
+	if err != nil || len(peers.Msg.Peers) != 1 {
+		t.Fatalf("peers: %v, %v", peers, err)
+	}
+	wt := peers.Msg.Peers[0].Worktree
+	if got, want := gitOut(t, wt, "rev-parse", "HEAD"), up.git(t, "rev-parse", "HEAD"); got == want {
+		t.Fatalf("a refused ask left the checkout at the new upstream head %s", got[:9])
+	}
+}
