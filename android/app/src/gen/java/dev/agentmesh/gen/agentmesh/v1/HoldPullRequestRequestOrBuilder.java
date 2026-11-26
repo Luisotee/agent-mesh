@@ -43,7 +43,7 @@ public interface HoldPullRequestRequestOrBuilder extends
 
   /**
    * <pre>
-   * Release the hold instead of placing it.
+   * Release the hold instead of placing it (refused for a root).
    * </pre>
    *
    * <code>bool release = 3 [json_name = "release"];</code>

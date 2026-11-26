@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -67,7 +68,8 @@ func TestListProjectsForOneRepoAddsItsOpenPullRequestsAndBranchesNewestFirst(t *
 	w.list = nil
 	w.mu.Unlock()
 	// gh's answer for `pr list --state open`.
-	prs, _ := json.Marshal([]map[string]any{{"number": 7, "title": "Fix the thing", "headRefName": "mesh/x/fix", "url": "https://github.com/acme/demo/pull/7", "isDraft": true}})
+	prs, _ := json.Marshal([]map[string]any{{"number": 7, "title": "Fix the thing", "headRefName": "mesh/x/fix", "url": "https://github.com/acme/demo/pull/7", "isDraft": true},
+		{"number": 8, "title": "From a fork", "headRefName": "main", "url": "https://github.com/acme/demo/pull/8", "isCrossRepository": true}})
 	w.setRaw(prs)
 
 	res, err := w.device.Mesh.ListProjects(context.Background(), connect.NewRequest(&v1.ListProjectsRequest{Repo: w.repo}))
@@ -75,7 +77,10 @@ func TestListProjectsForOneRepoAddsItsOpenPullRequestsAndBranchesNewestFirst(t *
 		t.Fatalf("%v, %v", res, err)
 	}
 	p := res.Msg.Projects[0]
-	if len(p.PullRequests) != 1 || p.PullRequests[0].Number != 7 || p.PullRequests[0].HeadRef != "mesh/x/fix" || !p.PullRequests[0].Draft || p.PullRequests[0].Title != "Fix the thing" {
+	if len(p.PullRequests) != 2 || p.PullRequests[1].Number != 8 || !p.PullRequests[1].CrossRepository || p.PullRequests[0].CrossRepository {
+		t.Errorf("a fork's pull request must say so: %v", p.PullRequests)
+	}
+	if p.PullRequests[0].Number != 7 || p.PullRequests[0].HeadRef != "mesh/x/fix" || !p.PullRequests[0].Draft || p.PullRequests[0].Title != "Fix the thing" {
 		t.Errorf("pull requests: %v", p.PullRequests)
 	}
 	seen := map[string]int{}
@@ -97,5 +102,59 @@ func TestListProjectsForOneRepoAddsItsOpenPullRequestsAndBranchesNewestFirst(t *
 	res, err = w.device.Mesh.ListProjects(context.Background(), connect.NewRequest(&v1.ListProjectsRequest{Repo: w.repo}))
 	if err != nil || len(res.Msg.Projects[0].PullRequests) != 0 {
 		t.Errorf("gh down: %v, %v", res, err)
+	}
+}
+
+func TestListProjectsForOneRepoFetchesForTheUserButNotForAReadOnlyDevice(t *testing.T) {
+	w := startPR(t)
+	bare := filepath.Join(filepath.Dir(w.repo), "origin.git")
+	w.setRaw([]byte("[]"))
+	runGit(t, bare, "branch", "fresh", "main") // a branch pushed by someone else: only a fetch brings it
+	ctx := context.Background()
+	branches := func(c interface {
+		ListProjects(context.Context, *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error)
+	}) ([]string, int) {
+		t.Helper()
+		n := int(w.calls.Load())
+		res, err := c.ListProjects(ctx, connect.NewRequest(&v1.ListProjectsRequest{Repo: w.repo}))
+		if err != nil || len(res.Msg.Projects) != 1 {
+			t.Fatalf("%v, %v", res, err)
+		}
+		return res.Msg.Projects[0].Branches, int(w.calls.Load()) - n
+	}
+
+	cp, err := w.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	red, err := pairingClient(w.state, "").RedeemPairing(ctx, connect.NewRequest(&v1.RedeemPairingRequest{Token: cp.Msg.Token}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, gh := branches(w.as(red.Msg.DeviceToken))
+	if slices.Contains(got, "origin/fresh") || gh != 0 {
+		t.Errorf("a read-only device fetched or asked GitHub: %v, %d gh calls", got, gh)
+	}
+	if got, gh := branches(w.device.Mesh); !slices.Contains(got, "origin/fresh") || gh == 0 {
+		t.Errorf("the user's device: %v, %d gh calls", got, gh)
+	}
+}
+
+func TestListProjectsForOneRepoRefusesARepoItDoesNotList(t *testing.T) {
+	w := startPR(t)
+	other := t.TempDir() // a git repo that is in no repos.dir and that no agent used
+	runGit(t, "", "init", "--initial-branch=main", other)
+	_, err := w.device.Mesh.ListProjects(context.Background(), connect.NewRequest(&v1.ListProjectsRequest{Repo: other}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("got %v, want not found", err)
+	}
+	// A folder inside a listed repo is that repo.
+	sub := filepath.Join(w.repo, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := w.device.Mesh.ListProjects(context.Background(), connect.NewRequest(&v1.ListProjectsRequest{Repo: sub}))
+	if err != nil || len(res.Msg.Projects) != 1 || res.Msg.Projects[0].Path != w.repo {
+		t.Errorf("a subfolder of a listed repo: %v, %v", res, err)
 	}
 }

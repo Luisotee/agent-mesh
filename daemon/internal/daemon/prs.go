@@ -289,10 +289,7 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		for _, p := range found {
 			o := prev[prKey(p.Url)]
 			delete(prev, prKey(p.Url))
-			if o != nil {
-				p.Held = o.Held // a read of GitHub says nothing of the user's hold
-			}
-			if err := tx.PutAgentPR(p); err != nil { // also moves its read time on
+			if err := tx.PutAgentPR(p); err != nil { // also moves its read time on; the user's hold is set on it there
 				return err
 			}
 			if o == nil || o.State != p.State || o.Checks != p.Checks {

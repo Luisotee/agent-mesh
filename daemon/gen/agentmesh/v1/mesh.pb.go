@@ -4761,7 +4761,7 @@ type HoldPullRequestRequest struct {
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// The PR's url, as ListPullRequests gives it.
 	Url string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
-	// Release the hold instead of placing it.
+	// Release the hold instead of placing it (refused for a root).
 	Release       bool `protobuf:"varint,3,opt,name=release,proto3" json:"release,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4865,8 +4865,9 @@ func (x *HoldPullRequestResponse) GetPullRequests() []*PullRequest {
 
 type ListProjectsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
-	// pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none.
+	// Only this repo (a path or a bare name of a `repos.dir` folder), one the full list has, fetched from its origin
+	// first, and with its open pull requests read from GitHub (a read-only device gets the refs last fetched and no
+	// pull requests): the full list is quick (it asks git, not the network) and has none.
 	Repo          string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4915,11 +4916,14 @@ type ProjectPullRequest struct {
 	Number int32                  `protobuf:"varint,1,opt,name=number,proto3" json:"number,omitempty"`
 	Title  string                 `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
 	// The PR's head branch, as `base` of SpawnAgent takes it (a ref of the repo's remote).
-	HeadRef       string `protobuf:"bytes,3,opt,name=head_ref,json=headRef,proto3" json:"head_ref,omitempty"`
-	Url           string `protobuf:"bytes,4,opt,name=url,proto3" json:"url,omitempty"`
-	Draft         bool   `protobuf:"varint,5,opt,name=draft,proto3" json:"draft,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	HeadRef string `protobuf:"bytes,3,opt,name=head_ref,json=headRef,proto3" json:"head_ref,omitempty"`
+	Url     string `protobuf:"bytes,4,opt,name=url,proto3" json:"url,omitempty"`
+	Draft   bool   `protobuf:"varint,5,opt,name=draft,proto3" json:"draft,omitempty"`
+	// The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+	// started from by it.
+	CrossRepository bool `protobuf:"varint,6,opt,name=cross_repository,json=crossRepository,proto3" json:"cross_repository,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ProjectPullRequest) Reset() {
@@ -4983,6 +4987,13 @@ func (x *ProjectPullRequest) GetUrl() string {
 func (x *ProjectPullRequest) GetDraft() bool {
 	if x != nil {
 		return x.Draft
+	}
+	return false
+}
+
+func (x *ProjectPullRequest) GetCrossRepository() bool {
+	if x != nil {
+		return x.CrossRepository
 	}
 	return false
 }
@@ -5472,13 +5483,14 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x17HoldPullRequestResponse\x12>\n" +
 	"\rpull_requests\x18\x01 \x03(\v2\x19.agentmesh.v1.PullRequestR\fpullRequests\"3\n" +
 	"\x13ListProjectsRequest\x12\x1c\n" +
-	"\x04repo\x18\x01 \x01(\tB\b\x98\xb5\x18\x01\xa0\xb5\x18\x01R\x04repo\"\x85\x01\n" +
+	"\x04repo\x18\x01 \x01(\tB\b\x98\xb5\x18\x01\xa0\xb5\x18\x01R\x04repo\"\xb0\x01\n" +
 	"\x12ProjectPullRequest\x12\x16\n" +
 	"\x06number\x18\x01 \x01(\x05R\x06number\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x19\n" +
 	"\bhead_ref\x18\x03 \x01(\tR\aheadRef\x12\x10\n" +
 	"\x03url\x18\x04 \x01(\tR\x03url\x12\x14\n" +
-	"\x05draft\x18\x05 \x01(\bR\x05draft\"\x96\x02\n" +
+	"\x05draft\x18\x05 \x01(\bR\x05draft\x12)\n" +
+	"\x10cross_repository\x18\x06 \x01(\bR\x0fcrossRepository\"\x96\x02\n" +
 	"\aProject\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +

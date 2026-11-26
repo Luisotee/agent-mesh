@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +13,8 @@ import (
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 )
@@ -25,8 +28,10 @@ const (
 
 // ListProjects lists the repos work can start in: the git folders directly under the `repos.dir` folders, and every repo
 // an agent has worked in, each with its default branch and branches (from git, no network). With `repo` set it is that
-// one repo, with its open pull requests read from GitHub (the workspace dialog starts from one).
+// one of those, fetched from its origin first, with its open pull requests read from GitHub (the workspace dialog
+// starts from one): a read-only device gets the refs last fetched and no pull requests, and a repo not listed is refused.
 func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListProjectsRequest]) (*connect.Response[v1.ListProjectsResponse], error) {
+	actor := auth.ActorFrom(ctx)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	r := d.store.Read(ctx)
@@ -44,30 +49,38 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 	}
 	inDir := map[string]bool{}
 	var paths []string
+	dirs, err := d.Setting(r, "repos.dir")
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range dirs.([]any) {
+		for _, p := range gitFolders(expandHome(e.(string))) {
+			inDir[p] = true
+			paths = append(paths, p)
+		}
+	}
+	for p := range used {
+		paths = append(paths, p)
+	}
+	// With `repo`, the one listed project it names: a repo the host doesn't list is not the caller's to have fetched.
+	fetch := false
 	if repo := req.Msg.Repo; repo != "" {
 		top, err := d.repoTop(ctx, repo)
 		if err != nil {
 			return nil, err
 		}
+		if !slices.ContainsFunc(paths, func(p string) bool { return sameDir(p, top) }) {
+			return nil, notFound("%s is not one of the projects the host lists (`mesh projects`)", repo)
+		}
 		paths = []string{top}
 		// Fresh refs, so a branch or a PR's head the user picks is there to start from (a failed fetch is not an error: the
-		// refs last fetched are listed).
-		fctx, stop := context.WithTimeout(ctx, 15*time.Second)
-		_, _ = git(fctx, top, "fetch", "--quiet", "origin")
-		stop()
-	} else {
-		dirs, err := d.Setting(r, "repos.dir")
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range dirs.([]any) {
-			for _, p := range gitFolders(expandHome(e.(string))) {
-				inDir[p] = true
-				paths = append(paths, p)
-			}
-		}
-		for p := range used {
-			paths = append(paths, p)
+		// refs last fetched are listed). A read-only device updates nothing: it gets the refs last fetched, and no
+		// pull requests (they come from GitHub).
+		fetch = actor.Class != v1.ActorClass_ACTOR_CLASS_READ_ONLY_DEVICE
+		if fetch {
+			fctx, stop := context.WithTimeout(ctx, 15*time.Second)
+			_, _ = git(fctx, top, "fetch", "--quiet", "origin")
+			stop()
 		}
 	}
 	seen := map[string]bool{}
@@ -99,7 +112,7 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 				pr.LastUsed = timestamppb.New(t)
 			}
 			pr.DefaultBranch, pr.Branches = projectBranchesOf(ctx, p)
-			if req.Msg.Repo != "" {
+			if fetch {
 				pr.PullRequests = d.projectPullRequests(ctx, p)
 			}
 			out[i] = pr
@@ -158,7 +171,7 @@ func projectBranchesOf(ctx context.Context, dir string) (string, []string) {
 // projectPullRequests are a repo's open pull requests as GitHub says (`gh` infers the repo from the remote); none when
 // `gh` can't be run or says nothing usable, so a workspace can still start from a branch.
 func (d *Daemon) projectPullRequests(ctx context.Context, dir string) []*v1.ProjectPullRequest {
-	out, err := d.runGH(ctx, dir, "pr", "list", "--state", "open", "--json", "number,title,headRefName,url,isDraft", "--limit", projectPRs)
+	out, err := d.runGH(ctx, dir, "pr", "list", "--state", "open", "--json", "number,title,headRefName,url,isDraft,isCrossRepository", "--limit", projectPRs)
 	if err != nil {
 		d.log.Debug("project pull requests", "repo", dir, "err", err)
 		return nil
@@ -169,13 +182,14 @@ func (d *Daemon) projectPullRequests(ctx context.Context, dir string) []*v1.Proj
 		HeadRefName string `json:"headRefName"`
 		URL         string `json:"url"`
 		IsDraft     bool   `json:"isDraft"`
+		CrossRepo   bool   `json:"isCrossRepository"`
 	}
 	if json.Unmarshal(out, &rows) != nil {
 		return nil
 	}
 	prs := make([]*v1.ProjectPullRequest, 0, len(rows))
 	for _, p := range rows {
-		prs = append(prs, &v1.ProjectPullRequest{Number: p.Number, Title: p.Title, HeadRef: p.HeadRefName, Url: p.URL, Draft: p.IsDraft})
+		prs = append(prs, &v1.ProjectPullRequest{Number: p.Number, Title: p.Title, HeadRef: p.HeadRefName, Url: p.URL, Draft: p.IsDraft, CrossRepository: p.CrossRepo})
 	}
 	return prs
 }

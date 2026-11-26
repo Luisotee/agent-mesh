@@ -135,7 +135,8 @@ public interface MeshServiceClientInterface {
 
   /**
    *  Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
-   *  brake on one PR, at any autonomy level; it is kept with the PR's record and shown by ListPullRequests.
+   *  brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+   *  ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
    */
   public suspend fun holdPullRequest(request: HoldPullRequestRequest, headers: Headers = emptyMap()): ResponseMessage<HoldPullRequestResponse>
 

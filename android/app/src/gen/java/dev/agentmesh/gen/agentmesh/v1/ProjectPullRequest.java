@@ -236,6 +236,47 @@ public  final class ProjectPullRequest extends
     draft_ = false;
   }
 
+  public static final int CROSS_REPOSITORY_FIELD_NUMBER = 6;
+  private boolean crossRepository_;
+  /**
+   * <pre>
+   * The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+   * started from by it.
+   * </pre>
+   *
+   * <code>bool cross_repository = 6 [json_name = "crossRepository"];</code>
+   * @return The crossRepository.
+   */
+  @java.lang.Override
+  public boolean getCrossRepository() {
+    return crossRepository_;
+  }
+  /**
+   * <pre>
+   * The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+   * started from by it.
+   * </pre>
+   *
+   * <code>bool cross_repository = 6 [json_name = "crossRepository"];</code>
+   * @param value The crossRepository to set.
+   */
+  private void setCrossRepository(boolean value) {
+    
+    crossRepository_ = value;
+  }
+  /**
+   * <pre>
+   * The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+   * started from by it.
+   * </pre>
+   *
+   * <code>bool cross_repository = 6 [json_name = "crossRepository"];</code>
+   */
+  private void clearCrossRepository() {
+
+    crossRepository_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.ProjectPullRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -560,6 +601,49 @@ public  final class ProjectPullRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+     * started from by it.
+     * </pre>
+     *
+     * <code>bool cross_repository = 6 [json_name = "crossRepository"];</code>
+     * @return The crossRepository.
+     */
+    @java.lang.Override
+    public boolean getCrossRepository() {
+      return instance.getCrossRepository();
+    }
+    /**
+     * <pre>
+     * The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+     * started from by it.
+     * </pre>
+     *
+     * <code>bool cross_repository = 6 [json_name = "crossRepository"];</code>
+     * @param value The crossRepository to set.
+     * @return This builder for chaining.
+     */
+    public Builder setCrossRepository(boolean value) {
+      copyOnWrite();
+      instance.setCrossRepository(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+     * started from by it.
+     * </pre>
+     *
+     * <code>bool cross_repository = 6 [json_name = "crossRepository"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearCrossRepository() {
+      copyOnWrite();
+      instance.clearCrossRepository();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ProjectPullRequest)
   }
   @java.lang.Override
@@ -581,10 +665,11 @@ public  final class ProjectPullRequest extends
             "headRef_",
             "url_",
             "draft_",
+            "crossRepository_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0004\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208\u0005\u0007";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0004\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0007\u0006\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

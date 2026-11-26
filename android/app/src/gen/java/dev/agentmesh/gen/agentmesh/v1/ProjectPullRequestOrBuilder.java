@@ -65,4 +65,15 @@ public interface ProjectPullRequestOrBuilder extends
    * @return The draft.
    */
   boolean getDraft();
+
+  /**
+   * <pre>
+   * The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+   * started from by it.
+   * </pre>
+   *
+   * <code>bool cross_repository = 6 [json_name = "crossRepository"];</code>
+   * @return The crossRepository.
+   */
+  boolean getCrossRepository();
 }

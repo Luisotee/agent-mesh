@@ -88,3 +88,81 @@ func TestOnlyTheUserOrTheRootMayHold(t *testing.T) {
 		t.Errorf("the root: %v", err)
 	}
 }
+
+func TestAHoldOutlivesTheRecordsOfItsPullRequest(t *testing.T) {
+	w := startPR(t)
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	url := "https://github.com/acme/demo/pull/12"
+	w.prs("", false)
+	if _, err := holdPR(t, w, url, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// A clean read that no longer returns the PR drops the worker's record (a rewritten branch, a report naming others)...
+	w.setList()
+	w.advance(3 * time.Minute)
+	if rows := w.prs("", false); len(rows) != 0 && len(rows[0].PullRequests) != 0 {
+		t.Fatalf("the record was kept: %v", rows)
+	}
+	// ...and a record made again for it, by this worker or another, is held as before.
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	w.advance(3 * time.Minute)
+	if rows := w.prs("", false); len(rows) != 1 || len(rows[0].PullRequests) != 1 || !rows[0].PullRequests[0].Held {
+		t.Fatalf("the hold was lost with the record: %v", rows)
+	}
+	if brief, err := w.as(w.rootTok).GetBrief(context.Background(), connect.NewRequest(&v1.GetBriefRequest{})); err != nil || !strings.Contains(brief.Msg.Text, "HELD by the user: do not merge") {
+		t.Errorf("the brief: %v\n%v", err, brief)
+	}
+
+	// With the records gone again, the user can still release it.
+	w.setList()
+	w.advance(3 * time.Minute)
+	w.prs("", false)
+	if _, err := holdPR(t, w, url, true); err != nil {
+		t.Fatalf("releasing a hold with no record: %v", err)
+	}
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	w.advance(3 * time.Minute)
+	if rows := w.prs("", false); rows[0].PullRequests[0].Held {
+		t.Errorf("released, but held: %v", rows[0].PullRequests)
+	}
+}
+
+func TestARootHoldsButNeverReleases(t *testing.T) {
+	w := startPR(t)
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	w.prs("", false)
+	const url = "https://github.com/acme/demo/pull/12"
+	root := w.as(w.rootTok)
+	if _, err := root.HoldPullRequest(context.Background(), connect.NewRequest(&v1.HoldPullRequestRequest{Meta: meta(""), Url: url})); err != nil {
+		t.Fatal(err)
+	}
+	_, err := root.HoldPullRequest(context.Background(), connect.NewRequest(&v1.HoldPullRequestRequest{Meta: meta(""), Url: url, Release: true}))
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("a root releasing: %v", err)
+	}
+	if rows := w.prs("", false); !rows[0].PullRequests[0].Held {
+		t.Errorf("the root's attempt released it: %v", rows[0].PullRequests)
+	}
+	if res, err := holdPR(t, w, url, true); err != nil || res.PullRequests[0].Held {
+		t.Errorf("the user releasing: %v, %v", res, err)
+	}
+}
+
+func TestAHoldFindsThePullRequestByItsNormalizedURL(t *testing.T) {
+	w := startPR(t)
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	w.prs("", false)
+	for _, url := range []string{"https://github.com/acme/demo/pull/12/", "https://github.com/ACME/demo/pull/12#issuecomment-1", "https://github.com/acme/demo/pull/12?x=1"} {
+		res, err := holdPR(t, w, url, false)
+		if err != nil || len(res.PullRequests) != 1 {
+			t.Fatalf("%s: %v, %v", url, res, err)
+		}
+		if _, err := holdPR(t, w, url, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := holdPR(t, w, "https://github.com/acme/demo/pull/1", false); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("another PR: %v", err)
+	}
+}

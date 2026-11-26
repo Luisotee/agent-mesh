@@ -226,7 +226,8 @@ type MeshServiceClient interface {
 	// the work evidence (commits, pushed, dirty) of a worker with none.
 	ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error)
 	// Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
-	// brake on one PR, at any autonomy level; it is kept with the PR's record and shown by ListPullRequests.
+	// brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+	// ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
 	HoldPullRequest(context.Context, *connect.Request[v1.HoldPullRequestRequest]) (*connect.Response[v1.HoldPullRequestResponse], error)
 	// The repositories this host can start work in: the git folders under the `repos.dir` folders and every repo
 	// an agent has worked in, each with its default branch and branches; with `repo` set, that one with its open
@@ -1048,7 +1049,8 @@ type MeshServiceHandler interface {
 	// the work evidence (commits, pushed, dirty) of a worker with none.
 	ListPullRequests(context.Context, *connect.Request[v1.ListPullRequestsRequest]) (*connect.Response[v1.ListPullRequestsResponse], error)
 	// Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
-	// brake on one PR, at any autonomy level; it is kept with the PR's record and shown by ListPullRequests.
+	// brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+	// ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
 	HoldPullRequest(context.Context, *connect.Request[v1.HoldPullRequestRequest]) (*connect.Response[v1.HoldPullRequestResponse], error)
 	// The repositories this host can start work in: the git folders under the `repos.dir` folders and every repo
 	// an agent has worked in, each with its default branch and branches; with `repo` set, that one with its open

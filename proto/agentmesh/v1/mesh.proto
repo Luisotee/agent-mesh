@@ -356,7 +356,8 @@ service MeshService {
   }
 
   // Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
-  // brake on one PR, at any autonomy level; it is kept with the PR's record and shown by ListPullRequests.
+  // brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+  // ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
   rpc HoldPullRequest(HoldPullRequestRequest) returns (HoldPullRequestResponse) {
     option (action) = {
       actors: [
@@ -1399,7 +1400,7 @@ message HoldPullRequestRequest {
   RequestMeta meta = 1;
   // The PR's url, as ListPullRequests gives it.
   string url = 2;
-  // Release the hold instead of placing it.
+  // Release the hold instead of placing it (refused for a root).
   bool release = 3;
 }
 
@@ -1409,8 +1410,9 @@ message HoldPullRequestResponse {
 }
 
 message ListProjectsRequest {
-  // Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
-  // pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none.
+  // Only this repo (a path or a bare name of a `repos.dir` folder), one the full list has, fetched from its origin
+  // first, and with its open pull requests read from GitHub (a read-only device gets the refs last fetched and no
+  // pull requests): the full list is quick (it asks git, not the network) and has none.
   string repo = 1 [(path) = true, (repo_name) = true];
 }
 
@@ -1422,6 +1424,9 @@ message ProjectPullRequest {
   string head_ref = 3;
   string url = 4;
   bool draft = 5;
+  // The head is a branch of a fork: `head_ref` names the fork's branch, not one of the repo's remote, so the PR can't be
+  // started from by it.
+  bool cross_repository = 6;
 }
 
 message Project {

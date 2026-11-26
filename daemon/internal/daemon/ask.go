@@ -662,12 +662,7 @@ func asksOf(r store.Reader, actor *v1.Actor, pr string) ([]*v1.Ask, error) {
 }
 
 // prKey is a PR URL as one key: lower case, with no query, fragment or trailing slash.
-func prKey(u string) string {
-	if i := strings.IndexAny(u, "?#"); i >= 0 {
-		u = u[:i]
-	}
-	return strings.ToLower(strings.TrimRight(u, "/"))
-}
+func prKey(u string) string { return store.PRKey(u) }
 
 // RecordVerdict stores the root's judgement of one reviewer's findings on the PR's newest round.
 func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error) {

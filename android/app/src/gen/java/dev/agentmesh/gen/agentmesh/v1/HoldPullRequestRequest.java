@@ -136,7 +136,7 @@ public  final class HoldPullRequestRequest extends
   private boolean release_;
   /**
    * <pre>
-   * Release the hold instead of placing it.
+   * Release the hold instead of placing it (refused for a root).
    * </pre>
    *
    * <code>bool release = 3 [json_name = "release"];</code>
@@ -148,7 +148,7 @@ public  final class HoldPullRequestRequest extends
   }
   /**
    * <pre>
-   * Release the hold instead of placing it.
+   * Release the hold instead of placing it (refused for a root).
    * </pre>
    *
    * <code>bool release = 3 [json_name = "release"];</code>
@@ -160,7 +160,7 @@ public  final class HoldPullRequestRequest extends
   }
   /**
    * <pre>
-   * Release the hold instead of placing it.
+   * Release the hold instead of placing it (refused for a root).
    * </pre>
    *
    * <code>bool release = 3 [json_name = "release"];</code>
@@ -385,7 +385,7 @@ public  final class HoldPullRequestRequest extends
 
     /**
      * <pre>
-     * Release the hold instead of placing it.
+     * Release the hold instead of placing it (refused for a root).
      * </pre>
      *
      * <code>bool release = 3 [json_name = "release"];</code>
@@ -397,7 +397,7 @@ public  final class HoldPullRequestRequest extends
     }
     /**
      * <pre>
-     * Release the hold instead of placing it.
+     * Release the hold instead of placing it (refused for a root).
      * </pre>
      *
      * <code>bool release = 3 [json_name = "release"];</code>
@@ -411,7 +411,7 @@ public  final class HoldPullRequestRequest extends
     }
     /**
      * <pre>
-     * Release the hold instead of placing it.
+     * Release the hold instead of placing it (refused for a root).
      * </pre>
      *
      * <code>bool release = 3 [json_name = "release"];</code>
