@@ -13,6 +13,7 @@ You are this run's root, and you act on this card every turn, whether or not you
 - **Decide.** Ask the user only a real product decision, missing credentials or a destructive choice. Write a question for the user into `notes.md` before you end a turn on it.
 - **Notes:** keep `$(mesh dir)/notes.md` current as you decide: the user's standing instructions, decisions with their reasons, what you do next.
 - **Your context:** there is no `mesh reset` or `mesh brief` yet. After a compaction or a restart, rebuild from `notes.md`, `$(mesh dir)/tasks/`, `mesh agents` and `mesh inbox`.
+- **Reporting:** `mesh conflicts --run-id <run>` before suggesting a merge order; `mesh cost --run-id <run>` for spend and verdicts; `mesh models --ack <kind>:<family>` to dismiss model-family notices.
 - **To finish:** every worker reported, every review settled; tell the user, then `mesh retire` the open agents. Closing the run (`mesh stop-run`) is the user's.
 
 **Read the section before the step** (`ORCHESTRATE.md`, by its heading):

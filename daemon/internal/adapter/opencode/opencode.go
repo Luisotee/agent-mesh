@@ -233,7 +233,39 @@ func (a *Adapter) ExpandChain(ctx context.Context, bin string, env map[string]st
 	return out, nil
 }
 
+// ListedFreeModels returns OpenCode's active zero-cost tool-calling `opencode/*` models, newest first (from the
+// cached listing unless fresh is true). Returns nil, nil when !fresh and no cached listing exists yet.
+func (a *Adapter) ListedFreeModels(ctx context.Context, bin string, env map[string]string, fresh bool) ([]string, error) {
+	if bin == "" {
+		bin = "opencode"
+	}
+	if !fresh {
+		cacheFile := a.modelsCachePath(bin, env)
+		if cacheFile == "" {
+			return nil, nil
+		}
+		b, err := os.ReadFile(cacheFile)
+		if err != nil {
+			return nil, nil
+		}
+		var cached map[string]ModelInfo
+		if json.Unmarshal(b, &cached) != nil || len(cached) == 0 {
+			return nil, nil
+		}
+		return FreeModels(cached), nil
+	}
+	models, err := a.listModelsDirect(ctx, bin, env, true)
+	if err != nil {
+		return nil, err
+	}
+	return FreeModels(models), nil
+}
+
 func (a *Adapter) listModels(ctx context.Context, bin string, env map[string]string) (map[string]ModelInfo, error) {
+	return a.listModelsDirect(ctx, bin, env, false)
+}
+
+func (a *Adapter) listModelsDirect(ctx context.Context, bin string, env map[string]string, force bool) (map[string]ModelInfo, error) {
 	if bin == "" {
 		bin = "opencode"
 	}
@@ -245,7 +277,7 @@ func (a *Adapter) listModels(ctx context.Context, bin string, env map[string]str
 		return ParseModels(raw), nil
 	}
 	cacheFile := a.modelsCachePath(bin, env)
-	if cacheFile != "" {
+	if !force && cacheFile != "" {
 		if st, err := os.Stat(cacheFile); err == nil && time.Since(st.ModTime()) < modelsCacheTTL {
 			if b, err := os.ReadFile(cacheFile); err == nil {
 				var cached map[string]ModelInfo
@@ -274,7 +306,7 @@ func (a *Adapter) listModels(ctx context.Context, bin string, env map[string]str
 			return models, nil
 		}
 	}
-	if cacheFile != "" {
+	if !force && cacheFile != "" {
 		if b, rerr := os.ReadFile(cacheFile); rerr == nil {
 			var cached map[string]ModelInfo
 			if json.Unmarshal(b, &cached) == nil && len(cached) > 0 {
@@ -875,4 +907,108 @@ func resolvePathIncludingMissing(p string) string {
 		tail = append([]string{filepath.Base(cur)}, tail...)
 		cur = parent
 	}
+}
+
+// ── cost / message usage ──
+
+// SessionCall is one assistant reply's token and cost usage from `opencode.db`.
+type SessionCall struct {
+	ID     string
+	Time   time.Time
+	Model  string
+	Input  int64
+	Read   int64
+	Output int64
+	USD    float64
+}
+
+type opencodeUsageMessage struct {
+	ID         string  `json:"id"`
+	Role       string  `json:"role"`
+	ProviderID string  `json:"providerID"`
+	ModelID    string  `json:"modelID"`
+	Cost       float64 `json:"cost"`
+	Time       struct {
+		Created int64 `json:"created"`
+	} `json:"time"`
+	Tokens *struct {
+		Input     int64 `json:"input"`
+		Output    int64 `json:"output"`
+		Reasoning int64 `json:"reasoning"`
+		Cache     struct {
+			Read int64 `json:"read"`
+		} `json:"cache"`
+	} `json:"tokens"`
+}
+
+// RecentSessions returns OpenCode session ids updated at or after `since` (all if zero).
+func RecentSessions(dbPath string, since time.Time) []string {
+	db, err := openDB(dbPath)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	sinceMs := int64(0)
+	if !since.IsZero() {
+		sinceMs = since.UnixMilli()
+	}
+	rows, err := db.Query(`SELECT id FROM session WHERE time_updated >= ? ORDER BY time_updated, id`, sinceMs)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil && id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// SessionCalls reads assistant token and cost records for `session` from `opencode.db`, oldest first.
+func SessionCalls(dbPath, session string) []SessionCall {
+	if session == "" {
+		return nil
+	}
+	db, err := openDB(dbPath)
+	if err != nil {
+		return nil
+	}
+	defer db.Close()
+	rows, err := db.Query(`SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created ASC, rowid ASC`, session)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var calls []SessionCall
+	for rows.Next() {
+		var rowID, raw string
+		if err := rows.Scan(&rowID, &raw); err != nil {
+			continue
+		}
+		var m opencodeUsageMessage
+		if json.Unmarshal([]byte(raw), &m) != nil || m.Role != "assistant" || m.Time.Created <= 0 || m.Tokens == nil {
+			continue
+		}
+		id := m.ID
+		if id == "" {
+			id = rowID
+		}
+		model := m.ModelID
+		if m.ProviderID != "" && m.ModelID != "" {
+			model = m.ProviderID + "/" + m.ModelID
+		}
+		calls = append(calls, SessionCall{
+			ID:     id,
+			Time:   time.UnixMilli(m.Time.Created),
+			Model:  model,
+			Input:  m.Tokens.Input,
+			Read:   m.Tokens.Cache.Read,
+			Output: m.Tokens.Output + m.Tokens.Reasoning,
+			USD:    m.Cost,
+		})
+	}
+	return calls
 }
