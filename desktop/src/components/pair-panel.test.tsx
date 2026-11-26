@@ -1,7 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { Code, ConnectError } from '@connectrpc/connect'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import jsQR from 'jsqr'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -237,7 +237,7 @@ describe('PairPanel', () => {
     const { host, client, wrap } = fixture([])
     client.createPairing.mockRejectedValueOnce(new Error('[permission_denied] only the host\'s own device may manage paired devices'))
     render(wrap(<PairPanel host={host} />))
-    expect(await screen.findByRole('note')).toHaveTextContent(/neither a direct TLS listener nor a relay/)
+    expect(await screen.findByRole('note')).toHaveTextContent(/no direct TLS listener, no Tailscale node and no relay/)
     await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
     expect(await screen.findByRole('alert')).toHaveTextContent("only the host's own device may manage paired devices")
   })
@@ -294,13 +294,57 @@ describe('the QR code', () => {
 })
 
 describe('the Tailscale section of the pair screen', () => {
-  it('says the node is off when meshd runs without --tailscale, and does not ask again', async () => {
+  it('says the node is off when meshd runs without --tailscale, and asks again slowly', async () => {
     const { host, client, wrap } = fixture()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(wrap(<PairPanel host={host} />))
+      const sec = await screen.findByRole('region', { name: 'Tailscale' })
+      expect(sec).toHaveTextContent('--tailscale')
+      expect(within(sec).queryByTestId('tailnet-state')).toBeNull()
+      expect(client.tailnetStatus).toHaveBeenCalledTimes(1)
+      // Restarted with --tailscale while the screen is open: the next slow poll shows it.
+      client.tailnetStatus.mockResolvedValue(tailnet({ enabled: true, state: 'Starting' }))
+      await vi.advanceTimersByTimeAsync(31_000)
+      expect(await screen.findByTestId('tailnet-state')).toHaveTextContent('Starting')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts over for another host, and asks again after a reconnect', async () => {
+    const a = fixture(['tls'], 'device-local', tailnet({ enabled: true, state: 'Running', hostname: 'node-a' }))
+    const b = fixture(['tls'], 'device-local', tailnet())
+    ;(b.host.info as { id: string }).id = 'h2'
+    const { rerender } = render(a.wrap(<PairPanel host={a.host} />))
+    expect(await screen.findByText('node-a')).toBeInTheDocument()
+    // Another host takes the place of the panel without it unmounting (the pair screen stays open): its own answer shows.
+    rerender(a.wrap(<PairPanel host={b.host} />))
+    await waitFor(() => expect(b.client.tailnetStatus).toHaveBeenCalledTimes(1))
+    expect(await screen.findByRole('region', { name: 'Tailscale' })).toHaveTextContent('--tailscale')
+    expect(screen.queryByText('node-a')).toBeNull()
+    // The same host reconnects (it may have been restarted with --tailscale): asked again at once.
+    b.client.tailnetStatus.mockResolvedValue(tailnet({ enabled: true, state: 'Running', hostname: 'node-b' }))
+    await act(async () => b.store.setState({ conn: { kind: 'connecting' } as never }))
+    await act(async () => b.store.setState({ conn: { kind: 'ready', hello: { actor: { id: 'device-local', name: 'local' }, capabilities: ['tls'], version: 'v' } as never } }))
+    expect(await screen.findByText('node-b')).toBeInTheDocument()
+  })
+
+  it('does not call a --tailscale-only host unreachable', async () => {
+    const { host, wrap } = fixture(['tailscale'])
     render(wrap(<PairPanel host={host} />))
-    const sec = await screen.findByRole('region', { name: 'Tailscale' })
-    expect(sec).toHaveTextContent('--tailscale')
-    expect(within(sec).queryByTestId('tailnet-state')).toBeNull()
-    expect(client.tailnetStatus).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('button', { name: 'Create pairing link' })).toBeInTheDocument()
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(screen.getByText(/--listen address, or its tailnet address/)).toBeInTheDocument()
+  })
+
+  it('offers no address to use once the link is made (the form is gone)', async () => {
+    const { host, wrap } = fixture(['tls'], 'device-local', tailnet({ enabled: true, state: 'Running', dnsName: 'm.t.ts.net.', directUrl: 'https://100.64.0.7:8443' }))
+    render(wrap(<PairPanel host={host} />))
+    expect(await screen.findByRole('button', { name: /Use https:\/\/100.64.0.7:8443/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Create pairing link' }))
+    expect(await screen.findByRole('img', { name: 'Pairing QR code' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /in the pairing link/ })).toBeNull()
   })
 
   it('shows the login link and its QR code while the node needs a login, and opens the link in the browser', async () => {

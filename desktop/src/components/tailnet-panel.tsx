@@ -2,6 +2,7 @@ import { Code, ConnectError } from '@connectrpc/connect'
 import { ExternalLink, Network } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { tailnetStatus } from '@/actions'
+import { useHostState } from '@/context'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { TailnetStatusResponse } from '@/gen/agentmesh/v1/mesh_pb'
@@ -21,37 +22,51 @@ const SLOW_MS = 30_000
  * host's own device may ask `TailnetStatus` (the login URL attaches the node to whichever tailnet opens it), so this
  * is shown with the pairing screen and nowhere else.
  */
-export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse: (address: string) => void }) {
+export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse?: (address: string) => void }) {
   const [status, setStatus] = useState<TailnetStatusResponse>()
   const [error, setError] = useState('')
   // A host older than this app doesn't have the action: say nothing instead of an error on every visit.
   const [unsupported, setUnsupported] = useState(false)
+  // What is shown belongs to one host on one connection: a different host, or the same one reconnected (it may have
+  // been restarted with or without --tailscale, or upgraded), starts over.
+  const connected = useHostState(host, (s) => s.conn.kind === 'ready')
+  useEffect(() => {
+    setStatus(undefined)
+    setError('')
+    setUnsupported(false)
+  }, [host, connected])
 
   const running = status ? tailnetRunning(status) : false
-  const off = status !== undefined && !status.enabled
   useEffect(() => {
-    if (off || unsupported) return
+    if (unsupported || !connected) return
     let live = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // The next ask waits for the last answer: fast while the node comes up or waits for a login, slowly once it runs,
+    // and slowly while it is off (meshd may be restarted with --tailscale while this is open).
     const load = () =>
       tailnetStatus(host.client).then(
         (r) => {
           if (!live) return
           setStatus(r)
           setError('')
+          timer = setTimeout(load, tailnetRunning(r) || !r.enabled ? SLOW_MS : FAST_MS)
         },
         (e: unknown) => {
           if (!live) return
-          if (e instanceof ConnectError && e.code === Code.Unimplemented) setUnsupported(true)
-          else setError(say(e))
+          if (e instanceof ConnectError && e.code === Code.Unimplemented) {
+            setUnsupported(true)
+            return
+          }
+          setError(say(e))
+          timer = setTimeout(load, FAST_MS)
         },
       )
     void load()
-    const t = setInterval(() => void load(), running ? SLOW_MS : FAST_MS)
     return () => {
       live = false
-      clearInterval(t)
+      clearTimeout(timer)
     }
-  }, [host, running, off, unsupported])
+  }, [host, unsupported, connected])
 
   if (unsupported) return null
   if (!status) {
@@ -121,7 +136,7 @@ export function TailnetPanel({ host, onUse }: { host: HostRuntime; onUse: (addre
               </>
             )}
           </dl>
-          {running && addresses.length > 0 && (
+          {running && onUse && addresses.length > 0 && (
             <div className="flex flex-col items-start gap-2">
               <p className="text-xs text-muted-foreground">
                 A device on the same tailnet (the Tailscale app on it) reaches this host at these addresses, pinned to its certificate as on any direct route.

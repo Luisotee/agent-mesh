@@ -46,7 +46,9 @@ const when = (d: Device) => (d.createdAt ? new Date(Number(d.createdAt.seconds) 
 export function PairPanel({ host }: { host: HostRuntime }) {
   const devices = useHostState(host, (s) => s.devices)
   const caps = useHostState(host, (s) => s.daemon?.capabilities ?? NONE)
-  const reachable = caps.includes('tls') || caps.includes('relay')
+  // A direct route is the --listen address or the built-in Tailscale node (--tailscale): either one is reachable.
+  const direct = caps.includes('tls') || caps.includes('tailscale')
+  const reachable = direct || caps.includes('relay')
   const [name, setName] = useState('')
   const [readOnly, setReadOnly] = useState(false)
   const [lifetime, setLifetime] = useState(600)
@@ -120,7 +122,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
         </p>
       </header>
 
-      <TailnetPanel host={host} onUse={setDirectUrl} />
+      <TailnetPanel key={host.info.id} host={host} onUse={made ? undefined : setDirectUrl} />
 
       {!made && (
         <form onSubmit={create} className="flex max-w-md flex-col gap-3">
@@ -137,9 +139,9 @@ export function PairPanel({ host }: { host: HostRuntime }) {
           <Field
             label="Address the device reaches this host at"
             hint={
-              caps.includes('tls')
+              direct
                 ? 'https://host:port of this host\'s --listen address, or its tailnet address above, if another device reaches it directly (the host\'s own tailnet or listen address when empty). A relay needs no address.'
-                : 'This host does not listen for other machines (no --listen). With a relay set up the device needs no address.'
+                : 'This host does not listen for other machines (no --listen or --tailscale). With a relay set up the device needs no address.'
             }
           >
             <Input value={directUrl} onChange={(e) => setDirectUrl(e.target.value)} placeholder="https://192.168.1.5:9443" spellCheck={false} />
@@ -149,7 +151,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
           </label>
           {!reachable && (
             <p role="note" className="text-xs text-state-needs">
-              This host has neither a direct TLS listener nor a relay, so a device on another machine can't reach it. Start meshd with <code className="font-mono">--listen</code> or the relay flags first.
+              This host has no direct TLS listener, no Tailscale node and no relay, so a device on another machine can't reach it. Start meshd with <code className="font-mono">--listen</code>, <code className="font-mono">--tailscale</code> or the relay flags first.
             </p>
           )}
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}

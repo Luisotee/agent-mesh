@@ -36,7 +36,7 @@ sealed interface Route {
  * address is read, never resolved.
  */
 fun isTailnetUrl(url: String): Boolean {
-    val host = runCatching { java.net.URI(url.trim()).host }.getOrNull()?.lowercase()?.removePrefix("[")?.removeSuffix("]") ?: return false
+    val host = runCatching { java.net.URI(url.trim()).host }.getOrNull()?.lowercase()?.removePrefix("[")?.removeSuffix("]")?.removeSuffix(".") ?: return false
     if (host.endsWith(".ts.net")) return true
     if (host.startsWith("fd7a:115c:a1e0:")) return true
     val parts = host.split('.')

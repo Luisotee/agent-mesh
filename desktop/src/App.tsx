@@ -145,7 +145,7 @@ function MainPane({ host }: { host: HostRuntime }) {
   const pairOpen = useAppState((s) => s.pairOpen)
   const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
   if (settingsOpen) return <SettingsPanel host={host} />
-  if (pairOpen) return <PairPanel host={host} />
+  if (pairOpen) return <PairPanel key={host.info.id} host={host} />
   if (!agentId) {
     return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">Pick an agent in a run to see it here.</div>
   }

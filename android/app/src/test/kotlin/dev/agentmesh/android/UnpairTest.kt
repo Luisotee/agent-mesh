@@ -1,6 +1,10 @@
 package dev.agentmesh.android
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -12,6 +16,8 @@ import com.connectrpc.Code
 import dev.agentmesh.android.hosts.UnpairResult
 import dev.agentmesh.android.hosts.unpairFromHost
 import dev.agentmesh.android.net.ApiException
+import dev.agentmesh.android.net.RelayRefused
+import java.io.IOException
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.RemoveHostDialog
@@ -38,6 +44,16 @@ class UnpairTest {
         // The host no longer knows the token (revoked before, or by its owner): nothing is left to revoke.
         api.failRevokeSelf = ApiException(Code.UNAUTHENTICATED, "bad token")
         assertEquals(UnpairResult.Done, unpairFromHost(api))
+    }
+
+    @Test fun `a retry the relay refuses because the relay token is already revoked is done`() = runBlocking {
+        val api = RecordingApi()
+        // OkHttp and ConnectRPC wrap what the socket threw: the refusal is found anywhere in the causes.
+        api.failRevokeSelf = ApiException(Code.UNAVAILABLE, "transport", IOException("closed", RelayRefused("auth", "the relay refused this device's token")))
+        assertEquals(UnpairResult.Done, unpairFromHost(api))
+        // Any other relay refusal is not proof the token is dead.
+        api.failRevokeSelf = ApiException(Code.UNAVAILABLE, "transport", RelayRefused("busy", "try later"))
+        assertEquals(UnpairResult.Failed("transport"), unpairFromHost(api))
     }
 
     @Test fun `a host that can't be reached or doesn't know the call is a failure the user decides about`() = runBlocking {
@@ -105,5 +121,36 @@ class UnpairTest {
         compose.waitForIdle()
         assertEquals(0, asked)
         assertEquals(1, removed)
+    }
+
+    @Test fun `after a failure and a dropped connection, try again does not remove the host, and remove here only does`() {
+        var asked = 0
+        var removed = 0
+        var connected by mutableStateOf(true)
+        compose.setContent { AgentMeshTheme(theme) { RemoveHostDialog("Home", connected, { asked++; UnpairResult.Failed("down") }, { removed++ }, {}) } }
+        compose.onNodeWithText("Remove").performClick()
+        compose.waitForIdle()
+        assertEquals(1, asked)
+        connected = false
+        compose.waitForIdle()
+        compose.onNodeWithText("Try again").assertIsNotEnabled()
+        compose.onNodeWithText("Try again").performClick()
+        compose.waitForIdle()
+        assertEquals(0, removed)
+        assertEquals(1, asked)
+        compose.onNodeWithText("Remove here only").performClick()
+        compose.waitForIdle()
+        assertEquals(1, removed)
+    }
+
+    @Test fun `once a try failed there is no box to untick, so try again cannot remove without unpairing`() {
+        var removed = 0
+        show(true, { UnpairResult.Failed("down") }, { removed++ })
+        compose.onNodeWithText("Remove").performClick()
+        compose.waitForIdle()
+        compose.onAllNodesWithTag("also-unpair").assertCountEquals(0)
+        compose.onNodeWithText("Try again").performClick()
+        compose.waitForIdle()
+        assertEquals(0, removed)
     }
 }

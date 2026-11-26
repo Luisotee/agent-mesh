@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
+import { BrowserWindow, Notification, app, ipcMain, session, shell } from 'electron'
 import type { BridgeEvent, BridgeRequest, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
 import { Hosts, toInfo } from './hosts.js'
@@ -182,8 +182,13 @@ if (!app.requestSingleInstanceLock()) {
     startUpdates({
       packaged: app.isPackaged,
       isolated: !!userData,
+      platform: process.platform,
+      env: process.env,
       load: async () => (await import('electron-updater')).default.autoUpdater,
       log: (m) => console.warn(m),
+      notify: (version) => {
+        if (Notification.isSupported()) new Notification({ title: 'agent-mesh update ready', body: `${version ? `Version ${version} is` : 'A new version is'} downloaded and installs when you quit.` }).show()
+      },
     })
   })
   // A second launch (another link clicked) reaches this running app; macOS opens links through this event instead.

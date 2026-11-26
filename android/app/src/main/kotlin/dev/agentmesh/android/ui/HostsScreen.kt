@@ -94,7 +94,8 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
 /**
  * Removing a host: the app forgets it and its token, and, when connected, can first ask the host to revoke this
  * device's pairing (`RevokeSelf`), so the token doesn't stay valid there. A failed call leaves the choice to the user:
- * try again, or remove only here (the host's owner then revokes the device with `mesh revoke-device`).
+ * try again (which only retries the unpair, and waits for a connection), or remove only here (the host's owner then
+ * revokes the device with `mesh revoke-device`): the host is never forgotten without one of those two being chosen.
  */
 @Composable
 fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend () -> UnpairResult, onRemove: () -> Unit, onDismiss: () -> Unit) {
@@ -109,7 +110,10 @@ fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend () ->
         text = {
             Column {
                 Text("The app forgets this host and its token. The host and its agents are untouched.")
-                if (canUnpair) {
+                if (error != null) {
+                    // After a failure the choice is "Try again" or "Remove here only": no box to untick.
+                    if (!canUnpair) Text("Waiting for the host to be reachable again.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                } else if (canUnpair) {
                     Row(Modifier.clickable(enabled = !busy) { alsoUnpair = !alsoUnpair }, verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(alsoUnpair, { alsoUnpair = it }, enabled = !busy, modifier = Modifier.testTag("also-unpair"))
                         Text("Also unpair this phone from the host")
@@ -124,8 +128,10 @@ fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend () ->
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy, onClick = {
-                if (!(canUnpair && alsoUnpair)) return@TextButton onRemove()
+            val retry = error != null
+            TextButton(enabled = !busy && (!retry || canUnpair), onClick = {
+                // Only a first try may remove without unpairing (box unticked, or no connection): a retry never does.
+                if (!retry && !(canUnpair && alsoUnpair)) return@TextButton onRemove()
                 busy = true
                 error = null
                 scope.launch {
@@ -134,7 +140,7 @@ fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend () ->
                         is UnpairResult.Failed -> { busy = false; error = r.message }
                     }
                 }
-            }) { Text(if (error != null) "Try again" else "Remove") }
+            }) { Text(if (retry) "Try again" else "Remove") }
         },
         dismissButton = {
             Row {
