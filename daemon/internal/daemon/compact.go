@@ -361,6 +361,11 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 		return false, d.endCompaction(ctx, a, pc, "", 0, 0) // a process of unknown state: the reopen stops it
 	}
 	if gone {
+		if a.PendingReopen == nil && pc.Why != "resume" {
+			// Asked for a live agent (approve, follow-up) whose process ended before it was typed: nothing reopens it
+			// now, and a later resume asks for its own.
+			return false, d.endCompaction(ctx, a, pc, "", 0, 0)
+		}
 		return d.compactHeadless(ctx, a, pc)
 	}
 	if !atPrompt(a.State) {
