@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Columns2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Columns2, Eye, X } from 'lucide-react'
 import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -38,6 +38,9 @@ export function Dock() {
         {needs > 0 && <Badge className="border-state-needs text-state-needs">{needs} need you</Badge>}
         {fresh > 0 && <Badge className="border-primary text-primary">{fresh} new</Badge>}
         {!open && badge > 0 && <Badge role="status" className="border-primary text-primary">{badge} started</Badge>}
+        <Button size="sm" variant="ghost" className="ml-auto h-6 gap-1 px-1.5 text-xs" onClick={() => app.openWatch(true)}>
+          <Eye className="size-3.5" /> Watch all
+        </Button>
       </header>
       {open && (
         <ul aria-label="Agents in the dock" className="flex gap-2 overflow-x-auto px-3 pb-2.5">

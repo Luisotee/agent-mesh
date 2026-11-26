@@ -61,6 +61,15 @@ test('the sidebar groups the agents by run, project and status bucket', async ()
   await page.getByRole('button', { name: 'Hide the side panel' }).click()
   await side.waitFor({ state: 'detached' })
 
+  // Watch all: a tile per live agent, the fake CLI's conversation under each.
+  await page.getByRole('button', { name: 'Watch all' }).click()
+  const grid = page.getByRole('region', { name: 'Watch all' })
+  await grid.getByRole('listitem', { name: 'repo-fix in the grid' }).waitFor()
+  expect(await grid.getByRole('listitem', { name: /in the grid/ }).count()).toBe(2)
+  await page.screenshot({ path: path.join(shots, 'watch-all.png') })
+  await grid.getByRole('button', { name: 'Open repo-fix' }).click()
+  await page.getByRole('article', { name: 'repo-fix' }).waitFor()
+
   // Back to runs: the tree again.
   await group.getByRole('button', { name: 'Runs' }).click()
   await nav.getByRole('region', { name: 'group run' }).waitFor()

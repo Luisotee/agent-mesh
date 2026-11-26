@@ -12,6 +12,7 @@ import { CommandPalette } from './components/command-palette'
 import { Dock } from './components/dock'
 import { Panes } from './components/panes'
 import { SidePanel } from './components/side-panel'
+import { WatchAll } from './components/watch-all'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
@@ -635,11 +636,27 @@ describe('SidePanel', () => {
     expect(screen.getByRole('region', { name: 'Cost' })).toHaveTextContent('of $7.50 for the run')
     // No waiting list for a worker; its PR opens in the browser.
     expect(screen.queryByRole('region', { name: 'Waiting on you' })).toBeNull()
-    await userEvent.click(within(screen.getByRole('region', { name: 'Pull requests' })).getByRole('button', { name: /#12/ }))
+    await userEvent.click(within(screen.getByRole('region', { name: 'Pull requests' })).getByRole('button', { name: /^#12/ }))
     expect(open).toHaveBeenCalledWith('https://github.com/o/r/pull/12')
     await userEvent.click(screen.getByRole('button', { name: 'Hide the side panel' }))
     expect(model.store.getState().panelOpen).toBe(false)
     delete (window as unknown as { desktop?: unknown }).desktop
+  })
+
+  it('sends a comment on an open PR to the agent that wrote it, as a task, and shows a refusal', async () => {
+    const { host, client, wrap } = panelFixture()
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Comment on #12' }))
+    const box = screen.getByLabelText('Comment on #12 for app-fix')
+    expect(screen.getByRole('button', { name: 'Send to app-fix' })).toBeDisabled()
+    await userEvent.type(box, 'rename the helper')
+    client.sendMessage.mockRejectedValueOnce(new Error('[failed_precondition] agent has exited'))
+    await userEvent.click(screen.getByRole('button', { name: 'Send to app-fix' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('agent has exited')
+    await userEvent.click(screen.getByRole('button', { name: 'Send to app-fix' }))
+    await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(2))
+    expect(client.sendMessage.mock.calls[1]![0]).toMatchObject({ to: 'w1', type: MessageType.TASK, body: 'Comment on https://github.com/o/r/pull/12:\n\nrename the helper' })
+    await waitFor(() => expect(screen.queryByLabelText('Comment on #12 for app-fix')).toBeNull())
   })
 
   it('says so when the cost can\'t be read, and when no agent is open', async () => {
@@ -650,6 +667,40 @@ describe('SidePanel', () => {
     unmount()
     render(wrap(<SidePanel host={host} />))
     expect(screen.getByText(/Open an agent to see/)).toBeInTheDocument()
+  })
+})
+
+describe('WatchAll', () => {
+  it('shows a tile per live agent with its recent conversation, needing-you first, and a click opens it', async () => {
+    const { host, client, wrap, model } = fixture()
+    Object.assign(client, {
+      readTranscript: vi.fn(async (req: { agent: string }) =>
+        create(ReadTranscriptResponseSchema, { supported: true, sessionId: 's', entries: [create(TranscriptEntrySchema, { id: `${req.agent}-1`, kind: TranscriptKind.ASSISTANT, text: `hello from ${req.agent}` })] }),
+      ),
+    })
+    model.store.setState({ watchOpen: true })
+    render(wrap(<WatchAll />))
+    const grid = screen.getByRole('list', { name: 'Agents' })
+    const tiles = within(grid).getAllByRole('listitem', { name: /in the grid/ })
+    // The worker at a prompt comes before the idle lead.
+    expect(tiles.map((t) => t.getAttribute('aria-label'))).toEqual(['app-fix in the grid', 'app-lead in the grid'])
+    expect(await within(tiles[0]!).findByText(/hello from w1/)).toBeInTheDocument()
+    expect(tiles[0]).toHaveTextContent('Needs you: Bash')
+    await userEvent.click(within(tiles[0]!).getByRole('button', { name: 'Open app-fix' }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', watchOpen: false })
+  })
+
+  it('pins a tile as a split, and says so when there is nobody to watch', async () => {
+    const { host, client, wrap, model } = fixture()
+    Object.assign(client, { readTranscript: vi.fn(async () => create(ReadTranscriptResponseSchema, { supported: false })) })
+    model.selectAgent('h1', 'lead')
+    model.store.setState({ watchOpen: true })
+    render(wrap(<WatchAll />))
+    await userEvent.click(await screen.findByRole('button', { name: 'Pin app-fix as a split' }))
+    expect(model.store.getState().side.map((p) => p.agentId)).toEqual(['w1'])
+    expect(await screen.findAllByText('No conversation record for this CLI.')).toHaveLength(2)
+    act(() => host.store.setState({ agents: {} }))
+    expect(screen.getByText('No live agents in the open runs.')).toBeInTheDocument()
   })
 })
 

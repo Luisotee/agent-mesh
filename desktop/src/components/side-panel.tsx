@@ -1,8 +1,10 @@
-import { Copy, ExternalLink, PanelRightClose, Terminal } from 'lucide-react'
-import { useMemo } from 'react'
-import { getCost, getUsage } from '@/actions'
+import { Copy, ExternalLink, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { getCost, getUsage, sendMessage } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/input'
+import { MessageType } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
@@ -146,7 +148,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
         {prs.length === 0 ? <p className="text-xs text-muted-foreground">None yet.</p> : (
           <ul className="space-y-1">
             {prs.map((p) => (
-              <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} />
+              <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
             ))}
           </ul>
         )}
@@ -155,9 +157,47 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
   )
 }
 
+/** A comment on a PR goes to the agent that wrote it, as a task: it works in the same conversation, on the same branch. */
+function CommentBox({ host, pr, onDone }: { host: HostRuntime; pr: PrRow; onDone: () => void }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function send() {
+    const body = text.trim()
+    if (!body || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await sendMessage(host.client, pr.agentId, MessageType.TASK, `Comment on ${pr.url || `PR #${pr.number}`}:\n\n${body}`)
+      onDone()
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <form
+      className="mt-1 flex flex-col gap-1 px-1"
+      onSubmit={(e) => {
+        e.preventDefault()
+        void send()
+      }}
+    >
+      <Textarea aria-label={`Comment on #${pr.number} for ${pr.agentName}`} rows={3} autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={`Tell ${pr.agentName} what to change`} />
+      {error && <p role="alert" className="text-[11px] text-destructive">{error}</p>}
+      <div className="flex justify-end gap-1">
+        <Button size="sm" variant="ghost" onClick={onDone}>Cancel</Button>
+        <Button size="sm" type="submit" disabled={busy || !text.trim()}>Send to {pr.agentName}</Button>
+      </div>
+    </form>
+  )
+}
+
 const CHECKS_TONE: Record<string, string> = { pass: 'border-state-done text-state-done', failing: 'border-destructive text-destructive', pending: 'border-state-needs text-state-needs' }
 
-function PrItem({ pr, showAgent }: { pr: PrRow; showAgent: boolean }) {
+function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: HostRuntime }) {
+  const [commenting, setCommenting] = useState(false)
   return (
     <li className="text-xs">
       <button
@@ -173,7 +213,15 @@ function PrItem({ pr, showAgent }: { pr: PrRow; showAgent: boolean }) {
         {pr.stale && <span className="text-muted-foreground" title="GitHub couldn't be read the last time: this is what was seen before">stale</span>}
         <ExternalLink className="ml-auto size-3 shrink-0 text-muted-foreground" />
       </button>
-      {showAgent && <p className="truncate px-1 text-[11px] text-muted-foreground">{pr.agentName}</p>}
+      <div className="flex items-center gap-1 px-1">
+        {showAgent && <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{pr.agentName}</p>}
+        {pr.state === 'open' && (
+          <Button size="sm" variant="ghost" className="ml-auto h-5 gap-1 px-1 text-[11px]" aria-expanded={commenting} aria-label={`Comment on #${pr.number}`} onClick={() => setCommenting(!commenting)}>
+            <MessageSquarePlus className="size-3" /> Comment
+          </Button>
+        )}
+      </div>
+      {commenting && <CommentBox host={host} pr={pr} onDone={() => setCommenting(false)} />}
     </li>
   )
 }

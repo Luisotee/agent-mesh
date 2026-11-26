@@ -10,6 +10,7 @@ import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
 import { Panes } from '@/components/panes'
 import { SidePanel } from '@/components/side-panel'
+import { WatchAll } from '@/components/watch-all'
 import { TabBar } from '@/components/tab-bar'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { RunSidebar } from '@/components/run-sidebar'
@@ -170,8 +171,10 @@ function MainPane({ host }: { host: HostRuntime }) {
   const pairOpen = useAppState((s) => s.pairOpen)
   const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
   const side = useAppState((s) => s.side)
+  const watchOpen = useAppState((s) => s.watchOpen)
   if (settingsOpen) return <SettingsPanel host={host} />
   if (pairOpen) return <PairPanel host={host} />
+  if (watchOpen) return <WatchAll />
   if (side.length > 0) return <Panes host={host} agentId={agentId} />
   if (!agentId) {
     return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">Pick an agent in a run to see it here.</div>
