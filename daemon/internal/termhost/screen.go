@@ -79,6 +79,7 @@ var preambleModes = map[int]bool{
 
 type vtScreen struct {
 	emu     *vt.Emulator
+	osc     oscFilter
 	modes   map[int]bool // DEC private modes the program set
 	closing atomic.Bool
 	pumped  chan struct{}
@@ -119,7 +120,11 @@ func (s *vtScreen) pump(reply func([]byte)) {
 	}
 }
 
-func (s *vtScreen) Write(p []byte)        { s.emu.Write(p) }
+func (s *vtScreen) Write(p []byte) {
+	if out := s.osc.filter(p); len(out) > 0 {
+		s.emu.Write(out)
+	}
+}
 func (s *vtScreen) Resize(cols, rows int) { s.emu.Resize(cols, rows) }
 
 // Close stops the pump, then the emulator. The emulator's Close and Read race on an unguarded flag, so the
@@ -168,3 +173,89 @@ func (s *vtScreen) Repaint() []byte {
 	}
 	return []byte(b.String())
 }
+
+// oscFilter drops every OSC string (`ESC ] … BEL` or `ESC ] … ESC \`) that holds a non-ASCII byte before it
+// reaches the emulator. The pinned charmbracelet/x/vt (and its main of 2026-11-26) ends an OSC at the first
+// UTF-8 byte and prints the rest as text, so Claude Code's window title (`ESC ] 0 ; ✳ Claude Code BEL`, sent
+// whenever the cursor sits in the prompt) showed as " Claude Code" typed into the input box, and the box read as
+// a draft (found live, docs/design.md-era "Claude Code 2.1.332"). Only a title or a link can carry such text, and
+// no client needs either from a repaint; an ASCII OSC (a colour query, a hyperlink) passes through whole. It holds
+// an OSC until it ends, across writes, and gives one that never ends to the emulator as it came after oscMax
+// bytes.
+type oscFilter struct {
+	state int    // 0 text, 1 after ESC, 2 inside an OSC string, 3 after ESC inside an OSC string
+	held  []byte // the OSC string so far, with its introducer
+	wide  bool   // it holds a byte of 0x80 or more
+}
+
+const oscMax = 4096
+
+func (f *oscFilter) filter(p []byte) []byte {
+	var out []byte
+	for _, b := range p {
+		switch f.state {
+		case 0:
+			if b == 0x1b {
+				f.state = 1
+				f.held = append(f.held[:0], b)
+				continue
+			}
+			out = append(out, b)
+		case 1:
+			if b == ']' {
+				f.state = 2
+				f.wide = false
+				f.held = append(f.held, b)
+				continue
+			}
+			// Not an OSC: the held ESC and this byte go on (an ESC ESC keeps waiting on the second).
+			out = append(out, f.held...)
+			f.held = f.held[:0]
+			if b == 0x1b {
+				f.held = append(f.held, b)
+				continue
+			}
+			f.state = 0
+			out = append(out, b)
+		case 2, 3:
+			f.held = append(f.held, b)
+			switch {
+			case f.state == 3 && b == '\\', f.state == 2 && b == 0x07:
+				if !f.wide {
+					out = append(out, f.held...)
+				}
+				f.reset()
+				continue
+			case b == 0x1b:
+				f.state = 3
+			case f.state == 3 && b == ']': // ESC ] cuts the string short and starts the next one
+				if !f.wide { // end it properly: the next one is ours to judge, and the emulator must not stay inside this one
+					out = append(append(out, f.held[:len(f.held)-2]...), 0x1b, '\\')
+				}
+				f.state, f.wide = 2, false
+				f.held = append(f.held[:0], 0x1b, ']')
+				continue
+			case f.state == 3: // ESC then something else: the string ends there, as the emulator ends it
+				if !f.wide {
+					out = append(out, f.held...)
+				} else {
+					out = append(out, 0x1b, b) // the string goes, the escape sequence that cut it short stays
+				}
+				f.reset()
+				continue
+			default:
+				f.state = 2
+			}
+			if b >= 0x80 {
+				f.wide = true
+			}
+			if len(f.held) > oscMax {
+				out = append(out, f.held...)
+				f.reset()
+			}
+		}
+	}
+	return out
+}
+
+func (f *oscFilter) reset() { f.state, f.held, f.wide = 0, f.held[:0], false }
