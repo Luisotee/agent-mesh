@@ -235,8 +235,10 @@ func (d *Daemon) exclusiveSet(r store.Reader) (map[string]bool, error) {
 	return out, nil
 }
 
-// exclusiveHolders maps each currently held exclusive MCP server name to a live agent (not skipID) holding it via
-// `mcp` or `mcp_all`. Must be called inside a store transaction when enforcing mutual exclusion.
+// exclusiveHolders maps each currently held exclusive MCP server name to a live agent (not skipID) holding it: one
+// that named it (`mcp`, `mcp_all`), or whose launch loads it unnamed (a server of its repo under `claude.mcp` `repo`,
+// everything under `inherit` or with `claude.lean` off). Must be called inside a store transaction when enforcing
+// mutual exclusion.
 func (d *Daemon) exclusiveHolders(r store.Reader, skipID string) (map[string]*v1.Agent, error) {
 	exclSet, err := d.exclusiveSet(r)
 	if err != nil || len(exclSet) == 0 {
@@ -246,23 +248,51 @@ func (d *Daemon) exclusiveHolders(r store.Reader, skipID string) (map[string]*v1
 	if err != nil {
 		return nil, err
 	}
+	lean := true
+	if v, err := d.Setting(r, "claude.lean"); err == nil {
+		if on, ok := v.(bool); ok {
+			lean = on
+		}
+	}
 	holders := map[string]*v1.Agent{}
+	hold := func(n string, a *v1.Agent) {
+		if _, ok := holders[n]; !ok {
+			holders[n] = a
+		}
+	}
 	for _, other := range all {
 		if other.Id == skipID || !hasProcess(other) {
 			continue
 		}
 		if other.McpAll {
 			for n := range exclSet {
-				if _, ok := holders[n]; !ok {
-					holders[n] = other
-				}
+				hold(n, other)
 			}
 		}
 		for _, n := range other.Mcp {
 			if exclSet[n] {
-				if _, ok := holders[n]; !ok {
-					holders[n] = other
+				hold(n, other)
+			}
+		}
+		if other.Kind != claude.Kind {
+			continue
+		}
+		env := d.agentEnv(other, "")
+		if !lean {
+			for n := range claude.KnownMCPServers(env, other.Repo) {
+				if exclSet[n] {
+					hold(n, other)
 				}
+			}
+			continue
+		}
+		_, loaded, _, err := d.mcpLoad(r, other, env)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range loaded {
+			if exclSet[n] {
+				hold(n, other)
 			}
 		}
 	}
@@ -270,7 +300,7 @@ func (d *Daemon) exclusiveHolders(r store.Reader, skipID string) (map[string]*v1
 }
 
 // checkMCPLease refuses when any requested server in names is an exclusive MCP server currently held by another live agent.
-func (d *Daemon) checkMCPLease(r store.Reader, names []string, skipID string) error {
+func (d *Daemon) checkMCPLease(r store.Reader, names []string, skipID string, viewer *v1.Actor) error {
 	if len(names) == 0 {
 		return nil
 	}
@@ -280,8 +310,11 @@ func (d *Daemon) checkMCPLease(r store.Reader, names []string, skipID string) er
 	}
 	for _, n := range dedupe(names) {
 		if holder, ok := holders[n]; ok {
-			return failedPrecondition("%s is one shared server, so one agent at a time holds it: %s (run %s) does (`mesh retire %s` once it is done, or run without %s)",
-				n, holder.Name, holder.RunId, holder.Name, n)
+			if label := holderLabel(holder, viewerRun(viewer)); label != "" {
+				return failedPrecondition("%s is one shared server, so one agent at a time holds it: %s does (`mesh retire %s` once it is done, or run without %s)",
+					n, label, holder.Name, n)
+			}
+			return failedPrecondition("%s is one shared server, so one agent at a time holds it, and one of another run does (ask your parent, or run without %s)", n, n)
 		}
 	}
 	return nil
@@ -301,7 +334,7 @@ func (d *Daemon) dropHeldExclusiveMCP(r store.Reader, a *v1.Agent) (string, bool
 	var dropped []string
 	for _, n := range a.Mcp {
 		if h, ok := holders[n]; ok {
-			dropped = append(dropped, fmt.Sprintf("%s (held by %s, run %s)", n, h.Name, h.RunId))
+			dropped = append(dropped, fmt.Sprintf("%s (held by %s)", n, holderLabelOrElse(h, a.RunId)))
 			continue
 		}
 		kept = append(kept, n)
@@ -317,7 +350,7 @@ func (d *Daemon) dropHeldExclusiveMCP(r store.Reader, a *v1.Agent) (string, bool
 	a.Mcp = kept
 	var held []string
 	for n, h := range holders {
-		held = append(held, fmt.Sprintf("%s by %s", n, h.Name))
+		held = append(held, fmt.Sprintf("%s by %s", n, holderLabelOrElse(h, a.RunId)))
 	}
 	slices.Sort(held)
 	if len(dropped) == 0 {
@@ -328,6 +361,33 @@ func (d *Daemon) dropHeldExclusiveMCP(r store.Reader, a *v1.Agent) (string, bool
 		note += "; and claude.ai full MCP connectors (exclusive servers held: " + strings.Join(held, ", ") + ")"
 	}
 	return note, true, nil
+}
+
+// viewerRun is the run an actor may see agents of: its own when it is an agent, any (empty) for a user or device.
+func viewerRun(actor *v1.Actor) string {
+	if actor != nil && IsAgent(actor.Class) {
+		return actor.RunId
+	}
+	return ""
+}
+
+// holderLabel names the agent holding a server for someone who may see agents of run viewer (empty: any): the
+// name and run within that run, else "" (an agent of another run is not named to a worker).
+func holderLabel(h *v1.Agent, viewer string) string {
+	if viewer != "" && h.RunId != viewer {
+		return ""
+	}
+	if viewer != "" {
+		return h.Name
+	}
+	return fmt.Sprintf("%s (run %s)", h.Name, h.RunId)
+}
+
+func holderLabelOrElse(h *v1.Agent, viewer string) string {
+	if l := holderLabel(h, viewer); l != "" {
+		return l
+	}
+	return "an agent of another run"
 }
 
 // dedupe drops repeats, keeping the first of each in order.

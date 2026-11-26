@@ -82,6 +82,10 @@ const (
 	ExitUsage = 2
 )
 
+// commandGroups are the commands whose first argument may name a subcommand, `mesh tools add` for the action
+// `tools-add`. Any other command keeps its words as arguments, so `mesh stop run` is not `stop-run`.
+var commandGroups = map[string]bool{"tools": true}
+
 // Main runs one command and returns its exit code. hand holds the hand-written commands (hook, version),
 // dispatched before the registry is even loaded (each gets the environment, with a global --state as $AGENT_MESH_STATE): a hook must work, and exit 0, whatever else fails.
 func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
@@ -125,7 +129,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	}
 	if len(rest) == 0 || rest[0] == "help" {
 		if len(rest) > 1 {
-			if len(rest) > 2 && !strings.HasPrefix(rest[2], "-") {
+			if len(rest) > 2 && commandGroups[rest[1]] && !strings.HasPrefix(rest[2], "-") {
 				if a := find(reg, rest[1]+"-"+rest[2]); a != nil {
 					newCommand(a, env, *state).usage(env.Stdout)
 					return ExitOK
@@ -147,7 +151,7 @@ func Main(args []string, env Env, hand map[string]func(Env, []string) int) int {
 	}
 	var a *registry.Action
 	cmdArgs := rest[1:]
-	if len(rest) >= 2 && !strings.HasPrefix(rest[1], "-") {
+	if len(rest) >= 2 && commandGroups[rest[0]] && !strings.HasPrefix(rest[1], "-") {
 		if sub := find(reg, rest[0]+"-"+rest[1]); sub != nil {
 			a, cmdArgs = sub, rest[2:]
 		}
