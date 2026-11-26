@@ -363,6 +363,38 @@ func TestAQuestionToAChildIsNotAReportToTheParent(t *testing.T) {
 	}
 }
 
+// A reopen whose relaunch fails leaves the agent exited, and its parent is told like for any exit.
+func TestAFailedReopenTellsTheParent(t *testing.T) {
+	w := startReopen(t)
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "doomed", &v1.SpawnAgentRequest{})
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	// An agent of a kind no adapter serves can't be relaunched.
+	err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(worker.Id)
+		if err != nil {
+			return err
+		}
+		a.Kind, a.StateDetail = "nosuch", "half way through the rename"
+		return tx.PutAgent(a)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.device.Mesh.SwitchAgent(context.Background(), connect.NewRequest(&v1.SwitchAgentRequest{
+		Meta: meta(""), Agent: worker.Id, Effort: "low"})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_EXITED)
+	head := "[mesh alert exited " + worker.Id + "]"
+	waitFor(t, "the alert", func() bool { return w.alerts(t, lead.Id, head) == 1 })
+	got := w.alertText(t, lead.Id, head)
+	if !strings.Contains(got, "could not be reopened") || !strings.Contains(got, "It last said: half way through the rename") {
+		t.Errorf("alert %q", got)
+	}
+}
+
 func (w *reopenWorld) alerts(t *testing.T, agentID, prefix string) int {
 	t.Helper()
 	msgs, err := w.d.Store().Read(context.Background()).Inbox(agentID, true)

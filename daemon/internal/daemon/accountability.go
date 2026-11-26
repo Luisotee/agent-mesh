@@ -271,6 +271,8 @@ func alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid string, code, signal int32,
 	}
 	how := fmt.Sprintf("exited with code %d", code)
 	switch {
+	case strings.HasPrefix(reason, "reopen failed: "):
+		how = "could not be reopened (" + strings.TrimPrefix(reason, "reopen failed: ") + ")"
 	case reason == "stopped":
 		how = "was stopped"
 	case reason == "lost":

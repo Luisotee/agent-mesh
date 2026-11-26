@@ -850,7 +850,8 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, reason string) error {
 	d.log.Error("reopen failed", "agent", agentID, "reason", reason)
 	d.rt.guard.release(agentID)
-	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+	var alert *v1.Message
+	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
 			return err
@@ -859,6 +860,7 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 			return nil
 		}
 		a.PendingReopen = nil
+		lastSaid := a.StateDetail // the exit event below overwrites it
 		if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentReopenDropped{
 			AgentReopenDropped: &v1.AgentReopenDropped{Reopen: r, Reason: reason}}}); err != nil {
 			return err
@@ -872,8 +874,15 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 			AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "reopen failed: " + reason}}}); err != nil {
 			return err
 		}
+		if alert, err = alertExitTx(tx, a, lastSaid, -1, 0, "reopen failed: "+reason); err != nil {
+			return err
+		}
 		return tx.RevokeTokens(a.Id)
 	})
+	if err == nil && alert != nil && d.notify != nil {
+		d.notify(alert.ToId)
+	}
+	return err
 }
 
 // cancelReopen drops a pending reopen because the agent is being stopped on purpose.
