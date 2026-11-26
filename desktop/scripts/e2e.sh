@@ -5,7 +5,7 @@
 # display is the only one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-run=(vitest run --config vitest.e2e.config.ts "$@")
+run=(pnpm exec vitest run --config vitest.e2e.config.ts "$@")
 if [ -z "${E2E_VISIBLE:-}" ] && command -v xvfb-run >/dev/null 2>&1; then
   exec env -u WAYLAND_DISPLAY xvfb-run -a "${run[@]}"
 fi
