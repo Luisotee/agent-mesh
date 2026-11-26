@@ -71,3 +71,4 @@ herdr and the terminal workflow are replaced by a daemon per host plus desktop a
 
 - [ ] Make it contributable: a CONTRIBUTING guide, tagged releases, an install that isn't a build from the checkout (release binaries), open work as GitHub issues.
 - [ ] Extension points (hooks or plugins) so cost and review policies, and new CLIs, can ship outside the core.
+- [ ] A user who installs the `agent-mesh` plugin from the marketplace also gets meshd's `--plugin-dir daemon/share` of the same name (`claude plugin list` shows both, as `agent-mesh@agent-mesh` and `agent-mesh@inline`): check on a real session whether each skill loads twice or the installed (possibly older) copy wins, and if so have meshd skip `--plugin-dir` when the plugin is installed, or rename one of them.

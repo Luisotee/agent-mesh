@@ -96,9 +96,9 @@ find_go() { # the go on PATH, else the one a user-local install leaves
   else return 1; fi
 }
 
-unlink_if_into() { # unlink_if_into <path> <dir>: remove a symlink that points into <dir>
+unlink_if_into() { # unlink_if_into <path> <dir>: remove a symlink that points at <dir> or into it
   local path="$1" dir="$2"
-  if [[ -L "$path" && "$(readlink "$path")" == "$dir"/* ]]; then
+  if [[ -L "$path" && ( "$(readlink "$path")" == "$dir" || "$(readlink "$path")" == "$dir"/* ) ]]; then
     rm "$path"
     echo "removed $path"
   fi
@@ -194,11 +194,11 @@ daemon_install() {
 clean_old_world() {
   local root skill opencode_had_block=0 file
   for root in "${SKILL_ROOTS[@]}"; do
-    for skill in "${RETIRED_SKILLS[@]}" "${SKILLS[@]}"; do unlink_if_into "$root/$skill" "$REPO"; done
+    for skill in "${RETIRED_SKILLS[@]}" "${SKILLS[@]}"; do unlink_if_into "$root/$skill" "$REPO/skills"; done
     for skill in "${RETIRED_SKILLS[@]}"; do unlink_if_into "$root/$skill" "$DAEMON_LIB"; done
   done
-  unlink_if_into "$BIN_DIR/mesh" "$REPO"
-  unlink_if_into "$CONFIG_LINK" "$REPO"
+  unlink_if_into "$BIN_DIR/mesh" "$REPO/bin"
+  unlink_if_into "$CONFIG_LINK" "$REPO/protocol"
   unlink_if_into "$BIN_DIR/meshctl" "$DAEMON_LIB"
   grep -qF "$BEGIN" "$OPENCODE_RULES" 2>/dev/null && opencode_had_block=1
   for file in "${STALE_RULE_FILES[@]}" "$OPENCODE_RULES"; do set_block "$file" 0; done
