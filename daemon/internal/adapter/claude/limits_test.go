@@ -144,6 +144,15 @@ func TestPreToolUsePublishCheck(t *testing.T) {
 			t.Errorf("%q denied: %s", cmd, reason)
 		}
 	}
+	// An MCP tool's input may hold a `command` that isn't a string: it neither fails the decoding nor reads as a
+	// shell command.
+	mcp := `{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"mcp__x__run","tool_input":{"command":["ls"]}}`
+	if deny, reason := EvaluatePreToolUse([]byte(mcp), true); deny {
+		t.Errorf("an MCP tool call was denied: %s", reason)
+	}
+	if evs := decode(t, "s1", "PreToolUse", mcp); len(evs) != 1 || evs[0].GetActivity() == nil {
+		t.Errorf("an MCP tool call lost its activity: %v", evs)
+	}
 	// Only Bash runs commands; another tool is not read.
 	other, _ := json.Marshal(map[string]any{"tool_name": "Edit", "tool_input": map[string]any{"command": "git push"}})
 	if deny, _ := EvaluatePreToolUse(other, true); deny {

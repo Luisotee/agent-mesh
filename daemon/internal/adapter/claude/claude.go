@@ -197,9 +197,9 @@ type payload struct {
 	NotificationType string `json:"notification_type"`
 	Message          string `json:"message"`
 	ToolName         string `json:"tool_name"`
-	ToolInput        struct {
-		Command string `json:"command"`
-	} `json:"tool_input"`
+	// ToolInput is read only for a Bash call: another tool's (an MCP tool's) may hold anything, a `command` that
+	// isn't a string included, and must not fail the decoding of the whole payload.
+	ToolInput json.RawMessage `json:"tool_input"`
 	// StopFailure: the turn ended on an API error (`rate_limit`, `billing_error`, `authentication_failed`, …).
 	Error       string `json:"error"`
 	ErrorDetail string `json:"error_details"`
@@ -411,7 +411,13 @@ func EvaluatePreToolUse(raw []byte, denyPublish bool) (bool, string) {
 	if p.ToolName != "Bash" {
 		return false, ""
 	}
-	if pub := agy.MatchPublishCommand(p.ToolInput.Command); pub != "" {
+	var in struct {
+		Command string `json:"command"`
+	}
+	if err := json.Unmarshal(p.ToolInput, &in); err != nil {
+		return true, "read-only/planning agent: the shell command could not be read (" + err.Error() + ")"
+	}
+	if pub := agy.MatchPublishCommand(in.Command); pub != "" {
 		return true, fmt.Sprintf("read-only/planning agent may not run %q", pub)
 	}
 	return false, ""

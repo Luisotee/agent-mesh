@@ -55,9 +55,9 @@ type Options struct {
 	CallTimeout time.Duration
 }
 
-// QuickTimeout bounds a quick report (an agy PreToolUse): the tool waits on the hook, and agy denies a tool
-// whose PreToolUse hook outlives its timeout (HookTimeout), so this one never waits on the spool lock or a
-// slow daemon.
+// QuickTimeout bounds a quick report (a PreToolUse): the tool waits on the hook, agy denies a tool whose
+// PreToolUse hook outlives its timeout (HookTimeout) and Claude runs it, so this one never waits on the spool lock
+// or a slow daemon.
 const QuickTimeout = time.Second
 
 // Run reports one hook. Its error is for the log only.
@@ -78,7 +78,9 @@ func Run(o Options) error {
 	if oversize {
 		payload = payload[:MaxPayload]
 	}
-	preTool := o.Kind == agy.Kind && o.Event == "PreToolUse"
+	// A PreToolUse is quick: the tool waits on the hook, and both CLIs treat a hook that outlives its timeout as no
+	// answer (agy denies the tool, Claude runs it, whatever the hook printed).
+	preTool := (o.Kind == agy.Kind || o.Kind == claude.Kind) && o.Event == "PreToolUse"
 	// PreToolUse rules are checked here, so they hold while the daemon is down, and fail closed: a payload that
 	// can't be read whole is denied. agy's are paths and publish commands; Claude's (its paths are
 	// --disallowedTools rules) the publish commands.

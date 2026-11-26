@@ -223,6 +223,8 @@ func TestMatchPublishCommand(t *testing.T) {
 		{"gh status", ""},
 		{"gh --version", ""},
 		{"gh -R o/r pr list", ""},
+		{"gh run --workflow ci.yml list", ""},
+		{"gh run -R o/r --job 5 view", ""},
 		{"gh api repos/o/r/pulls/5/comments", ""},
 		{"gh api -X GET repos/o/r/pulls -f state=open", ""},
 		{`gh api graphql -f query='query { viewer { login } }'`, ""},

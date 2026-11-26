@@ -751,6 +751,8 @@ var ghValueFlags = map[string]bool{
 	"-q": true, "--jq": true, "-T": true, "--template": true, "--json": true, "-X": true, "--method": true,
 	"-f": true, "--field": true, "--raw-field": true, "--input": true, "--hostname": true,
 	"--header": true, "--cache": true, "--preview": true,
+	"--workflow": true, "--job": true, "--branch": true, "--name": true, "--event": true, "--status": true,
+	"--user": true, "--org": true, "--env": true,
 }
 
 func matchGh(args []string) string {
