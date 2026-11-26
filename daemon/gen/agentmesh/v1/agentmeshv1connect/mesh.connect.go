@@ -106,6 +106,8 @@ const (
 	// MeshServiceRevokeDeviceProcedure is the fully-qualified name of the MeshService's RevokeDevice
 	// RPC.
 	MeshServiceRevokeDeviceProcedure = "/agentmesh.v1.MeshService/RevokeDevice"
+	// MeshServiceRevokeSelfProcedure is the fully-qualified name of the MeshService's RevokeSelf RPC.
+	MeshServiceRevokeSelfProcedure = "/agentmesh.v1.MeshService/RevokeSelf"
 	// MeshServiceRegisterPushProcedure is the fully-qualified name of the MeshService's RegisterPush
 	// RPC.
 	MeshServiceRegisterPushProcedure = "/agentmesh.v1.MeshService/RegisterPush"
@@ -251,6 +253,9 @@ type MeshServiceClient interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+	// device can't be revoked.
+	RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error)
 	// Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
 	// closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
 	// A device registers only itself; revoking the device deletes it.
@@ -513,6 +518,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		revokeSelf: connect.NewClient[v1.RevokeSelfRequest, v1.RevokeSelfResponse](
+			httpClient,
+			baseURL+MeshServiceRevokeSelfProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RevokeSelf")),
+			connect.WithClientOptions(opts...),
+		),
 		registerPush: connect.NewClient[v1.RegisterPushRequest, v1.RegisterPushResponse](
 			httpClient,
 			baseURL+MeshServiceRegisterPushProcedure,
@@ -699,6 +710,7 @@ type meshServiceClient struct {
 	createPairing    *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices      *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice     *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	revokeSelf       *connect.Client[v1.RevokeSelfRequest, v1.RevokeSelfResponse]
 	registerPush     *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
 	unregisterPush   *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
 	testPush         *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
@@ -879,6 +891,11 @@ func (c *meshServiceClient) ListDevices(ctx context.Context, req *connect.Reques
 // RevokeDevice calls agentmesh.v1.MeshService.RevokeDevice.
 func (c *meshServiceClient) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return c.revokeDevice.CallUnary(ctx, req)
+}
+
+// RevokeSelf calls agentmesh.v1.MeshService.RevokeSelf.
+func (c *meshServiceClient) RevokeSelf(ctx context.Context, req *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error) {
+	return c.revokeSelf.CallUnary(ctx, req)
 }
 
 // RegisterPush calls agentmesh.v1.MeshService.RegisterPush.
@@ -1091,6 +1108,9 @@ type MeshServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+	// device can't be revoked.
+	RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error)
 	// Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
 	// closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
 	// A device registers only itself; revoking the device deletes it.
@@ -1349,6 +1369,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceRevokeSelfHandler := connect.NewUnaryHandler(
+		MeshServiceRevokeSelfProcedure,
+		svc.RevokeSelf,
+		connect.WithSchema(meshServiceMethods.ByName("RevokeSelf")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceRegisterPushHandler := connect.NewUnaryHandler(
 		MeshServiceRegisterPushProcedure,
 		svc.RegisterPush,
@@ -1563,6 +1589,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListDevicesHandler.ServeHTTP(w, r)
 		case MeshServiceRevokeDeviceProcedure:
 			meshServiceRevokeDeviceHandler.ServeHTTP(w, r)
+		case MeshServiceRevokeSelfProcedure:
+			meshServiceRevokeSelfHandler.ServeHTTP(w, r)
 		case MeshServiceRegisterPushProcedure:
 			meshServiceRegisterPushHandler.ServeHTTP(w, r)
 		case MeshServiceUnregisterPushProcedure:
@@ -1744,6 +1772,10 @@ func (UnimplementedMeshServiceHandler) ListDevices(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeDevice is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeSelf is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) RegisterPush(context.Context, *connect.Request[v1.RegisterPushRequest]) (*connect.Response[v1.RegisterPushResponse], error) {

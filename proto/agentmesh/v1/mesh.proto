@@ -456,6 +456,20 @@ service MeshService {
     };
   }
 
+  // Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+  // device can't be revoked.
+  rpc RevokeSelf(RevokeSelfRequest) returns (RevokeSelfResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      write: true
+      cli: "revoke-self"
+      summary: "Revoke this device's own pairing"
+    };
+  }
+
   // Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
   // closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
   // A device registers only itself; revoking the device deletes it.
@@ -1306,6 +1320,14 @@ message RevokeDeviceRequest {
 }
 
 message RevokeDeviceResponse {
+  Device device = 1;
+}
+
+message RevokeSelfRequest {
+  RequestMeta meta = 1;
+}
+
+message RevokeSelfResponse {
   Device device = 1;
 }
 

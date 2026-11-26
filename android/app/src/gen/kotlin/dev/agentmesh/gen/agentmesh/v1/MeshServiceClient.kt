@@ -496,6 +496,22 @@ public class MeshServiceClient(
 
 
   /**
+   *  Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+   *  device can't be revoked.
+   */
+  override suspend fun revokeSelf(request: RevokeSelfRequest, headers: Headers): ResponseMessage<RevokeSelfResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RevokeSelf",
+      dev.agentmesh.gen.agentmesh.v1.RevokeSelfRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RevokeSelfResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
    *  closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
    *  A device registers only itself; revoking the device deletes it.
