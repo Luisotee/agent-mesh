@@ -27,6 +27,8 @@ public  final class RootReset extends
     oldSession_ = "";
     newSession_ = "";
     transcript_ = "";
+    mode_ = "";
+    focus_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -818,6 +820,140 @@ public  final class RootReset extends
   private void clearNoted() {
 
     noted_ = false;
+  }
+
+  public static final int MODE_FIELD_NUMBER = 15;
+  private java.lang.String mode_;
+  /**
+   * <pre>
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   * </pre>
+   *
+   * <code>string mode = 15 [json_name = "mode"];</code>
+   * @return The mode.
+   */
+  @java.lang.Override
+  public java.lang.String getMode() {
+    return mode_;
+  }
+  /**
+   * <pre>
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   * </pre>
+   *
+   * <code>string mode = 15 [json_name = "mode"];</code>
+   * @return The bytes for mode.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getModeBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(mode_);
+  }
+  /**
+   * <pre>
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   * </pre>
+   *
+   * <code>string mode = 15 [json_name = "mode"];</code>
+   * @param value The mode to set.
+   */
+  private void setMode(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    mode_ = value;
+  }
+  /**
+   * <pre>
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   * </pre>
+   *
+   * <code>string mode = 15 [json_name = "mode"];</code>
+   */
+  private void clearMode() {
+
+    mode_ = getDefaultInstance().getMode();
+  }
+  /**
+   * <pre>
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   * </pre>
+   *
+   * <code>string mode = 15 [json_name = "mode"];</code>
+   * @param value The bytes for mode to set.
+   */
+  private void setModeBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    mode_ = value.toStringUtf8();
+
+  }
+
+  public static final int FOCUS_FIELD_NUMBER = 16;
+  private java.lang.String focus_;
+  /**
+   * <pre>
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 16 [json_name = "focus"];</code>
+   * @return The focus.
+   */
+  @java.lang.Override
+  public java.lang.String getFocus() {
+    return focus_;
+  }
+  /**
+   * <pre>
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 16 [json_name = "focus"];</code>
+   * @return The bytes for focus.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFocusBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(focus_);
+  }
+  /**
+   * <pre>
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 16 [json_name = "focus"];</code>
+   * @param value The focus to set.
+   */
+  private void setFocus(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    focus_ = value;
+  }
+  /**
+   * <pre>
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 16 [json_name = "focus"];</code>
+   */
+  private void clearFocus() {
+
+    focus_ = getDefaultInstance().getFocus();
+  }
+  /**
+   * <pre>
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 16 [json_name = "focus"];</code>
+   * @param value The bytes for focus to set.
+   */
+  private void setFocusBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    focus_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.RootReset parseFrom(
@@ -1738,6 +1874,144 @@ public  final class RootReset extends
       return this;
     }
 
+    /**
+     * <pre>
+     * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+     * </pre>
+     *
+     * <code>string mode = 15 [json_name = "mode"];</code>
+     * @return The mode.
+     */
+    @java.lang.Override
+    public java.lang.String getMode() {
+      return instance.getMode();
+    }
+    /**
+     * <pre>
+     * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+     * </pre>
+     *
+     * <code>string mode = 15 [json_name = "mode"];</code>
+     * @return The bytes for mode.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getModeBytes() {
+      return instance.getModeBytes();
+    }
+    /**
+     * <pre>
+     * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+     * </pre>
+     *
+     * <code>string mode = 15 [json_name = "mode"];</code>
+     * @param value The mode to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMode(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setMode(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+     * </pre>
+     *
+     * <code>string mode = 15 [json_name = "mode"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMode() {
+      copyOnWrite();
+      instance.clearMode();
+      return this;
+    }
+    /**
+     * <pre>
+     * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+     * </pre>
+     *
+     * <code>string mode = 15 [json_name = "mode"];</code>
+     * @param value The bytes for mode to set.
+     * @return This builder for chaining.
+     */
+    public Builder setModeBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setModeBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+     * </pre>
+     *
+     * <code>string focus = 16 [json_name = "focus"];</code>
+     * @return The focus.
+     */
+    @java.lang.Override
+    public java.lang.String getFocus() {
+      return instance.getFocus();
+    }
+    /**
+     * <pre>
+     * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+     * </pre>
+     *
+     * <code>string focus = 16 [json_name = "focus"];</code>
+     * @return The bytes for focus.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getFocusBytes() {
+      return instance.getFocusBytes();
+    }
+    /**
+     * <pre>
+     * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+     * </pre>
+     *
+     * <code>string focus = 16 [json_name = "focus"];</code>
+     * @param value The focus to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFocus(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setFocus(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+     * </pre>
+     *
+     * <code>string focus = 16 [json_name = "focus"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFocus() {
+      copyOnWrite();
+      instance.clearFocus();
+      return this;
+    }
+    /**
+     * <pre>
+     * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+     * </pre>
+     *
+     * <code>string focus = 16 [json_name = "focus"];</code>
+     * @param value The bytes for focus to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFocusBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setFocusBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.RootReset)
   }
   @java.lang.Override
@@ -1769,11 +2043,14 @@ public  final class RootReset extends
             "tokens_",
             "transcript_",
             "noted_",
+            "mode_",
+            "focus_",
           };
           java.lang.String info =
-              "\u0000\u000e\u0000\u0001\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0007\u0005\u1009\u0000\u0006\u1009\u0001\u0007\u1009\u0002\b" +
-              "\u0208\t\u0208\n\u0208\u000b\u0208\f\u0002\r\u0208\u000e\u0007";
+              "\u0208\t\u0208\n\u0208\u000b\u0208\f\u0002\r\u0208\u000e\u0007\u000f\u0208\u0010" +
+              "\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

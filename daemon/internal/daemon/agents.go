@@ -103,6 +103,8 @@ type AgentConfig struct {
 	// stop typing, for the CLI to begin compacting after `/compact` was typed, and for it to finish (defaults 60 s,
 	// 60 s and 15 min).
 	CompactQuietWait, CompactStartWait, CompactTimeout time.Duration
+	// Reset overrides the root reset's timings (reset.go); zero values are the defaults.
+	Reset ResetTimings
 	// ContextEvery is how often agents with a compaction or a root reset still to carry out are looked at (default
 	// 5 s).
 	ContextEvery time.Duration
@@ -157,6 +159,7 @@ type runtime struct {
 	usage       usageState      // usage cache / rate_limits (usage.go)
 	openCode    openCodeRuntime // OpenCode polling and model cache (opencode.go)
 	ctxwork     contextRuntime  // headless compactions in flight (compact.go)
+	keeper      keeperState     // when the root keeper last looked (reset.go)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -681,6 +684,12 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 	})
 	if err != nil {
 		return nil, err
+	}
+	if src := reminderSource(a, dec.Msg.Events); src != "" {
+		// What the session that started again needs to know (compact, clear, resume): the hook prints it.
+		if cur, err := d.store.Read(ctx).GetAgent(a.Id); err == nil {
+			out.Context = hookText(d.reminderText(ctx, cur, src))
+		}
 	}
 	if takesDoorbell(out.State) {
 		d.deliverSoon(actor.Id)
@@ -1250,6 +1259,9 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	a, err := r.GetAgent(agentID)
 	if err != nil {
 		return err
+	}
+	if held, err := d.resetStep(ctx, a); held || err != nil {
+		return err // a root's reset first: no doorbell is typed into a root that is being reset
 	}
 	if held, err := d.compactStep(ctx, a); held || err != nil {
 		return err // a compaction first: the reopen and the doorbell wait for it

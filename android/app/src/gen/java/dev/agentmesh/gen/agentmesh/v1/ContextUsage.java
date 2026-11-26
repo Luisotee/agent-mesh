@@ -21,6 +21,7 @@ public  final class ContextUsage extends
   private ContextUsage() {
     transcript_ = "";
   }
+  private int bitField0_;
   public static final int TOKENS_FIELD_NUMBER = 1;
   private long tokens_;
   /**
@@ -238,6 +239,73 @@ public  final class ContextUsage extends
     checkByteStringIsUtf8(value);
     transcript_ = value.toStringUtf8();
 
+  }
+
+  public static final int WRITTEN_AT_FIELD_NUMBER = 6;
+  private com.google.protobuf.Timestamp writtenAt_;
+  /**
+   * <pre>
+   * When that file was last written: the prompt cache's age goes by it.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+   */
+  @java.lang.Override
+  public boolean hasWrittenAt() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * When that file was last written: the prompt cache's age goes by it.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getWrittenAt() {
+    return writtenAt_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : writtenAt_;
+  }
+  /**
+   * <pre>
+   * When that file was last written: the prompt cache's age goes by it.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+   */
+  private void setWrittenAt(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    writtenAt_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * When that file was last written: the prompt cache's age goes by it.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeWrittenAt(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    if (writtenAt_ != null &&
+        writtenAt_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+      writtenAt_ =
+        com.google.protobuf.Timestamp.newBuilder(writtenAt_).mergeFrom(value).buildPartial();
+    } else {
+      writtenAt_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * When that file was last written: the prompt cache's age goes by it.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+   */
+  private void clearWrittenAt() {
+    writtenAt_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.ContextUsage parseFrom(
@@ -570,6 +638,77 @@ public  final class ContextUsage extends
       return this;
     }
 
+    /**
+     * <pre>
+     * When that file was last written: the prompt cache's age goes by it.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+     */
+    @java.lang.Override
+    public boolean hasWrittenAt() {
+      return instance.hasWrittenAt();
+    }
+    /**
+     * <pre>
+     * When that file was last written: the prompt cache's age goes by it.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.Timestamp getWrittenAt() {
+      return instance.getWrittenAt();
+    }
+    /**
+     * <pre>
+     * When that file was last written: the prompt cache's age goes by it.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+     */
+    public Builder setWrittenAt(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.setWrittenAt(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * When that file was last written: the prompt cache's age goes by it.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+     */
+    public Builder setWrittenAt(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      copyOnWrite();
+      instance.setWrittenAt(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * When that file was last written: the prompt cache's age goes by it.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+     */
+    public Builder mergeWrittenAt(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.mergeWrittenAt(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When that file was last written: the prompt cache's age goes by it.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+     */
+    public Builder clearWrittenAt() {  copyOnWrite();
+      instance.clearWrittenAt();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ContextUsage)
   }
   @java.lang.Override
@@ -586,15 +725,17 @@ public  final class ContextUsage extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "tokens_",
             "measured_",
             "cold_",
             "ttlSeconds_",
             "transcript_",
+            "writtenAt_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0002\u0002\u0007" +
-              "\u0003\u0007\u0004\u0004\u0005\u0208";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0002\u0002\u0007" +
+              "\u0003\u0007\u0004\u0004\u0005\u0208\u0006\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

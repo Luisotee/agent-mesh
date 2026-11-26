@@ -1195,6 +1195,9 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		st := reducer.Start(tx.Now())
 		cur.State, cur.NeedsInput, cur.StateDetail, cur.ExitCode = st.State, 0, "", 0
 		cur.StateBeforeCompact = v1.AgentState_AGENT_STATE_UNSPECIFIED
+		if r.Fresh {
+			cur.SessionId = ""
+		}
 		cur.LastActivity = timestamppb.New(tx.Now())
 		if err := tx.PutAgent(cur); err != nil {
 			return err
@@ -1216,7 +1219,11 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 	}
 	next := proto.Clone(cur).(*v1.Agent)
 	next.Model, next.Effort, next.DenyEdits = r.Model, r.Effort, r.DenyEdits
-	plan, err := d.planLaunch(ctx, ad, next, token, cur.SessionId)
+	resume := cur.SessionId
+	if r.Fresh {
+		resume = "" // a root's reset: a new conversation; the new process records its own id
+	}
+	plan, err := d.planLaunch(ctx, ad, next, token, resume)
 	if err != nil {
 		return d.dropReopen(ctx, a.Id, r, "planning the launch: "+err.Error())
 	}

@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 )
@@ -50,5 +52,23 @@ func TestWantsFollowsTheThresholdsAndTheCache(t *testing.T) {
 func TestNonzeroMinTreatsZeroAsOff(t *testing.T) {
 	if nonzeroMin(300, 200) != 200 || nonzeroMin(0, 200) != 200 || nonzeroMin(300, 0) != 300 || nonzeroMin(0, 0) != 0 {
 		t.Fatal("nonzeroMin")
+	}
+}
+
+func TestHookTextCutsFromTheMiddleKeepingTheLastLine(t *testing.T) {
+	short := "agent-mesh reminder (resume): you are x.\nRun `mesh inbox` now."
+	if got := hookText(short); got != short {
+		t.Errorf("short text changed: %q", got)
+	}
+	long := "head line\n" + strings.Repeat("a task line with some words in it\n", 600) + "Run `mesh inbox` now."
+	got := hookText(long)
+	if len(got) > HookOutputMax-1 || !strings.HasSuffix(got, "Run `mesh inbox` now.") || !strings.Contains(got, "… (cut to fit a hook's output)") ||
+		!strings.HasPrefix(got, "head line\n") {
+		t.Errorf("cut text (%d bytes): head %q tail %q", len(got), got[:20], got[len(got)-30:])
+	}
+	// Never inside a character: a multibyte text still comes out valid.
+	wide := strings.Repeat("é", 12000)
+	if got := hookText(wide); !utf8.ValidString(got) || len(got) > HookOutputMax-1 {
+		t.Errorf("invalid or over the cap: %d bytes, valid %v", len(got), utf8.ValidString(got))
 	}
 }

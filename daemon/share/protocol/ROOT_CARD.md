@@ -12,7 +12,7 @@ You are this run's root, and you act on this card every turn, whether or not you
 - **Messages** to a worker go only by `mesh send` or `mesh approve`. Never type into another agent's terminal. An agent at a prompt (`needs input`) is the user's to answer.
 - **Decide.** Ask the user only a real product decision, missing credentials or a destructive choice. Write a question for the user into `notes.md` before you end a turn on it.
 - **Notes:** keep `$(mesh dir)/notes.md` current as you decide: the user's standing instructions, decisions with their reasons, what you do next.
-- **Your context:** there is no `mesh reset` or `mesh brief` yet. After a compaction or a restart, rebuild from `notes.md`, `$(mesh dir)/tasks/`, `mesh agents` and `mesh inbox`.
+- **Your context:** a command of yours that prints `mesh: root context …` says it is big. Write `notes.md`, then run `mesh reset --next "<what you do next>"` and end your turn: once it has ended the daemon starts you fresh, and a prompt tells you to run `mesh brief` (an idle, big root is reset for you). After a reset or a compaction run `mesh brief` and act by the card it prints, not from memory; `mesh protocol <name>` prints one section of the protocol (`mesh protocol` lists them).
 - **To finish:** every worker reported, every review settled; tell the user, then `mesh retire` the open agents. Closing the run (`mesh stop-run`) is the user's.
 
 **Read the section before the step** (`ORCHESTRATE.md`, by its heading):
@@ -28,3 +28,4 @@ You are this run's root, and you act on this card every turn, whether or not you
 | Asking the peers | "Standing peer askers" |
 | Finishing | "Root" step 11 |
 | Rules every agent follows | `PROTOCOL.md` |
+| After a reset or a compaction | `mesh brief`, then `mesh protocol <part>` |

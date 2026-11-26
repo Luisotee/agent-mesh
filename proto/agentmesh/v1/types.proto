@@ -151,12 +151,15 @@ message Reopen {
   string model = 2;
   string effort = 3;
   bool deny_edits = 4;
-  // "plan approved", "moved", "quota", "resumed".
+  // "plan approved", "moved", "quota", "resumed", "reset".
   string why = 5;
   // The caller's own reason, when it gave one.
   string reason = 6;
   google.protobuf.Timestamp requested_at = 7;
   Actor requested_by = 8;
+  // Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+  // cleared; the new process records its own.
+  bool fresh = 9;
 }
 
 enum MessageType {

@@ -389,7 +389,11 @@ func (d *Daemon) compactStep(ctx context.Context, a *v1.Agent) (bool, error) {
 		}
 		return true, nil
 	}
-	if err := d.typeLine(ctx, a.TerminalId, "/compact "+pc.Focus); err != nil {
+	line := "/compact"
+	if pc.Focus != "" {
+		line += " " + pc.Focus
+	}
+	if err := d.typeLine(ctx, a.TerminalId, line); err != nil {
 		return true, err
 	}
 	return true, d.updateCompaction(ctx, a.Id, pc.Id, func(p *v1.PendingCompaction) {
@@ -553,8 +557,9 @@ func (d *Daemon) contextPass(ctx context.Context) {
 		return
 	}
 	for _, a := range agents {
-		if a.PendingCompaction != nil {
+		if a.PendingCompaction != nil || a.PendingReset != nil {
 			d.deliverSoon(a.Id)
 		}
 	}
+	d.autoReset(ctx)
 }

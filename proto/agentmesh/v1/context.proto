@@ -19,6 +19,8 @@ message ContextUsage {
   int32 ttl_seconds = 4;
   // The file or database the number came from.
   string transcript = 5;
+  // When that file was last written: the prompt cache's age goes by it.
+  google.protobuf.Timestamp written_at = 6;
 }
 
 // PendingCompaction is a compaction asked for and not done yet. For a stopped conversation it runs headless
@@ -79,6 +81,10 @@ message RootReset {
   string transcript = 13;
   // The failure was already told to the root once (by a command's hint).
   bool noted = 14;
+  // How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+  string mode = 15;
+  // What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+  string focus = 16;
 }
 
 // A compaction ran for an agent (live or on a stopped conversation before its reopen).
@@ -93,9 +99,9 @@ message AgentCompacted {
 }
 
 message RootResetRequested {
-  RootReset reset = 1;
+  RootReset root_reset = 1;
 }
 
 message RootResetFinished {
-  RootReset reset = 1;
+  RootReset root_reset = 1;
 }

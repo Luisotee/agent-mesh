@@ -22,7 +22,12 @@
 //	/bash <cmd>   UserPromptSubmit, PreToolUse (Bash, <cmd>), then PostToolUse and Stop; "denied: <reason>" is
 //	              printed instead of the tool's, when a PreToolUse hook printed a permission denial
 //
+// With $FAKECLAUDE_INPUT_LOG set, every line typed into it is appended there, one per line.
+//
 // With $FAKECLAUDE_COMPACT_LOG set, the focus of every typed /compact is appended there, one per line.
+//
+// With $FAKECLAUDE_FAIL_FILE naming a file that exists, a fresh start (not a resume) exits 3 before anything is
+// drawn or reported: a launch that fails.
 //
 // With -p (print mode: the last argument is the prompt) it runs no hooks and reads no input: a prompt that starts
 // with /compact appends the compact_boundary line and exits 0 (1 with $FAKECLAUDE_PRINT_FAIL set), as a headless
@@ -121,6 +126,11 @@ func main() {
 		}
 		return
 	}
+	if file := os.Getenv("FAKECLAUDE_FAIL_FILE"); file != "" && source == "startup" {
+		if _, err := os.Stat(file); err == nil {
+			os.Exit(3)
+		}
+	}
 	fmt.Printf("fake claude %s\r\n", session)
 	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
 		fmt.Print("Quick safety check: Is this a project you created or one you trust?\r\n" +
@@ -132,6 +142,12 @@ func main() {
 	in := bufio.NewScanner(os.Stdin)
 	for in.Scan() {
 		line := strings.TrimSpace(strings.NewReplacer("\x1b[200~", "", "\x1b[201~", "").Replace(in.Text()))
+		if log := os.Getenv("FAKECLAUDE_INPUT_LOG"); log != "" && line != "" {
+			if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+				f.WriteString(line + "\n")
+				f.Close()
+			}
+		}
 		switch {
 		case strings.HasPrefix(line, "/limit "):
 			hook("UserPromptSubmit", map[string]any{"prompt": line})

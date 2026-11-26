@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
@@ -188,6 +189,9 @@ func (a *Adapter) MeasureContext(_ context.Context, req *connect.Request[adapter
 				if st, err := os.Stat(p); err == nil && st.ModTime().After(newest) {
 					newest = st.ModTime()
 				}
+			}
+			if !newest.IsZero() {
+				out.WrittenAt = timestamppb.New(newest)
 			}
 			out.Cold = !newest.IsZero() && time.Since(newest) > cacheTTL
 		}

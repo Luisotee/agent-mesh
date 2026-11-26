@@ -1891,7 +1891,9 @@ type ResetRootRequest struct {
 	// Compact the session instead of starting a fresh one (a Claude root only).
 	Compact bool `protobuf:"varint,3,opt,name=compact,proto3" json:"compact,omitempty"`
 	// The run (a device names it; a root's is its own).
-	RunId         string `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	RunId string `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	// What a compacting reset keeps; empty is the CLI's own default.
+	Focus         string `protobuf:"bytes,5,opt,name=focus,proto3" json:"focus,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1954,9 +1956,16 @@ func (x *ResetRootRequest) GetRunId() string {
 	return ""
 }
 
+func (x *ResetRootRequest) GetFocus() string {
+	if x != nil {
+		return x.Focus
+	}
+	return ""
+}
+
 type ResetRootResponse struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Reset_ *RootReset             `protobuf:"bytes,1,opt,name=reset,proto3" json:"reset,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RootReset *RootReset             `protobuf:"bytes,1,opt,name=root_reset,json=rootReset,proto3" json:"root_reset,omitempty"`
 	// Notes: why nothing was started, or what it waits for.
 	Notes         []string `protobuf:"bytes,2,rep,name=notes,proto3" json:"notes,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1993,9 +2002,9 @@ func (*ResetRootResponse) Descriptor() ([]byte, []int) {
 	return file_agentmesh_v1_mesh_proto_rawDescGZIP(), []int{31}
 }
 
-func (x *ResetRootResponse) GetReset_() *RootReset {
+func (x *ResetRootResponse) GetRootReset() *RootReset {
 	if x != nil {
-		return x.Reset_
+		return x.RootReset
 	}
 	return nil
 }
@@ -4398,14 +4407,16 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\bfired_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\afiredAt\"^\n" +
 	"\x12ReportHookResponse\x12.\n" +
 	"\x05state\x18\x01 \x01(\x0e2\x18.agentmesh.v1.AgentStateR\x05state\x12\x18\n" +
-	"\acontext\x18\x02 \x01(\tR\acontext\"\x86\x01\n" +
+	"\acontext\x18\x02 \x01(\tR\acontext\"\x9c\x01\n" +
 	"\x10ResetRootRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
 	"\x04next\x18\x02 \x01(\tR\x04next\x12\x18\n" +
 	"\acompact\x18\x03 \x01(\bR\acompact\x12\x15\n" +
-	"\x06run_id\x18\x04 \x01(\tR\x05runId\"X\n" +
-	"\x11ResetRootResponse\x12-\n" +
-	"\x05reset\x18\x01 \x01(\v2\x17.agentmesh.v1.RootResetR\x05reset\x12\x14\n" +
+	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x14\n" +
+	"\x05focus\x18\x05 \x01(\tR\x05focus\"a\n" +
+	"\x11ResetRootResponse\x126\n" +
+	"\n" +
+	"root_reset\x18\x01 \x01(\v2\x17.agentmesh.v1.RootResetR\trootReset\x12\x14\n" +
 	"\x05notes\x18\x02 \x03(\tR\x05notes\">\n" +
 	"\x0fGetBriefRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
@@ -4819,7 +4830,7 @@ var file_agentmesh_v1_mesh_proto_depIdxs = []int32{
 	68,  // 33: agentmesh.v1.ReportHookRequest.fired_at:type_name -> google.protobuf.Timestamp
 	79,  // 34: agentmesh.v1.ReportHookResponse.state:type_name -> agentmesh.v1.AgentState
 	70,  // 35: agentmesh.v1.ResetRootRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	80,  // 36: agentmesh.v1.ResetRootResponse.reset:type_name -> agentmesh.v1.RootReset
+	80,  // 36: agentmesh.v1.ResetRootResponse.root_reset:type_name -> agentmesh.v1.RootReset
 	68,  // 37: agentmesh.v1.OpenTerminalResponse.expires_at:type_name -> google.protobuf.Timestamp
 	81,  // 38: agentmesh.v1.ListSettingsResponse.settings:type_name -> agentmesh.v1.Setting
 	70,  // 39: agentmesh.v1.SetSettingRequest.meta:type_name -> agentmesh.v1.RequestMeta

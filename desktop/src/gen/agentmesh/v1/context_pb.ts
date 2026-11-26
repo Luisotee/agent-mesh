@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/context.proto.
  */
 export const file_agentmesh_v1_context: GenFile = /*@__PURE__*/
-  fileDesc("ChphZ2VudG1lc2gvdjEvY29udGV4dC5wcm90bxIMYWdlbnRtZXNoLnYxImcKDENvbnRleHRVc2FnZRIOCgZ0b2tlbnMYASABKAMSEAoIbWVhc3VyZWQYAiABKAgSDAoEY29sZBgDIAEoCBITCgt0dGxfc2Vjb25kcxgEIAEoBRISCgp0cmFuc2NyaXB0GAUgASgJIocDChFQZW5kaW5nQ29tcGFjdGlvbhIKCgJpZBgBIAEoCRILCgN3aHkYAiABKAkSDQoFZm9jdXMYAyABKAkSMAoMcmVxdWVzdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIOCgZhbHdheXMYBSABKAgSDwoHd2FybV9hdBgGIAEoAxIPCgdjb2xkX2F0GAcgASgDEhIKCnVubWVhc3VyZWQYCCABKAgSLAoIdHlwZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnN0YXJ0ZWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEisKB2RvbmVfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDHdhaXRlZF9zaW5jZRgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASFQoNdG9rZW5zX2JlZm9yZRgNIAEoAyLSAgoJUm9vdFJlc2V0EgoKAmlkGAEgASgJEgsKA3ZpYRgCIAEoCRIMCgRuZXh0GAMgASgJEg8KB2NvbXBhY3QYBCABKAgSMAoMcmVxdWVzdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCgh0eXBlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB291dGNvbWUYCCABKAkSDgoGcmVhc29uGAkgASgJEhMKC29sZF9zZXNzaW9uGAogASgJEhMKC25ld19zZXNzaW9uGAsgASgJEg4KBnRva2VucxgMIAEoAxISCgp0cmFuc2NyaXB0GA0gASgJEg0KBW5vdGVkGA4gASgIImgKDkFnZW50Q29tcGFjdGVkEgsKA3doeRgBIAEoCRILCgN2aWEYAiABKAkSFQoNdG9rZW5zX2JlZm9yZRgDIAEoAxIUCgx0b2tlbnNfYWZ0ZXIYBCABKAMSDwoHb3V0Y29tZRgFIAEoCSI8ChJSb290UmVzZXRSZXF1ZXN0ZWQSJgoFcmVzZXQYASABKAsyFy5hZ2VudG1lc2gudjEuUm9vdFJlc2V0IjsKEVJvb3RSZXNldEZpbmlzaGVkEiYKBXJlc2V0GAEgASgLMhcuYWdlbnRtZXNoLnYxLlJvb3RSZXNldGIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChphZ2VudG1lc2gvdjEvY29udGV4dC5wcm90bxIMYWdlbnRtZXNoLnYxIpcBCgxDb250ZXh0VXNhZ2USDgoGdG9rZW5zGAEgASgDEhAKCG1lYXN1cmVkGAIgASgIEgwKBGNvbGQYAyABKAgSEwoLdHRsX3NlY29uZHMYBCABKAUSEgoKdHJhbnNjcmlwdBgFIAEoCRIuCgp3cml0dGVuX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKHAwoRUGVuZGluZ0NvbXBhY3Rpb24SCgoCaWQYASABKAkSCwoDd2h5GAIgASgJEg0KBWZvY3VzGAMgASgJEjAKDHJlcXVlc3RlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGYWx3YXlzGAUgASgIEg8KB3dhcm1fYXQYBiABKAMSDwoHY29sZF9hdBgHIAEoAxISCgp1bm1lYXN1cmVkGAggASgIEiwKCHR5cGVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdkb25lX2F0GAsgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgx3YWl0ZWRfc2luY2UYDCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhUKDXRva2Vuc19iZWZvcmUYDSABKAMi7wIKCVJvb3RSZXNldBIKCgJpZBgBIAEoCRILCgN2aWEYAiABKAkSDAoEbmV4dBgDIAEoCRIPCgdjb21wYWN0GAQgASgIEjAKDHJlcXVlc3RlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoIdHlwZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KC2ZpbmlzaGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIPCgdvdXRjb21lGAggASgJEg4KBnJlYXNvbhgJIAEoCRITCgtvbGRfc2Vzc2lvbhgKIAEoCRITCgtuZXdfc2Vzc2lvbhgLIAEoCRIOCgZ0b2tlbnMYDCABKAMSEgoKdHJhbnNjcmlwdBgNIAEoCRINCgVub3RlZBgOIAEoCBIMCgRtb2RlGA8gASgJEg0KBWZvY3VzGBAgASgJImgKDkFnZW50Q29tcGFjdGVkEgsKA3doeRgBIAEoCRILCgN2aWEYAiABKAkSFQoNdG9rZW5zX2JlZm9yZRgDIAEoAxIUCgx0b2tlbnNfYWZ0ZXIYBCABKAMSDwoHb3V0Y29tZRgFIAEoCSJBChJSb290UmVzZXRSZXF1ZXN0ZWQSKwoKcm9vdF9yZXNldBgBIAEoCzIXLmFnZW50bWVzaC52MS5Sb290UmVzZXQiQAoRUm9vdFJlc2V0RmluaXNoZWQSKwoKcm9vdF9yZXNldBgBIAEoCzIXLmFnZW50bWVzaC52MS5Sb290UmVzZXRiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * ContextUsage is how big a conversation is, as its CLI's own record says.
@@ -54,6 +54,13 @@ export type ContextUsage = Message<"agentmesh.v1.ContextUsage"> & {
    * @generated from field: string transcript = 5;
    */
   transcript: string;
+
+  /**
+   * When that file was last written: the prompt cache's age goes by it.
+   *
+   * @generated from field: google.protobuf.Timestamp written_at = 6;
+   */
+  writtenAt?: Timestamp | undefined;
 };
 
 /**
@@ -264,6 +271,20 @@ export type RootReset = Message<"agentmesh.v1.RootReset"> & {
    * @generated from field: bool noted = 14;
    */
   noted: boolean;
+
+  /**
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   *
+   * @generated from field: string mode = 15;
+   */
+  mode: string;
+
+  /**
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   *
+   * @generated from field: string focus = 16;
+   */
+  focus: string;
 };
 
 /**
@@ -321,9 +342,9 @@ export const AgentCompactedSchema: GenMessage<AgentCompacted> = /*@__PURE__*/
  */
 export type RootResetRequested = Message<"agentmesh.v1.RootResetRequested"> & {
   /**
-   * @generated from field: agentmesh.v1.RootReset reset = 1;
+   * @generated from field: agentmesh.v1.RootReset root_reset = 1;
    */
-  reset?: RootReset | undefined;
+  rootReset?: RootReset | undefined;
 };
 
 /**
@@ -338,9 +359,9 @@ export const RootResetRequestedSchema: GenMessage<RootResetRequested> = /*@__PUR
  */
 export type RootResetFinished = Message<"agentmesh.v1.RootResetFinished"> & {
   /**
-   * @generated from field: agentmesh.v1.RootReset reset = 1;
+   * @generated from field: agentmesh.v1.RootReset root_reset = 1;
    */
-  reset?: RootReset | undefined;
+  rootReset?: RootReset | undefined;
 };
 
 /**

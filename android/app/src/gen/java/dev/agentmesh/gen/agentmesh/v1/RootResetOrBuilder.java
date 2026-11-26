@@ -232,4 +232,44 @@ public interface RootResetOrBuilder extends
    * @return The noted.
    */
   boolean getNoted();
+
+  /**
+   * <pre>
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   * </pre>
+   *
+   * <code>string mode = 15 [json_name = "mode"];</code>
+   * @return The mode.
+   */
+  java.lang.String getMode();
+  /**
+   * <pre>
+   * How it is carried out: "relaunch" (a fresh lean process), "clear" (`/clear` typed) or "compact" (`/compact`).
+   * </pre>
+   *
+   * <code>string mode = 15 [json_name = "mode"];</code>
+   * @return The bytes for mode.
+   */
+  com.google.protobuf.ByteString
+      getModeBytes();
+
+  /**
+   * <pre>
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 16 [json_name = "focus"];</code>
+   * @return The focus.
+   */
+  java.lang.String getFocus();
+  /**
+   * <pre>
+   * What a compacting reset keeps (`/compact`'s argument); empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 16 [json_name = "focus"];</code>
+   * @return The bytes for focus.
+   */
+  com.google.protobuf.ByteString
+      getFocusBytes();
 }

@@ -825,12 +825,15 @@ type Reopen struct {
 	Model     string `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
 	Effort    string `protobuf:"bytes,3,opt,name=effort,proto3" json:"effort,omitempty"`
 	DenyEdits bool   `protobuf:"varint,4,opt,name=deny_edits,json=denyEdits,proto3" json:"deny_edits,omitempty"`
-	// "plan approved", "moved", "quota", "resumed".
+	// "plan approved", "moved", "quota", "resumed", "reset".
 	Why string `protobuf:"bytes,5,opt,name=why,proto3" json:"why,omitempty"`
 	// The caller's own reason, when it gave one.
-	Reason        string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
-	RequestedAt   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=requested_at,json=requestedAt,proto3" json:"requested_at,omitempty"`
-	RequestedBy   *Actor                 `protobuf:"bytes,8,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	Reason      string                 `protobuf:"bytes,6,opt,name=reason,proto3" json:"reason,omitempty"`
+	RequestedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=requested_at,json=requestedAt,proto3" json:"requested_at,omitempty"`
+	RequestedBy *Actor                 `protobuf:"bytes,8,opt,name=requested_by,json=requestedBy,proto3" json:"requested_by,omitempty"`
+	// Launch a fresh conversation, not a resume of the agent's own: a root's reset. Its old conversation id is
+	// cleared; the new process records its own.
+	Fresh         bool `protobuf:"varint,9,opt,name=fresh,proto3" json:"fresh,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -919,6 +922,13 @@ func (x *Reopen) GetRequestedBy() *Actor {
 		return x.RequestedBy
 	}
 	return nil
+}
+
+func (x *Reopen) GetFresh() bool {
+	if x != nil {
+		return x.Fresh
+	}
+	return false
 }
 
 type Message struct {
@@ -2861,7 +2871,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\rpending_reset\x18! \x01(\v2\x17.agentmesh.v1.RootResetR\fpendingReset\x126\n" +
 	"\n" +
 	"last_reset\x18\" \x01(\v2\x17.agentmesh.v1.RootResetR\tlastReset\x12)\n" +
-	"\x11last_turn_by_mesh\x18# \x01(\bR\x0elastTurnByMesh\"\x86\x02\n" +
+	"\x11last_turn_by_mesh\x18# \x01(\bR\x0elastTurnByMesh\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
@@ -2871,7 +2881,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x03why\x18\x05 \x01(\tR\x03why\x12\x16\n" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\x12=\n" +
 	"\frequested_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vrequestedAt\x126\n" +
-	"\frequested_by\x18\b \x01(\v2\x13.agentmesh.v1.ActorR\vrequestedBy\"\xf9\x02\n" +
+	"\frequested_by\x18\b \x01(\v2\x13.agentmesh.v1.ActorR\vrequestedBy\x12\x14\n" +
+	"\x05fresh\x18\t \x01(\bR\x05fresh\"\xf9\x02\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12'\n" +

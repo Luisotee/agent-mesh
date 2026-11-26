@@ -70,4 +70,24 @@ public interface ResetRootRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRunIdBytes();
+
+  /**
+   * <pre>
+   * What a compacting reset keeps; empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 5 [json_name = "focus"];</code>
+   * @return The focus.
+   */
+  java.lang.String getFocus();
+  /**
+   * <pre>
+   * What a compacting reset keeps; empty is the CLI's own default.
+   * </pre>
+   *
+   * <code>string focus = 5 [json_name = "focus"];</code>
+   * @return The bytes for focus.
+   */
+  com.google.protobuf.ByteString
+      getFocusBytes();
 }

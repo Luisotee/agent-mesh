@@ -69,4 +69,23 @@ public interface ContextUsageOrBuilder extends
    */
   com.google.protobuf.ByteString
       getTranscriptBytes();
+
+  /**
+   * <pre>
+   * When that file was last written: the prompt cache's age goes by it.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+   * @return Whether the writtenAt field is set.
+   */
+  boolean hasWrittenAt();
+  /**
+   * <pre>
+   * When that file was last written: the prompt cache's age goes by it.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp written_at = 6 [json_name = "writtenAt"];</code>
+   * @return The writtenAt.
+   */
+  com.google.protobuf.Timestamp getWrittenAt();
 }

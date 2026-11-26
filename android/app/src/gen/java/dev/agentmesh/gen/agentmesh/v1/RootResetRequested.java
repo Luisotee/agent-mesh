@@ -17,50 +17,50 @@ public  final class RootResetRequested extends
   private RootResetRequested() {
   }
   private int bitField0_;
-  public static final int RESET_FIELD_NUMBER = 1;
-  private dev.agentmesh.gen.agentmesh.v1.RootReset reset_;
+  public static final int ROOT_RESET_FIELD_NUMBER = 1;
+  private dev.agentmesh.gen.agentmesh.v1.RootReset rootReset_;
   /**
-   * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+   * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
    */
   @java.lang.Override
-  public boolean hasReset() {
+  public boolean hasRootReset() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+   * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
    */
   @java.lang.Override
-  public dev.agentmesh.gen.agentmesh.v1.RootReset getReset() {
-    return reset_ == null ? dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance() : reset_;
+  public dev.agentmesh.gen.agentmesh.v1.RootReset getRootReset() {
+    return rootReset_ == null ? dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance() : rootReset_;
   }
   /**
-   * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+   * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
    */
-  private void setReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+  private void setRootReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
     java.util.Objects.requireNonNull(value);
-    reset_ = value;
+    rootReset_ = value;
     bitField0_ |= 0x00000001;
   }
   /**
-   * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+   * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
    */
   @java.lang.SuppressWarnings("ReferenceEquality")
-  private void mergeReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+  private void mergeRootReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
     java.util.Objects.requireNonNull(value);
-    if (reset_ != null &&
-        reset_ != dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance()) {
-      reset_ =
-        dev.agentmesh.gen.agentmesh.v1.RootReset.newBuilder(reset_).mergeFrom(value).buildPartial();
+    if (rootReset_ != null &&
+        rootReset_ != dev.agentmesh.gen.agentmesh.v1.RootReset.getDefaultInstance()) {
+      rootReset_ =
+        dev.agentmesh.gen.agentmesh.v1.RootReset.newBuilder(rootReset_).mergeFrom(value).buildPartial();
     } else {
-      reset_ = value;
+      rootReset_ = value;
     }
     bitField0_ |= 0x00000001;
   }
   /**
-   * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+   * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
    */
-  private void clearReset() {
-    reset_ = null;
+  private void clearRootReset() {
+    rootReset_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
   }
 
@@ -162,49 +162,49 @@ public  final class RootResetRequested extends
 
 
     /**
-     * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+     * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
      */
     @java.lang.Override
-    public boolean hasReset() {
-      return instance.hasReset();
+    public boolean hasRootReset() {
+      return instance.hasRootReset();
     }
     /**
-     * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+     * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
      */
     @java.lang.Override
-    public dev.agentmesh.gen.agentmesh.v1.RootReset getReset() {
-      return instance.getReset();
+    public dev.agentmesh.gen.agentmesh.v1.RootReset getRootReset() {
+      return instance.getRootReset();
     }
     /**
-     * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+     * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
      */
-    public Builder setReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    public Builder setRootReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
       copyOnWrite();
-      instance.setReset(value);
+      instance.setRootReset(value);
       return this;
       }
     /**
-     * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+     * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
      */
-    public Builder setReset(
+    public Builder setRootReset(
         dev.agentmesh.gen.agentmesh.v1.RootReset.Builder builderForValue) {
       copyOnWrite();
-      instance.setReset(builderForValue.build());
+      instance.setRootReset(builderForValue.build());
       return this;
     }
     /**
-     * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+     * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
      */
-    public Builder mergeReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
+    public Builder mergeRootReset(dev.agentmesh.gen.agentmesh.v1.RootReset value) {
       copyOnWrite();
-      instance.mergeReset(value);
+      instance.mergeRootReset(value);
       return this;
     }
     /**
-     * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
+     * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
      */
-    public Builder clearReset() {  copyOnWrite();
-      instance.clearReset();
+    public Builder clearRootReset() {  copyOnWrite();
+      instance.clearRootReset();
       return this;
     }
 
@@ -225,7 +225,7 @@ public  final class RootResetRequested extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
-            "reset_",
+            "rootReset_",
           };
           java.lang.String info =
               "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";

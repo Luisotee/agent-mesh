@@ -11,13 +11,13 @@ public interface RootResetFinishedOrBuilder extends
     com.google.protobuf.MessageLiteOrBuilder {
 
   /**
-   * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
-   * @return Whether the reset field is set.
+   * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
+   * @return Whether the rootReset field is set.
    */
-  boolean hasReset();
+  boolean hasRootReset();
   /**
-   * <code>.agentmesh.v1.RootReset reset = 1 [json_name = "reset"];</code>
-   * @return The reset.
+   * <code>.agentmesh.v1.RootReset root_reset = 1 [json_name = "rootReset"];</code>
+   * @return The rootReset.
    */
-  dev.agentmesh.gen.agentmesh.v1.RootReset getReset();
+  dev.agentmesh.gen.agentmesh.v1.RootReset getRootReset();
 }

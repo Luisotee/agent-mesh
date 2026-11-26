@@ -776,10 +776,12 @@ message ResetRootRequest {
   bool compact = 3;
   // The run (a device names it; a root's is its own).
   string run_id = 4;
+  // What a compacting reset keeps; empty is the CLI's own default.
+  string focus = 5;
 }
 
 message ResetRootResponse {
-  RootReset reset = 1;
+  RootReset root_reset = 1;
   // Notes: why nothing was started, or what it waits for.
   repeated string notes = 2;
 }
