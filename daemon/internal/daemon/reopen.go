@@ -227,6 +227,7 @@ func (d *Daemon) takeChange(tx *store.Tx, a *v1.Agent, body string, planned bool
 		return err
 	}
 	if planned {
+		a.Pinned = false // a named model covers the whole task, but a plan phase now exists to approve into a tier
 		endExecution(a)
 		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, why); err != nil {
 			return err

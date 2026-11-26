@@ -167,6 +167,28 @@ func TestADirectChangeTaskLiftsAnAskersListByAReopenAndAStoppedOneResumesWithout
 	}
 }
 
+// A refused resume keeps the conversion and the stored task; a direct task has no plan phase and no list, so the
+// worker that next resumes does the task with the means to do it (bin/mesh's unresumed_task).
+func TestARefusedResumeOfADirectChangeTaskLeavesTheWorkerWithoutItsList(t *testing.T) {
+	w := startReopen(t)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	gone := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_REVIEWER, "gone")
+	if _, err := asLead.RetireAgent(context.Background(), connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: gone.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(gone.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	w.set(t, "caps.agents", 1) // the root alone fills it
+	res := sendTask(t, asLead, gone.Id, "Direct task: make the change.")
+	if res.Resumed != nil || res.ResumeError == "" {
+		t.Fatalf("resumed %v (%q)", res.Resumed, res.ResumeError)
+	}
+	got := w.agent(gone.Id)
+	if got.Role != v1.AgentRole_AGENT_ROLE_WORKER || got.DenyEdits || got.Phase != v1.AgentPhase_AGENT_PHASE_UNSPECIFIED {
+		t.Fatalf("after the refusal %v", got)
+	}
+}
+
 func TestAReadOnlyTaskKeepsTheAskerReadOnlyAndAWorkersAskerNeverChangesRole(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()

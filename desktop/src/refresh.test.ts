@@ -174,6 +174,7 @@ describe('agents that went quiet', () => {
       { case: 'agentReopened', value: { $typeName: 'agentmesh.v1.AgentReopened', terminalId: 't2', sessionId: 's2' } },
       { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't2' } },
       { case: 'agentPhaseChanged', value: { $typeName: 'agentmesh.v1.AgentPhaseChanged', why: '' } },
+      { case: 'agentRoleChanged', value: { $typeName: 'agentmesh.v1.AgentRoleChanged', why: '' } },
     ] as const) {
       const { store, client, r } = setup()
       store.setState({ agents: { a: agent('a', AgentState.WORKING) } })
