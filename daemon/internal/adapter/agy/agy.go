@@ -293,7 +293,9 @@ type hooksSpec struct {
 // rules fail closed instead: that session's PreToolUse still checks them (`--check-only`, reporting nothing), so
 // an agent whose environment lost the variable stays read-only. Every other event of such a session exits 0
 // silently, Stop included: an agent that lost its `$AGENT_MESH_AGENT` reports no turn at all (its state comes
-// back with its next reopen), which is the price of never reporting a person's session as the agent's.
+// back with its next reopen), which is the price of never reporting a person's session as the agent's. For
+// agents with deny rules, PreToolUse matches `*` and fails closed with `HookTimeout`; for agents without deny
+// rules, PreToolUse wraps the command to exit 0 silently so hook failures never block tool calls.
 func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string) ([]byte, error) {
 	guarded := func(event string, extra ...string) string {
 		argv := append(append([]string{}, hookArgv...), extra...)
@@ -305,19 +307,32 @@ func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string
 		return fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || %s; exec %s`,
 			adapter.ShellQuote(agentID), other, adapter.ShellQuote(argv...))
 	}
-	var preExtra []string
+	var preGroup hookGroup
 	if deny {
+		var preExtra []string
 		for _, p := range uniqueResolvedDirs(denyPaths...) {
 			preExtra = append(preExtra, "--deny-path", p)
 		}
 		preExtra = append(preExtra, "--deny-publish")
+		preGroup = hookGroup{
+			Matcher: "*",
+			Hooks:   []hookCommand{{Type: "command", Command: guarded("PreToolUse", preExtra...), Timeout: HookTimeout}},
+		}
+	} else {
+		preArgv := append(append([]string{}, hookArgv...), "PreToolUse")
+		preCmd := fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || exit 0; %s >/dev/null 2>&1; exit 0`,
+			adapter.ShellQuote(agentID), adapter.ShellQuote(preArgv...))
+		preGroup = hookGroup{
+			Matcher: "*",
+			Hooks:   []hookCommand{{Type: "command", Command: preCmd, Timeout: HookTimeout}},
+		}
 	}
 	spec := map[string]hooksSpec{
 		"agent-mesh": {
 			SessionStart:   []hookCommand{{Type: "command", Command: guarded("SessionStart"), Timeout: HookTimeout}},
 			PreInvocation:  []hookCommand{{Type: "command", Command: guarded("PreInvocation"), Timeout: HookTimeout}},
 			PostInvocation: []hookCommand{{Type: "command", Command: guarded("PostInvocation"), Timeout: HookTimeout}},
-			PreToolUse:     []hookGroup{{Matcher: "*", Hooks: []hookCommand{{Type: "command", Command: guarded("PreToolUse", preExtra...), Timeout: HookTimeout}}}},
+			PreToolUse:     []hookGroup{preGroup},
 			PostToolUse:    []hookGroup{{Matcher: "*", Hooks: []hookCommand{{Type: "command", Command: guarded("PostToolUse"), Timeout: HookTimeout}}}},
 			Stop:           []hookCommand{{Type: "command", Command: guarded("Stop"), Timeout: HookTimeout}},
 		},
