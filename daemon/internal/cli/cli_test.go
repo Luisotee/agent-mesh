@@ -422,6 +422,23 @@ func TestGlobalStateReachesWhoamiAndDir(t *testing.T) {
 	}
 }
 
+// `mesh --help` is `mesh help`: the usage on stdout, exit 0; a bad global flag is a usage error on stderr only.
+func TestGlobalHelpIsTheHelpCommand(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"--state", "/s", "--help"}} {
+		var out, errb bytes.Buffer
+		env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+		if code := Main(args, env, nil); code != ExitOK || !strings.Contains(out.String(), "usage: mesh") || errb.Len() != 0 {
+			t.Errorf("%v: %d stdout %q stderr %q", args, code, out.String(), errb.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	env := Env{Stdout: &out, Stderr: &errb, Getenv: func(string) string { return "" }}
+	if code := Main([]string{"--nope"}, env, nil); code != ExitUsage || out.Len() != 0 || !strings.Contains(errb.String(), "nope") ||
+		!strings.Contains(errb.String(), "usage: mesh") {
+		t.Errorf("--nope: %d stdout %q stderr %q", code, out.String(), errb.String())
+	}
+}
+
 // An empty bare argument still counts as the one: a second is an error, not a replacement.
 func TestAnEmptyPositionalIsStillThePositional(t *testing.T) {
 	if _, err := Request(action(t, "send"), []string{"", "extra", "--type", "done"}); err == nil {

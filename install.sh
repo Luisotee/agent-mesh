@@ -128,21 +128,29 @@ unlink_if_into() { # unlink_if_into <path> <dir>: remove a symlink that points i
   fi
 }
 
+same() { # same <a> <b>: identical files (without cmp, nothing counts as identical: at worst an extra note)
+  has cmp && cmp -s "$1" "$2"
+}
+
 unit_path_dropin() { # a unit's drop-in: the PATH of this shell (systemd's own is too short to find claude or agy)
   local path_value="$PATH"
-  path_value="${path_value//\\/\\\\}"  # backslash and % are escapes inside a unit's Environment=
+  path_value="${path_value//\\/\\\\}"  # backslash, % and " are escapes inside a unit's quoted Environment=
   path_value="${path_value//%/%%}"
-  path_value="${path_value//\"/}"
+  path_value="${path_value//\"/\\\"}"
   printf '[Service]\nEnvironment="PATH=%s"\n' "$path_value"
 }
 
 daemon_install() {
-  local go stage unit
+  local go stage unit created=() d
   go="$(find_go)" || { echo "install.sh: --daemon needs Go (go on PATH, or ~/.local/go/bin/go)" >&2; return 1; }
   [[ -d "$REPO/daemon/cmd" ]] || { echo "install.sh: $REPO/daemon/cmd is missing" >&2; return 1; }
-  mkdir -p "$DAEMON_LIB/bin"
+  has claude || has agy || echo "warning: neither Claude Code (claude) nor agy is on PATH; the daemon needs at least one to run agents (and its units get this PATH)" >&2
+  # The folders this run creates are removed again if it fails before installing anything.
+  d="$DAEMON_LIB"
+  while [[ ! -d "$d" ]]; do created+=("$d"); d="$(dirname "$d")"; done
+  mkdir -p "$DAEMON_LIB"
   stage="$(mktemp -d "$DAEMON_LIB/.stage.XXXXXX")"
-  trap 'rm -rf "$stage"' RETURN
+  trap 'rm -rf "$stage"; for d in "${created[@]}"; do rmdir "$d" 2>/dev/null || true; done' RETURN
   # Everything is built before anything is replaced: a failed build leaves the installed daemon as it was.
   echo "building the daemon (go build)..."
   mkdir -p "$stage/bin"
@@ -156,10 +164,11 @@ daemon_install() {
   # Every fallible copy is made before the first replacement; what follows is renames.
   [[ ! -d "$REPO/daemon/share" ]] || cp -R "$REPO/daemon/share" "$stage/share" \
     || { echo "install.sh: copying daemon/share failed; nothing was changed" >&2; return 1; }
+  mkdir -p "$DAEMON_LIB/bin"
   # One rename per file: a running meshd or mesh-term keeps the old inode, so an upgrade never breaks it.
   local term_changed=0 had_term=0
   [[ ! -e "$DAEMON_LIB/bin/mesh-term" ]] || had_term=1
-  cmp -s "$stage/bin/mesh-term" "$DAEMON_LIB/bin/mesh-term" || term_changed=1
+  same "$stage/bin/mesh-term" "$DAEMON_LIB/bin/mesh-term" || term_changed=1
   for b in "${DAEMON_BINS[@]}"; do mv -f "$stage/bin/$b" "$DAEMON_LIB/bin/$b"; done
   echo "installed ${DAEMON_BINS[*]} in $DAEMON_LIB/bin"
   if [[ -d "$REPO/daemon/share" ]]; then
@@ -168,14 +177,17 @@ daemon_install() {
     mv "$stage/share" "$DAEMON_LIB/share"
     rm -rf "$DAEMON_LIB/share.old"
     echo "installed $DAEMON_LIB/share"
+  else
+    rm -rf "$DAEMON_LIB/share"  # an earlier install's share/ is stale once the checkout has none
   fi
   mkdir -p "$UNIT_DIR"
   for unit in "${DAEMON_UNITS[@]}"; do
+    [[ "$unit" != agent-mesh-term.service ]] || same "$REPO/daemon/packaging/systemd/$unit" "$UNIT_DIR/$unit" || term_changed=1
     cp "$REPO/daemon/packaging/systemd/$unit" "$UNIT_DIR/$unit.tmp" && mv -f "$UNIT_DIR/$unit.tmp" "$UNIT_DIR/$unit"
     mkdir -p "$UNIT_DIR/$unit.d"
     unit_path_dropin >"$UNIT_DIR/$unit.d/path.conf.new"
     if [[ "$unit" == agent-mesh-term.service ]]; then
-      cmp -s "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf" || term_changed=1
+      same "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf" || term_changed=1
     fi
     mv -f "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf"
     echo "installed $UNIT_DIR/$unit (and its PATH drop-in)"

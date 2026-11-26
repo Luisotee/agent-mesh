@@ -233,10 +233,56 @@ def test_a_changed_path_or_terminal_host_binary_is_noted_but_not_applied(tmp_pat
 
 def test_the_path_dropin_escapes_what_systemd_would_read(tmp_path):
     stubs = tmp_path / "stub-bin"
-    done = daemon_install(tmp_path, path=f"{stubs}:/usr/bin:/odd%dir:/back\\slash")
+    done = daemon_install(tmp_path, path=f'{stubs}:/usr/bin:/odd%dir:/back\\slash:/q"uote')
     assert done.returncode == 0, done.stderr
     dropin = (tmp_path / ".config" / "systemd" / "user" / "agent-mesh.service.d" / "path.conf").read_text()
-    assert "/odd%%dir" in dropin and "/back\\\\slash" in dropin
+    assert "/odd%%dir" in dropin and "/back\\\\slash" in dropin and '/q\\"uote' in dropin
+
+
+def test_a_failed_first_build_leaves_no_folders_behind(tmp_path):
+    done = daemon_install(tmp_path, go_fails=True)
+    assert done.returncode == 1 and "nothing was changed" in done.stderr
+    assert not (tmp_path / ".local").exists() and not (tmp_path / ".config").exists()
+
+
+def test_a_changed_terminal_unit_is_noted_too(tmp_path):
+    repo = copy_of_repo(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    assert daemon_install(home, repo=repo).returncode == 0
+    unit = repo / "daemon" / "packaging" / "systemd" / "agent-mesh-term.service"
+    unit.write_text(unit.read_text() + "# changed\n")
+    assert "restart agent-mesh-term.service" in daemon_install(home, repo=repo).stderr
+
+
+def test_a_stale_share_goes_when_the_checkout_has_none(tmp_path):
+    repo = copy_of_repo(tmp_path)
+    home = tmp_path / "home"
+    home.mkdir()
+    (repo / "daemon" / "share").mkdir()
+    (repo / "daemon" / "share" / "marker.md").write_text("x")
+    assert daemon_install(home, repo=repo).returncode == 0
+    shutil.rmtree(repo / "daemon" / "share")
+    assert daemon_install(home, repo=repo).returncode == 0
+    assert not (home / ".local" / "lib" / "agent-mesh" / "share").exists()
+
+
+def test_daemon_install_warns_when_no_agent_cli_is_on_path(tmp_path):
+    assert "neither Claude Code" in daemon_install(tmp_path).stderr  # the stubs' PATH has neither
+    (tmp_path / "stub-bin" / "agy").write_text("#!/bin/sh\n")
+    (tmp_path / "stub-bin" / "agy").chmod(0o755)
+    assert "neither Claude Code" not in daemon_install(tmp_path).stderr
+
+
+def test_daemon_install_without_cmp_still_installs(tmp_path):
+    bare = Path(bare_path(tmp_path))
+    (bare / "cmp").unlink()
+    (bare / "go").write_text(GO_STUB)
+    (bare / "go").chmod(0o755)
+    done = subprocess.run([BASH, str(ROOT / "install.sh"), "--daemon"], capture_output=True, text=True,
+                          env={"HOME": str(tmp_path), "PATH": str(bare)}, timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert (tmp_path / ".local" / "lib" / "agent-mesh" / "bin" / "mesh-term").exists()
 
 
 def test_a_failed_build_changes_nothing(tmp_path):
@@ -253,7 +299,7 @@ def bare_path(home: Path, *tools: str) -> str:
     """A PATH holding only the named tools (symlinks), so `go` and `systemctl` are absent whatever the machine has."""
     folder = home / "bare-bin"
     folder.mkdir(exist_ok=True)
-    for tool in ("mktemp", "cp", "mv", "rm", "rmdir", "mkdir", "ln", "readlink", "dirname", "chmod", *tools):
+    for tool in ("mktemp", "cp", "mv", "rm", "rmdir", "mkdir", "ln", "readlink", "dirname", "chmod", "cmp", *tools):
         (folder / tool).unlink(missing_ok=True)
         (folder / tool).symlink_to(shutil.which(tool))
     return str(folder)
