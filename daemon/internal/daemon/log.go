@@ -185,6 +185,19 @@ func logEntryFromEvent(ev *v1.Event, agentNames map[string]string, filterID, fil
 		entry.Kind = "worktree"
 		entry.Who = wt.Slug
 		entry.Detail = joinFields(wt.Branch, wt.Path)
+	case *v1.Event_PullRequestChanged:
+		pr := p.PullRequestChanged.GetPullRequest()
+		if !matches(ev.AgentId) || pr == nil {
+			return nil, false
+		}
+		entry.Kind = "pr"
+		entry.Who = nameOf(ev.AgentId)
+		ch := p.PullRequestChanged
+		change := fmt.Sprintf("#%d %s", pr.Number, arrow(ch.FromState, pr.State))
+		if pr.Checks != "" || ch.FromChecks != "" {
+			change += ", checks " + arrow(ch.FromChecks, pr.Checks)
+		}
+		entry.Detail = joinFields(change, pr.Url)
 	case *v1.Event_AgentSpawned:
 		a := p.AgentSpawned.GetAgent()
 		if a == nil || !matches(a.Id, a.Name) {
@@ -431,6 +444,14 @@ func logGist(s string, limit int) string {
 
 func enumShort(s, prefix string) string {
 	return strings.ToLower(strings.TrimPrefix(s, prefix))
+}
+
+// arrow is `old → new`, or just `new` when nothing changed or there was no old.
+func arrow(from, to string) string {
+	if from == "" || from == to {
+		return to
+	}
+	return from + " → " + to
 }
 
 func kvLine(kv ...string) string {

@@ -34,6 +34,7 @@ type prWorld struct {
 	list    []map[string]any // `gh pr list --head`
 	views   map[string]map[string]any
 	fail    error
+	gate    chan struct{} // while set, a gh call waits for it to close
 	calls   atomic.Int32
 	clockMu sync.Mutex
 	skew    time.Duration
@@ -46,8 +47,18 @@ func startPR(t *testing.T) *prWorld {
 	d, err := daemon.New(daemon.Config{StateDir: state, TCP: "127.0.0.1:0", Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Now: func() time.Time { w.clockMu.Lock(); defer w.clockMu.Unlock(); return time.Now().Add(w.skew) },
 		Agents: daemon.AgentConfig{Usage: &daemon.UsageOps{DisableClaudeNetwork: true,
-			RunGH: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			RunGH: func(ctx context.Context, _ string, args ...string) ([]byte, error) {
 				w.calls.Add(1)
+				w.mu.Lock()
+				gate := w.gate
+				w.mu.Unlock()
+				if gate != nil { // a slow GitHub: held until the gate opens or the call is cancelled
+					select {
+					case <-gate:
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}
 				w.mu.Lock()
 				defer w.mu.Unlock()
 				if w.fail != nil {
@@ -371,5 +382,178 @@ func TestEvidenceNeverCallsAnUnreadPRNoPR(t *testing.T) {
 	prs := []*v1.PullRequest{{Number: 10, State: "open"}, {Number: 9, State: "open", Stale: true}}
 	if got := daemon.EvidenceText(ev, prs, true); !strings.Contains(got, "PR #9 open (as last read), PR #10 open") {
 		t.Errorf("order or stale mark: %q", got)
+	}
+}
+
+// The agent of `mesh prs --run-id R --agent X` is one of run R's: a name that two open runs share is not
+// ambiguous, and an id of another run is not found.
+func TestListPullRequestsFindsTheAgentInTheNamedRunOnly(t *testing.T) {
+	w := startPR(t)
+	other := startRun(t, w.device.Mesh, "")
+	w.seedAgent(other.Id, "b-root", "repo-lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	w.seedAgent(other.Id, "b-w1", "demo-fix", "b-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	rows := w.prs("demo-fix", false)
+	if len(rows) != 1 || rows[0].AgentId != "a-w1" {
+		t.Errorf("by a name both runs have: %v", rows)
+	}
+	if rows := w.prs("a-w1", false); len(rows) != 1 || rows[0].AgentId != "a-w1" {
+		t.Errorf("by id: %v", rows)
+	}
+	_, err := w.device.Mesh.ListPullRequests(context.Background(), connect.NewRequest(&v1.ListPullRequestsRequest{
+		RunId: w.run.Id, Agent: "b-w1"}))
+	if code(err) != connect.CodeNotFound {
+		t.Errorf("an agent of another run: %v", err)
+	}
+}
+
+// GitHub slower than the brief waits: the brief still shows the worker's commits from local git, and a cached
+// PR says it is old.
+func TestASlowGitHubKeepsTheBriefsLocalEvidenceAndMarksCachedPRsOld(t *testing.T) {
+	defer daemon.SetBriefGitHubWait(300 * time.Millisecond)()
+	w := startPR(t)
+	asWorker, asRoot := w.as(w.workTok), w.as(w.rootTok)
+	for _, m := range []struct {
+		c interface {
+			SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
+		}
+		to   string
+		typ  v1.MessageType
+		body string
+	}{{asRoot, "demo-fix", v1.MessageType_MESSAGE_TYPE_TASK, "go"}, {asWorker, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "done"}} {
+		if _, err := m.c.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: m.to, Type: m.typ, Body: m.body})); err != nil {
+			t.Fatal(err)
+		}
+		if m.to == "demo-fix" {
+			readInbox(t, asWorker)
+		}
+	}
+	brief := func() string {
+		res, err := asRoot.GetBrief(context.Background(), connect.NewRequest(&v1.GetBriefRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Text
+	}
+	gate := make(chan struct{}) // never opened
+	w.mu.Lock()
+	w.gate = gate
+	w.mu.Unlock()
+	if text := brief(); !strings.Contains(text, "1 commit(s), not pushed") || !strings.Contains(text, "PR unknown (GitHub not read)") {
+		t.Errorf("no PR ever read, GitHub too slow:\n%s", text)
+	}
+	w.mu.Lock()
+	w.gate = nil
+	w.mu.Unlock()
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	w.advance(3 * time.Minute)
+	if text := brief(); !strings.Contains(text, "PR #12 open") || strings.Contains(text, "not read") {
+		t.Fatalf("a read that works:\n%s", text)
+	}
+	w.mu.Lock()
+	w.gate = gate
+	w.mu.Unlock()
+	w.advance(3 * time.Minute)
+	if text := brief(); !strings.Contains(text, "PR #12 open (GitHub not read: last state seen)") {
+		t.Errorf("GitHub too slow, a PR cached:\n%s", text)
+	}
+}
+
+// A PR whose head is on the checkout's HEAD but not on the worker's branch is not the worker's once its worktree
+// is gone and gh runs in the main checkout.
+func TestAPRIsNotMatchedToAWorkerByTheMainCheckoutsHead(t *testing.T) {
+	w := startPR(t)
+	runGit(t, w.repo, "checkout", "--detach", w.base)
+	runGit(t, w.repo, "commit", "--allow-empty", "-m", "someone else's work")
+	elsewhere := runGit(t, w.repo, "rev-parse", "HEAD")
+	w.edit("a-w1", func(a *v1.Agent) { a.Worktree = filepath.Join(w.repo, "gone") })
+	w.setList(ghPR(12, "OPEN", w.branchTip, false), ghPR(8, "MERGED", elsewhere, false))
+	rows := w.prs("", false)
+	if len(rows) != 1 || len(rows[0].PullRequests) != 1 || rows[0].PullRequests[0].Number != 12 {
+		t.Errorf("PRs %v, want only #12 (the branch's)", rows)
+	}
+}
+
+// While the first read of GitHub is under way, a second reader hears "not read", never "no PR".
+func TestAReadUnderWayIsNotNoPR(t *testing.T) {
+	w := startPR(t)
+	gate := make(chan struct{})
+	w.mu.Lock()
+	w.gate = gate
+	w.mu.Unlock()
+	first := make(chan []*v1.AgentPullRequests, 1)
+	go func() { first <- w.prs("", false) }()
+	waitFor(t, "the first gh call", func() bool { return w.calls.Load() > 0 })
+	w.setList(ghPR(12, "OPEN", w.branchTip, false))
+	rows := w.prs("", false)
+	if len(rows) != 1 || len(rows[0].PullRequests) != 0 || !rows[0].ReadFailed {
+		t.Errorf("while the read is under way: %v, want no PRs and read_failed (not read)", rows)
+	}
+	if calls := w.calls.Load(); calls > 2 { // the branch call, and at most one more per claim
+		t.Errorf("%d gh calls: a second reader started its own round", calls)
+	}
+	close(gate)
+	<-first
+	if rows := w.prs("", false); len(rows[0].PullRequests) != 1 || rows[0].ReadFailed {
+		t.Errorf("after it finished: %v", rows)
+	}
+}
+
+// A newer task to the worker ends the reach of its earlier report: the PR it named then is not this task's.
+func TestAReportBeforeANewTaskNamesNoPRsOfThisOne(t *testing.T) {
+	w := startPR(t)
+	asWorker, asRoot := w.as(w.workTok), w.as(w.rootTok)
+	w.views["https://github.com/other/lib/pull/9"] = map[string]any{"number": 9, "url": "https://github.com/other/lib/pull/9",
+		"state": "MERGED", "isDraft": false, "headRefOid": "deadbeef", "statusCheckRollup": []any{}}
+	send := func(c interface {
+		SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
+	}, to string, typ v1.MessageType, body string) {
+		t.Helper()
+		if _, err := c.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: to, Type: typ, Body: body})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(asRoot, "demo-fix", v1.MessageType_MESSAGE_TYPE_TASK, "one")
+	readInbox(t, asWorker)
+	send(asWorker, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "done: https://github.com/other/lib/pull/9")
+	if rows := w.prs("", true); len(rows[0].PullRequests) != 1 {
+		t.Fatalf("the report's PR: %v", rows)
+	}
+	send(asRoot, "demo-fix", v1.MessageType_MESSAGE_TYPE_TASK, "two")
+	if rows := w.prs("", true); len(rows[0].PullRequests) != 0 {
+		t.Errorf("after a new task: %v, want none", rows[0].PullRequests)
+	}
+}
+
+func TestAnUnknownPRIsNotAStateAndEvidenceCallsItUnread(t *testing.T) {
+	ev := &v1.WorkEvidence{Commits: 2, HasCommits: true, Pushed: true, HasPushed: true}
+	prs := []*v1.PullRequest{{Number: 9, State: "unknown", Stale: true}}
+	if got := daemon.EvidenceText(ev, prs, false); !strings.Contains(got, "PRs not read") {
+		t.Errorf("only an unknown row: %q", got)
+	}
+	if got := daemon.PRText(&v1.AgentPullRequests{PullRequests: prs}, true); got != "PR #9 unknown (GitHub not read)" {
+		t.Errorf("unknown row: %q", got)
+	}
+}
+
+func TestMeshLogShowsAPRChange(t *testing.T) {
+	w := startPR(t)
+	w.setList(ghPR(12, "OPEN", w.branchTip, false, run("IN_PROGRESS", "")))
+	w.prs("", false)
+	w.setList(ghPR(12, "MERGED", w.branchTip, false, run("COMPLETED", "FAILURE")))
+	w.prs("", true)
+	stream, err := w.device.Mesh.StreamLog(context.Background(), connect.NewRequest(&v1.StreamLogRequest{RunId: w.run.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var details []string
+	for stream.Receive() {
+		if e := stream.Msg().Entry; e.Kind == "pr" {
+			details = append(details, e.Who+" "+e.Detail)
+		}
+	}
+	if len(details) != 2 || !strings.Contains(details[0], "#12 open, checks pending") ||
+		!strings.Contains(details[1], "#12 open → merged, checks pending → failing") {
+		t.Errorf("log entries: %q", details)
 	}
 }

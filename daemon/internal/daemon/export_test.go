@@ -113,3 +113,13 @@ func ChecksWord(rollup []map[string]any) string { return checksWord(rollup) }
 func EvidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest, prsRead bool) string {
 	return evidenceText(ev, prs, prsRead)
 }
+
+// SetBriefGitHubWait shortens how long a brief waits for GitHub; the returned func restores it.
+func SetBriefGitHubWait(d time.Duration) func() {
+	old := briefGitHubWait
+	briefGitHubWait = d
+	return func() { briefGitHubWait = old }
+}
+
+// PRText exposes prText.
+func PRText(row *v1.AgentPullRequests, done bool) string { return prText(row, done) }

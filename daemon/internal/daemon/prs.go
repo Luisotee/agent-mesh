@@ -34,59 +34,65 @@ const (
 	prFetchers  = 8                 // GitHub reads at once
 	prJSON      = "number,url,state,isDraft,headRefOid,statusCheckRollup"
 	prListLimit = "20"
-
-	briefGitHubWait = 8 * time.Second // how long a brief waits for GitHub before it shows the last state
 )
+
+// briefGitHubWait is how long a brief waits for GitHub before it shows the last state (a var: tests shorten it).
+var briefGitHubWait = 8 * time.Second
 
 var prURLRE = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
 
-// prTracker remembers, per agent, when its PRs were last read and whether that worked.
+// prTracker remembers, per agent, when its PRs were last read, whether that worked and whether a read is under
+// way. A read under way changes none of the first two: until one has completed and been recorded, what is told
+// is the last finished read, or "not read" for an agent never read.
 type prTracker struct {
 	mu    sync.Mutex
 	tried map[string]prTry
 }
 
 type prTry struct {
-	at time.Time
-	ok bool
+	at       time.Time
+	ok       bool
+	inFlight bool
 }
 
-func (t *prTracker) due(agentID string, now time.Time) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	p, seen := t.tried[agentID]
-	if !seen {
-		return true
-	}
-	ttl := prTTL
-	if !p.ok {
-		ttl = prRetryTTL
-	}
-	return now.Sub(p.at) >= ttl
-}
-
-// read reports whether the agent's PRs were read from GitHub (the last try worked).
-func (t *prTracker) read(agentID string) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	p, seen := t.tried[agentID]
-	return seen && p.ok
-}
-
-func (t *prTracker) failed(agentID string) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	p, seen := t.tried[agentID]
-	return seen && !p.ok
-}
-
-func (t *prTracker) note(agentID string, now time.Time, ok bool) {
+// begin claims a read of the agent's PRs; false when it is not due or another reader has it.
+func (t *prTracker) begin(agentID string, now time.Time, force bool) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.tried == nil {
 		t.tried = map[string]prTry{}
 	}
-	t.tried[agentID] = prTry{now, ok}
+	p, seen := t.tried[agentID]
+	if p.inFlight {
+		return false
+	}
+	if seen && !force {
+		ttl := prTTL
+		if !p.ok {
+			ttl = prRetryTTL
+		}
+		if now.Sub(p.at) < ttl {
+			return false
+		}
+	}
+	p.inFlight = true
+	t.tried[agentID] = p
+	return true
+}
+
+// finish ends a read: ok when GitHub answered in full and what it said is recorded.
+func (t *prTracker) finish(agentID string, now time.Time, ok bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.tried[agentID] = prTry{at: now, ok: ok}
+}
+
+// read reports whether the agent's PRs were read from GitHub and recorded (the last finished read worked).
+func (t *prTracker) read(agentID string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	p, seen := t.tried[agentID]
+	return seen && p.ok
 }
 
 // ownsPRs is a change worker: one that can have a branch of its own to open a PR from.
@@ -168,9 +174,10 @@ func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error
 		return nil, err
 	}
 	dir := ghDir(a)
+	atHead := a.Worktree != "" && dir == a.Worktree // else dir is the main checkout, whose HEAD is not the branch
 	var own []ghPRState
 	for _, p := range prs {
-		if prOnBranch(ctx, dir, p.HeadRefOid, a.Branch, a.BaseCommit) {
+		if prOnBranch(ctx, dir, p.HeadRefOid, a.Branch, a.BaseCommit, atHead) {
 			own = append(own, p)
 		}
 	}
@@ -192,10 +199,14 @@ func (d *Daemon) viewPR(ctx context.Context, a *v1.Agent, url string) (ghPRState
 	return p, nil
 }
 
-// reportPRs are the PRs of an agent's newest `done` that names any: a fix round's report may not repeat the link.
+// reportPRs are the PRs of an agent's newest `done` that names any since its last task: a fix round's report may
+// not repeat the link, but a new task starts over.
 func reportPRs(msgs []*v1.Message, a *v1.Agent) []string {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
+		if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.ToId == a.Id {
+			return nil // a newer task: a report before it was about the work before
+		}
 		if m.From.GetId() != a.Id || m.Type != v1.MessageType_MESSAGE_TYPE_DONE {
 			continue
 		}
@@ -221,15 +232,17 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 		return
 	}
 	now := d.nowTime()
-	if !force && !d.prs.due(a.Id, now) {
+	// A claim first, so two readers at once make one round of calls (the tracker is the throttle). It stays open
+	// until what GitHub said is recorded: a reader meanwhile hears the last finished read, never "no PR" for one
+	// that has not answered.
+	if !d.prs.begin(a.Id, now, force) {
 		return
 	}
-	// A claim first, so two readers at once make one round of calls (the tracker is the throttle).
-	d.prs.note(a.Id, now, true)
+	complete := false
+	defer func() { d.prs.finish(a.Id, now, complete) }()
 	r := d.store.Read(ctx)
 	msgs, err := r.RunMessages(a.RunId, "", -1)
 	if err != nil {
-		d.prs.note(a.Id, now, false)
 		return
 	}
 	var found []*v1.PullRequest
@@ -255,7 +268,6 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 		seen[prKey(p.URL)] = true
 		found = append(found, p.record(a.Id, "report", now))
 	}
-	d.prs.note(a.Id, now, ferr == nil)
 	if ctx.Err() != nil {
 		return
 	}
@@ -313,9 +325,13 @@ func (d *Daemon) refreshPRs(ctx context.Context, a *v1.Agent, force bool) {
 		}
 		return nil
 	})
-	if err != nil && ctx.Err() == nil {
-		d.log.Warn("pull requests", "agent", a.Name, "err", err)
+	if err != nil {
+		if ctx.Err() == nil {
+			d.log.Warn("pull requests", "agent", a.Name, "err", err)
+		}
+		return
 	}
+	complete = ferr == nil
 }
 
 // refreshAll refreshes every change worker's PRs, prFetchers at a time.
@@ -385,7 +401,11 @@ func evidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest, prsRead bool) stri
 		prs = append([]*v1.PullRequest(nil), prs...)
 		sort.SliceStable(prs, func(i, j int) bool { return prs[i].Number < prs[j].Number })
 		var open []string
+		known := 0 // PRs whose state was ever read: an "unknown" row names a link, no state
 		for _, p := range prs {
+			if p.State != "unknown" {
+				known++
+			}
 			if p.State == "open" {
 				t := "PR #" + strconv.Itoa(int(p.Number)) + " open"
 				if p.Stale {
@@ -397,9 +417,9 @@ func evidenceText(ev *v1.WorkEvidence, prs []*v1.PullRequest, prsRead bool) stri
 		switch {
 		case len(open) > 0:
 			parts = append(parts, strings.Join(open, ", "))
-		case len(prs) == 0 && prsRead:
+		case known == 0 && len(prs) == 0 && prsRead:
 			parts = append(parts, "no PR")
-		case len(prs) == 0:
+		case known == 0:
 			parts = append(parts, "PRs not read")
 		}
 	}
@@ -448,9 +468,9 @@ func reviewingPRs(r store.Reader, runID string) map[string][]string {
 }
 
 // pullRequests builds the answer of ListPullRequests for some agents: their recorded PRs (refreshed first), the
-// reviewers still on each, and the work evidence of a worker whose newest report is a done with no PR.
-func (d *Daemon) pullRequests(ctx context.Context, r store.Reader, runID string, agents []*v1.Agent, force bool) ([]*v1.AgentPullRequests, error) {
-	d.refreshAll(ctx, agents, force)
+// reviewers still on each, and the work evidence (local git, on ctx: ghCtx bounds only the calls to GitHub) of a worker whose newest report is a done with no PR.
+func (d *Daemon) pullRequests(ctx, ghCtx context.Context, r store.Reader, runID string, agents []*v1.Agent, force bool) ([]*v1.AgentPullRequests, error) {
+	d.refreshAll(ghCtx, agents, force)
 	reviewing := reviewingPRs(r, runID)
 	var out []*v1.AgentPullRequests
 	for _, a := range agents {
@@ -462,7 +482,7 @@ func (d *Daemon) pullRequests(ctx context.Context, r store.Reader, runID string,
 			return nil, err
 		}
 		sort.SliceStable(prs, func(i, j int) bool { return prs[i].Number < prs[j].Number })
-		row := &v1.AgentPullRequests{AgentId: a.Id, AgentName: a.Name, PullRequests: prs, ReadFailed: d.prs.failed(a.Id)}
+		row := &v1.AgentPullRequests{AgentId: a.Id, AgentName: a.Name, PullRequests: prs, ReadFailed: !d.prs.read(a.Id)}
 		seen := map[string]bool{}
 		for _, p := range prs {
 			for _, name := range reviewing[prKey(p.Url)] {
@@ -501,14 +521,21 @@ func (d *Daemon) ListPullRequests(ctx context.Context, req *connect.Request[v1.L
 		return nil, err
 	}
 	if ref := req.Msg.Agent; ref != "" {
-		one, err := d.FindAgent(r, actor, ref)
-		if err != nil {
-			return nil, err
+		// Among this run's own agents: a name may be in several open runs, and an id of another run is not found.
+		var one *v1.Agent
+		for _, a := range agents {
+			if a.Id == ref || a.Name == ref {
+				one = a
+				break
+			}
+		}
+		if one == nil {
+			return nil, notFound("no agent %q in run %s", ref, runID)
 		}
 		agents = []*v1.Agent{one}
 	}
 	leadFirst(agents)
-	rows, err := d.pullRequests(ctx, r, runID, agents, req.Msg.Refresh)
+	rows, err := d.pullRequests(ctx, ctx, r, runID, agents, req.Msg.Refresh)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +553,7 @@ func (d *Daemon) briefPRs(ctx context.Context, r store.Reader, runID string, age
 	// GitHub is asked for at most a few seconds: a slow `gh` shows the last state recorded, not a stalled brief.
 	rctx, cancel := context.WithTimeout(ctx, briefGitHubWait)
 	defer cancel()
-	rows, err := d.pullRequests(rctx, r, runID, listed, false)
+	rows, err := d.pullRequests(ctx, rctx, r, runID, listed, false)
 	if err != nil {
 		d.log.Warn("brief pull requests", "run", runID, "err", err)
 		return nil
@@ -551,7 +578,10 @@ func prText(row *v1.AgentPullRequests, done bool) string {
 		if p.Checks != "" {
 			t += ", checks " + p.Checks
 		}
-		if p.Stale {
+		switch {
+		case p.State == "unknown":
+			t += " (GitHub not read)"
+		case p.Stale || row.ReadFailed:
 			t += " (GitHub not read: last state seen)"
 		}
 		parts = append(parts, t)
