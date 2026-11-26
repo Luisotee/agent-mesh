@@ -27,3 +27,8 @@ export const DEFAULT_CLOSE_TO_TRAY = false
 export function shouldHideOnClose(s: { closeToTray: boolean; trayReady: boolean; quitting: boolean }): boolean {
   return s.closeToTray && s.trayReady && !s.quitting
 }
+
+/** The notification for a downloaded update, which installs when the app quits. */
+export function updateNotice(version: string): { title: string; body: string } {
+  return { title: 'agent-mesh update ready', body: `${version ? `Version ${version} is` : 'A new version is'} downloaded and installs when you quit.` }
+}

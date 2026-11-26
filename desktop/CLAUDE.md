@@ -16,6 +16,8 @@ pnpm test src/store.test.ts   # one file
 pnpm typecheck                # the renderer and the main process (two tsconfigs)
 pnpm gen                      # TypeScript from ../proto after a .proto change
 pnpm build && pnpm e2e        # the end-to-end tests: the built app over CDP, against a real meshd
+pnpm pack:win                 # a Windows zip (builds on Linux without wine); the NSIS installer (`pnpm pack`) needs wine or a Windows host, see README "Packaging"
+pnpm pack:dir                 # the unpacked installer app in release/ (electron-builder.json; `pnpm pack:check` builds the deb and checks its agentmesh:// entry, opt-in)
 ```
 
 The e2e tests open a real Electron window. `pnpm e2e` (and `scripts/check.sh`) runs `scripts/e2e.sh`, which puts it on a virtual display with `xvfb-run` when installed, `DISPLAY` set or not: never set `DISPLAY=:0` to see it, since under WSLg that is the user's Windows screen. `E2E_VISIBLE=1` uses `DISPLAY` instead; without xvfb `DISPLAY` is required. They build meshd, mesh-term, mesh and the fake claude from `daemon/` into a temp dir and give every run its own state dir, HOME and user-data dir, so they touch nothing of the user's. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
@@ -26,6 +28,7 @@ The e2e tests open a real Electron window. `pnpm e2e` (and `scripts/check.sh`) r
 - `shared/api.ts`: types only, the contract between main and the renderer.
 - `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `usage.ts` (the usage and cost screen's rows), `actions.ts`, `workspace.ts` (tabs and the dock's marks), `dock.ts`, `commands.ts` (the palette's entries and the shortcuts' commands), `keys.ts`, `shortcuts.ts`, `transcript.ts` (the chat view), `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts` (loads the six theme files of `../shared/themes/`, shared with Android, and applies the host's `app.theme`).
 - `src/gen/`: the generated TypeScript (committed).
+- `electron-builder.json`: the installers (a `protocols` entry registers `agentmesh://`); `scripts/check-package.mjs`: the opt-in deb check. Only `ws` and `electron-updater` (`electron/updates.ts`, installed apps only) are `dependencies` (the main process's); everything the page uses is a `devDependency`, as Vite bundles it.
 - `e2e/`: the end-to-end tests and their harness.
 
 `README.md` "Layout" says what each file holds.

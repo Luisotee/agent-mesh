@@ -43,6 +43,7 @@ import dev.agentmesh.android.net.PairingException
 import dev.agentmesh.android.net.PairingLink
 import dev.agentmesh.android.net.PairingPayload
 import dev.agentmesh.android.net.Route
+import dev.agentmesh.android.net.isTailnetUrl
 import dev.agentmesh.android.pair.QrScanner
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -50,7 +51,7 @@ import kotlinx.coroutines.launch
 /** What the user is shown before they agree to pair: the host the code names and where the app would reach it. */
 fun pairingSummary(p: PairingPayload): List<String> = buildList {
     add(p.hostName.ifEmpty { "A host" } + " (" + p.hostId.take(10) + ")")
-    for (r in p.routes()) add(when (r) { is Route.Direct -> "Direct: ${r.url}"; is Route.Relay -> "Through your relay: ${r.relayTcp}" })
+    for (r in p.routes()) add(when (r) { is Route.Direct -> if (isTailnetUrl(r.url)) "Over your tailnet: ${r.url} (needs the Tailscale app on this phone)" else "Direct: ${r.url}"; is Route.Relay -> "Through your relay: ${r.relayTcp}" })
     add("Pinned certificate: " + p.pinSha256.take(16).chunked(4).joinToString(" ") + "…")
     for (s in p.skipped) add("Not used: $s")
 }

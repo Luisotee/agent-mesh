@@ -91,7 +91,7 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
             OutlinedTextField(
                 url, { url = it }, label = { Text(if (relayed) "Address (optional: it has a relay route)" else "Address") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                supportingText = { Text("https://… for a host over Tailscale (tailscale serve) or behind your own proxy. http:// works only for localhost and the emulator's 10.0.2.2.") },
+                supportingText = { Text("https://… for a host on your tailnet (its 100.x address or its name.ts.net: the Tailscale app must be on), behind your own proxy, or on your network. http:// works only for localhost and the emulator's 10.0.2.2.") },
             )
             OutlinedTextField(
                 token, { token = it }, label = { Text(if (existing == null) "Device token" else "Device token (empty keeps it)") }, singleLine = true,

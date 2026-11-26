@@ -2,7 +2,7 @@ import { appendFileSync } from 'node:fs'
 import { BrowserWindow, Menu, Notification, Tray, app, nativeImage } from 'electron'
 import type { NoticeClick, NoticeWire } from '../shared/api.js'
 import { ICON, ICON_WAITING } from './icons.js'
-import { DEFAULT_CLOSE_TO_TRAY, shouldHideOnClose, trayTooltip } from './shell-rules.js'
+import { DEFAULT_CLOSE_TO_TRAY, shouldHideOnClose, trayTooltip, updateNotice } from './shell-rules.js'
 
 const image = (b64: string) => nativeImage.createFromDataURL(`data:image/png;base64,${b64}`)
 
@@ -17,6 +17,8 @@ export class Shell {
   private closeToTray = DEFAULT_CLOSE_TO_TRAY
   private quitting = false
   private readonly shown = new Map<string, Notification>()
+  // Apart from `shown`, which is keyed by what the renderer sends: no agent notice's tag can replace it.
+  private updateNote?: Notification
 
   constructor(
     private readonly window: () => BrowserWindow | undefined,
@@ -85,6 +87,21 @@ export class Shell {
       if (this.shown.get(n.tag) === note) this.shown.delete(n.tag)
     })
     this.shown.set(n.tag, note)
+    note.show()
+  }
+
+  /** A downloaded update is ready (it installs when the app quits): a click brings the window back, from the tray too. */
+  notifyUpdate(version: string): void {
+    const n = updateNotice(version)
+    this.log({ type: 'update', version })
+    if (this.logFile || !Notification.isSupported()) return
+    this.updateNote?.close()
+    const note = new Notification(n)
+    note.on('click', () => this.show())
+    note.on('close', () => {
+      if (this.updateNote === note) this.updateNote = undefined
+    })
+    this.updateNote = note
     note.show()
   }
 

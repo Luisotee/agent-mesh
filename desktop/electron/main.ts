@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
@@ -9,6 +10,7 @@ import { redeemPairing } from './pair.js'
 import { Shell } from './shell.js'
 import { validNotice } from './shell-rules.js'
 import { openSocket, type Socket } from './socket.js'
+import { NSIS_UNINSTALLER, startUpdates } from './updates.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -176,6 +178,18 @@ if (!app.requestSingleInstanceLock()) {
     appShell.start()
     // Launched by a link (Windows and Linux hand it over as an argument).
     offerLink(linkIn(process.argv))
+    // An installed app looks for a newer release on GitHub (electron-builder.json, "publish"): the installer downloads it
+    // and applies it when the app quits. electron-updater is loaded only here, so dev and test runs never read it.
+    startUpdates({
+      packaged: app.isPackaged,
+      isolated: !!userData,
+      platform: process.platform,
+      env: process.env,
+      nsis: existsSync(path.join(path.dirname(process.execPath), NSIS_UNINSTALLER)),
+      load: async () => (await import('electron-updater')).default.autoUpdater,
+      log: (m) => console.warn(m),
+      notify: (version) => appShell.notifyUpdate(version),
+    })
   })
   // A second launch (another link clicked) reaches this running app; macOS opens links through this event instead.
   app.on('second-instance', (_e, argv) => {

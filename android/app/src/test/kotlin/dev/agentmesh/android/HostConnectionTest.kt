@@ -57,6 +57,7 @@ private class FakeApi : MeshApi {
     override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value): Setting = error("unused")
     override suspend fun resetSetting(key: String): Setting = error("unused")
+    override suspend fun revokeSelf() = error("unused")
     override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
     override suspend fun unregisterPush(): Boolean = error("unused")
     override suspend fun testPush(): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
