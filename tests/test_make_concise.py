@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parent.parent / "daemon" / "share" / "skills" / "make-concise" / "validate.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "make-concise" / "validate.py"
 _spec = importlib.util.spec_from_file_location("make_concise_validate", SCRIPT)
 v = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(v)

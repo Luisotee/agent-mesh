@@ -165,7 +165,7 @@ type MeshServiceClient interface {
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
-	// A hook of the calling agent's CLI fired. Called by `mesh hook`, never by hand.
+	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
@@ -688,7 +688,7 @@ type MeshServiceHandler interface {
 	SetSetting(context.Context, *connect.Request[v1.SetSettingRequest]) (*connect.Response[v1.SetSettingResponse], error)
 	// Put a setting back to its default.
 	ResetSetting(context.Context, *connect.Request[v1.ResetSettingRequest]) (*connect.Response[v1.ResetSettingResponse], error)
-	// A hook of the calling agent's CLI fired. Called by `mesh hook`, never by hand.
+	// A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)

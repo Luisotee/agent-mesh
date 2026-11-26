@@ -45,7 +45,7 @@ def test_no_identity_phrasing_for_agy():
     import re
     bad = re.compile(r"\byou\s+are\s+(" + "claude" + r"|agy|copilot|opencode|gemini|codex)\b", re.I)
     files = [p for p in ROOT.rglob("*.md") if not {".git", "node_modules"} & set(p.parts)]
-    files += [*ROOT.glob(".claude-plugin/*.json"), *ROOT.glob("daemon/share/.claude-plugin/*.json")]
+    files += [*ROOT.glob(".claude-plugin/*.json")]
     hits = [f"{p.relative_to(ROOT)}:{text[:m.start()].count(chr(10)) + 1}"
             for p in files for text in [p.read_text()] for m in bad.finditer(text)]
     assert not hits, hits

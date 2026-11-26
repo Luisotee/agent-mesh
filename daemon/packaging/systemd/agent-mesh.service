@@ -1,6 +1,6 @@
-# The agent-mesh daemon as a systemd user unit. `install.sh` copies it to ~/.config/systemd/user/ with
+# The agent-mesh daemon as a systemd user unit. `install.sh --daemon` copies it to ~/.config/systemd/user/ with
 # agent-mesh-term.service, next to a drop-in (agent-mesh.service.d/path.conf) holding the installer's PATH, so the
-# agents' CLIs are found. The state dir is ~/.local/state/agent-mesh-daemon.
+# agents' CLIs are found. The state dir is not the live mesh's (~/.local/state/agent-mesh) until the switchover.
 [Unit]
 Description=agent-mesh daemon (meshd)
 Wants=agent-mesh-term.service

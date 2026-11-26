@@ -1,6 +1,6 @@
 # agent-mesh orchestration (the daemon)
 
-The procedure for a run on the agent-mesh daemon (`meshd`): changes in several repos, a task list, questions about other repos and PR reviews. There is no watch process, no exit codes and no panes. The daemon delivers every message as a doorbell at the recipient's next idle, tells a parent when a child exits, goes quiet or hits a limit, and nudges a worker that ends a turn without reporting.
+The procedure for a run on the agent-mesh daemon (`meshd`): changes in several repos, a task list, questions about other repos and PR reviews. It is the daemon's version of the herdr mesh's file: no watch process, no exit codes, no panes. The daemon delivers every message as a doorbell at the recipient's next idle, tells a parent when a child exits, goes quiet or hits a limit, and nudges a worker that ends a turn without reporting.
 
 - **The root** is the agent that supervises the run, started by the user from the app or the CLI (`mesh start-run`, then `mesh spawn --role root`). It hands over everything delegated to it: one *worker* per affected repo, its own repo included. It changes code itself only for work the user gave it outside the delegation, or a part the user tells it to do itself.
 - **Each worker** loads its repo's `CLAUDE.md` / `AGENTS.md`, skills and hooks. Depending on the task's size it either does the task directly, or researches it, sends the root a plan to review and, once approved, carries it out **itself**, with all the context its research built up.
@@ -170,7 +170,7 @@ Then:
 
 ## Standing peer askers
 
-A **peer** is a cloned project kept as a standing read-only asker, for ideas, prior art and bugs from projects like ours. `mesh peers` lists them by group, with what each is for (`about`), when it was last asked and whether its conversation is running anywhere. The user's own session adds them (`mesh add-peer --source <url> --group <group> --about "…"`, the `find-peers` skill) and a root may too; `mesh import-peers` registers the ones bin/mesh knows (`peers.json`, only read), **unbriefed**: their old conversations stay bin/mesh's, so the first round on the daemon is a first brief (`TODO.md`: carrying them across is open).
+A **peer** is a cloned project kept as a standing read-only asker, for ideas, prior art and bugs from projects like ours. `mesh peers` lists them by group, with what each is for (`about`), when it was last asked and whether its conversation is running anywhere. The user's own session adds them (`mesh add-peer --source <url> --group <group> --about "…"`, the `find-peers` skill) and a root may too; `mesh import-peers` registers the ones bin/mesh knows (`peers.json`, only read), **unbriefed**: their old conversations stay bin/mesh's, so the first round on the daemon is a first brief (`TODO.md`: PR 6 carries them across).
 
 ```bash
 mesh ask --peers <name>,<group>,… --tier <tier> --body @"$(mesh dir)/tasks/q.md" [--timeout 3600] [--no-refresh]   # or --peers all

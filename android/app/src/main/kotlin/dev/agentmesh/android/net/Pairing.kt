@@ -32,7 +32,7 @@ data class PairingPayload(
     override fun toString() = "PairingPayload(hostId=$hostId, hostName=$hostName, routes=${routes().size})"
 }
 
-/** Reads `agentmesh://pair?v=1&h=…&fp=…&t=…[&hn][&r][&rtcp][&rt][&d][&n]`, as `mesh pair` and the QR code write it. */
+/** Reads `agentmesh://pair?v=1&h=…&fp=…&t=…[&hn][&r][&rtcp][&rt][&d][&n]`, as `meshctl pair` and the QR code write it. */
 object PairingLink {
     private const val PREFIX = "agentmesh://pair"
 

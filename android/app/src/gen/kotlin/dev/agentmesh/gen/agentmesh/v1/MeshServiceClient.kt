@@ -319,7 +319,7 @@ public class MeshServiceClient(
 
 
   /**
-   *  A hook of the calling agent's CLI fired. Called by `mesh hook`, never by hand.
+   *  A hook of the calling agent's CLI fired. Called by `meshctl hook`, never by hand.
    */
   override suspend fun reportHook(request: ReportHookRequest, headers: Headers): ResponseMessage<ReportHookResponse> = client.unary(
     request,

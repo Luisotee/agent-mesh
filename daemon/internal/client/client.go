@@ -25,6 +25,9 @@ const BaseURL = "http://meshd"
 // TokenEnv is the environment variable that carries an agent's token.
 const TokenEnv = "AGENT_MESH_TOKEN"
 
+// CLIEnv names the absolute path of the daemon's own `mesh`, for an agent: the live bin/mesh hands over to it.
+const CLIEnv = "AGENT_MESH_CLI"
+
 // RunDirEnv names the folder of the agent's run, for its plans, reports and tasks.
 const RunDirEnv = "AGENT_MESH_RUN_DIR"
 

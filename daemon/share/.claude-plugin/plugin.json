@@ -1,17 +1,4 @@
 {
-  "name": "agent-mesh",
-  "description": "agent-mesh's skills: delegate work, questions and PR reviews to agents running inside other repos, find peer projects and run a research round by them, and a worker's self-review and plan check. They need the `mesh` CLI, the protocol and the daemon from install.sh; meshd also loads them per launch for its Claude agents (--plugin-dir).",
-  "author": {
-    "name": "Luisotee"
-  },
-  "homepage": "https://github.com/Luisotee/agent-mesh",
-  "repository": "https://github.com/Luisotee/agent-mesh",
-  "license": "PolyForm-Noncommercial-1.0.0",
-  "keywords": [
-    "agents",
-    "orchestration",
-    "multi-repo",
-    "delegation",
-    "code-review"
-  ]
+  "name": "agent-mesh-daemon",
+  "description": "agent-mesh's skills for agents run by its daemon: delegating work to agents, reviewing a PR with agents, finding peer projects and a research round by them, and a worker's self-review and plan check. Loaded per launch by meshd (--plugin-dir), never installed."
 }

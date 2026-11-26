@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Install (or --uninstall) agent-mesh for the current user: builds the daemon (meshd, mesh-term and the `mesh` CLI)
-# into ~/.local/lib/agent-mesh, installs and starts its systemd user units, links `mesh`, the protocol and the
-# skills into place, and adds a marked block to the Claude Code and agy global rule files. Safe to re-run: it
-# upgrades the daemon, refreshes the PATH its units hold, and re-points the links (an install of the old,
-# herdr-based `bin/mesh` is replaced the same way).
-# Claude Code gets the skills from the agent-mesh plugin instead when it is installed at user scope, or with
-# --plugin (before installing it): then they are not linked into ~/.claude/skills, and our old links there are
-# removed.
+# Install (or --uninstall) agent-mesh for the current user by symlinking this
+# checkout into place and adding a marked block to both global rule files.
+# `--daemon` is the separate, opt-in install of the Go daemon beside it (see daemon_install below).
+# Claude Code gets the skills from the agent-mesh plugin instead when it is
+# installed at user scope, or with --plugin (before installing it): then they
+# are not linked into ~/.claude/skills, and our old links there are removed.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,18 +13,17 @@ CONFIG_LINK="$HOME/.config/agent-mesh"
 SKILL_ROOTS=("$HOME/.claude/skills" "$HOME/.gemini/config/skills")
 RULE_FILES=("$HOME/.claude/CLAUDE.md" "$HOME/.gemini/AGENTS.md")
 ROOT_CLIS=(claude agy)  # the CLI each SKILL_ROOTS / RULE_FILES entry belongs to: installed only when it is on PATH
-# Files an earlier install put the rules block in for Copilot and OpenCode: the old block names the herdr mesh, so it
-# is taken out and none is written (a daemon OpenCode agent learns the protocol from its first doorbell; Copilot has
-# no adapter yet). OpenCode reads the first of
-# ~/.config/opencode/AGENTS.md and ~/.claude/CLAUDE.md, so a file left with nothing but the block is removed (an
-# empty one would hide the user's CLAUDE.md from it).
-STALE_RULE_FILES=("${COPILOT_HOME:-$HOME/.copilot}/copilot-instructions.md")
+# CLIs that run workers but no root (no skills): only the rules block, so a pane worker knows a doorbell (design §22).
+WORKER_RULE_FILES=("${COPILOT_HOME:-$HOME/.copilot}/copilot-instructions.md")  # where Copilot reads them
+WORKER_CLIS=(copilot)
+# OpenCode reads the first of ~/.config/opencode/AGENTS.md and ~/.claude/CLAUDE.md: the block goes into its own file
+# only when that exists or CLAUDE.md lacks the block, since creating it would hide the user's CLAUDE.md from OpenCode.
 OPENCODE_RULES="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/AGENTS.md"
-SKILLS=(delegate delegate-review check-plan self-review find-peers harvest-peers make-concise)
-RETIRED_SKILLS=(delegate-claude-agy delegate-claude delegate-agy)  # the bin/mesh era's; unlinked on install and uninstall
+SKILLS=(delegate-claude delegate-agy delegate-review check-plan self-review find-peers harvest-peers make-concise)
+RETIRED_SKILLS=(delegate-claude-agy)  # removed in 0.3; unlinked on install and uninstall
 INSTALLED_PLUGINS="$HOME/.claude/plugins/installed_plugins.json"  # Claude Code's record of installed plugins
-HERDR_PLUGIN_ID="local.mesh-notify"  # the retired herdr plugin: unlinked if an old install left it
-DAEMON_LIB="$HOME/.local/lib/agent-mesh"  # bin/ (meshd, mesh-term, mesh) and share/ (protocol, skills), copied, not linked
+PLUGIN_ID="local.mesh-notify"  # herdr/mesh-notify: desktop notifications without the workers' noise
+DAEMON_LIB="$HOME/.local/lib/agent-mesh"  # the daemon world: bin/ (meshd, mesh-term, mesh) and share/, copied, not linked
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 DAEMON_UNITS=(agent-mesh.service agent-mesh-term.service)
 DAEMON_BINS=(meshd mesh-term mesh)  # built from daemon/cmd/<name>
@@ -46,13 +43,37 @@ link() { # link <target> <link-path>: replace an old symlink, refuse to clobber 
   echo "linked $path -> $target"
 }
 
+link_plugin() { # (re)link herdr/mesh-notify into herdr; herdr records the path, so relink after a move
+  command -v herdr >/dev/null || return 0
+  herdr plugin unlink "$PLUGIN_ID" >/dev/null 2>&1 || true
+  if herdr plugin link "$REPO/herdr/mesh-notify" >/dev/null; then
+    echo "linked herdr plugin $PLUGIN_ID -> $REPO/herdr/mesh-notify"
+    grep -qE '^delivery *= *"off"' "$HOME/.config/herdr/config.toml" 2>/dev/null \
+      || echo "note: set [ui.toast] delivery = \"off\" (and [ui.sound] enabled = false) in herdr's config.toml, or herdr notifies for workers too" >&2
+  fi
+}
+
+skill_needs() { # skill_needs <skill>: the CLI its workers run on, or nothing (works with either)
+  case "$1" in
+    delegate-agy) echo agy ;;
+    delegate-claude) echo claude ;;
+  esac
+}
+
 has() { command -v "$1" >/dev/null; }
+
+unlink_if_ours() {
+  local path="$1"
+  if [[ -L "$path" && "$(readlink "$path")" == "$REPO"/* ]]; then
+    rm "$path"
+    echo "removed $path"
+  fi
+}
 
 # Rewrite a rule file without the marked block, optionally appending a fresh one.
 set_block() { # set_block <file> <add: 0|1>
   local file="$1" add="$2"
   [[ -f "$file" ]] || { [[ "$add" == 1 ]] || return 0; mkdir -p "$(dirname "$file")"; touch "$file"; }
-  [[ "$add" == 1 ]] || grep -qF "$BEGIN" "$file" || return 0  # nothing to remove: leave the file alone
   if grep -qF "$BEGIN" "$file" || [[ "$add" == 1 ]]; then
     cp "$file" "$file.bak-agent-mesh"
   fi
@@ -87,10 +108,11 @@ sys.exit(0 if found else 1)
 PY
 }
 
-# ── the daemon ──
+# ── the daemon (opt-in: `install.sh --daemon`) ──
 # Builds daemon/ into $DAEMON_LIB/{bin,share}, copies the two systemd user units beside a drop-in holding the
 # installing shell's PATH (so the agents' CLIs are found), and starts meshd. It is versioned by install, not by
-# the checked-out branch. State is in ~/.local/state/agent-mesh-daemon.
+# the checked-out branch, and touches nothing of bin/mesh's world: not ~/.local/bin/mesh, ~/.config/agent-mesh,
+# ~/.claude or ~/.local/state/agent-mesh. The Go CLI is also linked as ~/.local/bin/meshctl until bin/mesh is retired.
 
 find_go() { # the go on PATH, else the one a user-local install leaves
   if command -v go >/dev/null; then command -v go
@@ -98,9 +120,9 @@ find_go() { # the go on PATH, else the one a user-local install leaves
   else return 1; fi
 }
 
-unlink_if_into() { # unlink_if_into <path> <dir>: remove a symlink that points at <dir> or into it
+unlink_if_into() { # unlink_if_into <path> <dir>: remove a symlink that points into <dir>
   local path="$1" dir="$2"
-  if [[ -L "$path" && ( "$(readlink "$path")" == "$dir" || "$(readlink "$path")" == "$dir"/* ) ]]; then
+  if [[ -L "$path" && "$(readlink "$path")" == "$dir"/* ]]; then
     rm "$path"
     echo "removed $path"
   fi
@@ -120,11 +142,8 @@ unit_path_dropin() { # a unit's drop-in: the PATH of this shell (systemd's own i
 
 daemon_install() {
   local go stage unit created=() d
-  go="$(find_go)" || { echo "install.sh: needs Go (go on PATH, or ~/.local/go/bin/go)" >&2; return 1; }
-  local need
-  for need in cmd share/protocol share/skills; do
-    [[ -d "$REPO/daemon/$need" ]] || { echo "install.sh: $REPO/daemon/$need is missing; nothing was changed" >&2; return 1; }
-  done
+  go="$(find_go)" || { echo "install.sh: --daemon needs Go (go on PATH, or ~/.local/go/bin/go)" >&2; return 1; }
+  [[ -d "$REPO/daemon/cmd" ]] || { echo "install.sh: $REPO/daemon/cmd is missing" >&2; return 1; }
   has claude || has agy || echo "warning: neither Claude Code (claude) nor agy is on PATH; the daemon needs at least one to run agents (and its units get this PATH)" >&2
   # The folders this run creates are removed again if it fails before installing anything.
   d="$DAEMON_LIB"
@@ -143,7 +162,7 @@ daemon_install() {
     [[ -x "$stage/bin/$b" ]] || { echo "install.sh: the build made no $b; nothing was changed" >&2; return 1; }
   done
   # Every fallible copy is made before the first replacement; what follows is renames.
-  cp -R "$REPO/daemon/share" "$stage/share" \
+  [[ ! -d "$REPO/daemon/share" ]] || cp -R "$REPO/daemon/share" "$stage/share" \
     || { echo "install.sh: copying daemon/share failed; nothing was changed" >&2; return 1; }
   mkdir -p "$DAEMON_LIB/bin"
   # One rename per file: a running meshd or mesh-term keeps the old inode, so an upgrade never breaks it.
@@ -152,11 +171,15 @@ daemon_install() {
   same "$stage/bin/mesh-term" "$DAEMON_LIB/bin/mesh-term" || term_changed=1
   for b in "${DAEMON_BINS[@]}"; do mv -f "$stage/bin/$b" "$DAEMON_LIB/bin/$b"; done
   echo "installed ${DAEMON_BINS[*]} in $DAEMON_LIB/bin"
-  rm -rf "$DAEMON_LIB/share.old"
-  [[ ! -e "$DAEMON_LIB/share" ]] || mv "$DAEMON_LIB/share" "$DAEMON_LIB/share.old"
-  mv "$stage/share" "$DAEMON_LIB/share"
-  rm -rf "$DAEMON_LIB/share.old"
-  echo "installed $DAEMON_LIB/share"
+  if [[ -d "$REPO/daemon/share" ]]; then
+    rm -rf "$DAEMON_LIB/share.old"
+    [[ ! -e "$DAEMON_LIB/share" ]] || mv "$DAEMON_LIB/share" "$DAEMON_LIB/share.old"
+    mv "$stage/share" "$DAEMON_LIB/share"
+    rm -rf "$DAEMON_LIB/share.old"
+    echo "installed $DAEMON_LIB/share"
+  else
+    rm -rf "$DAEMON_LIB/share"  # an earlier install's share/ is stale once the checkout has none
+  fi
   mkdir -p "$UNIT_DIR"
   for unit in "${DAEMON_UNITS[@]}"; do
     [[ "$unit" != agent-mesh-term.service ]] || same "$REPO/daemon/packaging/systemd/$unit" "$UNIT_DIR/$unit" || term_changed=1
@@ -169,6 +192,7 @@ daemon_install() {
     mv -f "$UNIT_DIR/$unit.d/path.conf.new" "$UNIT_DIR/$unit.d/path.conf"
     echo "installed $UNIT_DIR/$unit (and its PATH drop-in)"
   done
+  link "$DAEMON_LIB/bin/mesh" "$BIN_DIR/meshctl"
   if has systemctl; then
     # restart, not just start: an upgrade runs the new meshd (the terminal host stays up, and its terminals with it)
     if systemctl --user daemon-reload && systemctl --user enable agent-mesh.service >/dev/null \
@@ -184,31 +208,7 @@ daemon_install() {
     echo "note: the terminal host keeps running with its old binary and PATH, so the agents' terminals survive this upgrade;" \
       "apply them with 'systemctl --user restart agent-mesh-term.service' (it ends every running agent's terminal)" >&2
   fi
-  echo "daemon installed. Re-run install.sh to upgrade it or to refresh the PATH its units hold."
-}
-
-
-# The files an install of the bin/mesh era left behind: links into the
-# old checkout (dangling once it is pulled), the retired skills, the Copilot and OpenCode rules blocks, `meshctl`
-# and the herdr plugin. Nothing of the old run state (~/.local/state/agent-mesh, ~/.config/agent-mesh.json) is read
-# or removed.
-clean_old_world() {
-  local root skill opencode_had_block=0 file
-  for root in "${SKILL_ROOTS[@]}"; do
-    for skill in "${RETIRED_SKILLS[@]}" "${SKILLS[@]}"; do unlink_if_into "$root/$skill" "$REPO/skills"; done
-    for skill in "${RETIRED_SKILLS[@]}"; do unlink_if_into "$root/$skill" "$DAEMON_LIB"; done
-  done
-  unlink_if_into "$BIN_DIR/mesh" "$REPO/bin"
-  unlink_if_into "$CONFIG_LINK" "$REPO/protocol"
-  unlink_if_into "$BIN_DIR/meshctl" "$DAEMON_LIB"
-  grep -qF "$BEGIN" "$OPENCODE_RULES" 2>/dev/null && opencode_had_block=1
-  for file in "${STALE_RULE_FILES[@]}" "$OPENCODE_RULES"; do set_block "$file" 0; done
-  if [[ "$opencode_had_block" == 1 && -f "$OPENCODE_RULES" ]] && ! grep -q '[^[:space:]]' "$OPENCODE_RULES"; then
-    rm -f "$OPENCODE_RULES" && echo "removed $OPENCODE_RULES (only the block was in it)"
-  fi
-  if has herdr && herdr plugin list 2>/dev/null | grep -qF "$HERDR_PLUGIN_ID"; then
-    herdr plugin unlink "$HERDR_PLUGIN_ID" >/dev/null && echo "unlinked herdr plugin $HERDR_PLUGIN_ID"
-  fi
+  echo "daemon installed. Re-run \`install.sh --daemon\` to upgrade it or to refresh the PATH its units hold."
 }
 
 daemon_uninstall() {
@@ -229,13 +229,13 @@ daemon_uninstall() {
   echo "daemon uninstalled (its state in ~/.local/state/agent-mesh-daemon is kept)"
 }
 
-USAGE="usage: install.sh [--plugin | --uninstall]"
-PLUGIN=0 UNINSTALL=0
+USAGE="usage: install.sh [--plugin | --uninstall] | install.sh --daemon [--uninstall]"
+PLUGIN=0 UNINSTALL=0 DAEMON=0
 for arg in "$@"; do
   case "$arg" in
     --plugin) PLUGIN=1 ;;
     --uninstall) UNINSTALL=1 ;;
-    --daemon) ;;  # the daemon is the install now: accepted so an old command line still works
+    --daemon) DAEMON=1 ;;
     -h|--help) echo "$USAGE"; exit 0 ;;
     *) echo "install.sh: unknown argument: $arg" >&2; echo "$USAGE" >&2; exit 2 ;;
   esac
@@ -243,47 +243,81 @@ done
 if [[ "$PLUGIN" == 1 && "$UNINSTALL" == 1 ]]; then
   echo "install.sh: --plugin and --uninstall don't go together" >&2; echo "$USAGE" >&2; exit 2
 fi
+if [[ "$DAEMON" == 1 && "$PLUGIN" == 1 ]]; then
+  echo "install.sh: --daemon and --plugin don't go together" >&2; echo "$USAGE" >&2; exit 2
+fi
+if [[ "$DAEMON" == 1 ]]; then  # the daemon alone: nothing of the live mesh is touched
+  if [[ "$UNINSTALL" == 1 ]]; then daemon_uninstall; else daemon_install; fi
+  exit $?
+fi
 if [[ "$UNINSTALL" == 0 && "$PLUGIN" == 0 ]] && claude_plugin_installed; then
   PLUGIN=1
   echo "the agent-mesh Claude Code plugin is installed: its skills stay out of ~/.claude/skills"
 fi
 
 if [[ "$UNINSTALL" == 1 ]]; then
+  unlink_if_ours "$BIN_DIR/mesh"
+  unlink_if_ours "$CONFIG_LINK"
   for root in "${SKILL_ROOTS[@]}"; do
-    for skill in "${SKILLS[@]}"; do unlink_if_into "$root/$skill" "$DAEMON_LIB"; done
+    for skill in "${SKILLS[@]}" "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   done
-  unlink_if_into "$BIN_DIR/mesh" "$DAEMON_LIB"
-  unlink_if_into "$CONFIG_LINK" "$DAEMON_LIB"
-  clean_old_world
-  for file in "${RULE_FILES[@]}"; do set_block "$file" 0; done
-  daemon_uninstall
-  echo "agent-mesh uninstalled (run state in ~/.local/state/agent-mesh-daemon, and the bin/mesh era's in ~/.local/state/agent-mesh, is kept)"
+  opencode_had_block=0
+  grep -qF "$BEGIN" "$OPENCODE_RULES" 2>/dev/null && opencode_had_block=1
+  for file in "${RULE_FILES[@]}" "${WORKER_RULE_FILES[@]}" "$OPENCODE_RULES"; do set_block "$file" 0; done
+  # An OpenCode file left with nothing but the block would, empty, still hide ~/.claude/CLAUDE.md from OpenCode
+  # (one the user left empty themselves stays).
+  if [[ "$opencode_had_block" == 1 && -f "$OPENCODE_RULES" ]] && ! grep -q '[^[:space:]]' "$OPENCODE_RULES"; then
+    rm -f "$OPENCODE_RULES" && echo "removed $OPENCODE_RULES (only the block was in it)"
+  fi
+  if command -v herdr >/dev/null && herdr plugin list 2>/dev/null | grep -qF "$PLUGIN_ID"; then
+    herdr plugin unlink "$PLUGIN_ID" >/dev/null && echo "unlinked herdr plugin $PLUGIN_ID"
+  fi
+  echo "agent-mesh uninstalled (run state in ~/.local/state/agent-mesh is kept)"
   exit 0
 fi
 
-# The daemon is built and installed first: a failed build or copy leaves every link as it was, so an install of the
-# old mesh keeps working. Then the links move to it.
-daemon_install || exit $?
-link "$DAEMON_LIB/bin/mesh" "$BIN_DIR/mesh"
-link "$DAEMON_LIB/share/protocol" "$CONFIG_LINK"
-# Each CLI's skills and rules go in only when it is installed. A missing CLI only means no new links: what an earlier
-# install put in place stays (the CLI may be on another shell's PATH); only --uninstall removes it. Re-run this after
-# installing the other CLI. The skills are the installed copy's (daemon/share/skills), not the checkout's, so
-# switching a branch here changes no agent.
+command -v herdr >/dev/null || echo "warning: herdr is not on PATH; mesh needs it at runtime" >&2
+has claude || has agy || echo "warning: neither Claude Code (claude) nor agy is on PATH; mesh needs at least one" >&2
+chmod +x "$REPO/bin/mesh"
+link "$REPO/bin/mesh" "$BIN_DIR/mesh"
+link "$REPO/protocol" "$CONFIG_LINK"
+# Each CLI's skills and rules go in only when it is installed, and a skill whose workers' CLI is missing is left
+# out. A missing CLI only means no new links: what an earlier install put in place stays (the CLI may be on another
+# shell's PATH); only --uninstall removes it. Re-run this after installing the other CLI.
 for i in "${!SKILL_ROOTS[@]}"; do
   root="${SKILL_ROOTS[$i]}"
+  for skill in "${RETIRED_SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done
   if has "${ROOT_CLIS[$i]}"; then
     set_block "${RULE_FILES[$i]}" 1
   else
     echo "skip: ${ROOT_CLIS[$i]} is not on PATH, so nothing new goes into $root or ${RULE_FILES[$i]}"
   fi
   if [[ "$PLUGIN" == 1 && "$root" == "$HOME/.claude/skills" ]]; then
-    for skill in "${SKILLS[@]}"; do unlink_if_into "$root/$skill" "$DAEMON_LIB"; done  # the plugin has them
+    for skill in "${SKILLS[@]}"; do unlink_if_ours "$root/$skill"; done  # the plugin has them
     continue
   fi
-  if has "${ROOT_CLIS[$i]}"; then
-    for skill in "${SKILLS[@]}"; do link "$DAEMON_LIB/share/skills/$skill" "$root/$skill"; done
+  for skill in "${SKILLS[@]}"; do
+    need="$(skill_needs "$skill")"
+    if has "${ROOT_CLIS[$i]}" && { [[ -z "$need" ]] || has "$need"; }; then
+      link "$REPO/skills/$skill" "$root/$skill"
+    fi
+  done
+done
+for i in "${!WORKER_RULE_FILES[@]}"; do
+  if has "${WORKER_CLIS[$i]}"; then
+    set_block "${WORKER_RULE_FILES[$i]}" 1
+  else
+    echo "skip: ${WORKER_CLIS[$i]} is not on PATH, so nothing new goes into ${WORKER_RULE_FILES[$i]}"
   fi
 done
-clean_old_world
-echo "agent-mesh installed. Try: mesh version"
+if has opencode; then
+  if [[ -f "$OPENCODE_RULES" ]] || ! grep -qF "$BEGIN" "$HOME/.claude/CLAUDE.md" 2>/dev/null; then
+    set_block "$OPENCODE_RULES" 1
+  else
+    echo "OpenCode reads the block from ~/.claude/CLAUDE.md (creating $OPENCODE_RULES would hide that file from it)"
+  fi
+else
+  echo "skip: opencode is not on PATH, so nothing new goes into $OPENCODE_RULES"
+fi
+link_plugin
+echo "agent-mesh installed. Try: mesh --version"

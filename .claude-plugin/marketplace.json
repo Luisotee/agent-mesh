@@ -9,8 +9,8 @@
   "plugins": [
     {
       "name": "agent-mesh",
-      "source": "./daemon/share",
-      "description": "agent-mesh's skills: delegate, delegate-review, check-plan, self-review, find-peers, harvest-peers, make-concise."
+      "source": "./",
+      "description": "agent-mesh's skills: delegate-claude, delegate-agy, delegate-review, check-plan, self-review, find-peers, harvest-peers, make-concise."
     }
   ]
 }
