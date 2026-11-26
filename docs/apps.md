@@ -341,7 +341,7 @@ Can follow the first run on the daemon, but come before PR 6 if the user wants t
 - The quota reserve and Claude limit detection with `switch next` or a continue at the reset on its own.
 - Resume onto a finished PR (`leave_finished_pr`), `mesh cost`, `ListWaiting` (status rows), `models` and `routing`.
 - Compaction on resume and approve, root reset, `brief` and `protocol <part>`, lean sessions and `tools add`, `--mcp`, plan review by the user.
-- Claude inbox-socket delivery and doorbells that never land on a human's draft; the OpenCode and Copilot adapters; the sweep of leftover processes and the CPU and memory scopes (in progress elsewhere).
+- Claude inbox-socket delivery and doorbells that never land on a human's draft; the OpenCode adapter (done) and the Copilot adapter; the sweep of leftover processes and the CPU and memory scopes (in progress elsewhere).
 - A terminal in the CLI (`mesh open`): the desktop app covers it.
 - `PATH` from the login shell under systemd ("Protocols and lifecycle"): `install.sh --daemon` writes the current `PATH` into the unit meanwhile.
 

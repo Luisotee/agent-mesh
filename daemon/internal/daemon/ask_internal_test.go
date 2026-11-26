@@ -61,6 +61,14 @@ func TestReviewTaskReadsLikeBinMeshsWithTheDaemonsWaitLine(t *testing.T) {
 			}
 		}
 	}
+	// OpenCode reviewers receive the --body @path note; Claude and agy do not.
+	oc := reviewTask(reviewSpec{pr: pr, kind: "opencode"})
+	if !strings.Contains(oc, "--body @") {
+		t.Errorf("opencode task lacks --body @ note: %s", oc)
+	}
+	if strings.Contains(fresh, "--body @") || strings.Contains(reviewTask(reviewSpec{pr: pr, kind: "agy"}), "--body @") {
+		t.Errorf("claude/agy tasks should not contain --body @ note")
+	}
 	// The caller's notes ride along.
 	if got := reviewTask(reviewSpec{pr: pr, kind: "agy", body: "mind the retry"}); !strings.HasSuffix(got, "Notes from your parent:\nmind the retry") {
 		t.Errorf("notes: %s", got)

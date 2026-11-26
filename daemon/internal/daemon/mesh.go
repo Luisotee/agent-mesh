@@ -317,6 +317,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		r := d.store.Read(ctx)
 		if to, err := d.FindAgent(r, actor, req.Msg.To); err == nil && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			d.warmUsage(ctx, r, to.Kind, agyResolveKey{model: to.Model, effort: to.Effort})
+			d.warmOpenCodeModels(ctx, to.Kind)
 		}
 	}
 	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {
@@ -462,6 +463,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			}
 		}
 		msgBody := req.Msg.Body
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK {
+			msgBody = withOpenCodeBodyNote(to.Kind, req.Msg.Body)
+		}
 		willPrep := stopped(to) && resumes(req.Msg.Type) && prep != nil && prepTarget != nil && to.Id == prepTarget.Id
 		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
 		// to read it (design §18). An info is only stored: it is read when the agent is next resumed. A task
