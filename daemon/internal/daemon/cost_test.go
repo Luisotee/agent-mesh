@@ -230,6 +230,9 @@ func TestCostColdResumesAndCopyDedupAndUnstoppedRunCap(t *testing.T) {
 	if ts, err := daemon.ParseSince("7d", costT0); err != nil || !ts.Equal(costT0.Add(-7*24*time.Hour)) {
 		t.Fatalf("ParseSince(7d) = %v, %v", ts, err)
 	}
+	if _, err := daemon.ParseSince("99999999d", costT0); err == nil {
+		t.Fatal("expected ParseSince error for an overflowing span")
+	}
 	if _, err := daemon.ParseSince("last week", costT0); err == nil {
 		t.Fatal("expected ParseSince error")
 	}

@@ -191,7 +191,8 @@ func sortedKeys(s map[string]bool) []string {
 	return out
 }
 
-func (d *Daemon) computeModelCheck(r store.Reader, listed, acked, prevListed map[string][]string, now time.Time) modelCheckState {
+func (d *Daemon) computeModelCheck(r store.Reader, listed, acked map[string][]string, prev modelCheckState, now time.Time) modelCheckState {
+	prevListed := prev.Listed
 	next := modelCheckState{
 		At:      now.Unix(),
 		Listed:  map[string][]string{},
@@ -256,6 +257,17 @@ func (d *Daemon) computeModelCheck(r store.Reader, listed, acked, prevListed map
 	if len(listed) == 0 {
 		// Nothing read yet: look again next time rather than caching empty for a day.
 		next.At = 0
+		// ...and keep what the last good check found, so a failed listing doesn't wipe the notice.
+		next.Listed, next.New, next.Retired = prev.Listed, prev.New, prev.Retired
+		if next.Listed == nil {
+			next.Listed = map[string][]string{}
+		}
+		if next.New == nil {
+			next.New = map[string][]string{}
+		}
+		if next.Retired == nil {
+			next.Retired = map[string][]string{}
+		}
 	}
 	return next
 }
@@ -313,7 +325,7 @@ func (d *Daemon) ModelNotice(ctx context.Context) string {
 			out = cur
 			return nil
 		}
-		out = d.computeModelCheck(tx.Reader, listed, cur.Acked, cur.Listed, tx.Now())
+		out = d.computeModelCheck(tx.Reader, listed, cur.Acked, cur, tx.Now())
 		return saveModelCheckState(tx, out)
 	})
 	if err != nil {
@@ -406,7 +418,7 @@ func (d *Daemon) CheckModels(ctx context.Context, req *connect.Request[v1.CheckM
 			set[a.name] = true
 			acked[a.kind] = sortedKeys(set)
 		}
-		next := d.computeModelCheck(tx.Reader, listed, acked, cur.Listed, tx.Now())
+		next := d.computeModelCheck(tx.Reader, listed, acked, cur, tx.Now())
 		if err := saveModelCheckState(tx, next); err != nil {
 			return err
 		}

@@ -164,6 +164,18 @@ func TestModelsFlagsNewAndRetiredFamiliesAndPersistsAck(t *testing.T) {
 	if !strings.Contains(h.d.ModelNotice(ctx), "agy no longer lists: xenon") {
 		t.Fatalf("ModelNotice = %q", h.d.ModelNotice(ctx))
 	}
+
+	// A listing that returns nothing (a failed CLI) keeps the earlier findings instead of wiping them.
+	listing = ""
+	kept, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{
+		Meta: meta("m5"), Check: true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(kept.Msg.Notice, "agy no longer lists: xenon") {
+		t.Fatalf("notice after an empty listing = %q", kept.Msg.Notice)
+	}
 }
 
 func TestModelsTracksOpenCodeNewAndRetiredFreeModelsAndChecksAuth(t *testing.T) {

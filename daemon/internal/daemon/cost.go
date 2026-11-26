@@ -105,6 +105,9 @@ func ParseSince(text string, now time.Time) (time.Time, error) {
 		case "m":
 			unit = time.Minute
 		}
+		if n < 0 || time.Duration(n) > math.MaxInt64/2/unit {
+			return time.Time{}, invalid("%s: span too large", text)
+		}
 		return now.Add(-time.Duration(n) * unit), nil
 	}
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
