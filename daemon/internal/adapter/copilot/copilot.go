@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -128,6 +129,17 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 		bin = "copilot"
 	}
 	sid := m.ResumeSessionId
+	if m.Standalone {
+		if sid == "" {
+			return nil, errors.New("standalone launch requires resume_session_id")
+		}
+		argv := append([]string{bin, "--session-id", sid}, ModelArgs(m.Model, m.Effort)...)
+		env := map[string]string{}
+		for k, v := range m.Env {
+			env[k] = v
+		}
+		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid}), nil
+	}
 	if sid == "" {
 		sid = a.NewSessionID()
 	}

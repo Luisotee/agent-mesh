@@ -605,3 +605,44 @@ func TestVersionFourDatabaseGainsModelLimitsTableAndRoundTrips(t *testing.T) {
 		t.Fatalf("another kind's hold changed: %v", got)
 	}
 }
+
+func TestWorktreesRoundTripAndRejectDuplicates(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error {
+		if err := tx.PutRun(&v1.Run{Id: "r1", Title: "wt", Status: v1.RunStatus_RUN_STATUS_OPEN, CreatedAt: timestamppb.Now()}); err != nil {
+			return err
+		}
+		return tx.PutWorktree(&v1.Worktree{
+			Id: "w1", RunId: "r1", Slug: "integ", Repo: "/repo", Path: "/wt/r1/repo-integ",
+			Branch: "mesh/r1/integ", BaseCommit: "abc", CreatedAt: timestamppb.New(fixed),
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Read(ctx).GetWorktree("r1", "integ")
+	if err != nil || got.Branch != "mesh/r1/integ" || got.BaseCommit != "abc" {
+		t.Fatalf("GetWorktree = %+v, %v", got, err)
+	}
+	list, err := s.Read(ctx).ListWorktrees("r1")
+	if err != nil || len(list) != 1 || list[0].Id != "w1" {
+		t.Fatalf("ListWorktrees = %+v, %v", list, err)
+	}
+	err = s.Write(ctx, nil, "", func(tx *Tx) error {
+		return tx.PutWorktree(&v1.Worktree{
+			Id: "w2", RunId: "r1", Slug: "integ", Repo: "/repo", Path: "/wt/r1/repo-integ",
+			Branch: "mesh/r1/integ", BaseCommit: "abc", CreatedAt: timestamppb.New(fixed),
+		})
+	})
+	if !errors.Is(err, ErrExists) {
+		t.Fatalf("duplicate (run_id, slug): got %v, want ErrExists", err)
+	}
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error {
+		return tx.DeleteWorktree("w1")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := s.Read(ctx).ListWorktrees("r1"); err != nil || len(list) != 0 {
+		t.Fatalf("ListWorktrees after delete = %+v, %v", list, err)
+	}
+}

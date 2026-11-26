@@ -543,6 +543,16 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 	if err != nil {
 		return nil, err
 	}
+	if m.Standalone {
+		if m.ResumeSessionId == "" {
+			return nil, errors.New("standalone launch requires resume_session_id")
+		}
+		argv := []string{bin, "--conversation", m.ResumeSessionId}
+		if resolvedModel != "" {
+			argv = append(argv, "--model", resolvedModel)
+		}
+		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env}), nil
+	}
 	argv := []string{bin}
 	if m.ResumeSessionId != "" {
 		argv = append(argv, "--conversation", m.ResumeSessionId)

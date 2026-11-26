@@ -90,6 +90,13 @@ func (b *Bus) Subscribers() int {
 	return len(b.subs)
 }
 
+// SubscribeRun returns a channel receiving live events for runID (or all runs when empty) and an unsubscribe
+// function. If the subscriber falls behind LiveBuffer, the channel closes.
+func (b *Bus) SubscribeRun(runID string, deviceEvents bool) (<-chan *v1.Event, func()) {
+	s := b.subscribe(runID, deviceEvents)
+	return s.ch, func() { b.unsubscribe(s) }
+}
+
 // Serve runs one subscription until ctx ends, the subscriber falls behind (ErrSlow, as ResourceExhausted), or
 // stopping closes (then it sends End first). When deviceEvents is false, host device-management events
 // (DevicePaired, DeviceRevoked) are filtered out of both resumed backlogs and live streams.
