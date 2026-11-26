@@ -227,7 +227,11 @@ type Tx struct {
 	Actor      *v1.Actor
 	MutationID string
 	events     []*v1.Event
+	after      []func()
 }
+
+// AfterCommit runs fn once the transaction has committed (never if it rolls back), after its events are published.
+func (t *Tx) AfterCommit(fn func()) { t.after = append(t.after, fn) }
 
 // Now is the transaction's clock reading: every record it writes shares it.
 func (t *Tx) Now() time.Time { return t.now }
@@ -251,6 +255,9 @@ func (s *Store) Write(ctx context.Context, actor *v1.Actor, mutationID string, f
 	}
 	if s.OnCommit != nil && len(t.events) > 0 {
 		s.OnCommit(t.events)
+	}
+	for _, fn := range t.after {
+		fn()
 	}
 	return nil
 }

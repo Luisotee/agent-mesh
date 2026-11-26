@@ -226,3 +226,14 @@ it('counts a new worker on the dock\'s toggle while the dock is hidden, and clea
   model.setDock(true)
   expect(model.store.getState().dockBadge).toBe(0)
 })
+
+it('a dismissed dock tile is spent once its agent leaves the state, so it shows again when the agent returns to it', async () => {
+  const { model, hostStore } = await boot()
+  const stateOf = (to: AgentState) => event(1, { case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from: AgentState.IDLE, to, detail: '', needsInput: to === AgentState.NEEDS_INPUT ? 1 : 0 } })
+  const w1 = hostStore.getState().agents.w1!.state
+  model.dismissTile('h', 'w1')
+  expect(model.store.getState().dismissed).toEqual({ 'h/w1': w1 })
+  push(stateOf(AgentState.NEEDS_INPUT))
+  await vi.waitFor(() => expect(hostStore.getState().agents.w1!.state).toBe(AgentState.NEEDS_INPUT))
+  expect(model.store.getState().dismissed).toEqual({})
+})

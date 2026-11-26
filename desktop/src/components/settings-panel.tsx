@@ -6,7 +6,7 @@ import { resetSetting, setSetting } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Select, Textarea } from '@/components/ui/input'
-import { useApp, useHostState } from '@/context'
+import { useApp, useAppState, useHostState } from '@/context'
 import type { Setting } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { ShortcutField } from './shortcut-field'
@@ -22,8 +22,10 @@ const show = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify
 export function SettingsPanel({ host }: { host: HostRuntime }) {
   const settings = useHostState(host, (s) => s.settings)
   const app = useApp()
-  // The palette can open this screen already filtered ("Keyboard shortcuts").
-  const [query, setQuery] = useState(() => app.store.getState().settingsQuery)
+  // The filter lives in the app's state, so the palette can filter this screen while it is already open
+  // ("Keyboard shortcuts…"); closing it clears it.
+  const query = useAppState((s) => s.settingsQuery)
+  const setQuery = (q: string) => app.store.setState({ settingsQuery: q })
   const [changed, setChanged] = useState(false)
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()

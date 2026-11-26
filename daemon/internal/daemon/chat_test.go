@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
@@ -206,5 +207,51 @@ func TestCleanPromptKeepsTextAndDropsKeystrokes(t *testing.T) {
 		if got := daemon.CleanPrompt(in); got != want {
 			t.Errorf("CleanPrompt(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestARetriedPromptIsTypedOnceAndAnExpiredOneNotAtAll(t *testing.T) {
+	h, a := chatDaemon(t, nil)
+	ctx := context.Background()
+	send := func(m *v1.RequestMeta, text string) error {
+		_, err := h.device.Mesh.PromptAgent(ctx, connect.NewRequest(&v1.PromptAgentRequest{Meta: m, Agent: a.Id, Text: text}))
+		return err
+	}
+	// A request past its expiry types nothing, and doesn't use up its id.
+	late := &v1.RequestMeta{MutationId: "late", ExpiresAt: timestamppb.New(time.Now().Add(-time.Second))}
+	if err := send(late, "too late"); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("an expired prompt: %v", err)
+	}
+	// The same request sent twice (the bridge resends when a socket resets after the daemon took it) is one prompt.
+	once := meta("once")
+	if err := send(once, "only once"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if err := send(once, "only once"); err != nil {
+		t.Fatalf("the retry: %v", err)
+	}
+	// A later, different prompt still goes in.
+	if err := send(meta("next"), "and then"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "both prompts, one each", func() bool {
+		var users []string
+		for _, e := range h.transcript(a.Id, -1, true).Entries {
+			if e.Kind == v1.TranscriptKind_TRANSCRIPT_KIND_USER {
+				users = append(users, e.Text)
+			}
+		}
+		return strings.Join(users, "|") == "only once|and then"
+	})
+	time.Sleep(300 * time.Millisecond)
+	n := 0
+	for _, e := range h.transcript(a.Id, -1, true).Entries {
+		if e.Kind == v1.TranscriptKind_TRANSCRIPT_KIND_USER {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d user turns, want 2", n)
 	}
 }

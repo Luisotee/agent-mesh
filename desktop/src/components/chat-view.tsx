@@ -45,6 +45,7 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
       do {
         again.current = false
         const { t, loaded } = cur.current
+        const from = t.end
         if (!loaded) {
           const res = await readTranscript(host.client, agentId, -1n, true)
           if (mine !== gen.current) return
@@ -53,7 +54,8 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
         } else {
           const res = await readTranscript(host.client, agentId, t.end, false)
           if (mine !== gen.current) return
-          const next = withLater(t, res)
+          // What is held now, not what was when the read began: "Load earlier" may have put entries above since.
+          const next = withLater(cur.current.t, res, from)
           if (next.kind === 'reload') {
             cur.current = { t: emptyTranscript(), loaded: false }
             setState(cur.current)
@@ -61,6 +63,9 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
           } else if (next.kind === 'more') {
             cur.current = { t: next.transcript, loaded: true }
             setState(cur.current)
+          } else if (from !== cur.current.t.end) {
+            // The read began somewhere else than where the transcript ends now: read again from the right place.
+            again.current = true
           }
         }
         setError('')
@@ -111,14 +116,17 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
   const loadEarlier = useCallback(async () => {
     const { t } = cur.current
     if (earlierBusy || t.atStart) return
+    const mine = gen.current
     setEarlierBusy(true)
     try {
       const res = await readTranscript(host.client, agentId, t.start, true)
+      // The conversation was reset while this read was out: it is another one's earlier part.
+      if (mine !== gen.current) return
       const next = withEarlier(cur.current.t, res)
       cur.current = { t: next, loaded: true }
       setState(cur.current)
     } catch (e) {
-      setError(say(e))
+      if (mine === gen.current) setError(say(e))
     } finally {
       setEarlierBusy(false)
     }

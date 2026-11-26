@@ -177,6 +177,20 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceE
 	}
 
 	for {
+		// The frames queued now are told before the event after them: they were published first (an activity frame
+		// goes out as its write commits, a state event as the next write does), and select alone picks a ready
+		// channel at random. Only what is queued now, so frames arriving faster than they are sent can't hold events off.
+	frames:
+		for n := len(live.act); n > 0; n-- {
+			select {
+			case a := <-live.act:
+				if err := send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_Activity{Activity: a}}); err != nil {
+					return err
+				}
+			default:
+				break frames
+			}
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

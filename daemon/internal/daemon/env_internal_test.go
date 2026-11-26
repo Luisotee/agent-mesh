@@ -13,6 +13,10 @@ import (
 
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1/termv1connect"
+	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
@@ -83,6 +87,36 @@ func TestTypeLineRetriesEnterOnlyWhereTheWriteDidNotHappen(t *testing.T) {
 		stub := &stubTerm{enterErrs: c.errs}
 		d := &Daemon{rt: &runtime{cfg: AgentConfig{DeliveryDelay: time.Millisecond}, term: &termclient.Client{API: stub}}}
 		err := d.typeLine(context.Background(), "t1", "line")
+		if (err != nil) != c.wantErr || strings.Join(stub.writes, ",") != c.wantWrites {
+			t.Errorf("%s: err %v, writes %q, want error %v and %q", c.name, err, strings.Join(stub.writes, ","), c.wantErr, c.wantWrites)
+		}
+	}
+}
+
+func TestTypePromptPastesWhatATypedKeyWouldMangleAndTakesAFailedPasteBack(t *testing.T) {
+	reg, err := adapter.NewRegistry(context.Background(), claude.New(), agy.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	down := connect.NewError(connect.CodeUnavailable, errors.New("down"))
+	cases := []struct {
+		name, kind, text string
+		errs             []error
+		wantErr          bool
+		wantWrites       string
+	}{
+		{"one plain line is typed", "claude", "a b", nil, false, "a b,\r"},
+		{"a tab is pasted, not typed as a Tab key", "claude", "a\tb", nil, false, "\x1b[200~a\tb\x1b[201~,\r"},
+		{"lines are pasted", "claude", "a\nb", nil, false, "\x1b[200~a\nb\x1b[201~,\r"},
+		{"a CLI without paste gets spaces for a tab", "agy", "a\tb", nil, false, "a b,\r"},
+		{"and one space per run of white space for lines", "agy", "a\n\tb", nil, false, "a b,\r"},
+		{"a paste whose Enter never went is taken back out", "claude", "a\nb", []error{down, down, down}, true, "\x1b[200~a\nb\x1b[201~,\r,\r,\r,\x15"},
+		{"an unknown Enter failure sends nothing more", "claude", "a\nb", []error{connect.NewError(connect.CodeUnknown, errors.New("?"))}, true, "\x1b[200~a\nb\x1b[201~,\r"},
+	}
+	for _, c := range cases {
+		stub := &stubTerm{enterErrs: c.errs}
+		d := &Daemon{rt: &runtime{adapters: reg, cfg: AgentConfig{DeliveryDelay: time.Millisecond}, term: &termclient.Client{API: stub}}}
+		err := d.typePrompt(context.Background(), &v1.Agent{Kind: c.kind, TerminalId: "t1"}, c.text)
 		if (err != nil) != c.wantErr || strings.Join(stub.writes, ",") != c.wantWrites {
 			t.Errorf("%s: err %v, writes %q, want error %v and %q", c.name, err, strings.Join(stub.writes, ","), c.wantErr, c.wantWrites)
 		}

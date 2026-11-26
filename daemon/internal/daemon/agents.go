@@ -658,7 +658,9 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	if s.State == before.State && s.NeedsInput == before.NeedsInput {
 		for _, ev := range evs {
 			if ev.GetActivity() != nil {
-				d.bus.PublishActivity(&v1.AgentActivity{RunId: a.RunId, AgentId: a.Id, Detail: s.Detail, Time: timestamppb.New(s.LastActivity)})
+				// Told once the write has committed: a rolled-back one changed nothing.
+				frame := &v1.AgentActivity{RunId: a.RunId, AgentId: a.Id, Detail: s.Detail, Time: timestamppb.New(s.LastActivity)}
+				tx.AfterCommit(func() { d.bus.PublishActivity(frame) })
 				break
 			}
 		}

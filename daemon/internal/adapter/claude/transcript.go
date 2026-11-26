@@ -50,7 +50,14 @@ const (
 // DoorbellMark begins a mesh doorbell (daemon.Doorbell), alone or after "Another Claude session sent a message:".
 const doorbellMark = "📬 [mesh]"
 
-var systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+var (
+	systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+	// A slash command the user typed is recorded as tags: its name, then its arguments (the CLI also writes its
+	// output as <local-command-stdout>, which is dropped).
+	localOutput = regexp.MustCompile(`^<local-command-(stdout|stderr|caveat)>`)
+	commandName = regexp.MustCompile(`(?s)<command-name>\s*(.*?)\s*</command-name>`)
+	commandArgs = regexp.MustCompile(`(?s)<command-args>\s*(.*?)\s*</command-args>`)
+)
 
 type transcriptLine struct {
 	Type        string `json:"type"`
@@ -58,7 +65,11 @@ type transcriptLine struct {
 	Timestamp   string `json:"timestamp"`
 	IsSidechain bool   `json:"isSidechain"`
 	IsMeta      bool   `json:"isMeta"`
-	Message     struct {
+	// IsCompactSummary and IsVisibleInTranscriptOnly mark what the CLI writes for itself (the summary a compaction
+	// leaves, which is context for the model, not something the user said).
+	IsCompactSummary          bool `json:"isCompactSummary"`
+	IsVisibleInTranscriptOnly bool `json:"isVisibleInTranscriptOnly"`
+	Message                   struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }
@@ -78,7 +89,8 @@ type contentBlock struct {
 // that isn't part of the conversation or doesn't parse).
 func TranscriptEntries(line []byte, offset int64) []*agentmeshv1.TranscriptEntry {
 	var l transcriptLine
-	if json.Unmarshal(line, &l) != nil || l.IsSidechain || (l.Type != "user" && l.Type != "assistant") {
+	if json.Unmarshal(line, &l) != nil || l.IsSidechain || (l.Type != "user" && l.Type != "assistant") ||
+		l.IsCompactSummary || l.IsVisibleInTranscriptOnly {
 		return nil
 	}
 	var at *timestamppb.Timestamp
@@ -141,8 +153,16 @@ func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
 		line, _, _ := strings.Cut(rest, "\n")
 		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_MESH, Text: line}
 	}
-	if meta || text == "" {
+	if meta || text == "" || localOutput.MatchString(text) {
 		return nil
+	}
+	if m := commandName.FindStringSubmatch(text); m != nil && strings.HasPrefix(text, "<command-") {
+		// A slash command is what the user typed: the command and its arguments, not the tags around them.
+		cmd := m[1]
+		if a := commandArgs.FindStringSubmatch(text); a != nil && a[1] != "" {
+			cmd += " " + a[1]
+		}
+		text = cmd
 	}
 	return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_USER, Text: text}
 }
@@ -280,13 +300,14 @@ func readBackward(f *os.File, size, offset, maxBytes int64) ([]*agentmeshv1.Tran
 		if _, err := f.ReadAt(buf, from); err != nil && !errors.Is(err, io.EOF) {
 			return entries, first, end, false, err
 		}
-		spent += int64(len(buf))
 		lineStart := from
 		if from > 0 {
 			i := bytes.IndexByte(buf, '\n')
 			// A newline only at the very end is the end of the line before the page: no line of this window starts in it.
 			if i < 0 || i == len(buf)-1 {
-				// One line is longer than the window: look further back for its start.
+				// One line is longer than the window: look further back for its start. What this reads doesn't count
+				// against the budget, or a line of a few MB would use it up before the window could reach the line's
+				// start, and every page would end where it began.
 				if window >= maxLine {
 					first = from
 					break
@@ -297,8 +318,9 @@ func readBackward(f *os.File, size, offset, maxBytes int64) ([]*agentmeshv1.Tran
 			lineStart = from + int64(i) + 1
 			buf = buf[i+1:]
 		}
+		spent += int64(len(buf))
 		entries = append(entriesOf(buf, lineStart), entries...)
-		first = lineStart
+		first, window = lineStart, maxBytes
 	}
 	return entries, first, end, first == 0, nil
 }

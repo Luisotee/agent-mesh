@@ -89,6 +89,17 @@ export function forgetHost(s: WorkspaceState, hostId: string): Partial<Workspace
   return { tabs: s.tabs.filter((t) => t.hostId !== hostId), views: keep(s.views), newTiles: keep(s.newTiles), dismissed: keep(s.dismissed) }
 }
 
+/**
+ * Forgets the dismissed tiles of a host whose agent is no longer in the state it was dismissed in (an agent not in the
+ * list, as while the host reloads, keeps its dismissal; removing a host drops them): the tile came back when the state changed, and a later return to that state is a new thing to see (an agent that needs
+ * input again). Returns `dismissed` itself when nothing changed.
+ */
+export function pruneDismissed(dismissed: Record<string, AgentState>, hostId: string, agents: Record<string, Agent>): Record<string, AgentState> {
+  const stale = Object.keys(dismissed).filter((k) => k.startsWith(`${hostId}/`) && agents[k.slice(hostId.length + 1)] !== undefined && agents[k.slice(hostId.length + 1)]!.state !== dismissed[k])
+  if (stale.length === 0) return dismissed
+  return Object.fromEntries(Object.entries(dismissed).filter(([k]) => !stale.includes(k)))
+}
+
 /** An agent that started while the app was open: what the host's `app.dock.new_agents` says to do about it. */
 export function noteSpawned(s: WorkspaceState, ref: TabRef, mode: 'dock' | 'badge' | 'tab' | 'none', now: number): Partial<WorkspaceState> {
   switch (mode) {
