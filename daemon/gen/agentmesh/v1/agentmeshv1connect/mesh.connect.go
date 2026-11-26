@@ -127,6 +127,8 @@ const (
 	MeshServiceUnregisterPushProcedure = "/agentmesh.v1.MeshService/UnregisterPush"
 	// MeshServiceTestPushProcedure is the fully-qualified name of the MeshService's TestPush RPC.
 	MeshServiceTestPushProcedure = "/agentmesh.v1.MeshService/TestPush"
+	// MeshServiceStartSetupProcedure is the fully-qualified name of the MeshService's StartSetup RPC.
+	MeshServiceStartSetupProcedure = "/agentmesh.v1.MeshService/StartSetup"
 	// MeshServiceTailnetStatusProcedure is the fully-qualified name of the MeshService's TailnetStatus
 	// RPC.
 	MeshServiceTailnetStatusProcedure = "/agentmesh.v1.MeshService/TailnetStatus"
@@ -272,10 +274,10 @@ type MeshServiceClient interface {
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
 	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
 	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
-	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
-	// may call this.
+	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
+	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
-	// List paired devices. Only the host's own device may call this.
+	// List paired devices. Only the host's own device, or the root of the setup run, may call this.
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
@@ -291,9 +293,13 @@ type MeshServiceClient interface {
 	// Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
 	// another device's. Answers once the push service took it, or with its error.
 	TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error)
+	// Start the first-run setup agent, or return the one that is running (a retired one is resumed): a lead agent in a
+	// run flagged `setup`, in a scratch repo of the host's own, that follows `protocol/SETUP.md` of the share folder.
+	// The apps call it once connected; `mesh setup` does the same.
+	StartSetup(context.Context, *connect.Request[v1.StartSetupRequest]) (*connect.Response[v1.StartSetupResponse], error)
 	// The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
-	// tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
-	// tailnet opens it.
+	// tailnet addresses. Only the host's own device, or the root of the setup run, may call this: the login URL
+	// attaches the node to whichever tailnet opens it.
 	TailnetStatus(context.Context, *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error)
 	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
@@ -593,6 +599,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("TestPush")),
 			connect.WithClientOptions(opts...),
 		),
+		startSetup: connect.NewClient[v1.StartSetupRequest, v1.StartSetupResponse](
+			httpClient,
+			baseURL+MeshServiceStartSetupProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("StartSetup")),
+			connect.WithClientOptions(opts...),
+		),
 		tailnetStatus: connect.NewClient[v1.TailnetStatusRequest, v1.TailnetStatusResponse](
 			httpClient,
 			baseURL+MeshServiceTailnetStatusProcedure,
@@ -769,6 +781,7 @@ type meshServiceClient struct {
 	registerPush     *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
 	unregisterPush   *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
 	testPush         *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
+	startSetup       *connect.Client[v1.StartSetupRequest, v1.StartSetupResponse]
 	tailnetStatus    *connect.Client[v1.TailnetStatusRequest, v1.TailnetStatusResponse]
 	getUsage         *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
 	setReserve       *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
@@ -988,6 +1001,11 @@ func (c *meshServiceClient) TestPush(ctx context.Context, req *connect.Request[v
 	return c.testPush.CallUnary(ctx, req)
 }
 
+// StartSetup calls agentmesh.v1.MeshService.StartSetup.
+func (c *meshServiceClient) StartSetup(ctx context.Context, req *connect.Request[v1.StartSetupRequest]) (*connect.Response[v1.StartSetupResponse], error) {
+	return c.startSetup.CallUnary(ctx, req)
+}
+
 // TailnetStatus calls agentmesh.v1.MeshService.TailnetStatus.
 func (c *meshServiceClient) TailnetStatus(ctx context.Context, req *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error) {
 	return c.tailnetStatus.CallUnary(ctx, req)
@@ -1191,10 +1209,10 @@ type MeshServiceHandler interface {
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
 	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
 	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
-	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
-	// may call this.
+	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
+	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
-	// List paired devices. Only the host's own device may call this.
+	// List paired devices. Only the host's own device, or the root of the setup run, may call this.
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
@@ -1210,9 +1228,13 @@ type MeshServiceHandler interface {
 	// Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
 	// another device's. Answers once the push service took it, or with its error.
 	TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error)
+	// Start the first-run setup agent, or return the one that is running (a retired one is resumed): a lead agent in a
+	// run flagged `setup`, in a scratch repo of the host's own, that follows `protocol/SETUP.md` of the share folder.
+	// The apps call it once connected; `mesh setup` does the same.
+	StartSetup(context.Context, *connect.Request[v1.StartSetupRequest]) (*connect.Response[v1.StartSetupResponse], error)
 	// The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
-	// tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
-	// tailnet opens it.
+	// tailnet addresses. Only the host's own device, or the root of the setup run, may call this: the login URL
+	// attaches the node to whichever tailnet opens it.
 	TailnetStatus(context.Context, *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error)
 	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
 	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
@@ -1508,6 +1530,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("TestPush")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceStartSetupHandler := connect.NewUnaryHandler(
+		MeshServiceStartSetupProcedure,
+		svc.StartSetup,
+		connect.WithSchema(meshServiceMethods.ByName("StartSetup")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceTailnetStatusHandler := connect.NewUnaryHandler(
 		MeshServiceTailnetStatusProcedure,
 		svc.TailnetStatus,
@@ -1720,6 +1748,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceUnregisterPushHandler.ServeHTTP(w, r)
 		case MeshServiceTestPushProcedure:
 			meshServiceTestPushHandler.ServeHTTP(w, r)
+		case MeshServiceStartSetupProcedure:
+			meshServiceStartSetupHandler.ServeHTTP(w, r)
 		case MeshServiceTailnetStatusProcedure:
 			meshServiceTailnetStatusHandler.ServeHTTP(w, r)
 		case MeshServiceGetUsageProcedure:
@@ -1927,6 +1957,10 @@ func (UnimplementedMeshServiceHandler) UnregisterPush(context.Context, *connect.
 
 func (UnimplementedMeshServiceHandler) TestPush(context.Context, *connect.Request[v1.TestPushRequest]) (*connect.Response[v1.TestPushResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.TestPush is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) StartSetup(context.Context, *connect.Request[v1.StartSetupRequest]) (*connect.Response[v1.StartSetupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StartSetup is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) TailnetStatus(context.Context, *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error) {

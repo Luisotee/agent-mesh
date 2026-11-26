@@ -193,13 +193,13 @@ public interface MeshServiceClientInterface {
   public suspend fun promptAgent(request: PromptAgentRequest, headers: Headers = emptyMap()): ResponseMessage<PromptAgentResponse>
 
   /**
-   *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
-   *  may call this.
+   *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
+   *  the root of the setup run (`StartSetup`), may call this.
    */
   public suspend fun createPairing(request: CreatePairingRequest, headers: Headers = emptyMap()): ResponseMessage<CreatePairingResponse>
 
   /**
-   *  List paired devices. Only the host's own device may call this.
+   *  List paired devices. Only the host's own device, or the root of the setup run, may call this.
    */
   public suspend fun listDevices(request: ListDevicesRequest, headers: Headers = emptyMap()): ResponseMessage<ListDevicesResponse>
 
@@ -233,9 +233,16 @@ public interface MeshServiceClientInterface {
   public suspend fun testPush(request: TestPushRequest, headers: Headers = emptyMap()): ResponseMessage<TestPushResponse>
 
   /**
+   *  Start the first-run setup agent, or return the one that is running (a retired one is resumed): a lead agent in a
+   *  run flagged `setup`, in a scratch repo of the host's own, that follows `protocol/SETUP.md` of the share folder.
+   *  The apps call it once connected; `mesh setup` does the same.
+   */
+  public suspend fun startSetup(request: StartSetupRequest, headers: Headers = emptyMap()): ResponseMessage<StartSetupResponse>
+
+  /**
    *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
-   *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
-   *  tailnet opens it.
+   *  tailnet addresses. Only the host's own device, or the root of the setup run, may call this: the login URL
+   *  attaches the node to whichever tailnet opens it.
    */
   public suspend fun tailnetStatus(request: TailnetStatusRequest, headers: Headers = emptyMap()): ResponseMessage<TailnetStatusResponse>
 

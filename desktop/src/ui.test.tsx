@@ -39,6 +39,8 @@ import { CheckModelsResponseSchema, KindModelsSchema, ModelFamilyEntrySchema } f
 import { ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
+const noLocal = { detect: async () => [], connect: vi.fn(), fix: vi.fn() }
+const manually = async () => userEvent.click(await screen.findByRole('button', { name: 'Connect another way' }))
 
 type AgentInit = Parameters<typeof create<typeof AgentSchema>>[1]
 const agent = (id: string, o: AgentInit = {}) => create(AgentSchema, { id, name: id, runId: 'r1', repo: '/p/app', kind: 'claude', createdAt: timestampFromMs(1000), state: AgentState.IDLE, ...o })
@@ -227,8 +229,9 @@ describe('ConnectionBanner', () => {
 describe('App', () => {
   it('asks for a host when there is none, and adds one', async () => {
     const add = vi.fn(async () => ({ id: 'x', name: 'home', kind: 'state-dir' as const, target: '/s/state' }))
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: noLinks, local: noLocal, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
+    await manually()
     await userEvent.type(await screen.findByLabelText('Name'), 'home')
     fireEvent.change(screen.getByLabelText('State directory'), { target: { value: '/s/state' } })
     await userEvent.click(screen.getByRole('button', { name: 'Add host' }))
@@ -238,8 +241,9 @@ describe('App', () => {
 
   it('adds a host by pairing link, with the name this device gives itself', async () => {
     const add = vi.fn(async () => ({ id: 'x', name: 'Home', kind: 'paired' as const, target: '10.0.0.2:9443' }))
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: noLinks, local: noLocal, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
+    await manually()
     await userEvent.selectOptions(await screen.findByLabelText('How to reach it'), 'pair')
     // The host's own name is optional here, and there is no field for a pasted token.
     expect(screen.queryByLabelText(/token/i)).toBeNull()
@@ -255,7 +259,7 @@ describe('App', () => {
 
   it('opened by a pairing link with no host yet, fills the form in and adds nothing until the user does', async () => {
     const add = vi.fn(async () => ({ id: 'x', name: 'Home server', kind: 'paired' as const, target: '10.0.0.2:9443' }))
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: { take: async () => OPENED, onOpen: vi.fn(() => () => {}) }, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(() => () => {}), links: { take: async () => OPENED, onOpen: vi.fn(() => () => {}) }, local: noLocal, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
     expect(await screen.findByLabelText('Pairing link')).toHaveValue(OPENED.link)
     expect(screen.getByLabelText('Name')).toHaveValue('Home server')
@@ -297,8 +301,9 @@ describe('App', () => {
     const add = vi.fn(async () => {
       throw new Error("Error invoking remote method 'hosts:add': Error: the state dir must be an absolute path")
     })
-    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+    const api = { hosts: { list: async () => [], add, remove: vi.fn(), fixed: false }, request: vi.fn(), links: noLinks, local: noLocal, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
     render(<App api={api} />)
+    await manually()
     await userEvent.type(await screen.findByLabelText('Name'), 'home')
     fireEvent.change(screen.getByLabelText('State directory'), { target: { value: 'rel' } })
     await userEvent.click(screen.getByRole('button', { name: 'Add host' }))

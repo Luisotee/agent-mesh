@@ -149,7 +149,9 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 	default:
 		out = append(out, "this run has no root: this is its view.")
 	}
-	if isRoot {
+	if isRoot && run.Setup {
+		out = append(out, "", "you are the setup agent of this host: read `"+filepath.Join(d.rt.cfg.Share, "protocol", setupFile)+"` and carry on with the user.", "")
+	} else if isRoot {
 		out = append(out, "", d.rootCard(), "")
 	}
 	out = append(out, "policy (tiers, reviewers, rounds, reserve): `mesh settings`")

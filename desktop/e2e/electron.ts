@@ -20,22 +20,28 @@ export interface App {
  * Starts the built app with a state dir for its one host (or none: a host list of its own, to add hosts to) and a user-data dir of its own, and drives it over the
  * Chrome DevTools Protocol. `--no-sandbox` is for the test machine only (WSL has no SUID helper for Chromium).
  */
-export async function launchApp(opts: { state?: string; home: string; /** Arguments after the flags, such as the pairing link that starts the app. */ args?: string[] }): Promise<App> {
+export async function launchApp(opts: { state?: string; home: string; /** Arguments after the flags, such as the pairing link that starts the app. */ args?: string[]; /** More environment for the app (a stand-in `wsl.exe`, say). */ env?: Record<string, string> }): Promise<App> {
   const userData = path.join(opts.home, 'userData')
   const shellLog = path.join(opts.home, 'shell.log')
   mkdirSync(userData, { recursive: true })
   const electron = path.join(desktopDir, 'node_modules/.bin/electron')
+  // Never let a test reach a real daemon: the shell of an agent carries AGENT_MESH_TOKEN and AGENT_MESH_STATE, and a
+  // developer's may carry AGENT_MESH_DESKTOP_STATE. The test sets the ones it wants (a state dir, a stand-in wsl.exe).
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('AGENT_MESH_')))
   const env = {
-    ...process.env,
+    ...inherited,
     HOME: opts.home,
     XDG_CONFIG_HOME: path.join(opts.home, '.config'),
     XDG_CACHE_HOME: path.join(opts.home, '.cache'),
     XDG_DATA_HOME: path.join(opts.home, '.local/share'),
+    // The first run looks for the daemon in the default state dir: under XDG_STATE_HOME it would find the developer's own.
+    XDG_STATE_HOME: path.join(opts.home, '.local/state'),
     // Without a state dir the app has no fixed host: the host list is its own, in its user-data dir.
     ...(opts.state ? { AGENT_MESH_DESKTOP_STATE: opts.state } : {}),
     AGENT_MESH_DESKTOP_USERDATA: userData,
     AGENT_MESH_DESKTOP_SHELL_LOG: shellLog,
     ELECTRON_ENABLE_LOGGING: '1',
+    ...opts.env,
   }
   const proc = spawn(electron, ['.', '--no-sandbox', '--remote-debugging-port=0', ...(opts.args ?? [])], { cwd: desktopDir, env, stdio: ['ignore', 'pipe', 'pipe'] })
   const ws = await new Promise<string>((resolve, reject) => {
