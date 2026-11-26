@@ -447,8 +447,8 @@ public class MeshServiceClient(
 
 
   /**
-   *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device
-   *  may call this.
+   *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
+   *  the root of the setup run (`StartSetup`), may call this.
    */
   override suspend fun createPairing(request: CreatePairingRequest, headers: Headers): ResponseMessage<CreatePairingResponse> = client.unary(
     request,
@@ -463,7 +463,7 @@ public class MeshServiceClient(
 
 
   /**
-   *  List paired devices. Only the host's own device may call this.
+   *  List paired devices. Only the host's own device, or the root of the setup run, may call this.
    */
   override suspend fun listDevices(request: ListDevicesRequest, headers: Headers): ResponseMessage<ListDevicesResponse> = client.unary(
     request,
@@ -493,9 +493,26 @@ public class MeshServiceClient(
 
 
   /**
+   *  Start the first-run setup agent, or return the one that is running (a retired one is resumed): a lead agent in a
+   *  run flagged `setup`, in a scratch repo of the host's own, that follows `protocol/SETUP.md` of the share folder.
+   *  The apps call it once connected; `mesh setup` does the same.
+   */
+  override suspend fun startSetup(request: StartSetupRequest, headers: Headers): ResponseMessage<StartSetupResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/StartSetup",
+      dev.agentmesh.gen.agentmesh.v1.StartSetupRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.StartSetupResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
-   *  tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
-   *  tailnet opens it.
+   *  tailnet addresses. Only the host's own device, or the root of the setup run, may call this: the login URL
+   *  attaches the node to whichever tailnet opens it.
    */
   override suspend fun tailnetStatus(request: TailnetStatusRequest, headers: Headers): ResponseMessage<TailnetStatusResponse> = client.unary(
     request,

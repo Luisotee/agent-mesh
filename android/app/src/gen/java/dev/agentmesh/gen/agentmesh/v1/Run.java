@@ -308,6 +308,47 @@ public  final class Run extends
     overReserve_ = false;
   }
 
+  public static final int SETUP_FIELD_NUMBER = 7;
+  private boolean setup_;
+  /**
+   * <pre>
+   * True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+   * tailnet, which only the host's own device may otherwise.
+   * </pre>
+   *
+   * <code>bool setup = 7 [json_name = "setup"];</code>
+   * @return The setup.
+   */
+  @java.lang.Override
+  public boolean getSetup() {
+    return setup_;
+  }
+  /**
+   * <pre>
+   * True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+   * tailnet, which only the host's own device may otherwise.
+   * </pre>
+   *
+   * <code>bool setup = 7 [json_name = "setup"];</code>
+   * @param value The setup to set.
+   */
+  private void setSetup(boolean value) {
+    
+    setup_ = value;
+  }
+  /**
+   * <pre>
+   * True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+   * tailnet, which only the host's own device may otherwise.
+   * </pre>
+   *
+   * <code>bool setup = 7 [json_name = "setup"];</code>
+   */
+  private void clearSetup() {
+
+    setup_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Run parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -708,6 +749,49 @@ public  final class Run extends
       return this;
     }
 
+    /**
+     * <pre>
+     * True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+     * tailnet, which only the host's own device may otherwise.
+     * </pre>
+     *
+     * <code>bool setup = 7 [json_name = "setup"];</code>
+     * @return The setup.
+     */
+    @java.lang.Override
+    public boolean getSetup() {
+      return instance.getSetup();
+    }
+    /**
+     * <pre>
+     * True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+     * tailnet, which only the host's own device may otherwise.
+     * </pre>
+     *
+     * <code>bool setup = 7 [json_name = "setup"];</code>
+     * @param value The setup to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSetup(boolean value) {
+      copyOnWrite();
+      instance.setSetup(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+     * tailnet, which only the host's own device may otherwise.
+     * </pre>
+     *
+     * <code>bool setup = 7 [json_name = "setup"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSetup() {
+      copyOnWrite();
+      instance.clearSetup();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Run)
   }
   @java.lang.Override
@@ -731,10 +815,11 @@ public  final class Run extends
             "createdAt_",
             "createdBy_",
             "overReserve_",
+            "setup_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0007";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0007\u0007\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

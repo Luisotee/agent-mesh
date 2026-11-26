@@ -106,10 +106,10 @@ func tailnetURL(addresses []string, port uint16) string {
 	return "https://" + net.JoinHostPort(ip.String(), fmt.Sprint(port))
 }
 
-// TailnetStatus reports the host's tailnet node. Only the host's own device may call it: while the node needs
+// TailnetStatus reports the host's tailnet node. Only the host's own device, or the root of the setup run, may call it: while the node needs
 // login, the answer holds the URL that attaches it to whichever tailnet opens it.
 func (d *Daemon) TailnetStatus(ctx context.Context, _ *connect.Request[v1.TailnetStatusRequest]) (*connect.Response[v1.TailnetStatusResponse], error) {
-	if err := requireHostDevice(ctx); err != nil {
+	if err := d.requireHostOrSetup(ctx); err != nil {
 		return nil, err
 	}
 	if d.cfg.Tailnet == nil {

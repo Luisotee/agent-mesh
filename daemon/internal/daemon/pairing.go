@@ -68,6 +68,7 @@ func (d *Daemon) disconnectActor(actorID string) {
 	}
 }
 
+// requireHostDevice allows only the host's own device (RevokeDevice).
 func requireHostDevice(ctx context.Context) error {
 	actor := auth.ActorFrom(ctx)
 	if actor == nil || actor.Id != localDeviceID {
@@ -76,9 +77,10 @@ func requireHostDevice(ctx context.Context) error {
 	return nil
 }
 
-// CreatePairing mints a one-time pairing token and QR/link payload. Only the host's own device may call it.
+// CreatePairing mints a one-time pairing token and QR/link payload. Only the host's own device, or the root of the
+// setup run, may call it.
 func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {
-	if err := requireHostDevice(ctx); err != nil {
+	if err := d.requireHostOrSetup(ctx); err != nil {
 		return nil, err
 	}
 	const maxPairingTTLSeconds = int64(maxPairingTTL / time.Second)
@@ -292,9 +294,9 @@ func (d *Daemon) RedeemPairing(ctx context.Context, req *connect.Request[v1.Rede
 	return connect.NewResponse(out), nil
 }
 
-// ListDevices lists paired devices. Only the host's own device may call it.
+// ListDevices lists paired devices. Only the host's own device, or the root of the setup run, may call it.
 func (d *Daemon) ListDevices(ctx context.Context, req *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error) {
-	if err := requireHostDevice(ctx); err != nil {
+	if err := d.requireHostOrSetup(ctx); err != nil {
 		return nil, err
 	}
 	devs, err := d.store.Read(ctx).ListDevices(req.Msg.IncludeRevoked, localDeviceID)
