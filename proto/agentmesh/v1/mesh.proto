@@ -7,6 +7,7 @@ import "agentmesh/v1/ask.proto";
 import "agentmesh/v1/commands.proto";
 import "agentmesh/v1/context.proto";
 import "agentmesh/v1/options.proto";
+import "agentmesh/v1/pr.proto";
 import "agentmesh/v1/report.proto";
 import "agentmesh/v1/tools.proto";
 import "agentmesh/v1/types.proto";
@@ -333,6 +334,23 @@ service MeshService {
       write: true
       cli: "reset"
       summary: "Reset the root's context: a fresh session that rebuilds from its notes"
+    };
+  }
+
+  // Each change worker's pull requests with their state and checks, read from GitHub (cached two minutes), and
+  // the work evidence (commits, pushed, dirty) of a worker with none.
+  rpc ListPullRequests(ListPullRequestsRequest) returns (ListPullRequestsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "prs"
+      summary: "List each change worker's pull requests with state and checks (and its work evidence when it has none)"
     };
   }
 

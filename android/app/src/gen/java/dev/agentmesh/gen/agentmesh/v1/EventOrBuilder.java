@@ -377,5 +377,16 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.WorktreeCreated getWorktreeCreated();
 
+  /**
+   * <code>.agentmesh.v1.PullRequestChanged pull_request_changed = 35 [json_name = "pullRequestChanged"];</code>
+   * @return Whether the pullRequestChanged field is set.
+   */
+  boolean hasPullRequestChanged();
+  /**
+   * <code>.agentmesh.v1.PullRequestChanged pull_request_changed = 35 [json_name = "pullRequestChanged"];</code>
+   * @return The pullRequestChanged.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PullRequestChanged getPullRequestChanged();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

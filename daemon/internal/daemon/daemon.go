@@ -125,6 +125,9 @@ type Daemon struct {
 	streams    map[string]map[uint64]context.CancelFunc
 	nextStream uint64
 	bgWG       sync.WaitGroup
+
+	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
+	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
 }
 
 // New opens a state dir: takes its lock, opens (or migrates) the database, and makes the daemon's id and the

@@ -333,18 +333,20 @@ func gitIsAncestor(ctx context.Context, dir, ancestor, descendant string) bool {
 	if ancestor == "" || descendant == "" {
 		return false
 	}
-	_, err := git(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	_, err := gitRO(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
 	return err == nil
 }
 
-func prOnBranch(ctx context.Context, worktree, oid, branch, baseCommit string) bool {
+// prOnBranch: whether a PR's head commit belongs to the branch (and not to the base before it). HEAD counts only
+// where it is the branch (`atHead`: a worktree of the branch); a main checkout's HEAD is another branch.
+func prOnBranch(ctx context.Context, worktree, oid, branch, baseCommit string, atHead bool) bool {
 	if oid == "" {
 		return true
 	}
-	if _, err := git(ctx, worktree, "cat-file", "-e", oid+"^{commit}"); err != nil {
+	if _, err := gitRO(ctx, worktree, "cat-file", "-e", oid+"^{commit}"); err != nil {
 		return true // not in the local repo to compare (e.g. squash-merged PR head never fetched)
 	}
-	onBranch := gitIsAncestor(ctx, worktree, oid, "refs/heads/"+branch) || gitIsAncestor(ctx, worktree, oid, "HEAD")
+	onBranch := gitIsAncestor(ctx, worktree, oid, "refs/heads/"+branch) || atHead && gitIsAncestor(ctx, worktree, oid, "HEAD")
 	return onBranch && !(baseCommit != "" && gitIsAncestor(ctx, worktree, oid, baseCommit))
 }
 
@@ -368,7 +370,7 @@ func (d *Daemon) finishedPR(ctx context.Context, worktree, branch, baseCommit, r
 		if st == "OPEN" {
 			return "", 0, "", ""
 		}
-		if !prOnBranch(ctx, worktree, pr.HeadRefOid, branch, baseCommit) {
+		if !prOnBranch(ctx, worktree, pr.HeadRefOid, branch, baseCommit, true) {
 			continue
 		}
 		if st == "MERGED" || st == "CLOSED" {

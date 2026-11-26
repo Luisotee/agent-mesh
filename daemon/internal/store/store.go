@@ -1182,3 +1182,28 @@ func (t *Tx) DeleteWorktree(id string) error {
 	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM worktrees WHERE id = ?`, id)
 	return err
 }
+
+// ── agent pull requests ──
+
+// PutAgentPR inserts or replaces the last state read for a pull request an agent owns.
+func (t *Tx) PutAgentPR(p *v1.PullRequest) error {
+	b, err := proto.Marshal(p)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO agent_prs (agent_id, url, data) VALUES (?, ?, ?)
+		ON CONFLICT (agent_id, url) DO UPDATE SET data = excluded.data`, p.AgentId, p.Url, b)
+	return err
+}
+
+// DeleteAgentPR forgets a pull request an agent no longer owns.
+func (t *Tx) DeleteAgentPR(agentID, url string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM agent_prs WHERE agent_id = ? AND url = ?`, agentID, url)
+	return err
+}
+
+// AgentPRs lists an agent's pull requests by url.
+func (r Reader) AgentPRs(agentID string) ([]*v1.PullRequest, error) {
+	return scanAll(r, `SELECT data FROM agent_prs WHERE agent_id = ? ORDER BY url`, []any{agentID},
+		func() *v1.PullRequest { return &v1.PullRequest{} })
+}
