@@ -6,6 +6,10 @@
 package dev.agentmesh.gen.agentmesh.v1;
 
 /**
+ * <pre>
+ * Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
+ * </pre>
+ *
  * Protobuf type {@code agentmesh.v1.TokenModelPhaseCost}
  */
 @com.google.protobuf.Generated
@@ -326,6 +330,10 @@ public  final class TokenModelPhaseCost extends
   }
 
   /**
+   * <pre>
+   * Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
+   * </pre>
+   *
    * Protobuf type {@code agentmesh.v1.TokenModelPhaseCost}
    */
   public static final class Builder extends

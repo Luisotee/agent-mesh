@@ -3,6 +3,7 @@ package daemon
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func TestClaudeCallCostPrices(t *testing.T) {
@@ -30,5 +31,39 @@ func TestClaudeCallCostPrices(t *testing.T) {
 		if math.Abs(got-c.want) > 1e-9 {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// A cold resume is a Claude cache story: an OpenCode call that writes cache after a long pause is not one, and its
+// writes count in the tokens (and the total) like any CLI's.
+func TestTallyCountsOpenCodeCacheWritesButNeverAsACold(t *testing.T) {
+	t0 := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	calls := []costCall{
+		{t: t0, model: "p/m", cli: "opencode", input: 100, w5: 30_000, output: 50},
+		{t: t0.Add(3 * time.Hour), model: "p/m", cli: "opencode", input: 100, w5: 30_000, output: 50},
+	}
+	ct := newCostTally(false)
+	place := func(costCall) *placedCall { return &placedCall{kind: "worker", agent: agentKey{run: "r", name: "a"}} }
+	tallySession(ct, "s", calls, false, place, time.Time{}, time.Time{}, map[string]bool{})
+	b := ct.agents[agentKey{run: "r", name: "a"}]
+	if b.cold != 0 {
+		t.Fatalf("cold = %d, want 0 for OpenCode", b.cold)
+	}
+	if b.tokens() != 60_300 {
+		t.Fatalf("tokens = %d, want 60300 (input + cache write + output)", b.tokens())
+	}
+}
+
+func TestTokenTotalLeavesCacheReadsApart(t *testing.T) {
+	if got := tokenTotal(10, 20, 30, 40); got != 100 {
+		t.Fatalf("tokenTotal = %d", got)
+	}
+	r := buildCostReport("run x", func() *costTally {
+		ct := newCostTally(true)
+		ct.add("s", costCall{model: "claude-opus-5-5", input: 1, w1: 2, w5: 3, read: 1_000_000, output: 4}, "worker", agentKey{name: "a"}, "", false, false, false, "")
+		return ct
+	}(), newCostTally(false), nil, 0, nil, nil)
+	if r.TotalTokens != 10 || r.TotalRead != 1_000_000 || r.Agents[0].Total != 10 {
+		t.Fatalf("total = %d, read = %d, agent = %+v", r.TotalTokens, r.TotalRead, r.Agents[0])
 	}
 }

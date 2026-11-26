@@ -35,6 +35,11 @@ public interface GetCostResponseOrBuilder extends
       getPricesAsOfBytes();
 
   /**
+   * <pre>
+   * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   * </pre>
+   *
    * <code>double usd = 3 [json_name = "usd"];</code>
    * @return The usd.
    */
@@ -140,4 +145,46 @@ public interface GetCostResponseOrBuilder extends
    * @return The resets.
    */
   int getResets();
+
+  /**
+   * <pre>
+   * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+   * </pre>
+   *
+   * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+   * @return The totalTokens.
+   */
+  long getTotalTokens();
+
+  /**
+   * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+   * @return The totalRead.
+   */
+  long getTotalRead();
+
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.CliCost> 
+      getClisList();
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.CliCost getClis(int index);
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  int getClisCount();
 }

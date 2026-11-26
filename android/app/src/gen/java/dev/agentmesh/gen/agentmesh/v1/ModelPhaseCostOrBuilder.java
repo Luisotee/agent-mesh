@@ -57,4 +57,44 @@ public interface ModelPhaseCostOrBuilder extends
    * @return The outPerCall.
    */
   long getOutPerCall();
+
+  /**
+   * <code>int64 input = 7 [json_name = "input"];</code>
+   * @return The input.
+   */
+  long getInput();
+
+  /**
+   * <code>int64 w1 = 8 [json_name = "w1"];</code>
+   * @return The w1.
+   */
+  long getW1();
+
+  /**
+   * <code>int64 w5 = 9 [json_name = "w5"];</code>
+   * @return The w5.
+   */
+  long getW5();
+
+  /**
+   * <code>int64 read = 10 [json_name = "read"];</code>
+   * @return The read.
+   */
+  long getRead();
+
+  /**
+   * <code>int64 output = 11 [json_name = "output"];</code>
+   * @return The output.
+   */
+  long getOutput();
+
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 12 [json_name = "total"];</code>
+   * @return The total.
+   */
+  long getTotal();
 }

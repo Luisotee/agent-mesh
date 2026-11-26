@@ -147,7 +147,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - ★ Plan approval: by the root, or by the user at the "I approve plans" level; either way the worker continues in the same conversation on the execution model.
 - ★ Review rounds: reviewers picked by PR size, one merged findings file, findings checked and sent to the PR's author.
 - ★ The quota reserve and model switching on a limit, per vendor, across accounts. Orca has no account failover (#20512).
-- ★ Cost per run, agent, kind and phase (`mesh cost`).
+- ★ Cost per run, agent, kind and phase (`mesh cost`): tokens first for every CLI (a plan is billed by tokens, not API prices), Claude's API-equivalent dollars beside them.
 - Peers: standing askers on other projects, and research rounds.
 - Actions logged with their actor, human or agent.
 
@@ -261,7 +261,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 ### Usage and cost
 
-- ★ Quota per account with both windows a vendor has (Claude's 5-hour and weekly ones), each with its reset time and the reserve line, and a warning before the reserve (P, O). Built on the desktop (2026-11-26): the Usage and cost screen from `GetUsage` (read again every minute while open) and `GetCost` (on opening, a change of span, or Refresh); a warning once a window is at the reserve (not before it); not on Android yet.
+- ★ Quota per account with both windows a vendor has (Claude's 5-hour and weekly ones), each with its reset time and the reserve line, and a warning before the reserve (P, O). Built on the desktop (2026-11-26): the Usage and cost screen from `GetUsage` (read again every minute while open) and `GetCost` (on opening, a change of span, or Refresh), tokens as the main figure and Claude's dollars at API prices beside them; a warning once a window is at the reserve (not before it); not on Android yet.
 - ★ Cost per session and per run (P, ours). Built on the desktop (2026-11-26) from `GetCost`, for a span (24 h, 7 d, 30 d) or one run, with the CLI's tables and an optional per-agent one.
 - Daily charts per provider (O).
 

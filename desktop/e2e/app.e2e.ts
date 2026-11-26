@@ -334,14 +334,15 @@ test('the usage and cost screen asks the host for what mesh usage and mesh cost 
   await panel.getByText(/No reading/).waitFor()
   await expect.poll(() => panel.getByRole('row', { name: /Neon/ }).innerText()).toContain('5% left')
   await expect.poll(() => panel.getByRole('alert').innerText()).toContain('agy Gemini 4 Neon Neon')
-  // The same total the host computes for the CLI.
+  // The same figures the host computes for the CLI: tokens first, the dollars beside them.
   await panel.getByTestId('cost-total').waitFor({ timeout: 30_000 })
   const cli = await host.client().getCost({ since: '7d' })
-  await expect.poll(() => panel.getByTestId('cost-total').innerText()).toBe(`$${cli.usd.toFixed(2)}`)
+  await expect.poll(() => panel.getByTestId('cost-total').innerText()).toContain('tokens')
+  await expect.poll(() => panel.getByTestId('cost-usd').innerText()).toContain(`≈ $${cli.usd.toFixed(2)}`)
   await page.screenshot({ path: path.join(shots, 'usage.png') })
 
   // A run is a scope of its own, named by its title.
   await panel.getByRole('combobox', { name: 'Cost of' }).selectOption({ label: 'e2e run' })
-  await expect.poll(() => panel.getByText(/at API prices, run /).innerText()).toContain('run ')
+  await expect.poll(() => panel.getByTestId('cost-total').innerText()).toContain('run ')
   await page.getByRole('button', { name: 'Usage and cost' }).click() // back to the agents
 })

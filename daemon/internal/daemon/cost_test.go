@@ -412,7 +412,7 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 		"time": map[string]any{"created": t3},
 		"tokens": map[string]any{
 			"input": 1200, "output": 40, "reasoning": 10,
-			"cache": map[string]any{"read": 30_000},
+			"cache": map[string]any{"read": 30_000, "write": 500},
 		},
 	})
 	odb.Exec(`INSERT INTO message VALUES ('om1', 'ocses1', ?, ?)`, t3, string(msgJSON))
@@ -449,17 +449,57 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 	if r1.Reviews == nil || r1.Reviews.ReviewedPrs != 1 || r1.Reviews.ReviewersPerPr != 1.0 {
 		t.Fatalf("reviews = %+v", r1.Reviews)
 	}
-	// agy & opencode tokens:
-	foundTokenModels := map[string]int64{}
-	var ocModelUSD float64
-	for _, tm := range r1.TokensByModel {
-		foundTokenModels[tm.Model+":"+tm.Phase] = tm.Calls
-		if tm.Model == "opencode/big-pickle" {
-			ocModelUSD = tm.Usd
+	// agy and OpenCode rows sit beside Claude's, by model and phase, with their tokens.
+	foundTokenModels := map[string]*v1.ModelPhaseCost{}
+	for _, tm := range r1.ByModel {
+		foundTokenModels[tm.Model+":"+tm.Phase] = tm
+	}
+	oc := foundTokenModels["opencode/big-pickle:"]
+	if foundTokenModels["argon:plan"] == nil || foundTokenModels["argon:plan"].Calls != 1 || foundTokenModels["hydrogen:exec"] == nil || foundTokenModels["hydrogen:exec"].Calls != 1 ||
+		oc == nil || oc.Calls != 1 || !approx(oc.Usd, 0.05) || oc.Input != 1200 || oc.W5 != 500 || oc.Read != 30_000 || oc.Output != 50 || oc.Total != 1750 {
+		t.Fatalf("by_model = %+v", r1.ByModel)
+	}
+	// Tokens are the main figure: total = input + cache writes + output, cache reads apart, and a row per CLI.
+	byCLI := map[string]*v1.CliCost{}
+	for _, c := range r1.Clis {
+		byCLI[c.Cli] = c
+	}
+	// Claude: output 3000 + 4000 + 1000, and the subagent's 10_000 cache write. agy: two steps of 1000 in, 300 out.
+	if c := byCLI["claude"]; c == nil || c.Total != 18_000 || c.W5 != 10_000 || c.Output != 8000 || c.Read != 0 || !strings.HasPrefix(c.Basis, "exact") {
+		t.Fatalf("claude = %+v", byCLI["claude"])
+	}
+	if c := byCLI["agy"]; c == nil || c.Total != 2600 || c.Input != 2000 || c.Read != 40_000 || c.Basis == "" || strings.HasPrefix(c.Basis, "exact") {
+		t.Fatalf("agy = %+v", byCLI["agy"])
+	}
+	if c := byCLI["opencode"]; c == nil || c.Total != 1750 || c.Read != 30_000 {
+		t.Fatalf("opencode = %+v", byCLI["opencode"])
+	}
+	if r1.TotalTokens != 22_350 || r1.TotalRead != 70_000 {
+		t.Fatalf("total_tokens = %d, total_read = %d", r1.TotalTokens, r1.TotalRead)
+	}
+	// agy and OpenCode agents are rows too (they were only in the token tables), sorted by tokens, not dollars.
+	if a := byAgent["repo-agy"]; a == nil || a.Total != 2600 || a.Read != 40_000 || a.Usd != 0 || a.Kind != "agy worker" {
+		t.Fatalf("repo-agy = %+v", a)
+	}
+	if a := byAgent["repo-review-7-opencode"]; a == nil || a.Total != 1750 || !approx(a.Usd, 0.05) {
+		t.Fatalf("repo-review-7-opencode = %+v", a)
+	}
+	for i := 1; i < len(r1.Agents); i++ {
+		if r1.Agents[i-1].Total < r1.Agents[i].Total {
+			t.Fatalf("agents are not sorted by tokens: %+v", r1.Agents)
 		}
 	}
-	if foundTokenModels["argon:plan"] != 1 || foundTokenModels["hydrogen:exec"] != 1 || foundTokenModels["opencode/big-pickle:"] != 1 || !approx(ocModelUSD, 0.05) {
-		t.Fatalf("tokens_by_model = %+v", r1.TokensByModel)
+	for i := 1; i < len(r1.Kinds); i++ {
+		if r1.Kinds[i-1].Total < r1.Kinds[i].Total {
+			t.Fatalf("kinds are not sorted by tokens: %+v", r1.Kinds)
+		}
+	}
+	var share float64
+	for _, k := range r1.Kinds {
+		share += k.TokenShare
+	}
+	if share < 99 || share > 101 {
+		t.Fatalf("token shares add to %v: %+v", share, r1.Kinds)
 	}
 
 	// Run 2 gets peer's min 118 compaction + min 121 call ($0.12).

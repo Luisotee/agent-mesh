@@ -23,6 +23,7 @@ public  final class GetCostResponse extends
     byModel_ = emptyProtobufList();
     tokensByModel_ = emptyProtobufList();
     verdicts_ = emptyProtobufList();
+    clis_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int SCOPE_FIELD_NUMBER = 1;
@@ -122,6 +123,11 @@ public  final class GetCostResponse extends
   public static final int USD_FIELD_NUMBER = 3;
   private double usd_;
   /**
+   * <pre>
+   * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   * </pre>
+   *
    * <code>double usd = 3 [json_name = "usd"];</code>
    * @return The usd.
    */
@@ -130,6 +136,11 @@ public  final class GetCostResponse extends
     return usd_;
   }
   /**
+   * <pre>
+   * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   * </pre>
+   *
    * <code>double usd = 3 [json_name = "usd"];</code>
    * @param value The usd to set.
    */
@@ -138,6 +149,11 @@ public  final class GetCostResponse extends
     usd_ = value;
   }
   /**
+   * <pre>
+   * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   * </pre>
+   *
    * <code>double usd = 3 [json_name = "usd"];</code>
    */
   private void clearUsd() {
@@ -782,6 +798,208 @@ public  final class GetCostResponse extends
     resets_ = 0;
   }
 
+  public static final int TOTAL_TOKENS_FIELD_NUMBER = 12;
+  private long totalTokens_;
+  /**
+   * <pre>
+   * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+   * </pre>
+   *
+   * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+   * @return The totalTokens.
+   */
+  @java.lang.Override
+  public long getTotalTokens() {
+    return totalTokens_;
+  }
+  /**
+   * <pre>
+   * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+   * </pre>
+   *
+   * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+   * @param value The totalTokens to set.
+   */
+  private void setTotalTokens(long value) {
+    
+    totalTokens_ = value;
+  }
+  /**
+   * <pre>
+   * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+   * </pre>
+   *
+   * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+   */
+  private void clearTotalTokens() {
+
+    totalTokens_ = 0L;
+  }
+
+  public static final int TOTAL_READ_FIELD_NUMBER = 13;
+  private long totalRead_;
+  /**
+   * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+   * @return The totalRead.
+   */
+  @java.lang.Override
+  public long getTotalRead() {
+    return totalRead_;
+  }
+  /**
+   * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+   * @param value The totalRead to set.
+   */
+  private void setTotalRead(long value) {
+    
+    totalRead_ = value;
+  }
+  /**
+   * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+   */
+  private void clearTotalRead() {
+
+    totalRead_ = 0L;
+  }
+
+  public static final int CLIS_FIELD_NUMBER = 14;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.CliCost> clis_;
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.CliCost> getClisList() {
+    return clis_;
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.CliCostOrBuilder> 
+      getClisOrBuilderList() {
+    return clis_;
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  @java.lang.Override
+  public int getClisCount() {
+    return clis_.size();
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.CliCost getClis(int index) {
+    return clis_.get(index);
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.CliCostOrBuilder getClisOrBuilder(
+      int index) {
+    return clis_.get(index);
+  }
+  private void ensureClisIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.CliCost> tmp = clis_;
+    if (!tmp.isModifiable()) {
+      clis_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  private void setClis(
+      int index, dev.agentmesh.gen.agentmesh.v1.CliCost value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClisIsMutable();
+    clis_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  private void addClis(dev.agentmesh.gen.agentmesh.v1.CliCost value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClisIsMutable();
+    clis_.add(value);
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  private void addClis(
+      int index, dev.agentmesh.gen.agentmesh.v1.CliCost value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClisIsMutable();
+    clis_.add(index, value);
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  private void addAllClis(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.CliCost> values) {
+    ensureClisIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, clis_);
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  private void clearClis() {
+    clis_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Per CLI, tokens first, with how exact each is.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+   */
+  private void removeClis(int index) {
+    ensureClisIsMutable();
+    clis_.remove(index);
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.GetCostResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -978,6 +1196,11 @@ public  final class GetCostResponse extends
     }
 
     /**
+     * <pre>
+     * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+     * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+     * </pre>
+     *
      * <code>double usd = 3 [json_name = "usd"];</code>
      * @return The usd.
      */
@@ -986,6 +1209,11 @@ public  final class GetCostResponse extends
       return instance.getUsd();
     }
     /**
+     * <pre>
+     * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+     * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+     * </pre>
+     *
      * <code>double usd = 3 [json_name = "usd"];</code>
      * @param value The usd to set.
      * @return This builder for chaining.
@@ -996,6 +1224,11 @@ public  final class GetCostResponse extends
       return this;
     }
     /**
+     * <pre>
+     * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+     * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+     * </pre>
+     *
      * <code>double usd = 3 [json_name = "usd"];</code>
      * @return This builder for chaining.
      */
@@ -1692,6 +1925,224 @@ public  final class GetCostResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+     * </pre>
+     *
+     * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+     * @return The totalTokens.
+     */
+    @java.lang.Override
+    public long getTotalTokens() {
+      return instance.getTotalTokens();
+    }
+    /**
+     * <pre>
+     * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+     * </pre>
+     *
+     * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+     * @param value The totalTokens to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTotalTokens(long value) {
+      copyOnWrite();
+      instance.setTotalTokens(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+     * </pre>
+     *
+     * <code>int64 total_tokens = 12 [json_name = "totalTokens"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTotalTokens() {
+      copyOnWrite();
+      instance.clearTotalTokens();
+      return this;
+    }
+
+    /**
+     * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+     * @return The totalRead.
+     */
+    @java.lang.Override
+    public long getTotalRead() {
+      return instance.getTotalRead();
+    }
+    /**
+     * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+     * @param value The totalRead to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTotalRead(long value) {
+      copyOnWrite();
+      instance.setTotalRead(value);
+      return this;
+    }
+    /**
+     * <code>int64 total_read = 13 [json_name = "totalRead"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTotalRead() {
+      copyOnWrite();
+      instance.clearTotalRead();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.CliCost> getClisList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getClisList());
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    @java.lang.Override
+    public int getClisCount() {
+      return instance.getClisCount();
+    }/**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.CliCost getClis(int index) {
+      return instance.getClis(index);
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder setClis(
+        int index, dev.agentmesh.gen.agentmesh.v1.CliCost value) {
+      copyOnWrite();
+      instance.setClis(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder setClis(
+        int index, dev.agentmesh.gen.agentmesh.v1.CliCost.Builder builderForValue) {
+      copyOnWrite();
+      instance.setClis(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder addClis(dev.agentmesh.gen.agentmesh.v1.CliCost value) {
+      copyOnWrite();
+      instance.addClis(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder addClis(
+        int index, dev.agentmesh.gen.agentmesh.v1.CliCost value) {
+      copyOnWrite();
+      instance.addClis(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder addClis(
+        dev.agentmesh.gen.agentmesh.v1.CliCost.Builder builderForValue) {
+      copyOnWrite();
+      instance.addClis(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder addClis(
+        int index, dev.agentmesh.gen.agentmesh.v1.CliCost.Builder builderForValue) {
+      copyOnWrite();
+      instance.addClis(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder addAllClis(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.CliCost> values) {
+      copyOnWrite();
+      instance.addAllClis(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder clearClis() {
+      copyOnWrite();
+      instance.clearClis();
+      return this;
+    }
+    /**
+     * <pre>
+     * Per CLI, tokens first, with how exact each is.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.CliCost clis = 14 [json_name = "clis"];</code>
+     */
+    public Builder removeClis(int index) {
+      copyOnWrite();
+      instance.removeClis(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetCostResponse)
   }
   @java.lang.Override
@@ -1726,11 +2177,15 @@ public  final class GetCostResponse extends
             "verdicts_",
             dev.agentmesh.gen.agentmesh.v1.VerdictCostSummary.class,
             "resets_",
+            "totalTokens_",
+            "totalRead_",
+            "clis_",
+            dev.agentmesh.gen.agentmesh.v1.CliCost.class,
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0006\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u000e\u0000\u0001\u0001\u000e\u000e\u0000\u0007\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0000\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009\u0000" +
-              "\n\u001b\u000b\u0004";
+              "\n\u001b\u000b\u0004\f\u0002\r\u0002\u000e\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

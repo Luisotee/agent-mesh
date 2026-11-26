@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/report.proto.
  */
 export const file_agentmesh_v1_report: GenFile = /*@__PURE__*/
-  fileDesc("ChlhZ2VudG1lc2gvdjEvcmVwb3J0LnByb3RvEgxhZ2VudG1lc2gudjEiTgoOR2V0Q29zdFJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEg0KBXNpbmNlGAIgASgJEg0KBXVudGlsGAMgASgJEg4KBmFnZW50cxgEIAEoCCLqAQoJQWdlbnRDb3N0EgsKA3J1bhgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSDQoFY2FsbHMYBCABKAMSDQoFaW5wdXQYBSABKAMSCgoCdzEYBiABKAMSCgoCdzUYByABKAMSDAoEcmVhZBgIIAEoAxIOCgZvdXRwdXQYCSABKAMSCwoDdXNkGAogASgBEhAKCHBsYW5fdXNkGAsgASgBEhAKCGV4ZWNfdXNkGAwgASgBEg8KB3N1Yl91c2QYDSABKAESDAoEY29sZBgOIAEoAxIQCghjb2xkX3VzZBgPIAEoASLMAgoIS2luZENvc3QSDAoEa2luZBgBIAEoCRIQCghzZXNzaW9ucxgCIAEoAxINCgVjYWxscxgDIAEoAxILCgN1c2QYBCABKAESDQoFc2hhcmUYBSABKAESFAoMdXNkX3Blcl9jYWxsGAYgASgBEhQKDGN0eF9wZXJfY2FsbBgHIAEoAxIUCgxvdXRfcGVyX2NhbGwYCCABKAMSDQoFaW5wdXQYCSABKAMSCgoCdzEYCiABKAMSCgoCdzUYCyABKAMSDAoEcmVhZBgMIAEoAxIOCgZvdXRwdXQYDSABKAMSFgoOd3JpdGVfNW1fc2hhcmUYDiABKAESGAoQZmlyc3RfY3R4X21lZGlhbhgPIAEoAxIcChRoYXNfZmlyc3RfY3R4X21lZGlhbhgQIAEoCBIMCgRjb2xkGBEgASgDEhAKCGNvbGRfdXNkGBIgASgBIngKDVRva2VuS2luZENvc3QSDAoEa2luZBgBIAEoCRIQCghzZXNzaW9ucxgCIAEoAxINCgVjYWxscxgDIAEoAxINCgVpbnB1dBgEIAEoAxIMCgRyZWFkGAUgASgDEg4KBm91dHB1dBgGIAEoAxILCgN1c2QYByABKAEidgoOTW9kZWxQaGFzZUNvc3QSDQoFbW9kZWwYASABKAkSDQoFcGhhc2UYAiABKAkSDQoFY2FsbHMYAyABKAMSCwoDdXNkGAQgASgBEhQKDGN0eF9wZXJfY2FsbBgFIAEoAxIUCgxvdXRfcGVyX2NhbGwYBiABKAMifAoTVG9rZW5Nb2RlbFBoYXNlQ29zdBINCgVtb2RlbBgBIAEoCRINCgVwaGFzZRgCIAEoCRINCgVjYWxscxgDIAEoAxINCgVpbnB1dBgEIAEoAxIMCgRyZWFkGAUgASgDEg4KBm91dHB1dBgGIAEoAxILCgN1c2QYByABKAEikQIKEVJldmlld0Nvc3RTdW1tYXJ5EgsKA3BycxgBIAEoAxILCgN1c2QYAiABKAESEgoKdXNkX3Blcl9wchgDIAEoARIWCg5oYXNfdXNkX3Blcl9wchgEIAEoCBIUCgxyZXZpZXdlZF9wcnMYBSABKAMSGAoQcmV2aWV3ZXJzX3Blcl9wchgGIAEoARIcChRoYXNfcmV2aWV3ZXJzX3Blcl9wchgHIAEoCBI6CgZieV9jbGkYCCADKAsyKi5hZ2VudG1lc2gudjEuUmV2aWV3Q29zdFN1bW1hcnkuQnlDbGlFbnRyeRosCgpCeUNsaUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoAToCOAEi0AEKElZlcmRpY3RDb3N0U3VtbWFyeRIMCgRraW5kGAEgASgJEg0KBW1vZGVsGAIgASgJEgwKBHRpZXIYAyABKAkSDwoHcmV2aWV3cxgEIAEoAxINCgVhZ3JlZRgFIAEoAxINCgVvdGhlchgGIAEoAxIQCghkaXNhZ3JlZRgHIAEoAxIQCghibG9ja2luZxgIIAEoAxIQCghmaW5kaW5ncxgJIAEoAxISCgphZ3JlZWRfcGN0GAogASgFEhYKDmhhc19hZ3JlZWRfcGN0GAsgASgIIqcDCg9HZXRDb3N0UmVzcG9uc2USDQoFc2NvcGUYASABKAkSFAoMcHJpY2VzX2FzX29mGAIgASgJEgsKA3VzZBgDIAEoARInCgZhZ2VudHMYBCADKAsyFy5hZ2VudG1lc2gudjEuQWdlbnRDb3N0EiUKBWtpbmRzGAUgAygLMhYuYWdlbnRtZXNoLnYxLktpbmRDb3N0EjAKC3Rva2VuX2tpbmRzGAYgAygLMhsuYWdlbnRtZXNoLnYxLlRva2VuS2luZENvc3QSLgoIYnlfbW9kZWwYByADKAsyHC5hZ2VudG1lc2gudjEuTW9kZWxQaGFzZUNvc3QSOgoPdG9rZW5zX2J5X21vZGVsGAggAygLMiEuYWdlbnRtZXNoLnYxLlRva2VuTW9kZWxQaGFzZUNvc3QSMAoHcmV2aWV3cxgJIAEoCzIfLmFnZW50bWVzaC52MS5SZXZpZXdDb3N0U3VtbWFyeRIyCgh2ZXJkaWN0cxgKIAMoCzIgLmFnZW50bWVzaC52MS5WZXJkaWN0Q29zdFN1bW1hcnkSDgoGcmVzZXRzGAsgASgFIlkKEkNoZWNrTW9kZWxzUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWNoZWNrGAIgASgIEgsKA2FjaxgDIAMoCSI0ChBNb2RlbEZhbWlseUVudHJ5Eg4KBmZhbWlseRgBIAEoCRIQCghpbl90aWVycxgCIAEoCCKSAQoKS2luZE1vZGVscxIMCgRraW5kGAEgASgJEi4KBmxpc3RlZBgCIAMoCzIeLmFnZW50bWVzaC52MS5Nb2RlbEZhbWlseUVudHJ5EhQKDG5ld19mYW1pbGllcxgDIAMoCRIYChByZXRpcmVkX2ZhbWlsaWVzGAQgAygJEhYKDmFja2VkX2ZhbWlsaWVzGAUgAygJIn4KE0NoZWNrTW9kZWxzUmVzcG9uc2USLgoKY2hlY2tlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoFa2luZHMYAiADKAsyGC5hZ2VudG1lc2gudjEuS2luZE1vZGVscxIOCgZub3RpY2UYAyABKAkiUAoTUmVzb2x2ZU1vZGVsUmVxdWVzdBIMCgRraW5kGAEgASgJEgwKBHRpZXIYAiABKAkSDQoFbW9kZWwYAyABKAkSDgoGZWZmb3J0GAQgASgJIi0KCkNoYWluTW9kZWwSDQoFbW9kZWwYASABKAkSEAoIc3RhbmRpbmcYAiABKAkiegoUUmVzb2x2ZU1vZGVsUmVzcG9uc2USDAoEa2luZBgBIAEoCRIMCgR0aWVyGAIgASgJEg0KBW1vZGVsGAMgASgJEg4KBmVmZm9ydBgEIAEoCRInCgVjaGFpbhgFIAMoCzIYLmFnZW50bWVzaC52MS5DaGFpbk1vZGVsIicKFUNoZWNrQ29uZmxpY3RzUmVxdWVzdBIOCgZydW5faWQYASABKAkieAoOQnJhbmNoQ29uZmxpY3QSDAoEcmVwbxgBIAEoCRIOCgZicmFuY2gYAiABKAkSDwoHYWdhaW5zdBgDIAEoCRINCgVmaWxlcxgEIAMoCRIoCgRraW5kGAUgASgOMhouYWdlbnRtZXNoLnYxLkNvbmZsaWN0S2luZCKlAQoWQ2hlY2tDb25mbGljdHNSZXNwb25zZRIYChBjaGVja2VkX2JyYW5jaGVzGAEgASgFEi8KCWNvbmZsaWN0cxgCIAMoCzIcLmFnZW50bWVzaC52MS5CcmFuY2hDb25mbGljdBIuCghvdmVybGFwcxgDIAMoCzIcLmFnZW50bWVzaC52MS5CcmFuY2hDb25mbGljdBIQCgh3YXJuaW5ncxgEIAMoCSpkCgxDb25mbGljdEtpbmQSHQoZQ09ORkxJQ1RfS0lORF9VTlNQRUNJRklFRBAAEhoKFkNPTkZMSUNUX0tJTkRfQ09ORkxJQ1QQARIZChVDT05GTElDVF9LSU5EX09WRVJMQVAQAmIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("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YWwYCCABKAMSDQoFYmFzaXMYCSABKAki9gMKD0dldENvc3RSZXNwb25zZRINCgVzY29wZRgBIAEoCRIUCgxwcmljZXNfYXNfb2YYAiABKAkSCwoDdXNkGAMgASgBEicKBmFnZW50cxgEIAMoCzIXLmFnZW50bWVzaC52MS5BZ2VudENvc3QSJQoFa2luZHMYBSADKAsyFi5hZ2VudG1lc2gudjEuS2luZENvc3QSMAoLdG9rZW5fa2luZHMYBiADKAsyGy5hZ2VudG1lc2gudjEuVG9rZW5LaW5kQ29zdBIuCghieV9tb2RlbBgHIAMoCzIcLmFnZW50bWVzaC52MS5Nb2RlbFBoYXNlQ29zdBI6Cg90b2tlbnNfYnlfbW9kZWwYCCADKAsyIS5hZ2VudG1lc2gudjEuVG9rZW5Nb2RlbFBoYXNlQ29zdBIwCgdyZXZpZXdzGAkgASgLMh8uYWdlbnRtZXNoLnYxLlJldmlld0Nvc3RTdW1tYXJ5EjIKCHZlcmRpY3RzGAogAygLMiAuYWdlbnRtZXNoLnYxLlZlcmRpY3RDb3N0U3VtbWFyeRIOCgZyZXNldHMYCyABKAUSFAoMdG90YWxfdG9rZW5zGAwgASgDEhIKCnRvdGFsX3JlYWQYDSABKAMSIwoEY2xpcxgOIAMoCzIVLmFnZW50bWVzaC52MS5DbGlDb3N0IlkKEkNoZWNrTW9kZWxzUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWNoZWNrGAIgASgIEgsKA2FjaxgDIAMoCSI0ChBNb2RlbEZhbWlseUVudHJ5Eg4KBmZhbWlseRgBIAEoCRIQCghpbl90aWVycxgCIAEoCCKSAQoKS2luZE1vZGVscxIMCgRraW5kGAEgASgJEi4KBmxpc3RlZBgCIAMoCzIeLmFnZW50bWVzaC52MS5Nb2RlbEZhbWlseUVudHJ5EhQKDG5ld19mYW1pbGllcxgDIAMoCRIYChByZXRpcmVkX2ZhbWlsaWVzGAQgAygJEhYKDmFja2VkX2ZhbWlsaWVzGAUgAygJIn4KE0NoZWNrTW9kZWxzUmVzcG9uc2USLgoKY2hlY2tlZF9hdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoFa2luZHMYAiADKAsyGC5hZ2VudG1lc2gudjEuS2luZE1vZGVscxIOCgZub3RpY2UYAyABKAkiUAoTUmVzb2x2ZU1vZGVsUmVxdWVzdBIMCgRraW5kGAEgASgJEgwKBHRpZXIYAiABKAkSDQoFbW9kZWwYAyABKAkSDgoGZWZmb3J0GAQgASgJIi0KCkNoYWluTW9kZWwSDQoFbW9kZWwYASABKAkSEAoIc3RhbmRpbmcYAiABKAkiegoUUmVzb2x2ZU1vZGVsUmVzcG9uc2USDAoEa2luZBgBIAEoCRIMCgR0aWVyGAIgASgJEg0KBW1vZGVsGAMgASgJEg4KBmVmZm9ydBgEIAEoCRInCgVjaGFpbhgFIAMoCzIYLmFnZW50bWVzaC52MS5DaGFpbk1vZGVsIicKFUNoZWNrQ29uZmxpY3RzUmVxdWVzdBIOCgZydW5faWQYASABKAkieAoOQnJhbmNoQ29uZmxpY3QSDAoEcmVwbxgBIAEoCRIOCgZicmFuY2gYAiABKAkSDwoHYWdhaW5zdBgDIAEoCRINCgVmaWxlcxgEIAMoCRIoCgRraW5kGAUgASgOMhouYWdlbnRtZXNoLnYxLkNvbmZsaWN0S2luZCKlAQoWQ2hlY2tDb25mbGljdHNSZXNwb25zZRIYChBjaGVja2VkX2JyYW5jaGVzGAEgASgFEi8KCWNvbmZsaWN0cxgCIAMoCzIcLmFnZW50bWVzaC52MS5CcmFuY2hDb25mbGljdBIuCghvdmVybGFwcxgDIAMoCzIcLmFnZW50bWVzaC52MS5CcmFuY2hDb25mbGljdBIQCgh3YXJuaW5ncxgEIAMoCSpkCgxDb25mbGljdEtpbmQSHQoZQ09ORkxJQ1RfS0lORF9VTlNQRUNJRklFRBAAEhoKFkNPTkZMSUNUX0tJTkRfQ09ORkxJQ1QQARIZChVDT05GTElDVF9LSU5EX09WRVJMQVAQAmIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message agentmesh.v1.GetCostRequest
@@ -134,6 +134,14 @@ export type AgentCost = Message<"agentmesh.v1.AgentCost"> & {
    * @generated from field: double cold_usd = 15;
    */
   coldUsd: number;
+
+  /**
+   * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+   * most of a Claude session's tokens but cost a plan far less.
+   *
+   * @generated from field: int64 total = 16;
+   */
+  total: bigint;
 };
 
 /**
@@ -236,6 +244,20 @@ export type KindCost = Message<"agentmesh.v1.KindCost"> & {
    * @generated from field: double cold_usd = 18;
    */
   coldUsd: number;
+
+  /**
+   * input + w1 + w5 + output, as AgentCost.total.
+   *
+   * @generated from field: int64 total = 19;
+   */
+  total: bigint;
+
+  /**
+   * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+   *
+   * @generated from field: double token_share = 20;
+   */
+  tokenShare: number;
 };
 
 /**
@@ -246,6 +268,8 @@ export const KindCostSchema: GenMessage<KindCost> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_report, 2);
 
 /**
+ * Deprecated: GetCostResponse.kinds now carries agy and OpenCode as well; this list is no longer filled.
+ *
  * @generated from message agentmesh.v1.TokenKindCost
  */
 export type TokenKindCost = Message<"agentmesh.v1.TokenKindCost"> & {
@@ -327,6 +351,38 @@ export type ModelPhaseCost = Message<"agentmesh.v1.ModelPhaseCost"> & {
    * @generated from field: int64 out_per_call = 6;
    */
   outPerCall: bigint;
+
+  /**
+   * @generated from field: int64 input = 7;
+   */
+  input: bigint;
+
+  /**
+   * @generated from field: int64 w1 = 8;
+   */
+  w1: bigint;
+
+  /**
+   * @generated from field: int64 w5 = 9;
+   */
+  w5: bigint;
+
+  /**
+   * @generated from field: int64 read = 10;
+   */
+  read: bigint;
+
+  /**
+   * @generated from field: int64 output = 11;
+   */
+  output: bigint;
+
+  /**
+   * input + w1 + w5 + output, as AgentCost.total.
+   *
+   * @generated from field: int64 total = 12;
+   */
+  total: bigint;
 };
 
 /**
@@ -337,6 +393,8 @@ export const ModelPhaseCostSchema: GenMessage<ModelPhaseCost> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_report, 4);
 
 /**
+ * Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
+ *
  * @generated from message agentmesh.v1.TokenModelPhaseCost
  */
 export type TokenModelPhaseCost = Message<"agentmesh.v1.TokenModelPhaseCost"> & {
@@ -503,6 +561,71 @@ export const VerdictCostSummarySchema: GenMessage<VerdictCostSummary> = /*@__PUR
   messageDesc(file_agentmesh_v1_report, 7);
 
 /**
+ * One CLI's tokens in the measured span, and how far to trust them.
+ *
+ * @generated from message agentmesh.v1.CliCost
+ */
+export type CliCost = Message<"agentmesh.v1.CliCost"> & {
+  /**
+   * claude, agy or opencode.
+   *
+   * @generated from field: string cli = 1;
+   */
+  cli: string;
+
+  /**
+   * @generated from field: int64 calls = 2;
+   */
+  calls: bigint;
+
+  /**
+   * @generated from field: int64 input = 3;
+   */
+  input: bigint;
+
+  /**
+   * @generated from field: int64 w1 = 4;
+   */
+  w1: bigint;
+
+  /**
+   * @generated from field: int64 w5 = 5;
+   */
+  w5: bigint;
+
+  /**
+   * @generated from field: int64 read = 6;
+   */
+  read: bigint;
+
+  /**
+   * @generated from field: int64 output = 7;
+   */
+  output: bigint;
+
+  /**
+   * input + w1 + w5 + output, as AgentCost.total.
+   *
+   * @generated from field: int64 total = 8;
+   */
+  total: bigint;
+
+  /**
+   * Exact or an estimate, and why (what the CLI records).
+   *
+   * @generated from field: string basis = 9;
+   */
+  basis: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.CliCost.
+ * Use `create(CliCostSchema)` to create a new message.
+ */
+export const CliCostSchema: GenMessage<CliCost> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_report, 8);
+
+/**
  * @generated from message agentmesh.v1.GetCostResponse
  */
 export type GetCostResponse = Message<"agentmesh.v1.GetCostResponse"> & {
@@ -517,6 +640,9 @@ export type GetCostResponse = Message<"agentmesh.v1.GetCostResponse"> & {
   pricesAsOf: string;
 
   /**
+   * What the Claude sessions would cost at API prices (a plan is billed otherwise): context beside the tokens, not the
+   * measure. agy and OpenCode have no price here (an OpenCode provider's own reported cost sits in each row's usd).
+   *
    * @generated from field: double usd = 3;
    */
   usd: number;
@@ -560,6 +686,25 @@ export type GetCostResponse = Message<"agentmesh.v1.GetCostResponse"> & {
    * @generated from field: int32 resets = 11;
    */
   resets: number;
+
+  /**
+   * The main figure: input + cache writes + output over every CLI (total of the rows). Cache reads are in total_read.
+   *
+   * @generated from field: int64 total_tokens = 12;
+   */
+  totalTokens: bigint;
+
+  /**
+   * @generated from field: int64 total_read = 13;
+   */
+  totalRead: bigint;
+
+  /**
+   * Per CLI, tokens first, with how exact each is.
+   *
+   * @generated from field: repeated agentmesh.v1.CliCost clis = 14;
+   */
+  clis: CliCost[];
 };
 
 /**
@@ -567,7 +712,7 @@ export type GetCostResponse = Message<"agentmesh.v1.GetCostResponse"> & {
  * Use `create(GetCostResponseSchema)` to create a new message.
  */
 export const GetCostResponseSchema: GenMessage<GetCostResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 8);
+  messageDesc(file_agentmesh_v1_report, 9);
 
 /**
  * @generated from message agentmesh.v1.CheckModelsRequest
@@ -598,7 +743,7 @@ export type CheckModelsRequest = Message<"agentmesh.v1.CheckModelsRequest"> & {
  * Use `create(CheckModelsRequestSchema)` to create a new message.
  */
 export const CheckModelsRequestSchema: GenMessage<CheckModelsRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 9);
+  messageDesc(file_agentmesh_v1_report, 10);
 
 /**
  * @generated from message agentmesh.v1.ModelFamilyEntry
@@ -620,7 +765,7 @@ export type ModelFamilyEntry = Message<"agentmesh.v1.ModelFamilyEntry"> & {
  * Use `create(ModelFamilyEntrySchema)` to create a new message.
  */
 export const ModelFamilyEntrySchema: GenMessage<ModelFamilyEntry> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 10);
+  messageDesc(file_agentmesh_v1_report, 11);
 
 /**
  * @generated from message agentmesh.v1.KindModels
@@ -657,7 +802,7 @@ export type KindModels = Message<"agentmesh.v1.KindModels"> & {
  * Use `create(KindModelsSchema)` to create a new message.
  */
 export const KindModelsSchema: GenMessage<KindModels> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 11);
+  messageDesc(file_agentmesh_v1_report, 12);
 
 /**
  * @generated from message agentmesh.v1.CheckModelsResponse
@@ -686,7 +831,7 @@ export type CheckModelsResponse = Message<"agentmesh.v1.CheckModelsResponse"> & 
  * Use `create(CheckModelsResponseSchema)` to create a new message.
  */
 export const CheckModelsResponseSchema: GenMessage<CheckModelsResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 12);
+  messageDesc(file_agentmesh_v1_report, 13);
 
 /**
  * @generated from message agentmesh.v1.ResolveModelRequest
@@ -726,7 +871,7 @@ export type ResolveModelRequest = Message<"agentmesh.v1.ResolveModelRequest"> & 
  * Use `create(ResolveModelRequestSchema)` to create a new message.
  */
 export const ResolveModelRequestSchema: GenMessage<ResolveModelRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 13);
+  messageDesc(file_agentmesh_v1_report, 14);
 
 /**
  * @generated from message agentmesh.v1.ChainModel
@@ -750,7 +895,7 @@ export type ChainModel = Message<"agentmesh.v1.ChainModel"> & {
  * Use `create(ChainModelSchema)` to create a new message.
  */
 export const ChainModelSchema: GenMessage<ChainModel> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 14);
+  messageDesc(file_agentmesh_v1_report, 15);
 
 /**
  * @generated from message agentmesh.v1.ResolveModelResponse
@@ -791,7 +936,7 @@ export type ResolveModelResponse = Message<"agentmesh.v1.ResolveModelResponse"> 
  * Use `create(ResolveModelResponseSchema)` to create a new message.
  */
 export const ResolveModelResponseSchema: GenMessage<ResolveModelResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 15);
+  messageDesc(file_agentmesh_v1_report, 16);
 
 /**
  * @generated from message agentmesh.v1.CheckConflictsRequest
@@ -810,7 +955,7 @@ export type CheckConflictsRequest = Message<"agentmesh.v1.CheckConflictsRequest"
  * Use `create(CheckConflictsRequestSchema)` to create a new message.
  */
 export const CheckConflictsRequestSchema: GenMessage<CheckConflictsRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 16);
+  messageDesc(file_agentmesh_v1_report, 17);
 
 /**
  * @generated from message agentmesh.v1.BranchConflict
@@ -847,7 +992,7 @@ export type BranchConflict = Message<"agentmesh.v1.BranchConflict"> & {
  * Use `create(BranchConflictSchema)` to create a new message.
  */
 export const BranchConflictSchema: GenMessage<BranchConflict> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 17);
+  messageDesc(file_agentmesh_v1_report, 18);
 
 /**
  * @generated from message agentmesh.v1.CheckConflictsResponse
@@ -879,7 +1024,7 @@ export type CheckConflictsResponse = Message<"agentmesh.v1.CheckConflictsRespons
  * Use `create(CheckConflictsResponseSchema)` to create a new message.
  */
 export const CheckConflictsResponseSchema: GenMessage<CheckConflictsResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_report, 18);
+  messageDesc(file_agentmesh_v1_report, 19);
 
 /**
  * @generated from enum agentmesh.v1.ConflictKind

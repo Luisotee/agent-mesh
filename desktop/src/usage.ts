@@ -91,8 +91,15 @@ export interface CostTable {
 export interface CostView {
   /** "run abc123", "since 7d" and the like, as the host names what it measured. */
   scope: string
+  /** The main figure: input + cache writes + output over every CLI, as "12.3M tokens". */
+  tokens: string
+  /** What the total holds, and the cache reads kept apart from it. */
+  breakdown: string
+  /** What the Claude sessions would cost at API prices ("≈ $4.51"): context beside the tokens, not the measure. */
   usd: string
   pricesAsOf: string
+  /** Per CLI, how far its counts can be trusted. */
+  bases: { cli: string; basis: string }[]
   tables: CostTable[]
   /** Summary lines under the tables: reviews and root resets. */
   notes: string[]
@@ -100,42 +107,45 @@ export interface CostView {
 
 const phase = (p: string) => p || '-'
 
-/** `mesh cost`'s tables, in its order: kinds, models and phases, agy and OpenCode's token tables, agents, verdicts. */
+interface Counts {
+  input: bigint
+  w1: bigint
+  w5: bigint
+  output: bigint
+  total: bigint
+  read: bigint
+}
+
+/** The token columns every table opens with: input, cache write, output, the total, and the cache reads apart. */
+const COUNT_HEADERS = ['input', 'cache write', 'output', 'total', 'cache read']
+const counts = (c: Counts) => [tokens(c.input), tokens(c.w1 + c.w5), tokens(c.output), tokens(c.total), tokens(c.read)]
+
+/** `mesh cost`'s tables: tokens first (CLI, kind, model and phase, agent), dollars as a trailing "≈ $" column. */
 export function costView(r: GetCostResponse): CostView {
   const tables: CostTable[] = []
-  if (r.kinds.length)
+  if (r.clis.length)
     tables.push({
       title: 'By CLI',
-      headers: ['kind', 'sessions', 'calls', '$', '% of spend', '$/call', 'ctx/call', 'out/call'],
-      rows: r.kinds.map((k) => [k.kind, String(k.sessions), String(k.calls), k.usd.toFixed(2), k.share.toFixed(1), k.usdPerCall.toFixed(3), tokens(k.ctxPerCall), String(k.outPerCall)]),
+      headers: ['cli', 'calls', ...COUNT_HEADERS],
+      rows: r.clis.map((c) => [c.cli, String(c.calls), ...counts(c)]),
+    })
+  if (r.kinds.length)
+    tables.push({
+      title: 'By kind',
+      headers: ['kind', 'sessions', 'calls', ...COUNT_HEADERS, '% of tokens', '≈ $', 'ctx/call', 'out/call'],
+      rows: r.kinds.map((k) => [k.kind, String(k.sessions), String(k.calls), ...counts(k), k.tokenShare.toFixed(1), k.usd.toFixed(2), tokens(k.ctxPerCall), String(k.outPerCall)]),
     })
   if (r.byModel.length)
     tables.push({
       title: 'By model and phase',
-      headers: ['model', 'phase', 'calls', '$', 'ctx/call', 'out/call'],
-      rows: r.byModel.map((m) => [m.model, phase(m.phase), String(m.calls), m.usd.toFixed(2), tokens(m.ctxPerCall), String(m.outPerCall)]),
+      headers: ['model', 'phase', 'calls', ...COUNT_HEADERS, '≈ $', 'ctx/call', 'out/call'],
+      rows: r.byModel.map((m) => [m.model, phase(m.phase), String(m.calls), ...counts(m), m.usd.toFixed(2), tokens(m.ctxPerCall), String(m.outPerCall)]),
     })
-  if (r.tokenKinds.length) {
-    const hasUsd = r.tokenKinds.some((t) => t.usd > 0)
-    tables.push({
-      title: 'agy and OpenCode (tokens)',
-      headers: ['kind', 'sessions', 'calls', 'input', 'read', 'output', ...(hasUsd ? ['$'] : [])],
-      rows: r.tokenKinds.map((t) => [t.kind, String(t.sessions), String(t.calls), tokens(t.input), tokens(t.read), tokens(t.output), ...(hasUsd ? [t.usd.toFixed(2)] : [])]),
-    })
-  }
-  if (r.tokensByModel.length) {
-    const hasUsd = r.tokensByModel.some((t) => t.usd > 0)
-    tables.push({
-      title: 'agy and OpenCode by model and phase (tokens)',
-      headers: ['model', 'phase', 'calls', 'input', 'read', 'output', ...(hasUsd ? ['$'] : [])],
-      rows: r.tokensByModel.map((t) => [t.model, phase(t.phase), String(t.calls), tokens(t.input), tokens(t.read), tokens(t.output), ...(hasUsd ? [t.usd.toFixed(2)] : [])]),
-    })
-  }
   if (r.agents.length)
     tables.push({
       title: 'By agent',
-      headers: ['agent', 'kind', 'calls', 'input', 'output', '$', 'plan/exec $'],
-      rows: r.agents.map((a) => [a.run && !r.scope.startsWith('run ') ? `${a.run}:${a.name}` : a.name, a.kind, String(a.calls), tokens(a.input), tokens(a.output), a.usd.toFixed(2), `${a.planUsd.toFixed(2)}/${a.execUsd.toFixed(2)}`]),
+      headers: ['agent', 'kind', 'calls', ...COUNT_HEADERS, '≈ $', 'plan/exec ≈ $'],
+      rows: r.agents.map((a) => [a.run && !r.scope.startsWith('run ') ? `${a.run}:${a.name}` : a.name, a.kind, String(a.calls), ...counts(a), a.usd.toFixed(2), `${a.planUsd.toFixed(2)}/${a.execUsd.toFixed(2)}`]),
     })
   if (r.verdicts.length)
     tables.push({
@@ -149,9 +159,19 @@ export function costView(r: GetCostResponse): CostView {
     const by = Object.entries(rev.byCli).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k} ${+v.toFixed(2)}`)
     notes.push(`Reviews: ${rev.reviewedPrs} PRs, ${+rev.reviewersPerPr.toFixed(2)} reviewers per PR (${by.join(', ')})`)
   }
-  if (rev && rev.prs > 0) notes.push(`Claude reviews: ${rev.prs} PRs, ${usd(rev.usd)} (${usd(rev.usdPerPr)} per PR)`)
+  if (rev && rev.prs > 0) notes.push(`Claude reviews: ${rev.prs} PRs, ≈ ${usd(rev.usd)} at API prices (≈ ${usd(rev.usdPerPr)} per PR)`)
   if (r.resets > 0) notes.push(`Root resets: ${r.resets}`)
-  return { scope: r.scope, usd: usd(r.usd), pricesAsOf: r.pricesAsOf, tables, notes }
+  const sum = (f: (c: GetCostResponse['clis'][number]) => bigint) => r.clis.reduce((n, c) => n + f(c), 0n)
+  return {
+    scope: r.scope,
+    tokens: `${tokens(r.totalTokens)} tokens`,
+    breakdown: `input ${tokens(sum((c) => c.input))}, cache write ${tokens(sum((c) => c.w1 + c.w5))}, output ${tokens(sum((c) => c.output))}; cache reads ${tokens(r.totalRead)} apart`,
+    usd: `≈ ${usd(r.usd)}`,
+    pricesAsOf: r.pricesAsOf,
+    bases: r.clis.map((c) => ({ cli: c.cli, basis: c.basis })),
+    tables,
+    notes,
+  }
 }
 
 /** The spans the cost view offers, besides one run. */

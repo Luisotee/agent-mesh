@@ -87,7 +87,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
       <header className="flex items-start gap-3">
         <div className="flex-1">
           <h1 className="text-base font-semibold">Usage and cost of {host.info.name}</h1>
-          <p className="text-xs text-muted-foreground">What mesh usage and mesh cost print: how much of each quota is used, and what the agents' sessions cost at API prices.</p>
+          <p className="text-xs text-muted-foreground">What mesh usage and mesh cost print: how much of each quota is used, and how many tokens the agents' sessions used (dollars at API prices beside them).</p>
         </div>
         <Button
           variant="outline"
@@ -231,13 +231,24 @@ function CostBody({ cost }: { cost: GetCostResponse }) {
   const empty = v.tables.length === 0
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-[13px]">
-        <span className="text-lg font-semibold tabular-nums" data-testid="cost-total">{v.usd}</span>{' '}
-        <span className="text-xs text-muted-foreground">at API prices, {v.scope}{v.pricesAsOf ? ` (prices as of ${v.pricesAsOf})` : ''}</span>
-      </p>
+      <div className="flex flex-col gap-0.5 text-[13px]">
+        <p>
+          <span className="text-lg font-semibold tabular-nums" data-testid="cost-total">{v.tokens}</span>{' '}
+          <span className="text-xs text-muted-foreground">{v.scope}</span>
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Total = input + cache write + output. {v.breakdown}.
+        </p>
+        <p className="text-xs text-muted-foreground" data-testid="cost-usd">
+          {v.usd} at API prices for Claude{v.pricesAsOf ? ` (prices as of ${v.pricesAsOf})` : ''}: a plan is billed otherwise, so the tokens are the measure.
+        </p>
+      </div>
       {empty && <p className="text-xs text-muted-foreground">No sessions in that scope yet.</p>}
       {v.tables.map((t) => (
         <Table key={t.title} table={t} />
+      ))}
+      {v.bases.map((b) => (
+        <p key={b.cli} className="text-xs text-muted-foreground">{b.cli}: {b.basis}</p>
       ))}
       {v.notes.map((n) => (
         <p key={n} className="text-xs text-muted-foreground">{n}</p>

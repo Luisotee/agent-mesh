@@ -207,6 +207,7 @@ type costCall struct {
 	read   int64
 	output int64
 	usd    float64 // used for paid OpenCode calls; Claude prices via claudeCallCost
+	cli    string  // "agy" or "opencode"; empty is Claude
 }
 
 type claudeSessionInfo struct {
@@ -957,6 +958,7 @@ type costTally struct {
 	agents map[agentKey]*tallyBucket
 	kinds  map[string]*tallyBucket
 	models map[modelPhaseKey]*tallyBucket
+	clis   map[string]*tallyBucket
 	priced bool
 }
 
@@ -965,6 +967,7 @@ func newCostTally(priced bool) *costTally {
 		agents: map[agentKey]*tallyBucket{},
 		kinds:  map[string]*tallyBucket{},
 		models: map[modelPhaseKey]*tallyBucket{},
+		clis:   map[string]*tallyBucket{},
 		priced: priced,
 	}
 }
@@ -998,7 +1001,16 @@ func (ct *costTally) add(session string, call costCall, kind string, ag agentKey
 		ab = newBucket(kind)
 		ct.agents[ag] = ab
 	}
-	targets := []*tallyBucket{kb, mb}
+	cli := call.cli
+	if cli == "" {
+		cli = "claude"
+	}
+	cb := ct.clis[cli]
+	if cb == nil {
+		cb = newBucket(cli)
+		ct.clis[cli] = cb
+	}
+	targets := []*tallyBucket{kb, mb, cb}
 	if sub {
 		ab.subUSD += usd
 	} else {
@@ -1041,7 +1053,8 @@ func tallySession(ct *costTally, session string, calls []costCall, sub bool, pla
 	ttl := costCacheTTL
 	var last time.Time
 	for i, call := range calls {
-		cold := !sub && !last.IsZero() && call.t.Sub(last) > ttl && (call.w5+call.w1) >= coldWriteMin
+		// A cold resume is a Claude cache story (its TTLs); agy and OpenCode writes never count as one.
+		cold := call.cli == "" && !sub && !last.IsZero() && call.t.Sub(last) > ttl && (call.w5+call.w1) >= coldWriteMin
 		last = call.t
 		if call.w1 > 0 || call.w5 > 0 {
 			if call.w1 > 0 {
@@ -1331,7 +1344,7 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 			rawCalls := agy.ConversationCalls(convDir, sess)
 			calls := make([]costCall, len(rawCalls))
 			for i, rc := range rawCalls {
-				calls[i] = costCall{t: rc.Time, model: "agy", input: rc.Input, read: rc.Read, output: rc.Output}
+				calls[i] = costCall{t: rc.Time, model: "agy", cli: "agy", input: rc.Input, read: rc.Read, output: rc.Output}
 			}
 			mine := segments[sess]
 			place := func(c costCall) *placedCall {
@@ -1369,7 +1382,7 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 			rawCalls := opencode.SessionCalls(dbPath, sess)
 			calls := make([]costCall, len(rawCalls))
 			for i, rc := range rawCalls {
-				calls[i] = costCall{id: rc.ID, t: rc.Time, model: rc.Model, input: rc.Input, read: rc.Read, output: rc.Output, usd: rc.USD}
+				calls[i] = costCall{id: rc.ID, t: rc.Time, model: rc.Model, cli: "opencode", input: rc.Input, w5: rc.Write, read: rc.Read, output: rc.Output, usd: rc.USD}
 			}
 			mine := segments[sess]
 			place := func(c costCall) *placedCall {
@@ -1450,16 +1463,73 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 	return connect.NewResponse(resp), nil
 }
 
+// tokenTotal is the headline count: input, cache writes and output. Cache reads are shown apart: they dominate a Claude
+// session's tokens but cost a plan far less than fresh input.
+func tokenTotal(input, w1, w5, output int64) int64 { return input + w1 + w5 + output }
+
+func (b *tallyBucket) tokens() int64 { return tokenTotal(b.input, b.w1, b.w5, b.output) }
+
+// merge adds o into b (a CLI's tally into the one every CLI shares).
+func (b *tallyBucket) merge(o *tallyBucket) {
+	if b.kind == "" {
+		b.kind = o.kind
+	}
+	for s := range o.sessions {
+		b.sessions[s] = true
+	}
+	b.calls += o.calls
+	b.input += o.input
+	b.w5 += o.w5
+	b.w1 += o.w1
+	b.read += o.read
+	b.output += o.output
+	b.usd += o.usd
+	b.ctx += o.ctx
+	b.plan += o.plan
+	b.exec += o.exec
+	b.cold += o.cold
+	b.coldUSD += o.coldUSD
+	b.subUSD += o.subUSD
+	b.firsts = append(b.firsts, o.firsts...)
+}
+
+// mergedBuckets folds the Claude tally and the agy and OpenCode one into one map, so a row counts every CLI.
+func mergedBuckets[K comparable](a, b map[K]*tallyBucket) map[K]*tallyBucket {
+	out := make(map[K]*tallyBucket, len(a)+len(b))
+	for _, m := range []map[K]*tallyBucket{a, b} {
+		for k, v := range m {
+			if out[k] == nil {
+				out[k] = newBucket(v.kind)
+			}
+			out[k].merge(v)
+		}
+	}
+	return out
+}
+
+// cliBasis says how far a CLI's counts can be trusted, for `mesh cost` and the apps.
+var cliBasis = map[string]string{
+	"claude":   "exact: the API usage Claude Code records for each call (input, cache writes by TTL, cache reads, output)",
+	"opencode": "exact as the provider reports it to OpenCode (reasoning counts as output); a provider that reports no cache split shows none",
+	"agy":      "as agy records each step: no cache-write split, so cache writes sit in input; read it as an estimate",
+}
+
 func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[string]map[string]bool,
 	resets int32, reviewers map[string]map[string]string, verdicts []*v1.Verdict) *v1.GetCostResponse {
 
+	// usd is Claude's, priced here; an OpenCode provider's own reported cost sits in its rows.
 	var total float64
 	for _, b := range tally.kinds {
 		total += b.usd
 	}
 
-	agents := make([]*v1.AgentCost, 0, len(tally.agents))
-	for ak, b := range tally.agents {
+	allAgents := mergedBuckets(tally.agents, tokenTally.agents)
+	allKinds := mergedBuckets(tally.kinds, tokenTally.kinds)
+	allModels := mergedBuckets(tally.models, tokenTally.models)
+	allCLIs := mergedBuckets(tally.clis, tokenTally.clis)
+
+	agents := make([]*v1.AgentCost, 0, len(allAgents))
+	for ak, b := range allAgents {
 		agents = append(agents, &v1.AgentCost{
 			Run:     ak.run,
 			Name:    ak.name,
@@ -1470,6 +1540,7 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 			W5:      b.w5,
 			Read:    b.read,
 			Output:  b.output,
+			Total:   b.tokens(),
 			Usd:     round2(b.usd),
 			PlanUsd: round2(b.plan),
 			ExecUsd: round2(b.exec),
@@ -1479,6 +1550,9 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 		})
 	}
 	sort.Slice(agents, func(i, j int) bool {
+		if agents[i].Total != agents[j].Total {
+			return agents[i].Total > agents[j].Total
+		}
 		si := agents[i].Usd + agents[i].SubUsd
 		sj := agents[j].Usd + agents[j].SubUsd
 		if si != sj {
@@ -1490,17 +1564,26 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 		return agents[i].Name < agents[j].Name
 	})
 
-	kinds := make([]*v1.KindCost, 0, len(tally.kinds))
+	var kindUSD float64
+	var kindTokens int64
+	for _, b := range allKinds {
+		kindUSD += b.usd
+		kindTokens += b.tokens()
+	}
+	kinds := make([]*v1.KindCost, 0, len(allKinds))
 	var reviewUSD float64
-	for kind, b := range tally.kinds {
+	for kind, b := range allKinds {
 		if strings.HasPrefix(kind, "reviewer") {
 			reviewUSD += b.usd
 		}
 		writes := b.w5 + b.w1
-		var share, usdPerCall, write5mShare float64
+		var share, tokenShare, usdPerCall, write5mShare float64
 		var ctxPerCall, outPerCall int64
-		if total > 0 {
-			share = round1(100 * b.usd / total)
+		if kindUSD > 0 {
+			share = round1(100 * b.usd / kindUSD)
+		}
+		if kindTokens > 0 {
+			tokenShare = round1(100 * float64(b.tokens()) / float64(kindTokens))
 		}
 		if b.calls > 0 {
 			usdPerCall = round4(b.usd / float64(b.calls))
@@ -1536,38 +1619,22 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 			HasFirstCtxMedian: hasMed,
 			Cold:              b.cold,
 			ColdUsd:           round2(b.coldUSD),
+			Total:             b.tokens(),
+			TokenShare:        tokenShare,
 		})
 	}
 	sort.Slice(kinds, func(i, j int) bool {
+		if kinds[i].Total != kinds[j].Total {
+			return kinds[i].Total > kinds[j].Total
+		}
 		if kinds[i].Usd != kinds[j].Usd {
 			return kinds[i].Usd > kinds[j].Usd
 		}
 		return kinds[i].Kind < kinds[j].Kind
 	})
 
-	tokenKinds := make([]*v1.TokenKindCost, 0, len(tokenTally.kinds))
-	for kind, b := range tokenTally.kinds {
-		tokenKinds = append(tokenKinds, &v1.TokenKindCost{
-			Kind:     kind,
-			Sessions: int64(len(b.sessions)),
-			Calls:    b.calls,
-			Input:    b.input,
-			Read:     b.read,
-			Output:   b.output,
-			Usd:      round2(b.usd),
-		})
-	}
-	sort.Slice(tokenKinds, func(i, j int) bool {
-		ti := tokenKinds[i].Input + tokenKinds[i].Read
-		tj := tokenKinds[j].Input + tokenKinds[j].Read
-		if ti != tj {
-			return ti > tj
-		}
-		return tokenKinds[i].Kind < tokenKinds[j].Kind
-	})
-
-	byModel := make([]*v1.ModelPhaseCost, 0, len(tally.models))
-	for mp, b := range tally.models {
+	byModel := make([]*v1.ModelPhaseCost, 0, len(allModels))
+	for mp, b := range allModels {
 		var ctxPerCall, outPerCall int64
 		if b.calls > 0 {
 			ctxPerCall = b.ctx / b.calls
@@ -1580,9 +1647,18 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 			Usd:        round2(b.usd),
 			CtxPerCall: ctxPerCall,
 			OutPerCall: outPerCall,
+			Input:      b.input,
+			W1:         b.w1,
+			W5:         b.w5,
+			Read:       b.read,
+			Output:     b.output,
+			Total:      b.tokens(),
 		})
 	}
 	sort.Slice(byModel, func(i, j int) bool {
+		if byModel[i].Total != byModel[j].Total {
+			return byModel[i].Total > byModel[j].Total
+		}
 		if byModel[i].Usd != byModel[j].Usd {
 			return byModel[i].Usd > byModel[j].Usd
 		}
@@ -1592,28 +1668,21 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 		return byModel[i].Phase < byModel[j].Phase
 	})
 
-	tokensByModel := make([]*v1.TokenModelPhaseCost, 0, len(tokenTally.models))
-	for mp, b := range tokenTally.models {
-		tokensByModel = append(tokensByModel, &v1.TokenModelPhaseCost{
-			Model:  mp.model,
-			Phase:  mp.phase,
-			Calls:  b.calls,
-			Input:  b.input,
-			Read:   b.read,
-			Output: b.output,
-			Usd:    round2(b.usd),
+	clis := make([]*v1.CliCost, 0, len(allCLIs))
+	var totalTokens, totalRead int64
+	for cli, b := range allCLIs {
+		clis = append(clis, &v1.CliCost{
+			Cli: cli, Calls: b.calls, Input: b.input, W1: b.w1, W5: b.w5, Read: b.read, Output: b.output,
+			Total: b.tokens(), Basis: cliBasis[cli],
 		})
+		totalTokens += b.tokens()
+		totalRead += b.read
 	}
-	sort.Slice(tokensByModel, func(i, j int) bool {
-		ti := tokensByModel[i].Input + tokensByModel[i].Read
-		tj := tokensByModel[j].Input + tokensByModel[j].Read
-		if ti != tj {
-			return ti > tj
+	sort.Slice(clis, func(i, j int) bool {
+		if clis[i].Total != clis[j].Total {
+			return clis[i].Total > clis[j].Total
 		}
-		if tokensByModel[i].Model != tokensByModel[j].Model {
-			return tokensByModel[i].Model < tokensByModel[j].Model
-		}
-		return tokensByModel[i].Phase < tokensByModel[j].Phase
+		return clis[i].Cli < clis[j].Cli
 	})
 
 	byCLI := map[string]int{}
@@ -1643,17 +1712,18 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 	}
 
 	return &v1.GetCostResponse{
-		Scope:         scope,
-		PricesAsOf:    pricesAsOf,
-		Usd:           round2(total),
-		Agents:        agents,
-		Kinds:         kinds,
-		TokenKinds:    tokenKinds,
-		ByModel:       byModel,
-		TokensByModel: tokensByModel,
-		Reviews:       revSummary,
-		Verdicts:      verdictRows(verdicts),
-		Resets:        resets,
+		Scope:       scope,
+		PricesAsOf:  pricesAsOf,
+		Usd:         round2(total),
+		Agents:      agents,
+		Kinds:       kinds,
+		ByModel:     byModel,
+		Reviews:     revSummary,
+		Verdicts:    verdictRows(verdicts),
+		Resets:      resets,
+		TotalTokens: totalTokens,
+		TotalRead:   totalRead,
+		Clis:        clis,
 	}
 }
 

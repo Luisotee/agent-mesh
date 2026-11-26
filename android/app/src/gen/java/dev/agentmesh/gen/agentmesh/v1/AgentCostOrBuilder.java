@@ -117,4 +117,15 @@ public interface AgentCostOrBuilder extends
    * @return The coldUsd.
    */
   double getColdUsd();
+
+  /**
+   * <pre>
+   * input + cache writes (w1 + w5) + output: what the agent worked through. Cache reads (read) are left out: they are
+   * most of a Claude session's tokens but cost a plan far less.
+   * </pre>
+   *
+   * <code>int64 total = 16 [json_name = "total"];</code>
+   * @return The total.
+   */
+  long getTotal();
 }

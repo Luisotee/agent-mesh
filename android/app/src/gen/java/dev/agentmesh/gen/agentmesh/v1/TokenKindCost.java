@@ -6,6 +6,10 @@
 package dev.agentmesh.gen.agentmesh.v1;
 
 /**
+ * <pre>
+ * Deprecated: GetCostResponse.kinds now carries agy and OpenCode as well; this list is no longer filled.
+ * </pre>
+ *
  * Protobuf type {@code agentmesh.v1.TokenKindCost}
  */
 @com.google.protobuf.Generated
@@ -316,6 +320,10 @@ public  final class TokenKindCost extends
   }
 
   /**
+   * <pre>
+   * Deprecated: GetCostResponse.kinds now carries agy and OpenCode as well; this list is no longer filled.
+   * </pre>
+   *
    * Protobuf type {@code agentmesh.v1.TokenKindCost}
    */
   public static final class Builder extends
