@@ -437,6 +437,22 @@ message Device {
   google.protobuf.Timestamp created_at = 4;
   // Set once revoked.
   google.protobuf.Timestamp revoked_at = 5;
+  // The device's push endpoint, when it registered one.
+  PushRegistration push = 6;
+}
+
+// A device's push endpoint, as `mesh devices` shows it. The endpoint's URL is a capability (whoever holds it can
+// push to the phone), so only its host is shown.
+message PushRegistration {
+  string device_id = 1;
+  string endpoint_host = 2;
+  google.protobuf.Timestamp registered_at = 3;
+  // The last push the push service accepted.
+  google.protobuf.Timestamp last_ok_at = 4;
+  // The last failure, cleared by the next success.
+  string last_error = 5;
+  // Since when every push has failed; unset while pushes go through.
+  google.protobuf.Timestamp failing_since = 6;
 }
 
 message DevicePaired {

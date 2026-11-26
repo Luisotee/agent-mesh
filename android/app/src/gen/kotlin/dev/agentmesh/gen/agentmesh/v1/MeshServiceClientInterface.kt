@@ -179,6 +179,24 @@ public interface MeshServiceClientInterface {
   public suspend fun revokeDevice(request: RevokeDeviceRequest, headers: Headers = emptyMap()): ResponseMessage<RevokeDeviceResponse>
 
   /**
+   *  Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
+   *  closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
+   *  A device registers only itself; revoking the device deletes it.
+   */
+  public suspend fun registerPush(request: RegisterPushRequest, headers: Headers = emptyMap()): ResponseMessage<RegisterPushResponse>
+
+  /**
+   *  Remove a device's push endpoint: the caller's own, or (the host's own device only) another device's.
+   */
+  public suspend fun unregisterPush(request: UnregisterPushRequest, headers: Headers = emptyMap()): ResponseMessage<UnregisterPushResponse>
+
+  /**
+   *  Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
+   *  another device's. Answers once the push service took it, or with its error.
+   */
+  public suspend fun testPush(request: TestPushRequest, headers: Headers = emptyMap()): ResponseMessage<TestPushResponse>
+
+  /**
    *  Start the first-run setup agent, or return the one that is running (a retired one is resumed): a lead agent in a
    *  run flagged `setup`, in a scratch repo of the host's own, that follows `protocol/SETUP.md` of the share folder.
    *  The apps call it once connected; `mesh setup` does the same.

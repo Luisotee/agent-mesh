@@ -18,7 +18,7 @@ pnpm gen                      # TypeScript from ../proto after a .proto change
 pnpm build && pnpm e2e        # the end-to-end tests: the built app over CDP, against a real meshd
 ```
 
-The e2e tests open a real Electron window, so they need a display (WSLg has one, but an agent's shell has `DISPLAY` unset: run them as `DISPLAY=:0 pnpm e2e`, and `scripts/check.sh` the same way; `xvfb-run` otherwise). They build meshd, mesh-term, mesh and the fake claude from `daemon/` into a temp dir and give every run its own state dir, HOME and user-data dir, so they touch nothing of the user's. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
+The e2e tests open a real Electron window. `pnpm e2e` (and `scripts/check.sh`) runs `scripts/e2e.sh`, which puts it on a virtual display with `xvfb-run` when installed, `DISPLAY` set or not: never set `DISPLAY=:0` to see it, since under WSLg that is the user's Windows screen. `E2E_VISIBLE=1` uses `DISPLAY` instead; without xvfb `DISPLAY` is required. They build meshd, mesh-term, mesh and the fake claude from `daemon/` into a temp dir and give every run its own state dir, HOME and user-data dir, so they touch nothing of the user's. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
 
 ## Layout
 
