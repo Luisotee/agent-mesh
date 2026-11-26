@@ -234,6 +234,119 @@ func TestClaudeCacheAndOAuthFallbacks(t *testing.T) {
 	}
 }
 
+func TestClaudeUsageStaleBoundAndFamilyWindowMatching(t *testing.T) {
+	ctx := context.Background()
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{
+			FetchClaudeUsage: func(context.Context) (*hook.ClaudeUsageSnapshot, error) {
+				return nil, os.ErrNotExist
+			},
+		}
+	})
+	run := startRun(t, w.device.Mesh, "")
+
+	// Stale claude-usage.json (> 15m old, no resets_at) and stale .claude.json cachedUsageUtilization
+	// (> 15m fetchedAtMs) must both be ignored: unreadable quota counts as available.
+	staleFetched := float64(time.Now().Add(-20 * time.Minute).Unix())
+	diskBytes, _ := json.Marshal(hook.ClaudeUsageSnapshot{
+		Windows: map[string]hook.ClaudeUsageWindow{"seven_day": {Used: 96}},
+		Fetched: staleFetched,
+		Source:  "statusline",
+	})
+	usagePath := statedir.Paths{Dir: w.state}.ClaudeUsage()
+	if err := os.WriteFile(usagePath, diskBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cacheBytes, _ := json.Marshal(map[string]any{
+		"cachedUsageUtilization": map[string]any{
+			"fetchedAtMs": time.Now().Add(-25 * time.Minute).UnixMilli(),
+			"utilization": map[string]any{
+				"seven_day": map[string]any{"utilization": 95.0},
+			},
+		},
+	})
+	if err := os.WriteFile(filepath.Join(w.home, ".claude.json"), cacheBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := w.device.Mesh.GetUsage(ctx, connect.NewRequest(&v1.GetUsageRequest{})); err != nil || u.Msg.Claude != nil {
+		t.Fatalf("stale Claude usage not discarded: %+v, err=%v", u, err)
+	}
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); err != nil {
+		t.Errorf("stale Claude reading blocked ReserveGuard: %v", err)
+	}
+
+	// Family-specific windows (seven_day_opus / seven_day_sonnet) apply only to matching models, never empty model.
+	freshBytes, _ := json.Marshal(hook.ClaudeUsageSnapshot{
+		Windows: map[string]hook.ClaudeUsageWindow{"seven_day_opus": {Used: 97}},
+		Fetched: float64(time.Now().Unix()),
+		Source:  "statusline",
+	})
+	if err := os.WriteFile(usagePath, freshBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "", "high", "test"); err != nil {
+		t.Errorf("seven_day_opus wrongly blocked empty model: %v", err)
+	}
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); err != nil {
+		t.Errorf("seven_day_opus wrongly blocked sonnet: %v", err)
+	}
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "opus", "high", "test"); code(err) != connect.CodeResourceExhausted {
+		t.Errorf("seven_day_opus did not block opus: %v", err)
+	}
+}
+
+func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
+	ctx := context.Background()
+	reset := time.Now().Add(3 * time.Hour).UTC().Format(time.RFC3339)
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.ReserveEvery = 40 * time.Millisecond
+		c.Usage = &daemon.UsageOps{
+			ReadAgyUsage: func(context.Context) (string, error) {
+				return "Gemini 4 Hydrogen\tHydrogen\t90%\t1h\n", nil
+			},
+			ReadAgyModels: func(context.Context) (string, error) {
+				return "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n", nil
+			},
+			FetchClaudeUsage: func(context.Context) (*hook.ClaudeUsageSnapshot, error) {
+				return &hook.ClaudeUsageSnapshot{
+					Windows: map[string]hook.ClaudeUsageWindow{
+						"five_hour": {Used: 96, Resets: reset},
+					},
+					Source: "live",
+				}, nil
+			},
+		}
+	})
+	repo := gitRepo(t)
+
+	// Run 1 has a Claude lead (live Claude agent).
+	runClaude := startRun(t, w.device.Mesh, "")
+	leadClaudeRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: runClaude.Id, Repo: repo, Slug: "lead-c", Role: v1.AgentRole_AGENT_ROLE_ROOT,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leadClaude := w.waitState(leadClaudeRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	// Run 2 has only agy agents (agy lead + agy worker), no Claude agents.
+	runAgy := startRun(t, w.device.Mesh, "")
+	leadAgyRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: runAgy.Id, Repo: repo, Slug: "lead-a", Kind: "agy", Role: v1.AgentRole_AGENT_ROLE_ROOT,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leadAgy := w.waitState(leadAgyRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+
+	waitFor(t, "claude reserve alert in claude run lead", func() bool {
+		return w.infoTo(t, leadClaude, "[mesh alert reserve claude-five_hour]") != nil
+	})
+	if msg := w.infoTo(t, leadAgy, "[mesh alert reserve claude-five_hour]"); msg != nil {
+		t.Errorf("agy-only run received Claude reserve alert: %+v", msg)
+	}
+}
+
 func TestAgyUsageReserveSkipsSpentModelsOnChain(t *testing.T) {
 	ctx := context.Background()
 	w := startReopen(t, func(c *daemon.AgentConfig) {

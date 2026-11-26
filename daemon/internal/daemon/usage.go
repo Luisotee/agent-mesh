@@ -35,6 +35,7 @@ import (
 
 const (
 	claudeUsageTTL    = 5 * time.Minute
+	claudeUsageStale  = 15 * time.Minute
 	agyUsageTTL       = 5 * time.Minute
 	agyUsageMaxAge    = 3 * agyUsageTTL
 	agyResolveTTL     = agyUsageTTL
@@ -170,6 +171,11 @@ func readClaudeUsageFile(path string) *hook.ClaudeUsageSnapshot {
 	if json.Unmarshal(b, &snap) != nil || len(snap.Windows) == 0 {
 		return nil
 	}
+	if snap.Fetched <= 0 {
+		if st, serr := os.Stat(path); serr == nil {
+			snap.Fetched = float64(st.ModTime().UnixNano()) / 1e9
+		}
+	}
 	return &snap
 }
 
@@ -235,9 +241,13 @@ func (d *Daemon) readClaudeCachedFallback(claudeJSON string) *hook.ClaudeUsageSn
 	if json.Unmarshal(raw, &fields) != nil || len(fields) == 0 {
 		return nil
 	}
+	windowFields := fields
+	if nested, ok := fields["utilization"].(map[string]any); ok && len(nested) > 0 {
+		windowFields = nested
+	}
 	windows := map[string]hook.ClaudeUsageWindow{}
 	for _, meta := range claudeWindowOrder {
-		v, ok := fields[meta.key]
+		v, ok := windowFields[meta.key]
 		if !ok || v == nil {
 			continue
 		}
@@ -259,9 +269,13 @@ func (d *Daemon) readClaudeCachedFallback(claudeJSON string) *hook.ClaudeUsageSn
 	if len(windows) == 0 {
 		return nil
 	}
-	fetched := float64(d.now().Unix())
-	if st, err := os.Stat(claudeJSON); err == nil {
-		fetched = float64(st.ModTime().Unix())
+	var fetched float64
+	if ms, ok := fields["fetchedAtMs"].(float64); ok && ms > 0 {
+		fetched = ms / 1000
+	} else if st, err := os.Stat(claudeJSON); err == nil {
+		fetched = float64(st.ModTime().UnixNano()) / 1e9
+	} else {
+		fetched = float64(d.now().UnixNano()) / 1e9
 	}
 	return &hook.ClaudeUsageSnapshot{
 		Windows: windows,
@@ -378,10 +392,21 @@ func (d *Daemon) claudeUsage(ctx context.Context, network, force bool) *hook.Cla
 			return live
 		}
 	}
-	if disk != nil {
-		return disk
+	var best *hook.ClaudeUsageSnapshot
+	var bestTime time.Time
+	for _, cand := range []*hook.ClaudeUsageSnapshot{disk, d.readClaudeCachedFallback(claudeJSON)} {
+		if cand == nil {
+			continue
+		}
+		ft := snapshotTime(cand)
+		if ft.IsZero() || now.Sub(ft) > claudeUsageStale {
+			continue
+		}
+		if best == nil || ft.After(bestTime) {
+			best, bestTime = cand, ft
+		}
 	}
-	return d.readClaudeCachedFallback(claudeJSON)
+	return best
 }
 
 func (d *Daemon) agyBinary() (string, bool) {
@@ -610,9 +635,9 @@ func claudeWindowApplies(key, model string) bool {
 	case "five_hour", "seven_day":
 		return true
 	case "seven_day_opus":
-		return model == "" || strings.Contains(ml, "opus")
+		return strings.Contains(ml, "opus")
 	case "seven_day_sonnet":
-		return model == "" || strings.Contains(ml, "sonnet")
+		return strings.Contains(ml, "sonnet")
 	default:
 		return false
 	}
@@ -892,6 +917,7 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 	}
 	leadsByRun := map[string]*v1.Agent{}
 	usedKinds := map[string]bool{}
+	usedKindsByRun := map[string]map[string]bool{}
 	activeAgyModels := map[string]map[agyResolveKey]bool{}
 	for _, a := range agents {
 		if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && !stopped(a) {
@@ -899,6 +925,10 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 		}
 		if !stopped(a) {
 			usedKinds[a.Kind] = true
+			if usedKindsByRun[a.RunId] == nil {
+				usedKindsByRun[a.RunId] = map[string]bool{}
+			}
+			usedKindsByRun[a.RunId][a.Kind] = true
 			if a.Kind == "agy" && a.Model != "" {
 				if activeAgyModels[a.RunId] == nil {
 					activeAgyModels[a.RunId] = map[agyResolveKey]bool{}
@@ -950,7 +980,10 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 		if lead == nil {
 			continue
 		}
-		alerts := append([]alertItem(nil), claudeAlerts...)
+		var alerts []alertItem
+		if usedKindsByRun[run.Id]["claude"] {
+			alerts = append(alerts, claudeAlerts...)
+		}
 		for k := range activeAgyModels[run.Id] {
 			if hit := d.agyModelAtReserve(ctx, k.model, k.effort, stop, false); hit != nil {
 				name := hit.model
