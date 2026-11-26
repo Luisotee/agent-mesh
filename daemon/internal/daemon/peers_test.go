@@ -724,3 +724,120 @@ func TestRemovingAnImportedPeerLeavesBinMeshsDirtyWorktreeAndTakesACleanOne(t *t
 		t.Errorf("uncommitted work in bin/mesh's worktree was deleted: %v", err)
 	}
 }
+
+// An upgrade is for the peer peers.json describes: one registered on another clone is left alone.
+func TestImportingPeersDoesNotUpgradeAPeerRegisteredOnAnotherClone(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up := newUpstream(t, "twin")
+	cloneA, cloneB := cloneOf(t, up), cloneOf(t, up)
+	wtB := filepath.Join(t.TempDir(), "twin-research")
+	worktreeOf(t, cloneB, wtB)
+	w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: cloneA, Name: "twin-research"})
+	st.run(t, "r1", true, map[string]map[string]any{"twin-research": {"kind": "claude", "repo": cloneB, "session": "sess-b", "status": "retired"}})
+	file := st.peersJSON(t, map[string]any{"twin-research": map[string]any{"repo": cloneB, "group": "g", "about": "t", "cwd": wtB, "run": "r1", "as": "twin-research"}})
+	res, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Msg.Imported) != 0 || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "another clone") {
+		t.Errorf("imported %v skipped %v", res.Msg.Imported, res.Msg.Skipped)
+	}
+	if p := w.peer(t, "twin-research"); p.SessionId != "" || p.Worktree == wtB || !sameClone(p.Repo, cloneA) {
+		t.Errorf("the peer of another clone took bin/mesh's conversation: %v", p)
+	}
+}
+
+func sameClone(a, b string) bool {
+	ra, _ := filepath.EvalSymlinks(a)
+	rb, _ := filepath.EvalSymlinks(b)
+	return ra == rb
+}
+
+// An upgrade carries the commit bin/mesh last showed the conversation, and a worktree made for it starts there.
+func TestImportingPeersUpgradeCarriesWhatTheConversationLastSaw(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up := newUpstream(t, "seen")
+	clone := cloneOf(t, up)
+	wt := filepath.Join(t.TempDir(), "seen-research")
+	file := st.peersJSON(t, map[string]any{"seen-research": map[string]any{"repo": clone, "group": "g", "about": "s", "cwd": wt, "run": "r1", "as": "seen-research"}})
+	if _, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file})); err != nil {
+		t.Fatal(err)
+	}
+	if w.peer(t, "seen-research").SessionId != "" {
+		t.Fatal("imported with a conversation that wasn't there")
+	}
+	// bin/mesh went on asking it: the conversation has seen a newer commit than the one imported.
+	newer := up.commit(t, "more.go", "package x")
+	if out, err := exec.Command("git", "-C", clone, "pull", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	st.run(t, "r1", true, map[string]map[string]any{"seen-research": {"kind": "claude", "repo": clone, "session": "sess-s", "status": "retired"}})
+	file = st.peersJSON(t, map[string]any{"seen-research": map[string]any{"repo": clone, "group": "g", "about": "s", "cwd": wt, "run": "r1", "as": "seen-research", "seen": newer}})
+	if _, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file})); err != nil {
+		t.Fatal(err)
+	}
+	p := w.peer(t, "seen-research")
+	if p.SessionId != "sess-s" || p.Seen != newer {
+		t.Fatalf("upgraded %v, want seen %s", p, newer)
+	}
+	if head, _ := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output(); strings.TrimSpace(string(head)) != newer {
+		t.Errorf("the worktree made for the upgrade is at %s, not the seen commit %s", head, newer)
+	}
+}
+
+// A folder peers.json names that is no worktree of the clone (here another repository) is not adopted: the peer
+// comes across without its conversation, in a worktree of the daemon's own.
+func TestImportingPeersDoesNotAdoptAFolderThatIsNoWorktreeOfTheClone(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up := newUpstream(t, "stray")
+	clone := cloneOf(t, up)
+	other := newUpstream(t, "dotfiles") // an unrelated repository bin/mesh's path now points into
+	st.run(t, "r1", true, map[string]map[string]any{"stray-research": {"kind": "claude", "repo": clone, "session": "sess-x", "status": "retired"}})
+	file := st.peersJSON(t, map[string]any{"stray-research": map[string]any{"repo": clone, "group": "g", "about": "x", "cwd": other.dir, "run": "r1", "as": "stray-research"}})
+	res, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := w.peer(t, "stray-research")
+	if p.SessionId != "" || p.Worktree == other.dir || !strings.Contains(strings.Join(res.Msg.Skipped, "|"), "not a worktree of") {
+		t.Errorf("adopted a stranger's folder: %v, skipped %v", p, res.Msg.Skipped)
+	}
+}
+
+// Two peers imported from one bin/mesh folder: removing one leaves the folder the other works in.
+func TestRemovingAPeerLeavesAWorktreeAnotherPeerSharesAndAClonesOwnCheckoutAlone(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	st := newBinMeshState(t)
+	up := newUpstream(t, "shared")
+	clone := cloneOf(t, up)
+	wt := filepath.Join(t.TempDir(), "shared-wt")
+	worktreeOf(t, clone, wt)
+	st.run(t, "r1", true, map[string]map[string]any{
+		"one-research": {"kind": "claude", "repo": clone, "session": "s1", "status": "retired"},
+		"two-research": {"kind": "claude", "repo": clone, "session": "s2", "status": "retired"}})
+	file := st.peersJSON(t, map[string]any{
+		"one-research": map[string]any{"repo": clone, "group": "g", "about": "1", "cwd": wt, "run": "r1", "as": "one-research"},
+		"two-research": map[string]any{"repo": clone, "group": "g", "about": "2", "cwd": wt, "run": "r1", "as": "two-research"}})
+	if _, err := w.asRoot.ImportPeers(ctx, connect.NewRequest(&v1.ImportPeersRequest{Meta: meta(""), From: file})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.device.Mesh.RemovePeer(ctx, connect.NewRequest(&v1.RemovePeerRequest{Meta: meta(""), Name: "one-research"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); err != nil {
+		t.Fatalf("removing one peer took the folder the other still works in: %v", err)
+	}
+	if _, err := w.device.Mesh.RemovePeer(ctx, connect.NewRequest(&v1.RemovePeerRequest{Meta: meta(""), Name: "two-research"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); err == nil {
+		t.Errorf("the last peer of a clean folder leaves it behind")
+	}
+}

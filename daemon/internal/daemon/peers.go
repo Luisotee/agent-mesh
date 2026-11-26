@@ -372,8 +372,19 @@ func (d *Daemon) RemovePeer(ctx context.Context, req *connect.Request[v1.RemoveP
 	// (that folder is the user's), and one imported at bin/mesh's folder is removed only when git finds it clean:
 	// bin/mesh may still use it, and its uncommitted work is not the daemon's to delete.
 	own := strings.HasPrefix(filepath.Clean(p.Worktree)+string(filepath.Separator), filepath.Clean(d.peerWorktree(""))+string(filepath.Separator))
+	// Another peer imported from the same bin/mesh folder still works in it: it stays.
+	shared := false
+	if all, err := d.store.Read(ctx).ListPeers(""); err == nil {
+		for _, o := range all {
+			if o.Name != p.Name && !o.InClone && sameDir(o.Worktree, p.Worktree) {
+				shared = true
+			}
+		}
+	}
 	switch {
 	case p.InClone:
+	case shared:
+		out.Worktree = "" // left where it is
 	case !own:
 		if _, err := git(ctx, p.Repo, "worktree", "remove", p.Worktree); err != nil {
 			out.Worktree = "" // left where it is
@@ -461,6 +472,15 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 	sort.Strings(names)
 	var peers, created []*v1.Peer
 	var upgrades []*peerUpgrade
+	// An upgrade holds the lock an ask of its peer takes until it is applied: an ask that read the peer before the
+	// upgrade would otherwise launch a fresh agent in the old worktree and then be recorded against bin/mesh's
+	// conversation. The names are taken in order, and nothing here waits on another lock.
+	var unlock []func()
+	defer func() {
+		for _, u := range unlock {
+			u()
+		}
+	}()
 	for _, n := range names {
 		e := f.Peers[n]
 		skip := func(why string) { out.Skipped = append(out.Skipped, n+": "+why) }
@@ -471,6 +491,11 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		case e.Repo == "":
 			skip("no clone recorded")
 			continue
+		}
+		if _, err := d.store.Read(ctx).GetPeer(n); err == nil {
+			lock := d.agentLock("peer:" + n)
+			lock.Lock()
+			unlock = append(unlock, lock.Unlock)
 		}
 		if have, err := d.store.Read(ctx).GetPeer(n); err == nil {
 			if up, note := d.upgradePeer(ctx, stateDir, n, e, have, m.Unbriefed); up != nil {
@@ -522,7 +547,7 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			Upstream: up, Added: timestamppb.New(d.now())}
 		fresh := proto.Clone(p).(*v1.Peer)
 		if !m.Unbriefed {
-			if note := d.adoptConversation(stateDir, n, e, p); note != "" {
+			if note := d.adoptConversation(ctx, stateDir, n, e, p); note != "" {
 				skip(note)
 			}
 		}
@@ -588,12 +613,13 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		for _, up := range upgrades {
 			up.applied = false
 			cur, err := tx.GetPeer(up.peer.Name)
-			if err != nil || cur.SessionId != "" || cur.Asked != nil {
+			if err != nil || cur.SessionId != "" || cur.Asked != nil || peerRunning(tx.Reader, cur.Name, "") != nil {
 				out.Skipped = append(out.Skipped, up.peer.Name+": asked meanwhile, left alone")
 				continue
 			}
 			// Only the conversation comes across: anything else changed meanwhile stays as it is.
 			cur.Worktree, cur.InClone, cur.SessionId, cur.Asked = up.peer.Worktree, up.peer.InClone, up.peer.SessionId, up.peer.Asked
+			cur.Seen = up.peer.Seen
 			cur.LastRun, cur.LastAgent, cur.LastAnswers = up.peer.LastRun, up.peer.LastAgent, up.peer.LastAnswers
 			if err := tx.PutPeer(cur); err != nil {
 				return err
@@ -694,8 +720,12 @@ func (d *Daemon) preparePeer(ctx context.Context, p *v1.Peer, refresh bool) (not
 			// Nothing recorded to compare with: the checkout goes to the head when it is clean, and only then
 			// has it seen it.
 			fmt.Fprintf(&b, "Upstream (%s) is at %s; you have not looked at this project before.", where, short(head))
-			if at == head || p.InClone {
+			if at == head {
 				p.Seen = head
+			} else if p.InClone {
+				// The clone's own checkout is never moved: the peer reads the newer code with git show.
+				p.Seen = head
+				fmt.Fprintf(&b, " You run in the clone's own checkout, which stays at %s: read the newer code with `git show %s:<path>`.", short(at), short(head))
 			} else if st, err := git(ctx, p.Worktree, "status", "--porcelain"); err == nil && st == "" {
 				if _, err := git(ctx, p.Worktree, "checkout", "--quiet", "--detach", head); err == nil {
 					at, p.Seen = head, head

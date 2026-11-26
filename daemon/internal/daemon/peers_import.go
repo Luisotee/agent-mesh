@@ -147,7 +147,7 @@ func findPeerConversation(stateDir, name, run, as, repo, kind string) (peerConve
 // session id, the folder it ran in (and whether that is the clone's own checkout), when it was last asked, by what,
 // and its answers file. It changes nothing and returns a note when it can't (the note says why the peer is
 // imported without it), and returns "" with nothing set for a peer bin/mesh never asked.
-func (d *Daemon) adoptConversation(stateDir, name string, e peersFileEntry, p *v1.Peer) string {
+func (d *Daemon) adoptConversation(ctx context.Context, stateDir, name string, e peersFileEntry, p *v1.Peer) string {
 	conv, ok := findPeerConversation(stateDir, name, e.Run, e.As, e.Repo, p.Kind)
 	if !ok {
 		return ""
@@ -165,6 +165,17 @@ func (d *Daemon) adoptConversation(stateDir, name string, e peersFileEntry, p *v
 	case sameDir(cwd, e.Repo):
 		inClone = true // it ran in the clone's own checkout, whatever peers.json says
 	}
+	// A folder outside the daemon's own worktrees is adopted only when it is a worktree of this clone: peers.json
+	// is the user's file, and a path in it may be any folder (a dotfiles repo, say) that git also calls a repository.
+	if !inClone && !within(cwd, d.worktrees()) {
+		if _, err := os.Stat(cwd); err == nil {
+			mine, ok1 := gitCommonDir(ctx, cwd)
+			clone, ok2 := gitCommonDir(ctx, e.Repo)
+			if !ok1 || !ok2 || mine != clone {
+				return "its folder " + cwd + " is not a worktree of " + e.Repo + ": imported without its conversation"
+			}
+		}
+	}
 	p.Worktree, p.InClone = cwd, inClone
 	p.SessionId = conv.session
 	p.LastRun, p.LastAgent = conv.run, conv.agent
@@ -173,6 +184,27 @@ func (d *Daemon) adoptConversation(stateDir, name string, e peersFileEntry, p *v
 	}
 	p.LastAnswers = answersPath(stateDir, e.Answers.Run, e.Answers.File)
 	return ""
+}
+
+// within reports whether path is dir or inside it.
+func within(path, dir string) bool {
+	return strings.HasPrefix(filepath.Clean(path)+string(filepath.Separator), filepath.Clean(dir)+string(filepath.Separator))
+}
+
+// gitCommonDir is the git directory a checkout shares with its worktrees, resolved, so two worktrees of one clone
+// give the same path.
+func gitCommonDir(ctx context.Context, dir string) (string, bool) {
+	out, err := git(ctx, dir, "rev-parse", "--git-common-dir")
+	if err != nil || out == "" {
+		return "", false
+	}
+	if !filepath.IsAbs(out) {
+		out = filepath.Join(dir, out)
+	}
+	if r, err := filepath.EvalSymlinks(out); err == nil {
+		out = r
+	}
+	return filepath.Clean(out), true
 }
 
 // answersPath is the file of the last `ask --peers` a peer answered, in bin/mesh's live or archived run folder;
@@ -211,12 +243,23 @@ func (d *Daemon) upgradePeer(ctx context.Context, stateDir, name string, e peers
 	if peerRunning(d.store.Read(ctx), name, "") != nil {
 		return nil, ""
 	}
+	// bin/mesh's conversation is of the clone peers.json names: a peer registered on another clone is not its peer.
+	if !sameDir(have.Repo, e.Repo) {
+		return nil, "registered on another clone (" + have.Repo + ", peers.json has " + e.Repo + "): not upgraded"
+	}
 	up := proto.Clone(have).(*v1.Peer)
-	if note := d.adoptConversation(stateDir, name, e, up); note != "" {
+	if note := d.adoptConversation(ctx, stateDir, name, e, up); note != "" {
 		return nil, note
 	}
 	if up.SessionId == "" {
 		return nil, ""
+	}
+	// What bin/mesh last showed the conversation: the resumed peer is told what moved since that, not since an older
+	// commit, and a worktree made for it starts there.
+	if e.Seen != "" {
+		if _, err := git(ctx, e.Repo, "cat-file", "-e", e.Seen+"^{commit}"); err == nil {
+			up.Seen = e.Seen
+		}
 	}
 	u := &peerUpgrade{peer: up}
 	if up.Worktree != have.Worktree && !up.InClone {
