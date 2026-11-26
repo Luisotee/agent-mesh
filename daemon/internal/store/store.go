@@ -1028,3 +1028,50 @@ func (t *Tx) Exec(query string, args ...any) error {
 	_, err := t.tx.ExecContext(t.ctx, query, args...)
 	return err
 }
+
+// ── asks ──
+
+// PutAsk inserts or replaces an ask.
+func (t *Tx) PutAsk(a *v1.Ask) error {
+	b, err := proto.Marshal(a)
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.ExecContext(t.ctx, `INSERT INTO asks (id, run_id, caller_id, pr, pr_number, status, created_at, data)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET status = excluded.status, data = excluded.data`,
+		a.Id, a.RunId, a.CallerId, a.Pr, a.PrNumber, int32(a.Status), a.CreatedAt.AsTime().UnixNano(), b)
+	return err
+}
+
+// GetAsk returns one ask by id.
+func (r Reader) GetAsk(id string) (*v1.Ask, error) {
+	return scanOne(r, `SELECT data FROM asks WHERE id = ?`, []any{id}, &v1.Ask{})
+}
+
+// OpenAsks lists the asks still waiting on members, oldest first.
+func (r Reader) OpenAsks() ([]*v1.Ask, error) {
+	return scanAll(r, `SELECT data FROM asks WHERE status = ? ORDER BY created_at, id`,
+		[]any{int32(v1.AskStatus_ASK_STATUS_OPEN)}, func() *v1.Ask { return &v1.Ask{} })
+}
+
+// RunAsks lists a run's asks, oldest first, or every run's when runID is empty.
+func (r Reader) RunAsks(runID string) ([]*v1.Ask, error) {
+	if runID == "" {
+		return scanAll(r, `SELECT data FROM asks ORDER BY created_at, id`, nil, func() *v1.Ask { return &v1.Ask{} })
+	}
+	return scanAll(r, `SELECT data FROM asks WHERE run_id = ? ORDER BY created_at, id`, []any{runID},
+		func() *v1.Ask { return &v1.Ask{} })
+}
+
+// PRAsks lists the asks about one pull request (its URL), in any run, oldest first.
+func (r Reader) PRAsks(pr string) ([]*v1.Ask, error) {
+	return scanAll(r, `SELECT data FROM asks WHERE pr = ? ORDER BY created_at, id`, []any{pr},
+		func() *v1.Ask { return &v1.Ask{} })
+}
+
+// NumberAsks lists the asks about a pull request number, in any repo, oldest first.
+func (r Reader) NumberAsks(n int32) ([]*v1.Ask, error) {
+	return scanAll(r, `SELECT data FROM asks WHERE pr_number = ? ORDER BY created_at, id`, []any{n},
+		func() *v1.Ask { return &v1.Ask{} })
+}

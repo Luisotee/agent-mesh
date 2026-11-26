@@ -399,10 +399,16 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		} else if to, err = d.FindAgent(t.Reader, actor, req.Msg.To); err != nil {
 			return err
 		}
+		var asked *collectRef // the round this report answers, when it is a member's
 		if IsAgent(actor.Class) {
 			self, err := d.getAgent(t.Reader, actor.Id)
 			if err != nil {
 				return err
+			}
+			if to.Id == self.ParentId && isReport(req.Msg.Type) {
+				if asked, err = d.collectingRef(t.Reader, self, to); err != nil {
+					return err
+				}
 			}
 			if to.Id != self.ParentId && to.ParentId != self.Id {
 				return denied("an agent sends only to its parent or its children; %s is neither", to.Name)
@@ -505,6 +511,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
 			Type: req.Msg.Type, Body: msgBody, CreatedAt: tsOf(t.Now())}
+		if asked != nil && (req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE || req.Msg.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
+			// A round's answer is held for its file: stored, but never rung (and read, so the caller's inbox keeps
+			// to what it has to act on); the caller gets one message when the round is in (collect.go).
+			msg.DeliveredAt, msg.ReadAt = tsOf(t.Now()), tsOf(t.Now())
+		}
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_WAIT {
 			// Not a report: it asks nothing of its parent, who reads it in the inbox, and rings no doorbell
 			// (PROTOCOL.md, design "A declared wait"). Marked delivered so the doorbell loop never takes it.
@@ -518,6 +529,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return err
 		}
 		out.Message = msg
+		if asked != nil {
+			if err := d.settleReport(t, asked, req.Msg.Type, req.Msg.Body); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil || out.ResumeError != "" {

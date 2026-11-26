@@ -356,7 +356,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 		}
 		// Its parent hears of it when it still owed a report (a stop someone asked for is told too: it is the
 		// parent's agent that ended).
-		if alert, err = alertExitTx(tx, a, lastSaid, code, signal, reason); err != nil {
+		if alert, err = d.alertExitTx(tx, a, lastSaid, code, signal, reason); err != nil {
 			return err
 		}
 		return tx.RevokeTokens(a.Id)
@@ -1137,7 +1137,7 @@ func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) (*v1.Message, error) {
 		AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "stopped"}}}); err != nil {
 		return nil, err
 	}
-	alert, err := alertExitTx(tx, a, lastSaid, -1, 0, "stopped")
+	alert, err := d.alertExitTx(tx, a, lastSaid, -1, 0, "stopped")
 	if err != nil {
 		return nil, err
 	}

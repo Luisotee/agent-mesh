@@ -306,6 +306,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "review rounds a small PR gets at most (a ceiling, not a quota)"},
 		Leaf{Key: "review.rounds.large", Type: Int, Default: 2.0,
 			Summary: "review rounds a large PR gets at most (a ceiling, not a quota)"},
+		Leaf{Key: "ask.timeout", Type: Seconds, Default: 1800.0,
+			Summary: "seconds a round of reviewers (or another collected ask) waits for its members: the ones still silent are then settled as not answered, and you get what came in"},
 		Leaf{Key: "quota_stop", Type: Percent, Default: 90.0,
 			Summary: "percent of a vendor's quota used at which nothing new starts on it"},
 		Leaf{Key: "idle_retire", Type: Seconds, Default: 300.0,
