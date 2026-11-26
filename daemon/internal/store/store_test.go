@@ -710,7 +710,7 @@ func TestWaitingIsWhatNoAnswerHasFollowed(t *testing.T) {
 	}
 }
 
-// A database from before migration 10 holds messages and no waiting rows: the first Open fills them in, the
+// A database from before migration 11 holds messages and no waiting rows: the first Open fills them in, the
 // same way the live rule would have, and doesn't do it again.
 func TestWaitingIsFilledFromAnOlderDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "meshd.db")

@@ -137,3 +137,14 @@ func PRText(row *v1.AgentPullRequests, done bool) string { return prText(row, do
 // SampleCapacityAt runs one capacity pass as if it were `now`; CapacityLine is what the root is told.
 func (d *Daemon) SampleCapacityAt(ctx context.Context, now time.Time) { d.sampleCapacityAt(ctx, now) }
 func (d *Daemon) CapacityLine(ctx context.Context) string             { return d.capacityLine(ctx) }
+
+// PushSenders is how many push senders were started and how many still run.
+func (d *Daemon) PushSenders() (started, live int64) {
+	return d.push.started.Load(), d.push.live.Load()
+}
+
+// OnPushLeave sets the sender's seam for an endpoint that stopped matching (nil clears it).
+func OnPushLeave(f func()) { onPushLeave = f }
+
+// TailnetURL is the URL a pairing link carries for a tailnet node with these addresses.
+func TailnetURL(addresses []string, port uint16) string { return tailnetURL(addresses, port) }

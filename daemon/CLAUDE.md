@@ -18,13 +18,14 @@ cd daemon && go test ./internal/daemon -run TestName   # one package, one test
 cd daemon && gofmt -w cmd internal e2e       # check.sh fails on unformatted code
 cd daemon && go test ./internal/registry -update       # accept a reviewed change of who may call what
 cd daemon && go build -o bin/ ./cmd/...      # binaries into daemon/bin/ (gitignored)
+cd daemon && go build -tags ts_omit_logtail,ts_omit_peerapiserver -o bin/ ./cmd/...   # as install.sh does; meshd --tailscale refuses a build without them
 ```
 
 Run `check.sh` before you report a change here: the repo runs no hosted CI, so it is the gate.
 
 ## Layout
 
-`cmd/` holds the four binaries (and `protoc-gen-flagdocs`, a build-time buf plugin, not shipped); `internal/` one package per concern (`daemon` the server and handlers including `cost.go`/`models.go`/`conflicts.go`/`prs.go` (PRs per agent)/`evidence.go` (what an alert adds)/`worktree.go`/`log.go`/`ring.go`/`open.go`, `registry` who may call what, `store` SQLite and migrations, `settings` the settings table, `events`, `termhost`/`termclient`, `adapter/claude`, `adapter/agy`, `adapter/opencode` and `adapter/copilot`, `inputbox` (what an agent's input box holds, read from a repaint), `shellmatch`, `reducer`, `hook`, `relay`, `pairing`, `tlsutil`, `auth`, `cli` including `cli/open.go`, `repoarg` (what a `--repo` argument is)); `gen/` the generated Go; `e2e/` the end-to-end test of the real binaries; `packaging/` the systemd units and the relay's container. `share/` the protocol and skills daemon agents read (`README.md`, "Protocol and skills"). `README.md` "Layout" maps every package.
+`cmd/` holds the four binaries (and `protoc-gen-flagdocs`, a build-time buf plugin, not shipped); `internal/` one package per concern (`daemon` the server and handlers including `cost.go`/`models.go`/`conflicts.go`/`prs.go` (PRs per agent)/`evidence.go` (what an alert adds)/`worktree.go`/`log.go`/`ring.go`/`open.go`, `registry` who may call what, `store` SQLite and migrations, `settings` the settings table, `events`, `termhost`/`termclient`, `adapter/claude`, `adapter/agy`, `adapter/opencode` and `adapter/copilot`, `inputbox` (what an agent's input box holds, read from a repaint), `shellmatch`, `reducer`, `hook`, `relay`, `pairing`, `tlsutil`, `tailnet` (the tsnet node; only it and `cmd/meshd` import tsnet), `auth`, `cli` including `cli/open.go`, `repoarg` (what a `--repo` argument is), `notice` (the apps' notification rules, for pushes) and `webpush` (RFC 8291 encryption and the POST; `daemon/push.go` sends)); `gen/` the generated Go; `e2e/` the end-to-end test of the real binaries; `packaging/` the systemd units and the relay's container. `share/` the protocol and skills daemon agents read (`README.md`, "Protocol and skills"). `README.md` "Layout" maps every package.
 
 ## Conventions
 
@@ -38,4 +39,5 @@ Run `check.sh` before you report a change here: the repo runs no hosted CI, so i
 - **Doorbells:** `internal/daemon/delivery.go` (README, "Doorbell delivery"): a message counts as delivered only once the agent took its doorbell (`ref` token, activity after the ring, read, or the token above the box), a doorbell is never typed into a human's draft (`ReadInputBox`), a retry never at a screen with no box (a first try does, as `bin/mesh` does), and a Claude agent's is written into its inbox socket (`DeliverNative`). Delivery tests use the fake claude's `FAKECLAUDE_BOX`, `FAKECLAUDE_DROP`, `FAKECLAUDE_STUCK`, `FAKECLAUDE_DIALOG` and `FAKECLAUDE_INBOX`.
 - **Same conversation:** a model change reopens the agent's own conversation (`--resume`), never a fresh agent briefed again (root `CLAUDE.md`, "Conventions").
 - **Relay:** `cmd/mesh-relay` speaks the protocol in `docs/relay.md`, deployed from `packaging/relay/`; keep it free of SQLite and the terminal host.
+- **Tailnet:** tests never join a real tailnet: `internal/daemon` tests use a fake `daemon.Tailnet`, and `internal/tailnet`'s run Tailscale's `testcontrol` on 127.0.0.1 (`tailnet.New` refuses an empty control URL under test). Don't import tsnet outside `internal/tailnet` and `cmd/meshd`.
 - **Docs:** `README.md` describes behaviour, so a change to behaviour updates it in the same PR, as it does this file when the commands, layout or conventions change.

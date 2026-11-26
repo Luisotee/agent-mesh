@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -66,8 +67,11 @@ type Config struct {
 	// direct LAN / Tailscale clients. Off by default.
 	Listen string
 	Relay  RelayConfig
-	Now    func() time.Time
-	Logger *slog.Logger
+	// Tailnet, when set, is the host's own Tailscale node (`meshd --tailscale`, internal/tailnet): meshd serves its
+	// TLS API on it as on Listen, and pairing links carry its address. Tests give a fake: none joins a tailnet.
+	Tailnet Tailnet
+	Now     func() time.Time
+	Logger  *slog.Logger
 
 	// Settings is the table of settings the host knows; nil is settings.Default().
 	Settings *settings.Schema
@@ -78,6 +82,9 @@ type Config struct {
 
 	// Agents (agents.go). With no TermLaunch the daemon runs without terminals and can't spawn agents.
 	Agents AgentConfig
+
+	// Push tunes the push sender (push.go).
+	Push PushConfig
 }
 
 // Paths of the files in a state dir.
@@ -101,6 +108,7 @@ type Daemon struct {
 	lock        *fsutil.Lock
 	store       *store.Store
 	bus         *events.Bus
+	push        *pusher
 	reg         *registry.Registry
 	schema      *settings.Schema
 	daemonID    string
@@ -125,6 +133,9 @@ type Daemon struct {
 	streams    map[string]map[uint64]context.CancelFunc
 	nextStream uint64
 	bgWG       sync.WaitGroup
+
+	// tailnetErr is why meshd isn't serving on the tailnet (Listen or Serve failed), for TailnetStatus.
+	tailnetErr atomic.Pointer[string]
 
 	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
 	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
@@ -151,7 +162,7 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	d := &Daemon{cfg: cfg, paths: Paths{Dir: dir}, log: cfg.Logger, now: cfg.Now, stopping: make(chan struct{}),
 		instanceID: ids.New("i", 10), mux: http.NewServeMux(),
-		capabilities: []string{"events.resume", "mutations", "pairing"},
+		capabilities: []string{"events.resume", "mutations", "pairing", "push"},
 		streams:      map[string]map[uint64]context.CancelFunc{}}
 	if d.lock, err = fsutil.TryLock(d.paths.Lock()); err != nil {
 		if errors.Is(err, fsutil.ErrLocked) {
@@ -175,7 +186,11 @@ func New(cfg Config) (*Daemon, error) {
 		d.schema = settings.Default()
 	}
 	d.bus = events.New(d.store)
-	d.store.OnCommit = d.bus.Publish
+	d.push = newPusher(d, cfg.Push)
+	d.store.OnCommit = func(evs []*v1.Event) {
+		d.bus.Publish(evs)
+		d.push.enqueue(evs)
+	}
 	if d.rt, err = newRuntime(cfg.Agents); err != nil {
 		return nil, err
 	}
@@ -207,11 +222,15 @@ func New(cfg Config) (*Daemon, error) {
 			HostName:      d.hostName,
 			DaemonVersion: Version,
 			Logger:        d.log,
+			ClientTokens:  d.relayClientTokens,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("relay: %w", err)
 		}
 		d.capabilities = append(d.capabilities, "relay")
+	}
+	if cfg.Tailnet != nil {
+		d.capabilities = append(d.capabilities, "tailscale")
 	}
 	if err := d.ensureDeviceToken(context.Background()); err != nil {
 		return nil, err
@@ -422,8 +441,22 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	bg, stopBG := context.WithCancel(ctx)
 	defer stopBG()
 	d.runBackground(bg)
+	// In bgWG: close() closes the store only once the pusher and its senders, which read it, have stopped.
+	d.bgWG.Add(1)
+	go func() {
+		defer d.bgWG.Done()
+		d.push.run(bg)
+	}()
+	if d.cfg.Tailnet != nil {
+		d.serveTailnet(bg, tlsSrv)
+	}
 	if d.relay != nil {
-		go func() { _ = d.relay.Run(bg) }()
+		// In bgWG: close() closes the store only once the connector, which reads it for the token set, has stopped.
+		d.bgWG.Add(1)
+		go func() {
+			defer d.bgWG.Done()
+			_ = d.relay.Run(bg)
+		}()
 		go func() {
 			if err := tlsSrv.ServeTLS(d.relay.Listener(), "", ""); err != nil &&
 				!errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
@@ -468,6 +501,11 @@ func listenLoopback(addr string) (net.Listener, error) {
 func (d *Daemon) close() {
 	d.stopOnce.Do(func() { close(d.stopping) })
 	d.bgWG.Wait()
+	if d.cfg.Tailnet != nil {
+		if err := d.cfg.Tailnet.Close(); err != nil {
+			d.log.Warn("closing the tailnet node", "err", err)
+		}
+	}
 	if d.store != nil {
 		d.store.Close()
 	}

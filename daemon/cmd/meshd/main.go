@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
+	"github.com/Luisotee/agent-mesh/daemon/internal/tailnet"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
@@ -25,6 +27,10 @@ func (m *multi) String() string     { return strings.Join(*m, ",") }
 func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
 func main() {
+	// Secrets given in the environment are read and taken out of it first, before the login shell, git, gh or
+	// anything else meshd starts could inherit them, whether or not the flag that uses them is on.
+	tsKeyEnv := takeEnv("AGENT_MESH_TAILSCALE_AUTH_KEY")
+	relayTokenEnv := takeEnv("AGENT_MESH_RELAY_TOKEN")
 	self, _ := os.Executable()
 	here := filepath.Dir(self)
 	state := flag.String("state", os.Getenv(client.StateEnv), "state dir (or $"+client.StateEnv+"); required")
@@ -32,7 +38,12 @@ func main() {
 	listen := flag.String("listen", os.Getenv("AGENT_MESH_LISTEN"), "opt-in TLS listen address for direct remote clients, e.g. :9443 (off by default)")
 	relayURL := flag.String("relay-url", os.Getenv("AGENT_MESH_RELAY_URL"), "self-hosted relay URL (for example https://relay.example.com)")
 	relayTCP := flag.String("relay-tcp", os.Getenv("AGENT_MESH_RELAY_TCP"), "relay raw TCP client address (for example relay.example.com:8443) for pairing payloads")
-	relayTokenFile := flag.String("relay-token-file", os.Getenv("AGENT_MESH_RELAY_TOKEN_FILE"), "file holding the relay shared secret (mode 0600, or $AGENT_MESH_RELAY_TOKEN)")
+	relayTokenFile := flag.String("relay-token-file", takeEnv("AGENT_MESH_RELAY_TOKEN_FILE"), "file holding the relay shared secret (mode 0600, or $AGENT_MESH_RELAY_TOKEN)")
+	tsOn := flag.Bool("tailscale", envBool("AGENT_MESH_TAILSCALE"), "join a tailnet (Tailscale, or Headscale with --tailscale-control-url) and serve the TLS API there (or $AGENT_MESH_TAILSCALE=1)")
+	tsHost := flag.String("tailscale-hostname", os.Getenv("AGENT_MESH_TAILSCALE_HOSTNAME"), "the node's name on the tailnet (default mesh-<host name>)")
+	tsPort := flag.Uint("tailscale-port", 443, "the tailnet port the TLS API is served on (or $AGENT_MESH_TAILSCALE_PORT)")
+	tsControl := flag.String("tailscale-control-url", os.Getenv("AGENT_MESH_TAILSCALE_CONTROL_URL"), "the control server, such as a Headscale URL (default Tailscale's)")
+	tsKeyFile := flag.String("tailscale-auth-key-file", takeEnv("AGENT_MESH_TAILSCALE_AUTH_KEY_FILE"), "file holding a Tailscale auth key (mode 0600, or $AGENT_MESH_TAILSCALE_AUTH_KEY): logs the node in without a browser")
 	hostName := flag.String("host-name", os.Getenv("AGENT_MESH_HOST_NAME"), "readable host name advertised over relay and pairing (default hostname)")
 	maxLife := flag.Duration("max-lifetime", 0, "exit after this long, and start mesh-term with the same "+
 		"(tests: no orphan survives a killed test)")
@@ -120,12 +131,32 @@ func main() {
 				os.Exit(2)
 			}
 		} else {
-			relaySecret = strings.TrimSpace(os.Getenv("AGENT_MESH_RELAY_TOKEN"))
+			relaySecret = relayTokenEnv
 		}
 		if relaySecret == "" {
 			fmt.Fprintln(os.Stderr, "meshd: --relay-url needs --relay-token-file, $AGENT_MESH_RELAY_TOKEN_FILE, or $AGENT_MESH_RELAY_TOKEN")
 			os.Exit(2)
 		}
+	}
+	var tn daemon.Tailnet
+	if *tsOn {
+		// The port's env twin counts only with --tailscale on, and below the flag.
+		portGiven := false
+		flag.Visit(func(f *flag.Flag) { portGiven = portGiven || f.Name == "tailscale-port" })
+		if v := strings.TrimSpace(os.Getenv("AGENT_MESH_TAILSCALE_PORT")); v != "" && !portGiven {
+			n, err := strconv.ParseUint(v, 10, 32)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "meshd: $AGENT_MESH_TAILSCALE_PORT=%q: not a number\n", v)
+				os.Exit(2)
+			}
+			*tsPort = uint(n)
+		}
+		node, err := startTailnet(*state, *hostName, *tsHost, *tsPort, *tsControl, *tsKeyFile, tsKeyEnv, log)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "meshd:", err)
+			os.Exit(2)
+		}
+		tn = node
 	}
 	d, err := daemon.New(daemon.Config{
 		StateDir:   *state,
@@ -138,11 +169,15 @@ func main() {
 			Token:    relaySecret,
 			HostName: *hostName,
 		},
-		Logger: log,
-		Now:    time.Now,
-		Agents: agents,
+		Tailnet: tn,
+		Logger:  log,
+		Now:     time.Now,
+		Agents:  agents,
 	})
 	if err != nil {
+		if tn != nil {
+			_ = tn.Close()
+		}
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)
 	}
@@ -150,4 +185,53 @@ func main() {
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)
 	}
+}
+
+// takeEnv reads a variable and removes it from meshd's environment.
+func takeEnv(key string) string {
+	v := strings.TrimSpace(os.Getenv(key))
+	_ = os.Unsetenv(key)
+	return v
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// startTailnet makes the host's Tailscale node in <state>/tailscale. The auth key is read once and dropped from
+// the environment, so nothing meshd starts inherits it.
+func startTailnet(state, hostName, tsHost string, port uint, controlURL, keyFile, keyEnv string, log *slog.Logger) (*tailnet.Node, error) {
+	if err := tailnet.CheckBuild(); err != nil {
+		return nil, err
+	}
+	if port == 0 || port > 65535 {
+		return nil, fmt.Errorf("--tailscale-port %d: want 1-65535", port)
+	}
+	var authKey string
+	if keyFile != "" {
+		var err error
+		if authKey, err = fsutil.ReadSecret(keyFile); err != nil {
+			return nil, fmt.Errorf("--tailscale-auth-key-file: %w", err)
+		}
+	} else {
+		authKey = keyEnv
+	}
+	if tsHost == "" {
+		if hostName == "" {
+			hostName, _ = os.Hostname()
+		}
+		tsHost = "mesh-" + hostName
+	}
+	return tailnet.New(tailnet.Config{
+		Dir:        filepath.Join(state, "tailscale"),
+		Hostname:   tsHost,
+		Port:       uint16(port),
+		ControlURL: strings.TrimSpace(controlURL),
+		AuthKey:    authKey,
+		Logger:     log,
+	})
 }
