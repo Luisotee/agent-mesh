@@ -150,6 +150,20 @@ public interface MeshServiceClientInterface {
   public suspend fun listPullRequests(request: ListPullRequestsRequest, headers: Headers = emptyMap()): ResponseMessage<ListPullRequestsResponse>
 
   /**
+   *  Hold a pull request's merge, or release it: a root never merges a held PR (ORCHESTRATE). The hold is the user's
+   *  brake on one PR, at any autonomy level; it is kept by the PR's url (outliving every record of it) and shown by
+   *  ListPullRequests. A root may hold a PR of its own run, and may not release one: only the user does.
+   */
+  public suspend fun holdPullRequest(request: HoldPullRequestRequest, headers: Headers = emptyMap()): ResponseMessage<HoldPullRequestResponse>
+
+  /**
+   *  The repositories this host can start work in: the git folders under the `repos.dir` folders and every repo
+   *  an agent has worked in, each with its default branch and branches; with `repo` set, that one with its open
+   *  pull requests (read from GitHub) too.
+   */
+  public suspend fun listProjects(request: ListProjectsRequest, headers: Headers = emptyMap()): ResponseMessage<ListProjectsResponse>
+
+  /**
    *  What a root (or any agent) needs to rebuild its picture of the run: the root card, notes, status, unread mail
    *  headers and the last reset. Marks nothing read.
    */

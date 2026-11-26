@@ -244,6 +244,7 @@ Then end your turn. A later task may ask more. You stay read-only while your tas
 ## Rules for everyone
 
 - **Workers push only** their own `mesh/<run>/<slug>` branch and open PRs. Nobody merges a PR or deploys.
+- **The user's brakes:** the user can hold a PR's merge (`mesh hold-pr --url <url>`; `mesh prs` and the brief show it as HELD; the hold stays on the PR until the user releases it): nobody merges a held PR. A root may hold a PR of its own run when it sees a reason, and never releases one: the host refuses it, and only the user lets a hold go. The brief also lists, only when the user set them, the repos whose PRs the user merges (`repos.user_merges`) or whose plans they also approve (`repos.user_approves_plans`: the root approves none of those plans and puts each to the user), and what to ask the user before (`autonomy.ask_before`). A repo in no list is handled as before.
 - **No sub-delegation of changes:** workers never start change agents, or a CLI headless. The run is the root plus its workers, and the read-only askers and reviewers either starts.
 - **Quiet supervision:** a working agent needs no check-ins. Act on reports, doorbells and the daemon's alerts only.
 - **Concise messages:** details go in `--body @file` reports and plans, not in chat.

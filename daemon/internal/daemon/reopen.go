@@ -1468,6 +1468,9 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 		if err := d.applyEvents(tx, a, []*adapterv1.AgentEvent{ev}); err != nil {
 			return err
 		}
+		if err := setExitDetail(tx, a, "reopen failed: "+reason); err != nil {
+			return err
+		}
 		if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentExited{
 			AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "reopen failed: " + reason}}}); err != nil {
 			return err

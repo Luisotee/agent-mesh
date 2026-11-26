@@ -39,7 +39,9 @@ type PullRequest struct {
 	// When GitHub was last read for it.
 	CheckedAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=checked_at,json=checkedAt,proto3" json:"checked_at,omitempty"`
 	// The last read failed: state and checks are the last ones seen.
-	Stale         bool `protobuf:"varint,9,opt,name=stale,proto3" json:"stale,omitempty"`
+	Stale bool `protobuf:"varint,9,opt,name=stale,proto3" json:"stale,omitempty"`
+	// The user holds the merge (HoldPullRequest): a root never merges it until it is released.
+	Held          bool `protobuf:"varint,10,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -133,6 +135,13 @@ func (x *PullRequest) GetCheckedAt() *timestamppb.Timestamp {
 func (x *PullRequest) GetStale() bool {
 	if x != nil {
 		return x.Stale
+	}
+	return false
+}
+
+func (x *PullRequest) GetHeld() bool {
+	if x != nil {
+		return x.Held
 	}
 	return false
 }
@@ -486,7 +495,7 @@ var File_agentmesh_v1_pr_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\n" +
-	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xff\x01\n" +
+	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x93\x02\n" +
 	"\vPullRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x16\n" +
@@ -497,7 +506,9 @@ const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\x06source\x18\a \x01(\tR\x06source\x129\n" +
 	"\n" +
 	"checked_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcheckedAt\x12\x14\n" +
-	"\x05stale\x18\t \x01(\bR\x05stale\"\xb3\x01\n" +
+	"\x05stale\x18\t \x01(\bR\x05stale\x12\x12\n" +
+	"\x04held\x18\n" +
+	" \x01(\bR\x04held\"\xb3\x01\n" +
 	"\fWorkEvidence\x12\x18\n" +
 	"\acommits\x18\x01 \x01(\x05R\acommits\x12\x1f\n" +
 	"\vhas_commits\x18\x02 \x01(\bR\n" +

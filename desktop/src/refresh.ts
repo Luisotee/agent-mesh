@@ -1,9 +1,9 @@
 import { equals } from '@bufbuild/protobuf'
 import type { MeshClient } from './actions'
-import { listWaiting } from './actions'
+import { listPullRequests, listWaiting } from './actions'
 import { realTimers, type Timers } from './connection'
-import { AgentSchema, MessageType, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
-import { setWaiting, type HostStore } from './store'
+import { AgentSchema, MessageType, RunStatus, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
+import { setPullRequests, setWaiting, type HostStore } from './store'
 
 /**
  * Two things the event stream doesn't carry, read from the host again when they may have changed.
@@ -13,25 +13,34 @@ import { setWaiting, type HostStore } from './store'
  * starting, changing state, exiting or being retired, a run stopping. A list that was on its way while one of those
  * arrived may be stale: it is shown, and fetched again after the pause.
  *
+ * The pull requests (`ListPullRequests`, which the host caches for two minutes) are read at connect and every
+ * `prsEveryMs`; a PR that changes between is told by an event the store applies itself.
+ *
  * An agent that went quiet shows as `unknown` only when the host is asked (the state is derived from the time and
  * the terminal's output when read, never stored or sent as an event), so the agents are listed again every
  * `agentsEveryMs`; an agent an event touched meanwhile keeps what the event said.
  */
 export function hostRefresher(
-  client: Pick<MeshClient, 'listWaiting' | 'listAgents'>,
+  client: Pick<MeshClient, 'listWaiting' | 'listAgents' | 'listPullRequests'>,
   store: HostStore,
   log: (line: string) => void,
   timers: Timers = realTimers,
-  opts: { debounceMs?: number; agentsEveryMs?: number } = {},
+  opts: { debounceMs?: number; agentsEveryMs?: number; prsEveryMs?: number } = {},
 ) {
   const debounceMs = opts.debounceMs ?? 200
   const agentsEveryMs = opts.agentsEveryMs ?? 30_000
+  const prsEveryMs = opts.prsEveryMs ?? 60_000
   let stopped = false
   let waitingTouches = 0
   let agentTouches = 0
   let pause: unknown
   let waitingLoading = false
   let ticker: unknown
+  let prTicker: unknown
+  let prsLoading = false
+  let prsComplained = false
+  // PR events the store applied: a read that was under way when one came is older than it, and must not undo it.
+  let prTouches = 0
   let complained = false
   let waitingFailed = false
 
@@ -75,6 +84,39 @@ export function hostRefresher(
       pause = undefined
       void loadWaiting()
     }, debounceMs)
+  }
+
+  async function loadPullRequests(): Promise<void> {
+    const st = store.getState()
+    if (prsLoading || st.conn.kind !== 'ready' || !st.synced) return
+    // The host answers per run (a device names it): one call for each run still open, side by side.
+    const runIds = Object.values(st.runs).filter((r) => r.status !== RunStatus.CLOSED).map((r) => r.id)
+    prsLoading = true
+    const seenPr = prTouches
+    let again = false
+    try {
+      const results = await Promise.allSettled(runIds.map((id) => listPullRequests(client as MeshClient, id)))
+      if (stopped) return
+      if (seenPr !== prTouches) {
+        // An event (a merge, a hold) came while the call was on its way: its answer may predate it. Keep what the event said, and ask again.
+        again = true
+        return
+      }
+      const agents = results.flatMap((r) => (r.status === 'fulfilled' ? r.value.agents : []))
+      const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+      // A run that failed keeps what was known of its agents; the others are replaced.
+      const failedRuns = new Set(results.flatMap((r, i) => (r.status === 'rejected' ? [runIds[i]!] : [])))
+      const kept = Object.values(store.getState().pullRequests).filter((p) => failedRuns.has(store.getState().agents[p.agentId]?.runId ?? ''))
+      store.setState(setPullRequests([...agents, ...kept]))
+      if (failed) {
+        // Said once (a host without `gh` or an older daemon would say it every minute); the buckets then lack "ready to review".
+        if (!prsComplained) log(`couldn't read the pull requests: ${failed.reason instanceof Error ? failed.reason.message : String(failed.reason)}`)
+        prsComplained = true
+      } else prsComplained = false
+    } finally {
+      prsLoading = false
+      if (again) void loadPullRequests()
+    }
   }
 
   async function loadAgents(): Promise<void> {
@@ -139,6 +181,9 @@ export function hostRefresher(
         case 'agentAdopted':
           agentTouches++
           return
+        case 'pullRequestChanged':
+          prTouches++
+          return
         case 'runStopped':
           waitingTouches++
           schedule()
@@ -151,9 +196,11 @@ export function hostRefresher(
       timers.clearTimeout(pause)
       pause = undefined
       void loadWaiting()
+      void loadPullRequests()
     },
     start(): void {
       ticker ??= timers.setInterval(() => void loadAgents(), agentsEveryMs)
+      prTicker ??= timers.setInterval(() => void loadPullRequests(), prsEveryMs)
     },
     stop(): void {
       stopped = true
@@ -161,6 +208,8 @@ export function hostRefresher(
       pause = undefined
       timers.clearInterval(ticker)
       ticker = undefined
+      timers.clearInterval(prTicker)
+      prTicker = undefined
     },
   }
 }

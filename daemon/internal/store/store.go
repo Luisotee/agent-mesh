@@ -1286,8 +1286,22 @@ func (t *Tx) DeleteWorktree(id string) error {
 
 // ── agent pull requests ──
 
-// PutAgentPR inserts or replaces the last state read for a pull request an agent owns.
+// PRKey is a PR URL as one key: lower case, with no query, fragment or trailing slash.
+func PRKey(u string) string {
+	if i := strings.IndexAny(u, "?#"); i >= 0 {
+		u = u[:i]
+	}
+	return strings.ToLower(strings.TrimRight(u, "/"))
+}
+
+// PutAgentPR inserts or replaces the last state read for a pull request an agent owns. Whether the user holds its merge
+// is not the record's to say: it is the user's hold (`SetPRHold`) on the PR, set on the record here.
 func (t *Tx) PutAgentPR(p *v1.PullRequest) error {
+	held, err := t.PRHeld(p.Url)
+	if err != nil {
+		return err
+	}
+	p.Held = held
 	b, err := proto.Marshal(p)
 	if err != nil {
 		return err
@@ -1297,10 +1311,43 @@ func (t *Tx) PutAgentPR(p *v1.PullRequest) error {
 	return err
 }
 
+// SetPRHold records that the user holds a pull request's merge, or that they released it.
+func (t *Tx) SetPRHold(url string, held bool) error {
+	q := `DELETE FROM pr_holds WHERE key = ?`
+	if held {
+		q = `INSERT OR IGNORE INTO pr_holds (key) VALUES (?)`
+	}
+	_, err := t.tx.ExecContext(t.ctx, q, PRKey(url))
+	return err
+}
+
+// PRHeld says whether the user holds a pull request's merge.
+func (r Reader) PRHeld(url string) (bool, error) {
+	var n int
+	err := r.q.QueryRowContext(r.ctx, `SELECT COUNT(*) FROM pr_holds WHERE key = ?`, PRKey(url)).Scan(&n)
+	return n > 0, err
+}
+
 // DeleteAgentPR forgets a pull request an agent no longer owns.
 func (t *Tx) DeleteAgentPR(agentID, url string) error {
 	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM agent_prs WHERE agent_id = ? AND url = ?`, agentID, url)
 	return err
+}
+
+// PRsByURL lists the records of one pull request (the URL as PRKey reads it), one for each agent that owns it.
+func (r Reader) PRsByURL(url string) ([]*v1.PullRequest, error) {
+	all, err := scanAll(r, `SELECT data FROM agent_prs ORDER BY agent_id`, nil, func() *v1.PullRequest { return &v1.PullRequest{} })
+	if err != nil {
+		return nil, err
+	}
+	key := PRKey(url)
+	var out []*v1.PullRequest
+	for _, p := range all {
+		if PRKey(p.Url) == key {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // AgentPRs lists an agent's pull requests by url.
