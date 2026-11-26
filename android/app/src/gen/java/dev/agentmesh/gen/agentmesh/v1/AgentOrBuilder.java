@@ -464,4 +464,49 @@ public interface AgentOrBuilder extends
    * @return The peer.
    */
   boolean getPeer();
+
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @return A list containing the mcp.
+   */
+  java.util.List<java.lang.String>
+      getMcpList();
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @return The count of mcp.
+   */
+  int getMcpCount();
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  java.lang.String getMcp(int index);
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  com.google.protobuf.ByteString
+      getMcpBytes(int index);
 }

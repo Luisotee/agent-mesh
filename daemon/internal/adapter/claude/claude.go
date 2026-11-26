@@ -90,6 +90,11 @@ type hookGroup struct {
 // user's and the repo's own hooks. With denyPublish its PreToolUse hook also checks every shell command
 // against the publish rules (EvaluatePreToolUse), and a denial from a hook holds in every permission mode.
 func Settings(hookArgv []string, denyPublish bool) (string, error) {
+	return settingsWith(hookArgv, denyPublish, nil)
+}
+
+// settingsWith is Settings plus extra top-level keys (a lean launch's).
+func settingsWith(hookArgv []string, denyPublish bool, extra map[string]any) (string, error) {
 	hooks := map[string][]hookGroup{}
 	for _, ev := range hookEvents {
 		argv := append([]string{}, hookArgv...)
@@ -100,6 +105,9 @@ func Settings(hookArgv []string, denyPublish bool) (string, error) {
 		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: HookTimeout}}}}
 	}
 	doc := map[string]any{"hooks": hooks}
+	for k, v := range extra {
+		doc[k] = v
+	}
 	if len(hookArgv) > 0 {
 		if stateDir := flagValue(hookArgv, "--state"); stateDir != "" {
 			doc["statusLine"] = map[string]any{
@@ -170,7 +178,11 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 		bin = "claude"
 	}
 	deny := ReadOnly(m.Role) || m.DenyEdits
-	settings, err := Settings(m.HookArgv, deny)
+	var extra map[string]any
+	if m.Lean != nil {
+		extra = leanSettings(m.Env, m.Lean)
+	}
+	settings, err := settingsWith(m.HookArgv, deny, extra)
 	if err != nil {
 		return nil, err
 	}
@@ -191,9 +203,18 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if m.Effort != "" {
 		argv = append(argv, "--effort", m.Effort)
 	}
+	// One `--disallowedTools` carries both lists: the read-only rules and the lean tools.
+	var rules []string
 	if deny {
-		argv = append(argv, DenyArgs(m.Cwd, m.Repo)...)
+		rules = DenyArgs(m.Cwd, m.Repo)[1:]
 	}
+	if m.Lean != nil {
+		rules = append(rules, m.Lean.DenyTools...)
+	}
+	if len(rules) > 0 {
+		argv = append(append(argv, "--disallowedTools"), rules...)
+	}
+	argv = append(argv, LeanArgs(m.Lean)...)
 	argv = append(argv, "--settings", settings)
 	// The daemon's skills, loaded for this session only (never installed into the user's own): the share folder
 	// is a Claude plugin (`.claude-plugin/plugin.json`, `skills/`).

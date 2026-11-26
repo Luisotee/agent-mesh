@@ -83,7 +83,8 @@ func (w *reopenWorld) launches(t *testing.T, session string) [][]string {
 	return out
 }
 
-// flags reads an argv's value flags and whether it has a deny list.
+// flags reads an argv's value flags and whether it has the read-only deny list (a lean launch's
+// `--disallowedTools` also carries the lean tools, so the flag alone says nothing).
 func flags(argv []string) (map[string]string, bool) {
 	out, deny := map[string]string{}, false
 	for i := 0; i < len(argv); i++ {
@@ -91,8 +92,10 @@ func flags(argv []string) (map[string]string, bool) {
 		case "--session-id", "--resume", "--model", "--effort":
 			out[argv[i]] = argv[i+1]
 			i++
-		case "--disallowedTools":
-			deny = true
+		default:
+			if strings.HasPrefix(argv[i], "Edit(") {
+				deny = true
+			}
 		}
 	}
 	return out, deny

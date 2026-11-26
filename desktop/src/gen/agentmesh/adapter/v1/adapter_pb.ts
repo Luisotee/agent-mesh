@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/adapter/v1/adapter.proto.
  */
 export const file_agentmesh_adapter_v1_adapter: GenFile = /*@__PURE__*/
-  fileDesc("CiJhZ2VudG1lc2gvYWRhcHRlci92MS9hZGFwdGVyLnByb3RvEhRhZ2VudG1lc2guYWRhcHRlci52MSIRCg9EZXNjcmliZVJlcXVlc3QiZwoQRGVzY3JpYmVSZXNwb25zZRIMCgRraW5kGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIZChF2ZXJpZmllZF92ZXJzaW9ucxgDIAMoCRIUCgxjYXBhYmlsaXRpZXMYBCADKAkigQMKEVBsYW5MYXVuY2hSZXF1ZXN0EhAKCGFnZW50X2lkGAEgASgJEhIKCmFnZW50X25hbWUYAiABKAkSDgoGcnVuX2lkGAMgASgJEiUKBHJvbGUYBCABKA4yFy5hZ2VudG1lc2gudjEuQWdlbnRSb2xlEgsKA2N3ZBgFIAEoCRINCgVtb2RlbBgGIAEoCRIOCgZlZmZvcnQYByABKAkSDgoGYmluYXJ5GAggASgJEhEKCWhvb2tfYXJndhgJIAMoCRI9CgNlbnYYCiADKAsyMC5hZ2VudG1lc2guYWRhcHRlci52MS5QbGFuTGF1bmNoUmVxdWVzdC5FbnZFbnRyeRIYChBza2lwX3Blcm1pc3Npb25zGAsgASgIEgwKBHJlcG8YDCABKAkSGQoRcmVzdW1lX3Nlc3Npb25faWQYDSABKAkSEgoKZGVueV9lZGl0cxgOIAEoCBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBImcKDFdvcmt0cmVlRmlsZRIMCgRwYXRoGAEgASgJEg8KB2NvbnRlbnQYAiABKAwSDAoEbW9kZRgDIAEoDRITCgtnaXRfZXhjbHVkZRgEIAEoCBIVCg1tZXJnZV90cmFja2VkGAUgASgIIt4BChJQbGFuTGF1bmNoUmVzcG9uc2USDAoEYXJndhgBIAMoCRI+CgNlbnYYAiADKAsyMS5hZ2VudG1lc2guYWRhcHRlci52MS5QbGFuTGF1bmNoUmVzcG9uc2UuRW52RW50cnkSEgoKc2Vzc2lvbl9pZBgDIAEoCRI6Cg53b3JrdHJlZV9maWxlcxgEIAMoCzIiLmFnZW50bWVzaC5hZGFwdGVyLnYxLldvcmt0cmVlRmlsZRoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIoECChRMb29rdXBTZXNzaW9uUmVxdWVzdBIQCghhZ2VudF9pZBgBIAEoCRILCgNjd2QYBCABKAkSDAoEcmVwbxgFIAEoCRJACgNlbnYYBiADKAsyMy5hZ2VudG1lc2guYWRhcHRlci52MS5Mb29rdXBTZXNzaW9uUmVxdWVzdC5FbnZFbnRyeRIuCgpub3RfYmVmb3JlGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBSgQIAhADSgQIAxAEUgphZ2VudF9uYW1lUgZydW5faWQiKwoVTG9va3VwU2Vzc2lvblJlc3BvbnNlEhIKCnNlc3Npb25faWQYASABKAkiJQoURGVzY3JpYmVNb2RlbFJlcXVlc3QSDQoFbW9kZWwYASABKAkiJwoVRGVzY3JpYmVNb2RlbFJlc3BvbnNlEg4KBmVmZm9ydBgBIAEoCSKMAQoRRGVjb2RlSG9va1JlcXVlc3QSEAoIYWdlbnRfaWQYASABKAkSEgoKc2Vzc2lvbl9pZBgCIAEoCRISCgpldmVudF9uYW1lGAMgASgJEg8KB3BheWxvYWQYBCABKAwSLAoIZmlyZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIkYKEkRlY29kZUhvb2tSZXNwb25zZRIwCgZldmVudHMYASADKAsyIC5hZ2VudG1lc2guYWRhcHRlci52MS5BZ2VudEV2ZW50IsEFCgpBZ2VudEV2ZW50EigKBHRpbWUYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEj8KD3Nlc3Npb25fc3RhcnRlZBgKIAEoCzIkLmFnZW50bWVzaC5hZGFwdGVyLnYxLlNlc3Npb25TdGFydGVkSAASOQoMdHVybl9zdGFydGVkGAsgASgLMiEuYWdlbnRtZXNoLmFkYXB0ZXIudjEuVHVyblN0YXJ0ZWRIABIyCghhY3Rpdml0eRgMIAEoCzIeLmFnZW50bWVzaC5hZGFwdGVyLnYxLkFjdGl2aXR5SAASNwoLbmVlZHNfaW5wdXQYDSABKAsyIC5hZ2VudG1lc2guYWRhcHRlci52MS5OZWVkc0lucHV0SAASNQoKdHVybl9lbmRlZBgOIAEoCzIfLmFnZW50bWVzaC5hZGFwdGVyLnYxLlR1cm5FbmRlZEgAEjYKCmNvbXBhY3RpbmcYDyABKAsyIC5hZ2VudG1lc2guYWRhcHRlci52MS5Db21wYWN0aW5nSAASOwoNc2Vzc2lvbl9lbmRlZBgQIAEoCzIiLmFnZW50bWVzaC5hZGFwdGVyLnYxLlNlc3Npb25FbmRlZEgAEj0KDnByb2Nlc3NfZXhpdGVkGBEgASgLMiMuYWdlbnRtZXNoLmFkYXB0ZXIudjEuUHJvY2Vzc0V4aXRlZEgAEjkKDGRlY29kZV9lcnJvchgSIAEoCzIhLmFnZW50bWVzaC5hZGFwdGVyLnYxLkRlY29kZUVycm9ySAASOQoMcmF0ZV9saW1pdGVkGBMgASgLMiEuYWdlbnRtZXNoLmFkYXB0ZXIudjEuUmF0ZUxpbWl0ZWRIABI3Cgt0dXJuX2ZhaWxlZBgUIAEoCzIgLmFnZW50bWVzaC5hZGFwdGVyLnYxLlR1cm5GYWlsZWRIAEIGCgRraW5kIjQKDlNlc3Npb25TdGFydGVkEhIKCnNlc3Npb25faWQYASABKAkSDgoGc291cmNlGAIgASgJIg0KC1R1cm5TdGFydGVkIhoKCEFjdGl2aXR5Eg4KBmRldGFpbBgBIAEoCSIcCgpOZWVkc0lucHV0Eg4KBnJlYXNvbhgBIAEoCSILCglUdXJuRW5kZWQiDAoKQ29tcGFjdGluZyIeCgxTZXNzaW9uRW5kZWQSDgoGcmVhc29uGAEgASgJIjIKDVByb2Nlc3NFeGl0ZWQSEQoJZXhpdF9jb2RlGAEgASgFEg4KBnNpZ25hbBgCIAEoBSIcCgtEZWNvZGVFcnJvchINCgVlcnJvchgBIAEoCSJyCgtSYXRlTGltaXRlZBIPCgdtZXNzYWdlGAEgASgJEhAKCHJlc2V0X2luGAIgASgJEiwKCHJlc2V0X2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBISCgphbGxfbW9kZWxzGAQgASgIIhsKClR1cm5GYWlsZWQSDQoFZXJyb3IYASABKAkyhAQKEUNsaUFkYXB0ZXJTZXJ2aWNlElkKCERlc2NyaWJlEiUuYWdlbnRtZXNoLmFkYXB0ZXIudjEuRGVzY3JpYmVSZXF1ZXN0GiYuYWdlbnRtZXNoLmFkYXB0ZXIudjEuRGVzY3JpYmVSZXNwb25zZRJfCgpQbGFuTGF1bmNoEicuYWdlbnRtZXNoLmFkYXB0ZXIudjEuUGxhbkxhdW5jaFJlcXVlc3QaKC5hZ2VudG1lc2guYWRhcHRlci52MS5QbGFuTGF1bmNoUmVzcG9uc2USXwoKRGVjb2RlSG9vaxInLmFnZW50bWVzaC5hZGFwdGVyLnYxLkRlY29kZUhvb2tSZXF1ZXN0GiguYWdlbnRtZXNoLmFkYXB0ZXIudjEuRGVjb2RlSG9va1Jlc3BvbnNlEmgKDUxvb2t1cFNlc3Npb24SKi5hZ2VudG1lc2guYWRhcHRlci52MS5Mb29rdXBTZXNzaW9uUmVxdWVzdBorLmFnZW50bWVzaC5hZGFwdGVyLnYxLkxvb2t1cFNlc3Npb25SZXNwb25zZRJoCg1EZXNjcmliZU1vZGVsEiouYWdlbnRtZXNoLmFkYXB0ZXIudjEuRGVzY3JpYmVNb2RlbFJlcXVlc3QaKy5hZ2VudG1lc2guYWRhcHRlci52MS5EZXNjcmliZU1vZGVsUmVzcG9uc2ViBnByb3RvMw", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("CiJhZ2VudG1lc2gvYWRhcHRlci92MS9hZGFwdGVyLnByb3RvEhRhZ2VudG1lc2guYWRhcHRlci52MSIRCg9EZXNjcmliZVJlcXVlc3QiZwoQRGVzY3JpYmVSZXNwb25zZRIMCgRraW5kGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIZChF2ZXJpZmllZF92ZXJzaW9ucxgDIAMoCRIUCgxjYXBhYmlsaXRpZXMYBCADKAkisQMKEVBsYW5MYXVuY2hSZXF1ZXN0EhAKCGFnZW50X2lkGAEgASgJEhIKCmFnZW50X25hbWUYAiABKAkSDgoGcnVuX2lkGAMgASgJEiUKBHJvbGUYBCABKA4yFy5hZ2VudG1lc2gudjEuQWdlbnRSb2xlEgsKA2N3ZBgFIAEoCRINCgVtb2RlbBgGIAEoCRIOCgZlZmZvcnQYByABKAkSDgoGYmluYXJ5GAggASgJEhEKCWhvb2tfYXJndhgJIAMoCRI9CgNlbnYYCiADKAsyMC5hZ2VudG1lc2guYWRhcHRlci52MS5QbGFuTGF1bmNoUmVxdWVzdC5FbnZFbnRyeRIYChBza2lwX3Blcm1pc3Npb25zGAsgASgIEgwKBHJlcG8YDCABKAkSGQoRcmVzdW1lX3Nlc3Npb25faWQYDSABKAkSEgoKZGVueV9lZGl0cxgOIAEoCBIuCgRsZWFuGA8gASgLMiAuYWdlbnRtZXNoLmFkYXB0ZXIudjEuTGVhbkxhdW5jaBoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIoMBCgpMZWFuTGF1bmNoEhIKCmRlbnlfdG9vbHMYASADKAkSFQoNaGlkZGVuX3NraWxscxgCIAMoCRITCgtvZmZfcGx1Z2lucxgDIAMoCRIcChRoaWRlX2NsYXVkZWFpX3NraWxscxgEIAEoCBIXCg9tY3BfY29uZmlnX3BhdGgYBSABKAkiZwoMV29ya3RyZWVGaWxlEgwKBHBhdGgYASABKAkSDwoHY29udGVudBgCIAEoDBIMCgRtb2RlGAMgASgNEhMKC2dpdF9leGNsdWRlGAQgASgIEhUKDW1lcmdlX3RyYWNrZWQYBSABKAgi3gEKElBsYW5MYXVuY2hSZXNwb25zZRIMCgRhcmd2GAEgAygJEj4KA2VudhgCIAMoCzIxLmFnZW50bWVzaC5hZGFwdGVyLnYxLlBsYW5MYXVuY2hSZXNwb25zZS5FbnZFbnRyeRISCgpzZXNzaW9uX2lkGAMgASgJEjoKDndvcmt0cmVlX2ZpbGVzGAQgAygLMiIuYWdlbnRtZXNoLmFkYXB0ZXIudjEuV29ya3RyZWVGaWxlGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEigQIKFExvb2t1cFNlc3Npb25SZXF1ZXN0EhAKCGFnZW50X2lkGAEgASgJEgsKA2N3ZBgEIAEoCRIMCgRyZXBvGAUgASgJEkAKA2VudhgGIAMoCzIzLmFnZW50bWVzaC5hZGFwdGVyLnYxLkxvb2t1cFNlc3Npb25SZXF1ZXN0LkVudkVudHJ5Ei4KCm5vdF9iZWZvcmUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFKBAgCEANKBAgDEARSCmFnZW50X25hbWVSBnJ1bl9pZCIrChVMb29rdXBTZXNzaW9uUmVzcG9uc2USEgoKc2Vzc2lvbl9pZBgBIAEoCSIlChREZXNjcmliZU1vZGVsUmVxdWVzdBINCgVtb2RlbBgBIAEoCSInChVEZXNjcmliZU1vZGVsUmVzcG9uc2USDgoGZWZmb3J0GAEgASgJIowBChFEZWNvZGVIb29rUmVxdWVzdBIQCghhZ2VudF9pZBgBIAEoCRISCgpzZXNzaW9uX2lkGAIgASgJEhIKCmV2ZW50X25hbWUYAyABKAkSDwoHcGF5bG9hZBgEIAEoDBIsCghmaXJlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiRgoSRGVjb2RlSG9va1Jlc3BvbnNlEjAKBmV2ZW50cxgBIAMoCzIgLmFnZW50bWVzaC5hZGFwdGVyLnYxLkFnZW50RXZlbnQiwQUKCkFnZW50RXZlbnQSKAoEdGltZRgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPwoPc2Vzc2lvbl9zdGFydGVkGAogASgLMiQuYWdlbnRtZXNoLmFkYXB0ZXIudjEuU2Vzc2lvblN0YXJ0ZWRIABI5Cgx0dXJuX3N0YXJ0ZWQYCyABKAsyIS5hZ2VudG1lc2guYWRhcHRlci52MS5UdXJuU3RhcnRlZEgAEjIKCGFjdGl2aXR5GAwgASgLMh4uYWdlbnRtZXNoLmFkYXB0ZXIudjEuQWN0aXZpdHlIABI3CgtuZWVkc19pbnB1dBgNIAEoCzIgLmFnZW50bWVzaC5hZGFwdGVyLnYxLk5lZWRzSW5wdXRIABI1Cgp0dXJuX2VuZGVkGA4gASgLMh8uYWdlbnRtZXNoLmFkYXB0ZXIudjEuVHVybkVuZGVkSAASNgoKY29tcGFjdGluZxgPIAEoCzIgLmFnZW50bWVzaC5hZGFwdGVyLnYxLkNvbXBhY3RpbmdIABI7Cg1zZXNzaW9uX2VuZGVkGBAgASgLMiIuYWdlbnRtZXNoLmFkYXB0ZXIudjEuU2Vzc2lvbkVuZGVkSAASPQoOcHJvY2Vzc19leGl0ZWQYESABKAsyIy5hZ2VudG1lc2guYWRhcHRlci52MS5Qcm9jZXNzRXhpdGVkSAASOQoMZGVjb2RlX2Vycm9yGBIgASgLMiEuYWdlbnRtZXNoLmFkYXB0ZXIudjEuRGVjb2RlRXJyb3JIABI5CgxyYXRlX2xpbWl0ZWQYEyABKAsyIS5hZ2VudG1lc2guYWRhcHRlci52MS5SYXRlTGltaXRlZEgAEjcKC3R1cm5fZmFpbGVkGBQgASgLMiAuYWdlbnRtZXNoLmFkYXB0ZXIudjEuVHVybkZhaWxlZEgAQgYKBGtpbmQiNAoOU2Vzc2lvblN0YXJ0ZWQSEgoKc2Vzc2lvbl9pZBgBIAEoCRIOCgZzb3VyY2UYAiABKAkiDQoLVHVyblN0YXJ0ZWQiGgoIQWN0aXZpdHkSDgoGZGV0YWlsGAEgASgJIhwKCk5lZWRzSW5wdXQSDgoGcmVhc29uGAEgASgJIgsKCVR1cm5FbmRlZCIMCgpDb21wYWN0aW5nIh4KDFNlc3Npb25FbmRlZBIOCgZyZWFzb24YASABKAkiMgoNUHJvY2Vzc0V4aXRlZBIRCglleGl0X2NvZGUYASABKAUSDgoGc2lnbmFsGAIgASgFIhwKC0RlY29kZUVycm9yEg0KBWVycm9yGAEgASgJInIKC1JhdGVMaW1pdGVkEg8KB21lc3NhZ2UYASABKAkSEAoIcmVzZXRfaW4YAiABKAkSLAoIcmVzZXRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmFsbF9tb2RlbHMYBCABKAgiGwoKVHVybkZhaWxlZBINCgVlcnJvchgBIAEoCTKEBAoRQ2xpQWRhcHRlclNlcnZpY2USWQoIRGVzY3JpYmUSJS5hZ2VudG1lc2guYWRhcHRlci52MS5EZXNjcmliZVJlcXVlc3QaJi5hZ2VudG1lc2guYWRhcHRlci52MS5EZXNjcmliZVJlc3BvbnNlEl8KClBsYW5MYXVuY2gSJy5hZ2VudG1lc2guYWRhcHRlci52MS5QbGFuTGF1bmNoUmVxdWVzdBooLmFnZW50bWVzaC5hZGFwdGVyLnYxLlBsYW5MYXVuY2hSZXNwb25zZRJfCgpEZWNvZGVIb29rEicuYWdlbnRtZXNoLmFkYXB0ZXIudjEuRGVjb2RlSG9va1JlcXVlc3QaKC5hZ2VudG1lc2guYWRhcHRlci52MS5EZWNvZGVIb29rUmVzcG9uc2USaAoNTG9va3VwU2Vzc2lvbhIqLmFnZW50bWVzaC5hZGFwdGVyLnYxLkxvb2t1cFNlc3Npb25SZXF1ZXN0GisuYWdlbnRtZXNoLmFkYXB0ZXIudjEuTG9va3VwU2Vzc2lvblJlc3BvbnNlEmgKDURlc2NyaWJlTW9kZWwSKi5hZ2VudG1lc2guYWRhcHRlci52MS5EZXNjcmliZU1vZGVsUmVxdWVzdBorLmFnZW50bWVzaC5hZGFwdGVyLnYxLkRlc2NyaWJlTW9kZWxSZXNwb25zZWIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message agentmesh.adapter.v1.DescribeRequest
@@ -153,6 +153,13 @@ export type PlanLaunchRequest = Message<"agentmesh.adapter.v1.PlanLaunchRequest"
    * @generated from field: bool deny_edits = 14;
    */
   denyEdits: boolean;
+
+  /**
+   * A lean session (Claude only): what it starts without. Unset, the CLI loads the user's full set.
+   *
+   * @generated from field: agentmesh.adapter.v1.LeanLaunch lean = 15;
+   */
+  lean?: LeanLaunch | undefined;
 };
 
 /**
@@ -161,6 +168,58 @@ export type PlanLaunchRequest = Message<"agentmesh.adapter.v1.PlanLaunchRequest"
  */
 export const PlanLaunchRequestSchema: GenMessage<PlanLaunchRequest> = /*@__PURE__*/
   messageDesc(file_agentmesh_adapter_v1_adapter, 2);
+
+/**
+ * LeanLaunch is the policy of a lean Claude session (design §11 of docs/design.md): tools, skills and plugins
+ * nothing in a mesh uses stay out of its first call, and only the MCP servers it needs load.
+ *
+ * @generated from message agentmesh.adapter.v1.LeanLaunch
+ */
+export type LeanLaunch = Message<"agentmesh.adapter.v1.LeanLaunch"> & {
+  /**
+   * Tools denied by name (a bare name drops the tool's schema from every request), merged with the read-only
+   * deny list.
+   *
+   * @generated from field: repeated string deny_tools = 1;
+   */
+  denyTools: string[];
+
+  /**
+   * Skills hidden from the model's listing (the user can still type them).
+   *
+   * @generated from field: repeated string hidden_skills = 2;
+   */
+  hiddenSkills: string[];
+
+  /**
+   * Plugins turned off, by name (any marketplace): the ones the user's settings enable.
+   *
+   * @generated from field: repeated string off_plugins = 3;
+   */
+  offPlugins: string[];
+
+  /**
+   * Hide the skills synced from claude.ai.
+   *
+   * @generated from field: bool hide_claudeai_skills = 4;
+   */
+  hideClaudeaiSkills: boolean;
+
+  /**
+   * A file of the MCP servers to load (Claude's `--mcp-config` format); only these load (`--strict-mcp-config`),
+   * and claude.ai's connectors are off. Empty: the CLI loads every server the user's config has.
+   *
+   * @generated from field: string mcp_config_path = 5;
+   */
+  mcpConfigPath: string;
+};
+
+/**
+ * Describes the message agentmesh.adapter.v1.LeanLaunch.
+ * Use `create(LeanLaunchSchema)` to create a new message.
+ */
+export const LeanLaunchSchema: GenMessage<LeanLaunch> = /*@__PURE__*/
+  messageDesc(file_agentmesh_adapter_v1_adapter, 3);
 
 /**
  * @generated from message agentmesh.adapter.v1.WorktreeFile
@@ -210,7 +269,7 @@ export type WorktreeFile = Message<"agentmesh.adapter.v1.WorktreeFile"> & {
  * Use `create(WorktreeFileSchema)` to create a new message.
  */
 export const WorktreeFileSchema: GenMessage<WorktreeFile> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 3);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 4);
 
 /**
  * @generated from message agentmesh.adapter.v1.PlanLaunchResponse
@@ -246,7 +305,7 @@ export type PlanLaunchResponse = Message<"agentmesh.adapter.v1.PlanLaunchRespons
  * Use `create(PlanLaunchResponseSchema)` to create a new message.
  */
 export const PlanLaunchResponseSchema: GenMessage<PlanLaunchResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 4);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 5);
 
 /**
  * LookupSessionRequest finds an agent's conversation by its worktree: the newest top-level one there. The first
@@ -288,7 +347,7 @@ export type LookupSessionRequest = Message<"agentmesh.adapter.v1.LookupSessionRe
  * Use `create(LookupSessionRequestSchema)` to create a new message.
  */
 export const LookupSessionRequestSchema: GenMessage<LookupSessionRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 5);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 6);
 
 /**
  * @generated from message agentmesh.adapter.v1.LookupSessionResponse
@@ -305,7 +364,7 @@ export type LookupSessionResponse = Message<"agentmesh.adapter.v1.LookupSessionR
  * Use `create(LookupSessionResponseSchema)` to create a new message.
  */
 export const LookupSessionResponseSchema: GenMessage<LookupSessionResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 6);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 7);
 
 /**
  * @generated from message agentmesh.adapter.v1.DescribeModelRequest
@@ -322,7 +381,7 @@ export type DescribeModelRequest = Message<"agentmesh.adapter.v1.DescribeModelRe
  * Use `create(DescribeModelRequestSchema)` to create a new message.
  */
 export const DescribeModelRequestSchema: GenMessage<DescribeModelRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 7);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 8);
 
 /**
  * @generated from message agentmesh.adapter.v1.DescribeModelResponse
@@ -341,7 +400,7 @@ export type DescribeModelResponse = Message<"agentmesh.adapter.v1.DescribeModelR
  * Use `create(DescribeModelResponseSchema)` to create a new message.
  */
 export const DescribeModelResponseSchema: GenMessage<DescribeModelResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 8);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 9);
 
 /**
  * @generated from message agentmesh.adapter.v1.DecodeHookRequest
@@ -380,7 +439,7 @@ export type DecodeHookRequest = Message<"agentmesh.adapter.v1.DecodeHookRequest"
  * Use `create(DecodeHookRequestSchema)` to create a new message.
  */
 export const DecodeHookRequestSchema: GenMessage<DecodeHookRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 9);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 10);
 
 /**
  * @generated from message agentmesh.adapter.v1.DecodeHookResponse
@@ -397,7 +456,7 @@ export type DecodeHookResponse = Message<"agentmesh.adapter.v1.DecodeHookRespons
  * Use `create(DecodeHookResponseSchema)` to create a new message.
  */
 export const DecodeHookResponseSchema: GenMessage<DecodeHookResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 10);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 11);
 
 /**
  * AgentEvent is a neutral event an adapter derives from a hook, a stream or the process. One pure reducer turns
@@ -488,7 +547,7 @@ export type AgentEvent = Message<"agentmesh.adapter.v1.AgentEvent"> & {
  * Use `create(AgentEventSchema)` to create a new message.
  */
 export const AgentEventSchema: GenMessage<AgentEvent> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 11);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 12);
 
 /**
  * The CLI is up and idle at its prompt (also after /clear or a resume).
@@ -514,7 +573,7 @@ export type SessionStarted = Message<"agentmesh.adapter.v1.SessionStarted"> & {
  * Use `create(SessionStartedSchema)` to create a new message.
  */
 export const SessionStartedSchema: GenMessage<SessionStarted> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 12);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 13);
 
 /**
  * @generated from message agentmesh.adapter.v1.TurnStarted
@@ -527,7 +586,7 @@ export type TurnStarted = Message<"agentmesh.adapter.v1.TurnStarted"> & {
  * Use `create(TurnStartedSchema)` to create a new message.
  */
 export const TurnStartedSchema: GenMessage<TurnStarted> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 13);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 14);
 
 /**
  * Something happened in a turn (a tool ran); keeps the agent from reading as unknown.
@@ -546,7 +605,7 @@ export type Activity = Message<"agentmesh.adapter.v1.Activity"> & {
  * Use `create(ActivitySchema)` to create a new message.
  */
 export const ActivitySchema: GenMessage<Activity> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 14);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 15);
 
 /**
  * The CLI waits on the user: a permission prompt, a question.
@@ -565,7 +624,7 @@ export type NeedsInput = Message<"agentmesh.adapter.v1.NeedsInput"> & {
  * Use `create(NeedsInputSchema)` to create a new message.
  */
 export const NeedsInputSchema: GenMessage<NeedsInput> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 15);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 16);
 
 /**
  * @generated from message agentmesh.adapter.v1.TurnEnded
@@ -578,7 +637,7 @@ export type TurnEnded = Message<"agentmesh.adapter.v1.TurnEnded"> & {
  * Use `create(TurnEndedSchema)` to create a new message.
  */
 export const TurnEndedSchema: GenMessage<TurnEnded> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 16);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 17);
 
 /**
  * @generated from message agentmesh.adapter.v1.Compacting
@@ -591,7 +650,7 @@ export type Compacting = Message<"agentmesh.adapter.v1.Compacting"> & {
  * Use `create(CompactingSchema)` to create a new message.
  */
 export const CompactingSchema: GenMessage<Compacting> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 17);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 18);
 
 /**
  * @generated from message agentmesh.adapter.v1.SessionEnded
@@ -608,7 +667,7 @@ export type SessionEnded = Message<"agentmesh.adapter.v1.SessionEnded"> & {
  * Use `create(SessionEndedSchema)` to create a new message.
  */
 export const SessionEndedSchema: GenMessage<SessionEnded> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 18);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 19);
 
 /**
  * @generated from message agentmesh.adapter.v1.ProcessExited
@@ -630,7 +689,7 @@ export type ProcessExited = Message<"agentmesh.adapter.v1.ProcessExited"> & {
  * Use `create(ProcessExitedSchema)` to create a new message.
  */
 export const ProcessExitedSchema: GenMessage<ProcessExited> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 19);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 20);
 
 /**
  * @generated from message agentmesh.adapter.v1.DecodeError
@@ -647,7 +706,7 @@ export type DecodeError = Message<"agentmesh.adapter.v1.DecodeError"> & {
  * Use `create(DecodeErrorSchema)` to create a new message.
  */
 export const DecodeErrorSchema: GenMessage<DecodeError> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 20);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 21);
 
 /**
  * The CLI hit a quota or rate limit (RESOURCE_EXHAUSTED 429, usage limit); ready for SwitchAgent.
@@ -686,7 +745,7 @@ export type RateLimited = Message<"agentmesh.adapter.v1.RateLimited"> & {
  * Use `create(RateLimitedSchema)` to create a new message.
  */
 export const RateLimitedSchema: GenMessage<RateLimited> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 21);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 22);
 
 /**
  * The turn ended in a non-limit error.
@@ -705,7 +764,7 @@ export type TurnFailed = Message<"agentmesh.adapter.v1.TurnFailed"> & {
  * Use `create(TurnFailedSchema)` to create a new message.
  */
 export const TurnFailedSchema: GenMessage<TurnFailed> = /*@__PURE__*/
-  messageDesc(file_agentmesh_adapter_v1_adapter, 22);
+  messageDesc(file_agentmesh_adapter_v1_adapter, 23);
 
 /**
  * CliAdapterService is the plugin interface for an agent CLI: what to run, and what its hooks mean. Built-in

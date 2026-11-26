@@ -524,7 +524,10 @@ type Agent struct {
 	ResumedFromAgentId string `protobuf:"bytes,29,opt,name=resumed_from_agent_id,json=resumedFromAgentId,proto3" json:"resumed_from_agent_id,omitempty"`
 	// A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
 	// peer's conversation, and is never given a change task or have its worktree removed.
-	Peer          bool `protobuf:"varint,30,opt,name=peer,proto3" json:"peer,omitempty"`
+	Peer bool `protobuf:"varint,30,opt,name=peer,proto3" json:"peer,omitempty"`
+	// The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+	// (`claude.mcp_keep`); every reopen keeps them.
+	Mcp           []string `protobuf:"bytes,31,rep,name=mcp,proto3" json:"mcp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -767,6 +770,13 @@ func (x *Agent) GetPeer() bool {
 		return x.Peer
 	}
 	return false
+}
+
+func (x *Agent) GetMcp() []string {
+	if x != nil {
+		return x.Mcp
+	}
+	return nil
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -2722,7 +2732,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
-	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\x9b\b\n" +
+	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xad\b\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -2760,7 +2770,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"baseCommit\x12-\n" +
 	"\x13resumed_from_run_id\x18\x1c \x01(\tR\x10resumedFromRunId\x121\n" +
 	"\x15resumed_from_agent_id\x18\x1d \x01(\tR\x12resumedFromAgentId\x12\x12\n" +
-	"\x04peer\x18\x1e \x01(\bR\x04peer\"\x86\x02\n" +
+	"\x04peer\x18\x1e \x01(\bR\x04peer\x12\x10\n" +
+	"\x03mcp\x18\x1f \x03(\tR\x03mcp\"\x86\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
