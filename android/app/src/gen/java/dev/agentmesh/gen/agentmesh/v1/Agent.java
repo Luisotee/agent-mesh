@@ -33,6 +33,7 @@ public  final class Agent extends
     baseCommit_ = "";
     resumedFromRunId_ = "";
     resumedFromAgentId_ = "";
+    mcp_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -1663,6 +1664,144 @@ public  final class Agent extends
   private void clearPeer() {
 
     peer_ = false;
+  }
+
+  public static final int MCP_FIELD_NUMBER = 31;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> mcp_;
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @return A list containing the mcp.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getMcpList() {
+    return mcp_;
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @return The count of mcp.
+   */
+  @java.lang.Override
+  public int getMcpCount() {
+    return mcp_.size();
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getMcp(int index) {
+    return mcp_.get(index);
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the mcp at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getMcpBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        mcp_.get(index));
+  }
+  private void ensureMcpIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        mcp_;  if (!tmp.isModifiable()) {
+      mcp_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param index The index to set the value at.
+   * @param value The mcp to set.
+   */
+  private void setMcp(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMcpIsMutable();
+    mcp_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param value The mcp to add.
+   */
+  private void addMcp(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMcpIsMutable();
+    mcp_.add(value);
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param values The mcp to add.
+   */
+  private void addAllMcp(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureMcpIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, mcp_);
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   */
+  private void clearMcp() {
+    mcp_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+   * (`claude.mcp_keep`); every reopen keeps them.
+   * </pre>
+   *
+   * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+   * @param value The bytes of the mcp to add.
+   */
+  private void addMcpBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureMcpIsMutable();
+    mcp_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
@@ -3458,6 +3597,143 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @return A list containing the mcp.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getMcpList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getMcpList());
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @return The count of mcp.
+     */
+    @java.lang.Override
+    public int getMcpCount() {
+      return instance.getMcpCount();
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @param index The index of the element to return.
+     * @return The mcp at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getMcp(int index) {
+      return instance.getMcp(index);
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the mcp at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getMcpBytes(int index) {
+      return instance.getMcpBytes(index);
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @param index The index to set the value at.
+     * @param value The mcp to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMcp(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setMcp(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @param value The mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addMcp(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addMcp(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @param values The mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllMcp(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllMcp(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMcp() {
+      copyOnWrite();
+      instance.clearMcp();
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
+     * (`claude.mcp_keep`); every reopen keeps them.
+     * </pre>
+     *
+     * <code>repeated string mcp = 31 [json_name = "mcp"];</code>
+     * @param value The bytes of the mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addMcpBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addMcpBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -3505,13 +3781,15 @@ public  final class Agent extends
             "resumedFromRunId_",
             "resumedFromAgentId_",
             "peer_",
+            "mcp_",
           };
           java.lang.String info =
-              "\u0000\u001e\u0000\u0001\u0001\u001e\u001e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u001f\u0000\u0001\u0001\u001f\u001f\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0208\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012" +
               "\u1009\u0001\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019" +
-              "\u0007\u001a\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007";
+              "\u0007\u001a\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -25,6 +25,7 @@ public  final class SpawnAgentRequest extends
     task_ = "";
     tier_ = "";
     execTier_ = "";
+    mcp_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -841,6 +842,153 @@ public  final class SpawnAgentRequest extends
     checkByteStringIsUtf8(value);
     execTier_ = value.toStringUtf8();
 
+  }
+
+  public static final int MCP_FIELD_NUMBER = 14;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> mcp_;
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @return A list containing the mcp.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getMcpList() {
+    return mcp_;
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @return The count of mcp.
+   */
+  @java.lang.Override
+  public int getMcpCount() {
+    return mcp_.size();
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getMcp(int index) {
+    return mcp_.get(index);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the mcp at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getMcpBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        mcp_.get(index));
+  }
+  private void ensureMcpIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        mcp_;  if (!tmp.isModifiable()) {
+      mcp_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param index The index to set the value at.
+   * @param value The mcp to set.
+   */
+  private void setMcp(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMcpIsMutable();
+    mcp_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param value The mcp to add.
+   */
+  private void addMcp(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMcpIsMutable();
+    mcp_.add(value);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param values The mcp to add.
+   */
+  private void addAllMcp(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureMcpIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, mcp_);
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   */
+  private void clearMcp() {
+    mcp_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+   * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+   * (else every server loads already).
+   * </pre>
+   *
+   * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+   * @param value The bytes of the mcp to add.
+   */
+  private void addMcpBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureMcpIsMutable();
+    mcp_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest parseFrom(
@@ -1782,6 +1930,152 @@ public  final class SpawnAgentRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @return A list containing the mcp.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getMcpList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getMcpList());
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @return The count of mcp.
+     */
+    @java.lang.Override
+    public int getMcpCount() {
+      return instance.getMcpCount();
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @param index The index of the element to return.
+     * @return The mcp at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getMcp(int index) {
+      return instance.getMcp(index);
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the mcp at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getMcpBytes(int index) {
+      return instance.getMcpBytes(index);
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @param index The index to set the value at.
+     * @param value The mcp to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMcp(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setMcp(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @param value The mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addMcp(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addMcp(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @param values The mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllMcp(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllMcp(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMcp() {
+      copyOnWrite();
+      instance.clearMcp();
+      return this;
+    }
+    /**
+     * <pre>
+     * Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+     * such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+     * (else every server loads already).
+     * </pre>
+     *
+     * <code>repeated string mcp = 14 [json_name = "mcp"];</code>
+     * @param value The bytes of the mcp to add.
+     * @return This builder for chaining.
+     */
+    public Builder addMcpBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addMcpBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SpawnAgentRequest)
   }
   @java.lang.Override
@@ -1812,11 +2106,12 @@ public  final class SpawnAgentRequest extends
             "tier_",
             "plan_",
             "execTier_",
+            "mcp_",
           };
           java.lang.String info =
-              "\u0000\r\u0000\u0001\u0001\r\r\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
-              "\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b" +
-              "\u0208\f\u0007\r\u0208";
+              "\u0000\u000e\u0000\u0001\u0001\u000e\u000e\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n" +
+              "\u0208\u000b\u0208\f\u0007\r\u0208\u000e\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

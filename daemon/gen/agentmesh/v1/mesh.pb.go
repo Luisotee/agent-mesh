@@ -450,7 +450,11 @@ type SpawnAgentRequest struct {
 	// its execution tier.
 	Plan bool `protobuf:"varint,12,opt,name=plan,proto3" json:"plan,omitempty"`
 	// The execution tier, when known before the plan is read; ApproveAgent may name another.
-	ExecTier      string `protobuf:"bytes,13,opt,name=exec_tier,json=execTier,proto3" json:"exec_tier,omitempty"`
+	ExecTier string `protobuf:"bytes,13,opt,name=exec_tier,json=execTier,proto3" json:"exec_tier,omitempty"`
+	// Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+	// such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+	// (else every server loads already).
+	Mcp           []string `protobuf:"bytes,14,rep,name=mcp,proto3" json:"mcp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -574,6 +578,13 @@ func (x *SpawnAgentRequest) GetExecTier() string {
 		return x.ExecTier
 	}
 	return ""
+}
+
+func (x *SpawnAgentRequest) GetMcp() []string {
+	if x != nil {
+		return x.Mcp
+	}
+	return nil
 }
 
 type SpawnAgentResponse struct {
@@ -4047,7 +4058,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x0fListRunsRequest\x12\x10\n" +
 	"\x03all\x18\x01 \x01(\bR\x03all\"9\n" +
 	"\x10ListRunsResponse\x12%\n" +
-	"\x04runs\x18\x01 \x03(\v2\x11.agentmesh.v1.RunR\x04runs\"\xdd\x02\n" +
+	"\x04runs\x18\x01 \x03(\v2\x11.agentmesh.v1.RunR\x04runs\"\xef\x02\n" +
 	"\x11SpawnAgentRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -4062,7 +4073,8 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	" \x01(\tR\x04task\x12\x12\n" +
 	"\x04tier\x18\v \x01(\tR\x04tier\x12\x12\n" +
 	"\x04plan\x18\f \x01(\bR\x04plan\x12\x1b\n" +
-	"\texec_tier\x18\r \x01(\tR\bexecTier\"?\n" +
+	"\texec_tier\x18\r \x01(\tR\bexecTier\x12\x10\n" +
+	"\x03mcp\x18\x0e \x03(\tR\x03mcp\"?\n" +
 	"\x12SpawnAgentResponse\x12)\n" +
 	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"*\n" +
 	"\x11ListAgentsRequest\x12\x15\n" +

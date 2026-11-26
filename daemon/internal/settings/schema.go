@@ -265,6 +265,21 @@ var tierDefaults = []struct {
 	{"opencode", "strong", opencodeChain, "high"},
 }
 
+// The lean Claude defaults (bin/mesh's LEAN_*; design §11). Tools by name; bundled skills; plugins nothing in a
+// mesh uses. A worker's skills are the share plugin's, bare and namespaced (`agent-mesh-daemon:`), because
+// the same skill may be linked into the user's own skills folder.
+var (
+	leanDeny     = []string{"Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "AskUserQuestion", "EnterWorktree"}
+	rootLeanDeny = []string{"Artifact", "Workflow", "SendFeedback", "ScheduleWakeup", "ListAgents", "Agent", "ReportFindings"}
+	leanSkills   = []string{"dataviz", "claude-api", "artifact-design", "artifact-diagramming", "artifact-capabilities",
+		"schedule", "loop", "ship-local", "steward", "plugin-authoring", "workflow-authoring", "keybindings-help",
+		"fewer-permission-prompts", "claude-approvals", "update-config"}
+	workerLeanSkills = []string{"delegate", "delegate-review", "find-peers", "harvest-peers",
+		"agent-mesh-daemon:delegate", "agent-mesh-daemon:delegate-review", "agent-mesh-daemon:find-peers",
+		"agent-mesh-daemon:harvest-peers"}
+	leanPlugins = []string{"pr-review-toolkit", "feature-dev", "code-simplifier", "claude-code-setup"}
+)
+
 var sizes = []string{"trivial", "small", "large"}
 
 // DefaultLeaves is the host's table. An app's own rows (`app.*`) are appended here.
@@ -318,6 +333,24 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds an agent idle after a task, with no report to its parent, waits before it is nudged once (and, if it ends another turn the same way, its parent told); 0 turns nudges off"},
 		Leaf{Key: "accountability.wait_max", Type: Seconds, Default: 14400.0,
 			Summary: "seconds a declared wait (a `wait` message to the parent) holds off the nudge, at most"},
+		Leaf{Key: "claude.lean", Type: Bool, Default: true,
+			Summary: "launch Claude agents without the tools, skills, plugins and MCP servers a mesh doesn't use (about 39k tokens off every call); false loads the user's full set"},
+		Leaf{Key: "claude.deny_tools", Type: Strings, Default: chain(leanDeny...),
+			Summary: "tools a lean Claude agent starts without (a bare name drops the tool's schema from every request)"},
+		Leaf{Key: "claude.root_deny_tools", Type: Strings, Default: chain(rootLeanDeny...),
+			Summary: "tools a lean Claude root starts without (it keeps AskUserQuestion)"},
+		Leaf{Key: "claude.skills_hidden", Type: Strings, Default: chain(leanSkills...),
+			Summary: "bundled skills hidden from a lean Claude agent's listing (the user can still type them)"},
+		Leaf{Key: "claude.worker_skills_hidden", Type: Strings, Default: chain(workerLeanSkills...),
+			Summary: "skills also hidden from a lean Claude agent that isn't a root: only a root starts a mesh"},
+		Leaf{Key: "claude.claudeai_skills", Type: Bool, Default: false,
+			Summary: "keep the skills synced from claude.ai (`anthropic-skills:*`) in a lean Claude agent"},
+		Leaf{Key: "claude.plugins_off", Type: Strings, Default: chain(leanPlugins...),
+			Summary: "plugins (by name, any marketplace) a lean Claude agent turns off when the user's settings enable them"},
+		Leaf{Key: "claude.mcp", Type: String, Default: "repo", Choices: []string{"repo", "none", "inherit"},
+			Summary: "MCP servers a lean Claude agent loads besides claude.mcp_keep and the spawn's `mcp`: `repo` = the repo's own (its project entry in ~/.claude.json and its approved .mcp.json), `none`, or `inherit` = whatever the user's config loads"},
+		Leaf{Key: "claude.mcp_keep", Type: Strings, Default: chain("context7"),
+			Summary: "the user's MCP servers every lean Claude agent loads, with web search (never denied): docs for any library"},
 		Leaf{Key: "skip_permissions", Type: Bool, Default: true,
 			Summary: "launch agents with their CLI's permission prompts off"},
 		Leaf{Key: "min_free_mb", Type: MBOrAuto, Default: "auto",

@@ -51,6 +51,25 @@ message PlanLaunchRequest {
   // Deny edits under cwd and repo, and publishing, whatever the role: a planner not yet approved. A read-only
   // role is denied either way.
   bool deny_edits = 14;
+  // A lean session (Claude only): what it starts without. Unset, the CLI loads the user's full set.
+  LeanLaunch lean = 15;
+}
+
+// LeanLaunch is the policy of a lean Claude session (design §11 of docs/design.md): tools, skills and plugins
+// nothing in a mesh uses stay out of its first call, and only the MCP servers it needs load.
+message LeanLaunch {
+  // Tools denied by name (a bare name drops the tool's schema from every request), merged with the read-only
+  // deny list.
+  repeated string deny_tools = 1;
+  // Skills hidden from the model's listing (the user can still type them).
+  repeated string hidden_skills = 2;
+  // Plugins turned off, by name (any marketplace): the ones the user's settings enable.
+  repeated string off_plugins = 3;
+  // Hide the skills synced from claude.ai.
+  bool hide_claudeai_skills = 4;
+  // A file of the MCP servers to load (Claude's `--mcp-config` format); only these load (`--strict-mcp-config`),
+  // and claude.ai's connectors are off. Empty: the CLI loads every server the user's config has.
+  string mcp_config_path = 5;
 }
 
 message WorktreeFile {

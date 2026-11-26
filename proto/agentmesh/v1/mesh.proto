@@ -570,6 +570,10 @@ message SpawnAgentRequest {
   bool plan = 12;
   // The execution tier, when known before the plan is read; ApproveAgent may name another.
   string exec_tier = 13;
+  // Names of the user's MCP servers the agent loads besides the always-loaded ones (the claude.mcp_keep setting),
+  // such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
+  // (else every server loads already).
+  repeated string mcp = 14;
 }
 
 message SpawnAgentResponse {
