@@ -71,6 +71,18 @@ func deliver(t *testing.T, a *Adapter, in *inbox, pid int, ticks uint64, cwd str
 	return res.Msg
 }
 
+// launched is a /proc folder in which process pid was started with `claude --settings <settings>` (none when empty).
+func launched(t *testing.T, pid int, settings string) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmdline := "claude\x00--model\x00opus\x00"
+	if settings != "" {
+		cmdline += "--settings\x00" + settings + "\x00"
+	}
+	write(t, filepath.Join(dir, strconv.Itoa(pid), "cmdline"), cmdline)
+	return dir
+}
+
 func write(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -82,7 +94,7 @@ func write(t *testing.T, path, content string) {
 }
 
 func TestDeliverNativeWritesOneUserFrame(t *testing.T) {
-	a := &Adapter{ManagedDir: t.TempDir()}
+	a := &Adapter{ManagedDir: t.TempDir(), ProcDir: launched(t, 4242, `{"crossSessionInbound":"accept"}`)}
 	in := startInbox(t, 4242, 777)
 	res := deliver(t, a, in, 4242, 777, t.TempDir())
 	if !res.Delivered {
@@ -106,7 +118,7 @@ func TestDeliverNativeWritesOneUserFrame(t *testing.T) {
 }
 
 func TestDeliverNativeRefusesWhatIsNotTheAgentsOwnSocket(t *testing.T) {
-	a := &Adapter{ManagedDir: t.TempDir()}
+	a := &Adapter{ManagedDir: t.TempDir(), ProcDir: launched(t, 4242, `{"crossSessionInbound":"accept"}`)}
 	cwd := t.TempDir()
 	in := startInbox(t, 4242, 777)
 	for name, c := range map[string]struct {
@@ -198,7 +210,7 @@ func TestInboundSettingFollowsClaudeCodesPrecedence(t *testing.T) {
 func TestDeliverNativeStopsAtASettingThatHolds(t *testing.T) {
 	managed := t.TempDir()
 	write(t, filepath.Join(managed, "managed-settings.json"), `{"crossSessionInbound":"hold"}`)
-	a := &Adapter{ManagedDir: managed}
+	a := &Adapter{ManagedDir: managed, ProcDir: launched(t, 4242, `{"crossSessionInbound":"accept"}`)}
 	in := startInbox(t, 4242, 777)
 	if res := deliver(t, a, in, 4242, 777, t.TempDir()); res.Delivered || res.Reason == "" {
 		t.Errorf("%+v", res)
@@ -207,6 +219,27 @@ func TestDeliverNativeStopsAtASettingThatHolds(t *testing.T) {
 	case line := <-in.frames:
 		t.Errorf("a frame was written: %q", line)
 	default:
+	}
+}
+
+func TestDeliverNativeTrustsTheFlagTheProcessWasLaunchedWith(t *testing.T) {
+	for name, tc := range map[string]struct {
+		proc string
+		want bool
+	}{
+		"launched accepting":               {launched(t, 4242, `{"hooks":{},"crossSessionInbound":"accept"}`), true},
+		"launched before the flag existed": {launched(t, 4242, `{"hooks":{}}`), false},
+		"launched with no settings at all": {launched(t, 4242, ""), false},
+		"launched holding":                 {launched(t, 4242, `{"crossSessionInbound":"hold"}`), false},
+		"a process that is gone":           {t.TempDir(), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := &Adapter{ManagedDir: t.TempDir(), ProcDir: tc.proc}
+			in := startInbox(t, 4242, 777)
+			if res := deliver(t, a, in, 4242, 777, t.TempDir()); res.Delivered != tc.want {
+				t.Errorf("delivered = %v (%s), want %v", res.Delivered, res.Reason, tc.want)
+			}
+		})
 	}
 }
 

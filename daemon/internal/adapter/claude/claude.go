@@ -58,6 +58,8 @@ type Adapter struct {
 	NewSessionID func() string
 	// ManagedDir is where managed policy is read from (default ManagedDir); tests point it at a folder of their own.
 	ManagedDir string
+	// ProcDir is where a process's command line is read from (default /proc); tests point it at a folder of their own.
+	ProcDir string
 }
 
 // New returns the adapter.

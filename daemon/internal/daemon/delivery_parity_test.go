@@ -435,3 +435,47 @@ func TestAMessageTheAgentReadsBeforeAnyOtherSignIsDeliveredViaRead(t *testing.T)
 		t.Errorf("doorbells typed: %q", rung)
 	}
 }
+
+func TestAMessageReadAfterTheDoorbellWasGivenUpIsStillDeliveredViaRead(t *testing.T) {
+	w, _ := boxWorld(t, map[string]string{"FAKECLAUDE_DROP": "1"})
+	w.set(t, "delivery.confirm_after", 1)
+	w.set(t, "delivery.ring_tries", 1)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "late-reader", &v1.SpawnAgentRequest{})
+	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
+	waitFor(t, "the doorbell given up", func() bool {
+		return w.count(t, run.Id, func(ev *v1.Event) bool { return ev.GetDoorbellFailed() != nil }) > 0
+	})
+	if _, err := w.as(w.token(t, worker.Id)).ReadInbox(context.Background(), connect.NewRequest(&v1.ReadInboxRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
+	if got := w.deliveries(t, run.Id, msg.Id); len(got) != 1 || got[0].Via != "read" {
+		t.Errorf("delivery events %+v, want one via read", got)
+	}
+}
+
+func TestAReadDoesNotMeanTheProtocolPointerWasSeen(t *testing.T) {
+	// The first doorbell of a process names the protocol; an agent that only read its mail (the doorbell dropped)
+	// hasn't been shown that, so the next doorbell carries it again.
+	share := t.TempDir()
+	w, log := boxWorld(t, map[string]string{"FAKECLAUDE_DROP": "1"}, func(c *daemon.AgentConfig) { c.Share = share })
+	w.set(t, "delivery.confirm_after", 30)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "pointer", &v1.SpawnAgentRequest{})
+	first := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "one")
+	waitFor(t, "the first doorbell", func() bool { return len(doorbells(lines(t, log))) == 1 })
+	if _, err := w.as(w.token(t, worker.Id)).ReadInbox(context.Background(), connect.NewRequest(&v1.ReadInboxRequest{})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the first delivery", func() bool { return !w.deliveredAt(t, worker.Id, first.Id).IsZero() })
+	send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "two")
+	waitFor(t, "the second doorbell", func() bool { return len(doorbells(lines(t, log))) == 2 })
+	for i, d := range doorbells(lines(t, log)) {
+		if !strings.Contains(d, "first one here") {
+			t.Errorf("doorbell %d has no protocol pointer: %q", i+1, d)
+		}
+	}
+}

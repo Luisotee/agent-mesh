@@ -62,13 +62,52 @@ func (a *Adapter) DeliverNative(_ context.Context, req *connect.Request[adapterv
 	if rec.SocketPath == "" {
 		return no("the session has no inbox socket")
 	}
-	if value, source := inboundSetting(m.Cwd, managed, home, InboundAccept); value != InboundAccept {
+	procDir := a.ProcDir
+	if procDir == "" {
+		procDir = "/proc"
+	}
+	// The flag is the one this process was launched with, not the one a launch now would carry: an agent started
+	// before the flag was added (a daemon upgraded under a running agent, an adopted one) may not accept.
+	if value, source := inboundSetting(m.Cwd, managed, home, launchInbound(procDir, int(m.Pid))); value != InboundAccept {
 		return no("crossSessionInbound is %s (%s settings)", value, source)
 	}
 	if err := writeInbox(rec.SocketPath, m.Text); err != nil {
 		return no("writing the inbox socket: %v", err)
 	}
 	return connect.NewResponse(&adapterv1.DeliverNativeResponse{Delivered: true}), nil
+}
+
+// launchInbound is the `crossSessionInbound` of the `--settings` a process was launched with, from its command line
+// (inline JSON, or the path of a settings file); "" when it has none, or none that sets it.
+func launchInbound(procDir string, pid int) string {
+	raw, err := os.ReadFile(filepath.Join(procDir, strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return ""
+	}
+	args := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
+	value := ""
+	for i, arg := range args {
+		var v string
+		switch {
+		case arg == "--settings" && i+1 < len(args):
+			v = args[i+1]
+		case strings.HasPrefix(arg, "--settings="):
+			v = strings.TrimPrefix(arg, "--settings=")
+		default:
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(v), "{") {
+			var doc struct {
+				Inbound string `json:"crossSessionInbound"`
+			}
+			if json.Unmarshal([]byte(v), &doc) == nil && doc.Inbound != "" {
+				value = doc.Inbound
+			}
+		} else if got := settingsInbound(v); got != "" && got != "invalid" {
+			value = got
+		}
+	}
+	return value
 }
 
 // record is the file a Claude Code process keeps about itself (`sessions/<pid>.json` under its config folder).

@@ -334,7 +334,16 @@ func parse(raw []byte) []row {
 			}
 			i = j + 1
 		case ch == 0x1b:
-			i += 2
+			// Any other escape sequence: intermediate bytes (0x20-0x2f), then one final character.
+			j := i + 1
+			for j < len(s) && s[j] >= 0x20 && s[j] <= 0x2f {
+				j++
+			}
+			if j < len(s) {
+				_, fs := utf8.DecodeRuneInString(s[j:])
+				j += fs
+			}
+			i = j
 		case ch < 0x20 || ch == 0x7f:
 			i += size
 		default:

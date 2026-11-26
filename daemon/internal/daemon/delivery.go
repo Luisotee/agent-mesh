@@ -44,6 +44,7 @@ type ring struct {
 	terminalID string
 	token      string
 	at         time.Time // taken before the text was typed or the frame written: activity after it is the doorbell's
+	lastTry    time.Time // the last try, counted or not: confirm_after runs from it
 	msgIDs     []string  // the messages it announced
 	lane       string    // "socket" or "pty"
 	attempts   int       // doorbells typed or written, and tries that found the box unreadable
@@ -215,16 +216,8 @@ func (d *Daemon) settle(ctx context.Context, a *v1.Agent, rg *ring, msgs []*v1.M
 			rest = append(rest, m)
 		}
 	}
-	// A given-up doorbell waits for a sign the agent's state moved, or for a message it hasn't been rung about.
-	if rg.failed {
-		if len(rest) == 0 && sameInstant(a.LastActivity, rg.failedActivity) {
-			return stillWaiting, msgs, nil, nil
-		}
-		d.setRing(a.Id, nil)
-		return ringEnded, msgs, nil, nil
-	}
-	// The agent read what it was rung about, before or without any other sign: what it read is delivered (via
-	// "read"), what it didn't is still to announce, with the rest.
+	// The agent read what it was rung about, before or without any other sign (a given-up doorbell included): what
+	// it read is delivered (via "read"), what it didn't is still to announce, with the rest.
 	var readIDs []*v1.Message
 	for _, id := range rg.msgIDs {
 		if unread[id] == nil {
@@ -235,18 +228,27 @@ func (d *Daemon) settle(ctx context.Context, a *v1.Agent, rg *ring, msgs []*v1.M
 		if err := d.markDelivered(ctx, readIDs, "read", rg.attempts); err != nil {
 			return stillWaiting, msgs, nil, err
 		}
-		d.endRing(a.Id, rg)
+		d.endRing(a.Id, rg, false) // a read says nothing of the protocol pointer the doorbell carried
 		return ringEnded, append(mine, rest...), nil, nil
 	}
-	// Activity after the ring, never one from before it: a late event of the previous turn can't confirm it.
-	// A typed doorbell needs more than that: the agent must also have left its prompt, as a late or polled event
-	// can move the activity with the doorbell still sitting unsubmitted. (Reading the screen decides the rest.)
-	if a.LastActivity != nil && a.LastActivity.AsTime().After(rg.at) {
-		if rg.lane == "socket" {
-			return ringEnded, rest, nil, d.confirm(ctx, a, rg, mine, "socket")
+	// A given-up doorbell waits for a sign the agent's state moved, or for a message it hasn't been rung about.
+	if rg.failed {
+		if len(rest) == 0 && sameInstant(a.LastActivity, rg.failedActivity) {
+			return stillWaiting, msgs, nil, nil
 		}
+		d.setRing(a.Id, nil)
+		return ringEnded, msgs, nil, nil
+	}
+	// Activity after the ring, never one from before it: a late event of the previous turn can't confirm it.
+	// It needs more than that, for a frame as for a typed doorbell: the agent must also have left its prompt, as a
+	// late or polled event can move the activity with the doorbell not taken. (Reading the screen decides the rest.)
+	if a.LastActivity != nil && a.LastActivity.AsTime().After(rg.at) {
 		if !atPrompt(a.State) {
-			return ringEnded, rest, nil, d.confirm(ctx, a, rg, mine, "turn")
+			via := "turn"
+			if rg.lane == "socket" {
+				via = "socket"
+			}
+			return ringEnded, rest, nil, d.confirm(ctx, a, rg, mine, via)
 		}
 		// Back at the prompt (or never left it): the ref above the box says whether the doorbell was taken.
 		if reading := d.readInputBox(ctx, a, rg.token); reading != nil && reading.TokenAbove > 0 {
@@ -257,7 +259,7 @@ func (d *Daemon) settle(ctx context.Context, a *v1.Agent, rg *ring, msgs []*v1.M
 	if err != nil {
 		return stillWaiting, msgs, nil, err
 	}
-	if d.now().Sub(rg.at) < confirmAfter {
+	if d.now().Sub(rg.lastTry) < confirmAfter {
 		return stillWaiting, msgs, nil, nil
 	}
 	maxTries, err := d.intSetting(ctx, "delivery.ring_tries")
@@ -274,9 +276,9 @@ func (d *Daemon) settle(ctx context.Context, a *v1.Agent, rg *ring, msgs []*v1.M
 		// The frame was written and nothing came of it: a policy the daemon can't read holds it, or the session
 		// never took it. Type it from now on, for this terminal.
 		d.rt.mu.Lock()
-		d.rt.nativeOff[rg.terminalID] = true
+		d.rt.nativeOff[rg.terminalID] = d.now().Add(nativeOffFor)
 		d.rt.mu.Unlock()
-		d.log.Warn("doorbell written to the inbox socket and not taken; typing doorbells to this terminal from now on", "agent", a.Name)
+		d.log.Warn("doorbell written to the inbox socket and not taken; typing doorbells to this terminal for a while", "agent", a.Name, "for", nativeOffFor)
 		rg.lane, rg.typed = "pty", false
 		if rg.attempts >= maxTries {
 			return stillWaiting, msgs, nil, d.giveUp(ctx, a, rg)
@@ -325,15 +327,16 @@ func (d *Daemon) confirm(ctx context.Context, a *v1.Agent, rg *ring, msgs []*v1.
 	if err := d.markDelivered(ctx, msgs, via, rg.attempts); err != nil {
 		return err
 	}
-	d.endRing(a.Id, rg)
+	d.endRing(a.Id, rg, true)
 	return nil
 }
 
-// endRing ends a ring the agent took: the protocol it named is now known to that process.
-func (d *Daemon) endRing(agentID string, rg *ring) {
+// endRing ends a ring. introduced says the agent took the doorbell (a turn, a frame, its ref on the screen), so the
+// protocol it named is now known to that process; a read doesn't say so, and the pointer is sent again.
+func (d *Daemon) endRing(agentID string, rg *ring, introduced bool) {
 	d.setRing(agentID, nil)
 	d.clearHold(agentID)
-	if rg.first {
+	if introduced && rg.first {
 		d.rt.mu.Lock()
 		d.rt.introduced[rg.terminalID] = true
 		d.rt.mu.Unlock()
@@ -383,7 +386,7 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 	if !rg.typed {
 		at := d.now()
 		if ok, reason := d.deliverNative(ctx, a, line); ok {
-			rg.at, rg.lane = at, "socket"
+			rg.at, rg.lastTry, rg.lane = at, at, "socket"
 			rg.attempts++
 			d.setRing(a.Id, rg)
 			d.clearHold(a.Id)
@@ -403,6 +406,7 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 	}
 	text := strings.TrimSpace(reading.GetText())
 	rg.at = d.now() // before anything is typed: activity after it is this doorbell's
+	rg.lastTry = rg.at
 	switch {
 	case reading.GetBox() == adapterv1.InputBox_INPUT_BOX_TYPED && !strings.HasPrefix(text, inputbox.DoorbellPrefix):
 		// A human's draft: positively seen, so the doorbell waits for it to go.
@@ -424,6 +428,7 @@ func (d *Daemon) ringAgent(ctx context.Context, a *v1.Agent, msgs []*v1.Message,
 		// A retry into a screen that shows no readable box (a dialog, an alternate screen): count the try and
 		// wait, so Enter never lands on a dialog.
 		rg.token, rg.first = prev.token, prev.first // the doorbell still to be found is the earlier one
+		rg.at = prev.at                             // nothing was typed: activity after the doorbell typed still confirms it
 		rg.attempts++
 		d.setRing(a.Id, rg)
 		return nil
@@ -513,6 +518,10 @@ func (d *Daemon) readInputBox(ctx context.Context, a *v1.Agent, token string) *a
 	return res.Msg
 }
 
+// nativeOffFor is how long a terminal whose frame wasn't taken is typed to before the socket is tried again: a
+// session that held one frame (a setting changed since, a turn that took long) isn't typed to for its whole life.
+const nativeOffFor = 10 * time.Minute
+
 // deliverNative writes the doorbell into the agent's inbox, for an adapter that has one, where `delivery.socket`
 // is on and an earlier frame to this terminal wasn't taken. false is not an error: the doorbell is typed.
 func (d *Daemon) deliverNative(ctx context.Context, a *v1.Agent, text string) (bool, string) {
@@ -520,9 +529,9 @@ func (d *Daemon) deliverNative(ctx context.Context, a *v1.Agent, text string) (b
 		return false, ""
 	}
 	d.rt.mu.Lock()
-	off := d.rt.nativeOff[a.TerminalId]
+	until := d.rt.nativeOff[a.TerminalId]
 	d.rt.mu.Unlock()
-	if off {
+	if d.now().Before(until) {
 		return false, ""
 	}
 	on, err := d.Setting(d.store.Read(ctx), "delivery.socket")

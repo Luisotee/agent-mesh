@@ -144,7 +144,7 @@ type runtime struct {
 	introduced    map[string]bool        // terminal id → its first doorbell has named the protocol
 	rings         map[string]*ring       // agent id → its doorbell in flight (delivery.go)
 	held          map[string]*held       // agent id → its doorbell kept back by a human's draft
-	nativeOff     map[string]bool        // terminal id → a frame written to its inbox socket wasn't taken: type from now on
+	nativeOff     map[string]time.Time   // terminal id → a frame written to its inbox socket wasn't taken: type until then
 	deliverQueued map[string]bool        // agent id → a delivery is queued for it (deliverSoon)
 	guard         guard
 	cpus          cpuTracker
@@ -177,7 +177,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	}
 	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}, introduced: map[string]bool{},
-		rings: map[string]*ring{}, held: map[string]*held{}, nativeOff: map[string]bool{}, deliverQueued: map[string]bool{}}, nil
+		rings: map[string]*ring{}, held: map[string]*held{}, nativeOff: map[string]time.Time{}, deliverQueued: map[string]bool{}}, nil
 }
 
 // view is an agent as shown: a working agent long silent reads as unknown.

@@ -188,3 +188,14 @@ func TestColonFormSGRIsReadNotTakenForAReset(t *testing.T) {
 		}
 	}
 }
+
+func TestAnEscapeSequenceWithIntermediateBytesIsSkippedWhole(t *testing.T) {
+	// ESC ( B selects a charset: the "(" is an intermediate and "B" the final byte, none of it text. A final byte
+	// that is a multi-byte character is skipped whole too, not cut in the middle.
+	for _, seq := range []string{"\x1b(B", "\x1b#8", "\x1b=", "\x1bé"} {
+		raw := "\x1b[1;1H" + rule(60) + "\x1b[2;1H❯ " + seq + "hi" + "\x1b[3;1H" + rule(60) + "\x1b[4;1H  ? for shortcuts"
+		if got := inputbox.Read([]byte(raw), inputbox.Claude, "x"); got.State != inputbox.Typed || got.Text != "hi" {
+			t.Errorf("%q: %v %q, want typed %q", seq, got.State, got.Text, "hi")
+		}
+	}
+}
