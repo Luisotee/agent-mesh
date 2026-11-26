@@ -17,6 +17,8 @@ export const LEVEL_LABEL: Record<Level, string> = {
   plans: 'I approve plans and merge',
 }
 
+export const listOf = (settings: Record<string, Setting>, key: string): string[] => list(settings, key)
+
 const list = (settings: Record<string, Setting>, key: string): string[] => {
   const v = jsonOf(settings[key])
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []

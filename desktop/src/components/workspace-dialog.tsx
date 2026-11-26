@@ -66,6 +66,8 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const read = useRef(0)
+  // A run this form started that its agent then failed to join: a retry joins it, not a second empty run.
+  const started = useRef<string | undefined>(undefined)
 
   useEffect(() => {
     let alive = true
@@ -98,6 +100,8 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
   }
 
   const project = detail?.path === repo.trim() ? detail.project : undefined
+  // A choice made for another project (the path was edited and the form sent without leaving the field) is no choice.
+  const effective: StartFrom = project ? from : { kind: 'default' }
   const open = Object.values(runs).filter((r) => r.status !== RunStatus.CLOSED)
   const target = runChoice === 'new' ? undefined : runs[runChoice]
   const hasLead = !!target && Object.values(agents).some((a) => a.runId === target.id && a.role === AgentRole.ROOT)
@@ -112,13 +116,15 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
     setBusy(true)
     setError('')
     try {
-      let runId = target?.id
+      let runId = target?.id ?? started.current
       if (!runId) {
         const res = await startRun(host.client, title.trim() || slug.trim())
         runId = res.run?.id
         if (!runId) throw new Error('the host started no run')
+        started.current = runId
       }
-      const res = await spawnAgent(host.client, { runId, repo: repo.trim(), slug: slug.trim(), role, kind: kind.trim(), tier, model: '', effort: '', task: task.trim(), base: startPoint(from) })
+      const res = await spawnAgent(host.client, { runId, repo: repo.trim(), slug: slug.trim(), role, kind: kind.trim(), tier, model: '', effort: '', task: task.trim(), base: startPoint(effective) })
+      started.current = undefined
       onDone()
       if (res.agent) app.selectAgent(host.info.id, res.agent.id, 'terminal')
     } catch (err) {
@@ -138,6 +144,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
           value={repo}
           onChange={(e) => {
             setRepo(e.target.value)
+            setFrom({ kind: 'default' })
             if (paths.some((p) => p.path === e.target.value)) load(e.target.value)
           }}
           onBlur={() => load(repo)}
@@ -205,7 +212,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
         <Textarea value={task} onChange={(e) => setTask(e.target.value)} />
       </Field>
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-      <Button type="submit" disabled={busy || (from.kind !== 'default' && !from.ref)}>Start workspace</Button>
+      <Button type="submit" disabled={busy || (effective.kind !== 'default' && !effective.ref)}>Start workspace</Button>
     </form>
   )
 }

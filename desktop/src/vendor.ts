@@ -13,10 +13,11 @@ export const vendorOfKind = (kind: string): Vendor => KIND[kind.trim().toLowerCa
 export function vendorOfModel(model: string): Vendor {
   const m = model.trim().toLowerCase()
   if (!m) return 'other'
+  // DeepSeek first: its models are named `deepseek-v4-flash` and `-pro`, which the Gemini names below would claim.
+  if (/deepseek/.test(m)) return 'deepseek'
   if (/(^|[^a-z])(claude|opus|sonnet|haiku|fable)([^a-z]|$)/.test(m)) return 'claude'
   if (/gemini|neon|carbon|argon|hydrogen|flash|(^|[^a-z])pro([^a-z]|$)/.test(m)) return 'gemini'
   if (/^(gpt|o\d|codex|chatgpt)|[-/](gpt|codex)/.test(m)) return 'openai'
-  if (/deepseek/.test(m)) return 'deepseek'
   return 'other'
 }
 

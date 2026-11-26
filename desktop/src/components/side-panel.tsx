@@ -1,7 +1,7 @@
 import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
-import { LEVEL_LABEL, hasLevels, levelOf, withLevel, type Level } from '@/autonomy'
+import { LEVEL_LABEL, hasLevels, levelOf, listOf, withLevel, type Level } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, Textarea } from '@/components/ui/input'
@@ -281,9 +281,15 @@ function Autonomy({ host, repo }: { host: HostRuntime; repo: string }) {
   const level = levelOf(settings, repo)
   async function choose(next: Level) {
     setError('')
+    // Two settings move together: when the second write fails the first is put back, so the repo is never left in neither list.
+    const done: Array<{ key: string; value: string[] }> = []
     try {
-      for (const { key, value } of withLevel(settings, repo, next)) await setSetting(host.client, key, value)
+      for (const w of withLevel(settings, repo, next)) {
+        await setSetting(host.client, w.key, w.value)
+        done.push({ key: w.key, value: settings[w.key] ? listOf(settings, w.key) : [] })
+      }
     } catch (e) {
+      for (const back of done.reverse()) await setSetting(host.client, back.key, back.value).catch(() => {})
       setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
     }
   }

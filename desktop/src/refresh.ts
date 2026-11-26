@@ -39,6 +39,8 @@ export function hostRefresher(
   let prTicker: unknown
   let prsLoading = false
   let prsComplained = false
+  // PR events the store applied: a read that was under way when one came is older than it, and must not undo it.
+  let prTouches = 0
   let complained = false
   let waitingFailed = false
 
@@ -90,9 +92,16 @@ export function hostRefresher(
     // The host answers per run (a device names it): one call for each run still open, side by side.
     const runIds = Object.values(st.runs).filter((r) => r.status !== RunStatus.CLOSED).map((r) => r.id)
     prsLoading = true
+    const seenPr = prTouches
+    let again = false
     try {
       const results = await Promise.allSettled(runIds.map((id) => listPullRequests(client as MeshClient, id)))
       if (stopped) return
+      if (seenPr !== prTouches) {
+        // An event (a merge, a hold) came while the call was on its way: its answer may predate it. Keep what the event said, and ask again.
+        again = true
+        return
+      }
       const agents = results.flatMap((r) => (r.status === 'fulfilled' ? r.value.agents : []))
       const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
       // A run that failed keeps what was known of its agents; the others are replaced.
@@ -106,6 +115,7 @@ export function hostRefresher(
       } else prsComplained = false
     } finally {
       prsLoading = false
+      if (again) void loadPullRequests()
     }
   }
 
@@ -170,6 +180,9 @@ export function hostRefresher(
         case 'agentRoleChanged':
         case 'agentAdopted':
           agentTouches++
+          return
+        case 'pullRequestChanged':
+          prTouches++
           return
         case 'runStopped':
           waitingTouches++

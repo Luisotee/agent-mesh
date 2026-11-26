@@ -229,4 +229,24 @@ describe('the pull requests', () => {
     expect(log.mock.calls.filter(([l]) => /pull requests/.test(l as string))).toHaveLength(1)
     r.stop()
   })
+
+  it('does not let a read that was under way undo a PR event that came meanwhile, and asks again', async () => {
+    const { store, client, r } = setup()
+    store.setState({ runs: { r1: run('r1') }, agents: { w1: agent('w1', AgentState.IDLE) } })
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    let release!: (v: unknown) => void
+    client.listPullRequests.mockImplementationOnce(() => new Promise((res) => (release = res)))
+    client.listPullRequests.mockResolvedValue(rows('r1', 'w1', 12))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    // A hold arrives while the first call is on its way; the call then answers with the older state.
+    store.setState({ pullRequests: { w1: create(AgentPullRequestsSchema, { agentId: 'w1', pullRequests: [create(PullRequestSchema, { agentId: 'w1', number: 12, url: 'u12', state: 'open', held: true })] }) } })
+    r.event(create(EventSchema, { payload: { case: 'pullRequestChanged', value: { $typeName: 'agentmesh.v1.PullRequestChanged', fromState: 'open', fromChecks: '' } } }))
+    release(rows('r1', 'w1', 12))
+    await vi.advanceTimersByTimeAsync(0)
+    // The older answer was dropped, and a second read was made.
+    expect(client.listPullRequests).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().pullRequests.w1?.pullRequests[0]?.number).toBe(12)
+  })
 })

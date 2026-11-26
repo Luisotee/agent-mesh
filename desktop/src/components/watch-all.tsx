@@ -1,16 +1,17 @@
 import { Columns2, Eye } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { readTranscript } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { bucketOf, BUCKET_LABEL, waitingIds } from '@/buckets'
-import { useApp, useAppState } from '@/context'
+import { useApp, useAppState, useHostState } from '@/context'
 import { ago, activityMs, dockTiles, type Tile } from '@/dock'
 import { joinWaiting, repoName, ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import { useHostViews, useNow } from '@/hooks'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
+import type { HostState } from '@/store'
 import { fromTail } from '@/transcript'
 import { tailLines, type TailLine } from '@/watch'
 import { StateIcon } from './state-icon'
@@ -71,15 +72,25 @@ function useTail(host: HostRuntime | undefined, agentId: string, state: AgentSta
 
 const WHO: Record<TailLine['who'], string> = { you: 'you', mesh: 'mesh', agent: '', tools: '' }
 
+/** A value of a host's store, or undefined while the host is not there. */
+function useStoreOf<T>(host: HostRuntime | undefined, select: (s: HostState) => T): T | undefined {
+  return useSyncExternalStore(
+    (notify) => host?.store.subscribe(notify) ?? (() => {}),
+    () => (host ? select(host.store.getState()) : undefined),
+  )
+}
+
 function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; now: number; many: boolean }) {
   const app = useApp()
   const a = tile.agent
   const tail = useTail(host, a.id, a.state)
-  const waiting = useMemo(() => {
-    const s = host?.store.getState()
-    return s ? waitingIds(joinWaiting(s.waiting, s.runs, s.agents)) : new Set<string>()
-  }, [host, a.state, a.needsInput, tile.lastSent])
-  const bucket = bucketOf(a, { waiting, pullRequests: host?.store.getState().pullRequests ?? {} })
+  // Read from the host's store, so a plan that arrives or a PR that merges moves the tile at once.
+  const rows = useStoreOf(host, (s) => s.waiting)
+  const runs = useStoreOf(host, (s) => s.runs)
+  const agents = useStoreOf(host, (s) => s.agents)
+  const pullRequests = useStoreOf(host, (s) => s.pullRequests)
+  const waiting = useMemo(() => waitingIds(joinWaiting(rows ?? [], runs ?? {}, agents ?? {})), [rows, runs, agents])
+  const bucket = bucketOf(a, { waiting, pullRequests: pullRequests ?? {} })
   const last = activityMs(a)
   const needs = a.state === AgentState.NEEDS_INPUT
   return (

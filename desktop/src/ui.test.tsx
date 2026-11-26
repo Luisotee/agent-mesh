@@ -596,6 +596,19 @@ describe('Splits', () => {
   })
 })
 
+describe('WatchAll tiles follow the host\'s store', () => {
+  it('moves a tile to needing the user when a plan arrives for it', async () => {
+    const { host, client, wrap } = fixture()
+    Object.assign(client, { readTranscript: vi.fn(async () => create(ReadTranscriptResponseSchema, { supported: true })) })
+    host.store.setState((s) => ({ agents: { ...s.agents, w2: agent('w2', { name: 'app-w2', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.IDLE }) } }))
+    render(wrap(<WatchAll />))
+    const tile = await screen.findByRole('listitem', { name: 'app-w2 in the grid' })
+    expect(tile).toHaveTextContent('idle')
+    act(() => host.store.setState({ waiting: [create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w2', message: create(MessageSchema, { id: 'm9', type: MessageType.PLAN, runId: 'r1' }) })] }))
+    expect(screen.getByRole('listitem', { name: 'app-w2 in the grid' })).toHaveTextContent('needs you')
+  })
+})
+
 describe('SidePanel', () => {
   const costResp = create(GetCostResponseSchema, { usd: 7.5, agents: [create(AgentCostSchema, { name: 'app-fix', usd: 2 }), create(AgentCostSchema, { name: 'app-lead', usd: 5.5 })] })
   const usageResp = create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: 'weekly window', used: 95 })], atReserve: ['weekly window'] }) })
@@ -688,6 +701,22 @@ describe('SidePanel', () => {
     await userEvent.selectOptions(select, 'plans')
     await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
     expect(client.setSetting.mock.calls[0]![0]).toMatchObject({ key: 'repos.user_approves_plans', value: { kind: { case: 'listValue' } } })
+  })
+
+  it('puts the first autonomy write back when the second fails, so a repo is never left in neither list', async () => {
+    const { host, client, wrap } = panelFixture()
+    const list = (key: string, v: string[]) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, v) })
+    host.store.setState({ settings: { 'repos.user_merges': list('repos.user_merges', ['/p/shop']), 'repos.user_approves_plans': list('repos.user_approves_plans', ['/p/other']) } })
+    // The lead's repo is /p/app: put it in the plans list, then fail the merges write that follows... it has none to change, so move it from merges.
+    host.store.setState((s) => ({ agents: { ...s.agents, lead: { ...s.agents.lead!, repo: '/p/shop' } } }))
+    client.setSetting.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('[invalid_argument] no'))
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    await userEvent.selectOptions(screen.getByLabelText('Autonomy for shop'), 'plans')
+    expect(await screen.findByRole('alert')).toHaveTextContent('no')
+    const calls = client.setSetting.mock.calls.map((c) => c[0] as { key: string; value: { kind: { value: { values: Array<{ kind: { value: string } }> } } } })
+    // merges written (without /p/shop), plans failed, then merges put back as it was.
+    expect(calls.map((c) => c.key)).toEqual(['repos.user_merges', 'repos.user_approves_plans', 'repos.user_merges'])
+    expect(calls[2]!.value.kind.value.values.map((v) => v.kind.value)).toEqual(['/p/shop'])
   })
 
   it('says so when the cost can\'t be read, and when no agent is open', async () => {
@@ -788,6 +817,27 @@ describe('NewWorkspaceDialog', () => {
     await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
     expect(client.startRun).not.toHaveBeenCalled()
     expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r1', role: AgentRole.WORKER, base: 'feature-x' })
+  })
+
+  it('joins the run it started when a retry follows a failed start, and ignores a start choice made for another project', async () => {
+    const { host, client, wrap } = dialog()
+    client.spawnAgent.mockRejectedValueOnce(new Error('[failed_precondition] no such ref')).mockResolvedValue({ agent: { id: 'new1' } })
+    render(wrap(<NewWorkspaceDialog host={host} trigger={<button>New workspace</button>} />))
+    await userEvent.type(await screen.findByLabelText('Project'), '/p/shop')
+    await userEvent.tab()
+    await screen.findByText('Default branch: main')
+    await userEvent.selectOptions(screen.getByLabelText('Start from', { selector: 'select' }), 'branch')
+    await userEvent.selectOptions(screen.getByLabelText('Branch'), 'feature-x')
+    await userEvent.type(screen.getByLabelText('Name'), 'a')
+    await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('no such ref')
+    // Another project typed over it and sent: the old branch is not carried over, and the run is not started twice.
+    await userEvent.clear(screen.getByLabelText('Project'))
+    await userEvent.type(screen.getByLabelText('Project'), '/p/api')
+    await userEvent.click(screen.getByRole('button', { name: 'Start workspace' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(2))
+    expect(client.startRun).toHaveBeenCalledTimes(1)
+    expect(client.spawnAgent.mock.calls[1]![0]).toMatchObject({ runId: 'r9', repo: '/p/api', base: '' })
   })
 
   it('offers a path to type when the host lists no projects, and shows why a start failed', async () => {
