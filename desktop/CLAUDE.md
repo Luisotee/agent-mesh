@@ -16,6 +16,7 @@ pnpm test src/store.test.ts   # one file
 pnpm typecheck                # the renderer and the main process (two tsconfigs)
 pnpm gen                      # TypeScript from ../proto after a .proto change
 pnpm build && pnpm e2e        # the end-to-end tests: the built app over CDP, against a real meshd
+pnpm pack:dir                 # the unpacked installer app in release/ (electron-builder.json; `pnpm pack:check` builds the deb and checks its agentmesh:// entry, opt-in)
 ```
 
 The e2e tests open a real Electron window, so they need a display (WSLg has one, but an agent's shell has `DISPLAY` unset: run them as `DISPLAY=:0 pnpm e2e`, and `scripts/check.sh` the same way; `xvfb-run` otherwise). They build meshd, mesh-term, mesh and the fake claude from `daemon/` into a temp dir and give every run its own state dir, HOME and user-data dir, so they touch nothing of the user's. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
@@ -26,6 +27,7 @@ The e2e tests open a real Electron window, so they need a display (WSLg has one,
 - `shared/api.ts`: types only, the contract between main and the renderer.
 - `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `actions.ts`, `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts`.
 - `src/gen/`: the generated TypeScript (committed).
+- `electron-builder.json`: the installers (a `protocols` entry registers `agentmesh://`); `scripts/check-package.mjs`: the opt-in deb check. Only `ws` is a `dependency` (the main process's); everything the page uses is a `devDependency`, as Vite bundles it.
 - `e2e/`: the end-to-end tests and their harness.
 
 `README.md` "Layout" says what each file holds.

@@ -1,3 +1,5 @@
-# pnpm 11 runs no dependency build script unless allowed: Electron fetches its binary in one.
+# pnpm 11 runs no dependency build script unless allowed: Electron fetches its binary in one. electron-winstaller
+# (Squirrel.Windows, pulled in by electron-builder) is unused: the Windows installer is NSIS.
 allowBuilds:
   electron: true
+  electron-winstaller: false
