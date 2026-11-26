@@ -106,7 +106,7 @@ func withCapShared(ctx context.Context, ids []string) context.Context {
 	if len(ids) == 0 {
 		return ctx
 	}
-	return context.WithValue(ctx, capSharedKey{}, ids)
+	return context.WithValue(ctx, capSharedKey{}, slices.Clone(ids))
 }
 
 // capShared is the agents ctx shares its place in the cap with (nil for any launch not part of a round).

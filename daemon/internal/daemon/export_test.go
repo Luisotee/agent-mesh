@@ -133,3 +133,6 @@ func SetBriefGitHubWait(d time.Duration) func() {
 
 // PRText exposes prText.
 func PRText(row *v1.AgentPullRequests, done bool) string { return prText(row, done) }
+
+// OnSendPlanned sets SendMessage's test seam: called after its preparation, before the write that stores the message.
+func OnSendPlanned(f func()) { sendPlannedHook = f }

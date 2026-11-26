@@ -860,14 +860,19 @@ func TestOpenCodeFooterLimitLineRotatesTheAgent(t *testing.T) {
 // `ask.timeout`. A limit that ends before the deadline stays pending (the agent is continued at the reset).
 func TestOpenCodeLimitedReviewerSettlesItsMemberWhenItCannotMove(t *testing.T) {
 	for _, tc := range []struct {
-		name, command string
-		settles       bool
+		name, command, auto, line string
+		settles                   bool
 	}{
-		{"free usage limit outlasts the ask", "/limit-pane-free", true},
-		{"rate limit ends within the ask", "/limit-pane", false},
+		{"free usage limit outlasts the ask", "/limit-pane-free", "switch", "no other model to move to", true},
+		{"rate limit ends within the ask", "/limit-pane", "switch", "", false},
+		// Whatever the policy: with `off` nothing moves the agent, and the round must not wait on it either; the
+		// line says which policy it is, not that the chain is exhausted.
+		{"free usage limit with limits.auto off", "/limit-pane-free", "off", "limits.auto is off", true},
+		{"free usage limit with limits.auto continue", "/limit-pane-free", "continue", "limits.auto is continue", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := startReviews(t, fastPass)
+			w.set(t, "limits.auto", tc.auto)
 			w.set(t, "review.reviewers.small", []any{[]any{"opencode"}})
 			w.set(t, "tiers.opencode.mid.model", []any{"opencode/beam-free"}) // nothing to move to
 			w.pr.push(t, "round 1")
@@ -885,8 +890,8 @@ func TestOpenCodeLimitedReviewerSettlesItsMemberWhenItCannotMove(t *testing.T) {
 				if err != nil || len(asks) != 0 {
 					t.Fatalf("the round is still open: %v, %v", asks, err)
 				}
-				if msg := w.answers(t)[0].Body; !strings.Contains(msg, "usage limit until") {
-					t.Errorf("the round's message does not say why the reviewer didn't answer:\n%s", msg)
+				if msg := w.answers(t)[0].Body; !strings.Contains(msg, "usage limit until") || !strings.Contains(msg, tc.line) {
+					t.Errorf("the round's message does not say why the reviewer didn't answer (want %q):\n%s", tc.line, msg)
 				}
 				return
 			}

@@ -92,3 +92,91 @@ func TestAReReviewResumesTheWholeRoundUnderTheCap(t *testing.T) {
 		}
 	}
 }
+
+// Which reviewers the cap refuses must not depend on the order of the round's slots: a re-review whose first
+// slot has to be resumed while a later slot's reviewer is still running used to count that running one against
+// the cap and refuse the first.
+func TestAReReviewAdmitsItsRunningReviewerWhicheverSlotComesFirst(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	w.pr.push(t, "round 1")
+	r1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"})
+	if len(r1.Agents) != 2 {
+		t.Fatalf("round 1 started %d reviewers, want 2: %v", len(r1.Agents), r1.Notes)
+	}
+	for _, a := range r1.Agents {
+		w.quiet(t, a.Id)
+		w.say(t, a.Id, v1.MessageType_MESSAGE_TYPE_DONE, a.Kind+": fine")
+	}
+	waitFor(t, "round 1 finished", func() bool { return len(w.answers(t)) == 1 })
+	// The first slot's reviewer is retired; the second slot's is still running (idle).
+	if r1.Agents[0].Kind != "claude" {
+		t.Fatalf("the first slot is %s, want claude", r1.Agents[0].Kind)
+	}
+	if _, err := w.asRoot.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: r1.Agents[0].Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(r1.Agents[0].Id, v1.AgentState_AGENT_STATE_RETIRED)
+
+	w.set(t, "caps.agents", 2) // the root and one more
+	w.pr.push(t, "round 2")
+	r2 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+	if len(r2.Agents) != 2 {
+		t.Fatalf("the re-review started %d reviewers, want both: notes %v", len(r2.Agents), r2.Notes)
+	}
+	for _, m := range r2.Ask.Members {
+		if m.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING {
+			t.Errorf("member %s is %s (%s), want pending", m.Name, m.Status, m.Line)
+		}
+	}
+}
+
+// A reviewer whose reuse was refused is a member that was not asked: no agent is recorded on it (a retry of the
+// ask would count it as started and let the round share the cap with an agent that isn't in it), and the task
+// stored with the refusal is marked read, not left for the next resume.
+func TestAReReviewsRefusedReuseIsNotAStartedMember(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	w.pr.push(t, "round 1")
+	r1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"})
+	for _, a := range r1.Agents {
+		w.quiet(t, a.Id)
+		w.say(t, a.Id, v1.MessageType_MESSAGE_TYPE_DONE, a.Kind+": fine")
+	}
+	waitFor(t, "round 1 finished", func() bool { return len(w.answers(t)) == 1 })
+	claude := r1.Agents[0]
+	if _, err := w.asRoot.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: claude.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(claude.Id, v1.AgentState_AGENT_STATE_RETIRED)
+
+	w.seedAgent(w.run.Id, "extra", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	w.set(t, "caps.agents", 2) // the root and the extra worker fill it: claude cannot come back, agy still runs
+	w.pr.push(t, "round 2")
+	r2 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+	ask, err := w.d.Store().Read(ctx).GetAsk(r2.Ask.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refused int
+	for _, m := range ask.Members {
+		if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
+			refused++
+			if m.AgentId != "" {
+				t.Errorf("the refused member %s records agent %s", m.Name, m.AgentId)
+			}
+		}
+	}
+	if refused != 1 {
+		t.Fatalf("%d members not asked, want the one refused resume: notes %v", refused, r2.Notes)
+	}
+	in, err := w.d.Store().Read(ctx).Inbox(claude.Id, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range in {
+		if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.CreatedAt.AsTime().After(r1.Ask.CreatedAt.AsTime()) {
+			t.Errorf("the refused reviewer keeps an unread task of the new round: %q", m.Body)
+		}
+	}
+}

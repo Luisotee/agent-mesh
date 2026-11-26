@@ -378,6 +378,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			prepLock = mu
 		}
 	}
+	if sendPlannedHook != nil {
+		sendPlannedHook()
+	}
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
 		var to *v1.Agent
@@ -400,6 +403,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			}
 		} else if to, err = d.FindAgent(t.Reader, actor, req.Msg.To); err != nil {
 			return err
+		}
+		// A peer's agent asked by a caller other than its parent answers that caller from now on (startPeer): the
+		// parent moves in this write, with the task, and only when the task goes through (below).
+		var movedFrom string
+		if id := reparentTo(ctx); id != "" && id == actor.Id && to.Peer && to.ParentId != id {
+			movedFrom, to.ParentId = to.ParentId, id
 		}
 		var asked *collectRef // the round this report answers, when it is a member's
 		if IsAgent(actor.Class) {
@@ -524,6 +533,13 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 						return err
 					}
 				}
+			}
+		}
+		if movedFrom != "" {
+			if out.ResumeError != "" {
+				to.ParentId = movedFrom // the task is refused: the peer stays with its caller
+			} else if err := t.PutAgent(to); err != nil {
+				return err
 			}
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
