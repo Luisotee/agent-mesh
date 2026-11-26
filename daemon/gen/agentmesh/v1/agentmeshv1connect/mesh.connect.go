@@ -292,7 +292,8 @@ type MeshServiceClient interface {
 	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
 	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
-	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
+	// Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+	// The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
@@ -1147,7 +1148,8 @@ type MeshServiceHandler interface {
 	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
 	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
-	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
+	// Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+	// The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)

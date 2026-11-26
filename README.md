@@ -129,7 +129,7 @@ Every worker and reviewer is a full Claude Code or agy session drawing on your o
 - **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold); a big planner is compacted at approval, and a big worker before a follow-up.
 - **One machine's memory:** each worker gets a share of the cores (`worker_cpus`), so the test suites it runs start fewer workers; reviewers read the PR's CI before running tests; and no agent starts while memory runs short or the machine thrashes.
 - **A quota reserve:** it plans on the best model with quota left, the root moves an agy worker that hits a quota to the next model (a Claude worker is continued at the reset), and by default nothing new starts on a quota once it is 90% used.
-- **`mesh cost`** shows what each agent of a run spent, by phase.
+- **`mesh cost`** shows the tokens each agent of a run used, by phase, for Claude, agy and OpenCode (cache reads apart), with Claude's API-equivalent dollars beside them.
 
 ## How it compares
 
