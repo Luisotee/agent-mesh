@@ -716,6 +716,8 @@ public class MeshServiceClient(
 
   /**
    *  Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+   *  Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+   *  mutations, and standalone worktree preparation before exec is idempotent.
    */
   override suspend fun openAgent(request: OpenAgentRequest, headers: Headers): ResponseMessage<OpenAgentResponse> = client.unary(
     request,

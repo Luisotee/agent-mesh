@@ -234,7 +234,7 @@ export type RingAgentResponse = Message<"agentmesh.v1.RingAgentResponse"> & {
   via: string;
 
   /**
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is <state>", "human_draft", "user_typing", "no_input_box").
    *
    * @generated from field: string error = 5;
    */

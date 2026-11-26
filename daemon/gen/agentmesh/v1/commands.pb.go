@@ -465,7 +465,7 @@ type RingAgentResponse struct {
 	Rung   bool                   `protobuf:"varint,3,opt,name=rung,proto3" json:"rung,omitempty"`
 	// "socket" or "pty" when rung; empty otherwise.
 	Via string `protobuf:"bytes,4,opt,name=via,proto3" json:"via,omitempty"`
-	// Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+	// Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is <state>", "human_draft", "user_typing", "no_input_box").
 	Error         string `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -189,7 +189,7 @@ public  final class RingAgentResponse extends
   private java.lang.String error_;
   /**
    * <pre>
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
    * </pre>
    *
    * <code>string error = 5 [json_name = "error"];</code>
@@ -201,7 +201,7 @@ public  final class RingAgentResponse extends
   }
   /**
    * <pre>
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
    * </pre>
    *
    * <code>string error = 5 [json_name = "error"];</code>
@@ -214,7 +214,7 @@ public  final class RingAgentResponse extends
   }
   /**
    * <pre>
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
    * </pre>
    *
    * <code>string error = 5 [json_name = "error"];</code>
@@ -228,7 +228,7 @@ public  final class RingAgentResponse extends
   }
   /**
    * <pre>
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
    * </pre>
    *
    * <code>string error = 5 [json_name = "error"];</code>
@@ -239,7 +239,7 @@ public  final class RingAgentResponse extends
   }
   /**
    * <pre>
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
    * </pre>
    *
    * <code>string error = 5 [json_name = "error"];</code>
@@ -523,7 +523,7 @@ public  final class RingAgentResponse extends
 
     /**
      * <pre>
-     * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+     * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
      * </pre>
      *
      * <code>string error = 5 [json_name = "error"];</code>
@@ -535,7 +535,7 @@ public  final class RingAgentResponse extends
     }
     /**
      * <pre>
-     * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+     * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
      * </pre>
      *
      * <code>string error = 5 [json_name = "error"];</code>
@@ -548,7 +548,7 @@ public  final class RingAgentResponse extends
     }
     /**
      * <pre>
-     * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+     * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
      * </pre>
      *
      * <code>string error = 5 [json_name = "error"];</code>
@@ -563,7 +563,7 @@ public  final class RingAgentResponse extends
     }
     /**
      * <pre>
-     * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+     * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
      * </pre>
      *
      * <code>string error = 5 [json_name = "error"];</code>
@@ -576,7 +576,7 @@ public  final class RingAgentResponse extends
     }
     /**
      * <pre>
-     * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+     * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
      * </pre>
      *
      * <code>string error = 5 [json_name = "error"];</code>

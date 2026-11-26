@@ -55,7 +55,7 @@ public interface RingAgentResponseOrBuilder extends
 
   /**
    * <pre>
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
    * </pre>
    *
    * <code>string error = 5 [json_name = "error"];</code>
@@ -64,7 +64,7 @@ public interface RingAgentResponseOrBuilder extends
   java.lang.String getError();
   /**
    * <pre>
-   * Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+   * Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is &lt;state&gt;", "human_draft", "user_typing", "no_input_box").
    * </pre>
    *
    * <code>string error = 5 [json_name = "error"];</code>

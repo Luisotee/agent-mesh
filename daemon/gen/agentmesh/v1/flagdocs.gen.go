@@ -231,7 +231,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.ResumeAgentResponse.message":              "The task, when one was given.",
 	"agentmesh.v1.ResumeAgentResponse.notes":                "Notes about the resume (such as a branch move away from a merged or closed PR).",
 	"agentmesh.v1.RingAgentRequest.agent":                   "Agent id or name to re-ring.",
-	"agentmesh.v1.RingAgentResponse.error":                  "Why the doorbell was not rung (e.g. \"human_draft\", \"busy\", \"stopped\").",
+	"agentmesh.v1.RingAgentResponse.error":                  "Why the doorbell was not rung (e.g. \"reopen pending\", \"no terminal\", \"agent is <state>\", \"human_draft\", \"user_typing\", \"no_input_box\").",
 	"agentmesh.v1.RingAgentResponse.via":                    "\"socket\" or \"pty\" when rung; empty otherwise.",
 	"agentmesh.v1.RootReset.bootstrap_waited_since":         "Since when the bootstrap line has been due but not typeable (a user typing): the reset fails after `root_reset.wait`, so the root is never held for good.",
 	"agentmesh.v1.RootReset.compact":                        "Compact the root's session instead of replacing it (a Claude root).",

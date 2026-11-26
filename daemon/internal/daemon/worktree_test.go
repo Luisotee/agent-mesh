@@ -124,4 +124,35 @@ func TestCreateWorktreeIsRecordedCheckedForConflictsAndCleanedOnStopRun(t *testi
 	if o := byPath[wt3.Path]; o == nil || o.WorktreeRemoved || !o.BranchKept || !exists(wt3.Path) {
 		t.Errorf("wt3 outcome = %+v", o)
 	}
+
+	// Removed standalone worktrees (wt1, wt2) had their DB rows deleted; dirty wt3 stays so a later StopRun sees only wt3.
+	leftWTs, err := w.d.Store().Read(ctx).ListWorktrees(run.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leftWTs) != 1 || leftWTs[0].Id != wt3.Id {
+		t.Fatalf("remaining worktree rows = %+v, want [%s]", leftWTs, wt3.Id)
+	}
+
+	// Replaying StopRun with the same mutation id returns the stored response cleanly without repeating worktree loops.
+	replayStop, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-wt"), RunId: run.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replayStop.Msg.Worktrees) != 0 {
+		t.Fatalf("replayed StopRun worktrees = %+v, want empty (stored response)", replayStop.Msg.Worktrees)
+	}
+
+	// A second StopRun with a new mutation id sees wt3 (still dirty) and never repeats deleted wt1/wt2.
+	secondStop, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-wt-2"), RunId: run.Id}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenSecond := map[string]bool{}
+	for _, o := range secondStop.Msg.Worktrees {
+		seenSecond[o.Worktree] = true
+	}
+	if seenSecond[wt1.Path] || seenSecond[wt2.Path] || !seenSecond[wt3.Path] {
+		t.Fatalf("second StopRun worktrees = %+v, want wt3 without wt1/wt2", secondStop.Msg.Worktrees)
+	}
 }

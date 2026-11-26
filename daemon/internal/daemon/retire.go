@@ -333,9 +333,10 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	errUnlocked := errors.New("an agent was started meanwhile")
 	var agents []*v1.Agent
 	var lateIDs []string
+	var replayed bool
 	for {
 		lateIDs = nil
-		_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopRunProcedure, out, func(tx *store.Tx) error {
+		replayed, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopRunProcedure, out, func(tx *store.Tx) error {
 			run, err := tx.GetRun(req.Msg.RunId)
 			if errors.Is(err, store.ErrNotFound) {
 				return notFound("no run %q", req.Msg.RunId)
@@ -406,6 +407,10 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		}()
 	}
 	wg.Wait()
+	if replayed {
+		// A replayed call's stored response already reports its stop; avoid repeating filesystem/sweep work or appending outcomes.
+		return connect.NewResponse(out), nil
+	}
 	// Sweep leftover processes workers left in their worktrees (already retired or exited ones too) before
 	// removing those worktrees, skipping any worktree held by a live agent or another open run.
 	busyWorktrees := map[string]bool{}
@@ -425,14 +430,30 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		}
 	}
 	var sweepAgents []*v1.Agent
+	seenSweep := map[string]bool{}
 	for _, a := range agents {
+		if a.Worktree != "" {
+			seenSweep[a.Worktree] = true
+		}
 		if notStopped[a.Id] == "" && !busyWorktrees[a.Worktree] {
 			sweepAgents = append(sweepAgents, a)
 		}
 	}
+	wts, werr := sr.ListWorktrees(req.Msg.RunId)
+	if werr == nil {
+		for _, wt := range wts {
+			if wt.Path != "" && !seenSweep[wt.Path] && !busyWorktrees[wt.Path] {
+				seenSweep[wt.Path] = true
+				sweepAgents = append(sweepAgents, &v1.Agent{
+					Id:       wt.Id,
+					RunId:    wt.RunId,
+					Role:     v1.AgentRole_AGENT_ROLE_WORKER,
+					Worktree: wt.Path,
+				})
+			}
+		}
+	}
 	d.sweepWorktrees(context.WithoutCancel(ctx), sweepAgents)
-	// A replayed call has no agents: its stored response already says what happened (without the worktrees, which
-	// are only reported by the call that removed them).
 	seenWT := map[string]bool{}
 	for _, a := range agents {
 		if a.Worktree != "" {
@@ -450,7 +471,13 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		}
 		out.Worktrees = append(out.Worktrees, d.lockedRemoveWorktree(ctx, a.Id, a.Repo, a.Worktree, a.Branch, a.BaseCommit, a.Peer))
 	}
-	if wts, werr := sr.ListWorktrees(req.Msg.RunId); werr == nil {
+	if werr != nil {
+		d.log.Warn("listing standalone worktrees on stop", "run", req.Msg.RunId, "err", werr)
+		out.Worktrees = append(out.Worktrees, &v1.WorktreeOutcome{
+			BranchKept: true,
+			Reason:     "couldn't list standalone worktrees: " + firstLine(werr.Error()),
+		})
+	} else {
 		for _, wt := range wts {
 			if seenWT[wt.Path] {
 				continue
@@ -461,7 +488,15 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 					BranchKept: true, Reason: "worktree is held by another run (open or with a live agent)"})
 				continue
 			}
-			out.Worktrees = append(out.Worktrees, d.lockedRemoveWorktree(ctx, "", wt.Repo, wt.Path, wt.Branch, wt.BaseCommit, false))
+			outcome := d.lockedRemoveWorktree(ctx, "", wt.Repo, wt.Path, wt.Branch, wt.BaseCommit, false)
+			if outcome.WorktreeRemoved {
+				if derr := d.store.Write(ctx, auth.ActorFrom(ctx), "", func(tx *store.Tx) error {
+					return tx.DeleteWorktree(wt.Id)
+				}); derr != nil {
+					d.log.Warn("deleting removed worktree row", "run", wt.RunId, "worktree", wt.Id, "err", derr)
+				}
+			}
+			out.Worktrees = append(out.Worktrees, outcome)
 		}
 	}
 	return connect.NewResponse(out), nil

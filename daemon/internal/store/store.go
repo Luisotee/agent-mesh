@@ -1176,3 +1176,9 @@ func (r Reader) ListWorktrees(runID string) ([]*v1.Worktree, error) {
 	return scanAll(r, `SELECT data FROM worktrees WHERE run_id = ? ORDER BY created_at, id`, []any{runID},
 		func() *v1.Worktree { return &v1.Worktree{} })
 }
+
+// DeleteWorktree deletes one standalone worktree record by id.
+func (t *Tx) DeleteWorktree(id string) error {
+	_, err := t.tx.ExecContext(t.ctx, `DELETE FROM worktrees WHERE id = ?`, id)
+	return err
+}

@@ -300,10 +300,14 @@ func clearAgyMeshHooks(ctx context.Context, worktree string) error {
 		return nil
 	}
 	delete(obj, "agent-mesh")
+	mode := os.FileMode(0o600)
+	if st, serr := os.Stat(hooksPath); serr == nil && st.Mode().Perm() != 0 {
+		mode = st.Mode().Perm()
+	}
 	tracked := exec.CommandContext(ctx, "git", "-C", worktree, "ls-files", "--error-unmatch", "--", slashRel).Run() == nil
 	if tracked {
+		_, _ = git(ctx, worktree, "update-index", "--no-skip-worktree", "--", slashRel)
 		if len(obj) == 0 {
-			_, _ = git(ctx, worktree, "update-index", "--no-skip-worktree", "--", slashRel)
 			_, err = git(ctx, worktree, "checkout", "--", slashRel)
 			return err
 		}
@@ -311,7 +315,7 @@ func clearAgyMeshHooks(ctx context.Context, worktree string) error {
 		if err != nil {
 			return err
 		}
-		return fsutil.WriteAtomic(hooksPath, append(b, '\n'), 0o600)
+		return fsutil.WriteAtomic(hooksPath, append(b, '\n'), mode)
 	}
 	if len(obj) == 0 {
 		if err := os.Remove(hooksPath); err != nil && !os.IsNotExist(err) {
@@ -328,5 +332,5 @@ func clearAgyMeshHooks(ctx context.Context, worktree string) error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteAtomic(hooksPath, append(b, '\n'), 0o600)
+	return fsutil.WriteAtomic(hooksPath, append(b, '\n'), mode)
 }

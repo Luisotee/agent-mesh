@@ -637,4 +637,12 @@ func TestWorktreesRoundTripAndRejectDuplicates(t *testing.T) {
 	if !errors.Is(err, ErrExists) {
 		t.Fatalf("duplicate (run_id, slug): got %v, want ErrExists", err)
 	}
+	if err := s.Write(ctx, nil, "", func(tx *Tx) error {
+		return tx.DeleteWorktree("w1")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := s.Read(ctx).ListWorktrees("r1"); err != nil || len(list) != 0 {
+		t.Fatalf("ListWorktrees after delete = %+v, %v", list, err)
+	}
 }

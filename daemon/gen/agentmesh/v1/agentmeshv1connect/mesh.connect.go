@@ -252,6 +252,8 @@ type MeshServiceClient interface {
 	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
 	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
 	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+	// Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+	// mutations, and standalone worktree preparation before exec is idempotent.
 	OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error)
 }
 
@@ -948,6 +950,8 @@ type MeshServiceHandler interface {
 	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
 	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
 	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
+	// Intentionally write: false (no RequestMeta): one-time terminal tickets must not be stored or replayed from
+	// mutations, and standalone worktree preparation before exec is idempotent.
 	OpenAgent(context.Context, *connect.Request[v1.OpenAgentRequest]) (*connect.Response[v1.OpenAgentResponse], error)
 }
 

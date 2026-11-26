@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -54,6 +53,9 @@ func (d *Daemon) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgen
 		}), nil
 	}
 
+	if a.PendingReopen != nil {
+		return nil, failedPrecondition("%s is reopening; try again in a moment", a.Name)
+	}
 	if a.SessionId == "" {
 		d.learnSession(ctx, actor, a.Id, func(*v1.Agent) bool { return true })
 		a, err = d.store.Read(ctx).GetAgent(a.Id)
@@ -243,6 +245,3 @@ func (d *Daemon) findAgentForOpen(r store.Reader, ref, runID string) (*v1.Agent,
 	}
 	return nil, notFound("no agent %q", ref)
 }
-
-// unused filepath import guard
-var _ = filepath.Join

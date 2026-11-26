@@ -20,6 +20,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/cli"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
@@ -121,6 +122,32 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	}
 	stoppedAsker := w.waitState(asker.Id, v1.AgentState_AGENT_STATE_RETIRED)
 	agyWorker = w.waitState(agyWorker.Id, v1.AgentState_AGENT_STATE_RETIRED)
+
+	// Stopped agent with PendingReopen set must be refused just like a running reopening agent.
+	if err := w.d.Store().Write(ctx, &v1.Actor{Id: "test", Class: v1.ActorClass_ACTOR_CLASS_DEVICE}, "", func(tx *store.Tx) error {
+		cur, gerr := tx.GetAgent(stoppedAsker.Id)
+		if gerr != nil {
+			return gerr
+		}
+		cur.PendingReopen = &v1.Reopen{Id: "reop-1", Why: "pending"}
+		return tx.PutAgent(cur)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.device.Mesh.OpenAgent(ctx, connect.NewRequest(&v1.OpenAgentRequest{Agent: stoppedAsker.Id})); code(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("stopped with PendingReopen: %v, want FailedPrecondition", err)
+	}
+	if err := w.d.Store().Write(ctx, &v1.Actor{Id: "test", Class: v1.ActorClass_ACTOR_CLASS_DEVICE}, "", func(tx *store.Tx) error {
+		cur, gerr := tx.GetAgent(stoppedAsker.Id)
+		if gerr != nil {
+			return gerr
+		}
+		cur.PendingReopen = nil
+		return tx.PutAgent(cur)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err := os.Stat(stoppedAsker.Worktree); !os.IsNotExist(err) {
 		// Remove worktree explicitly if still around so recreation path is exercised too.
 		_ = exec.Command("git", "-C", stoppedAsker.Repo, "worktree", "remove", "--force", stoppedAsker.Worktree).Run()
@@ -210,6 +237,51 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	}
 	if strings.Contains(string(kept), "agent-mesh") || !strings.Contains(string(kept), "custom") {
 		t.Errorf("unexpected hooks.json after strip: %s", kept)
+	}
+
+	// Tracked .agents/hooks.json with non-mesh keys: OpenAgent clears skip-worktree and preserves the original mode.
+	repoTracked := gitRepo(t)
+	commitFileIn(t, repoTracked, ".agents/hooks.json", "{\"custom\":{\"Stop\":[{\"type\":\"command\",\"command\":\"echo hi\"}]}}\n", "add repo hooks")
+	run2 := startRun(t, w.device.Mesh, "")
+	trackedWorker := w.spawnUnder(t, w.device.Mesh, "tracked-ag", &v1.SpawnAgentRequest{
+		RunId: run2.Id, Repo: repoTracked, Kind: "agy", Tier: "strong",
+	})
+	trackedWorker = w.agyTurn(t, trackedWorker, "hi")
+	if err := os.WriteFile(filepath.Join(trackedWorker.Worktree, "wip.txt"), []byte("dirty\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lsBefore := gitIn(t, trackedWorker.Worktree, "ls-files", "-v", "--", ".agents/hooks.json")
+	if !strings.HasPrefix(lsBefore, "S ") {
+		t.Fatalf("expected skip-worktree before open, ls-files=%q", lsBefore)
+	}
+	if _, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-tracked"), RunId: run2.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(trackedWorker.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	wtHooks := filepath.Join(trackedWorker.Worktree, ".agents", "hooks.json")
+	if err := os.Chmod(wtHooks, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.device.Mesh.OpenAgent(ctx, connect.NewRequest(&v1.OpenAgentRequest{Agent: trackedWorker.Id})); err != nil {
+		t.Fatal(err)
+	}
+	lsAfter := gitIn(t, trackedWorker.Worktree, "ls-files", "-v", "--", ".agents/hooks.json")
+	if strings.HasPrefix(lsAfter, "S ") {
+		t.Errorf("expected skip-worktree cleared on tracked hooks.json, ls-files=%q", lsAfter)
+	}
+	stAfter, err := os.Stat(wtHooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stAfter.Mode().Perm() != 0o644 {
+		t.Errorf("tracked hooks.json mode = %o, want 0644", stAfter.Mode().Perm())
+	}
+	rawAfter, err := os.ReadFile(wtHooks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rawAfter), "agent-mesh") || !strings.Contains(string(rawAfter), "custom") {
+		t.Errorf("unexpected tracked hooks.json after strip: %s", rawAfter)
 	}
 	_ = daemon.HintHeader
 }

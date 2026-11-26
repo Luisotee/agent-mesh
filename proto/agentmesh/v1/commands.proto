@@ -62,7 +62,7 @@ message RingAgentResponse {
   bool rung = 3;
   // "socket" or "pty" when rung; empty otherwise.
   string via = 4;
-  // Why the doorbell was not rung (e.g. "human_draft", "busy", "stopped").
+  // Why the doorbell was not rung (e.g. "reopen pending", "no terminal", "agent is <state>", "human_draft", "user_typing", "no_input_box").
   string error = 5;
 }
 
