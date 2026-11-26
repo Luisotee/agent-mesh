@@ -340,6 +340,15 @@ func TestOpenCodeFreeFamilyNeverReturnedWhenExpansionEmpty(t *testing.T) {
 	if got := d.nextFree(r, opencode.Kind, "low", []string{"a", opencode.FreeFamily}, 0); got != "" {
 		t.Fatalf("nextFree([a, free], 0) = %q, want empty", got)
 	}
+	if err := st.Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutSetting("tiers.opencode.light.model", `["free"]`)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r = st.Read(context.Background())
+	if _, _, perr := d.pick(r, opencode.Kind, "light", "", "", "worker"); perr == nil {
+		t.Fatal("pick(tier=light) succeeded with empty free expansion")
+	}
 	if _, _, perr := d.pick(r, opencode.Kind, "", opencode.FreeFamily, "", "worker"); perr == nil {
 		t.Fatal("pick(model=free) succeeded with empty free expansion")
 	}

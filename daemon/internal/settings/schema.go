@@ -308,7 +308,7 @@ func DefaultLeaves() []Leaf {
 				Summary: "the /code-review level of a worker's self-review of a " + sz + " PR, before its done"})
 	}
 	ls = append(ls,
-		Leaf{Key: "review.reviewers.small", Type: Slots, Default: []any{chain("agy", "claude", "opencode")}, Choices: AgentKinds,
+		Leaf{Key: "review.reviewers.small", Type: Slots, Default: []any{chain("opencode", "agy", "claude")}, Choices: AgentKinds,
 			Summary: "reviewer slots of a small PR: each takes its first available kind not picked yet"},
 		Leaf{Key: "review.reviewers.large", Type: Slots, Default: []any{chain("agy", "claude", "opencode")},
 			Choices: AgentKinds,

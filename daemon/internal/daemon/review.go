@@ -246,35 +246,39 @@ func prAuthorKind(r store.Reader, top, headRef string) string {
 	return ""
 }
 
-// authorLast moves the PR author's kind to the end of a slot's chain, but before OpenCode when the slot listed
-// it first: the other CLI, then the author's CLI in a fresh session, then OpenCode.
+// authorLast moves the PR author's kind later in a slot's chain: the author is removed and reinserted right
+// after the slot's last non-OpenCode kind, so the order is the other CLIs, then the author's CLI in a fresh
+// session, with OpenCode wherever the slot put it relative to them (first for a small PR, last for a large one).
 func authorLast(chain []string, author string) []string {
-	ai, oi := -1, -1
-	for i, k := range chain {
-		switch k {
-		case author:
-			ai = i
-		case opencode.Kind:
-			oi = i
-		}
-	}
-	if ai < 0 {
+	if author == "" {
 		return chain
 	}
+	found := false
 	out := make([]string, 0, len(chain))
 	for _, k := range chain {
-		if k != author {
-			out = append(out, k)
+		if k == author {
+			found = true
+			continue
+		}
+		out = append(out, k)
+	}
+	if !found {
+		return chain
+	}
+	at := len(out)
+	last := -1
+	for i, k := range out {
+		if k != opencode.Kind {
+			last = i
 		}
 	}
-	if oi >= 0 && ai < oi {
-		for i, k := range out {
-			if k == opencode.Kind {
-				return append(out[:i], append([]string{author}, out[i:]...)...)
-			}
-		}
+	if last >= 0 {
+		at = last + 1
 	}
-	return append(out, author)
+	out = append(out, "")
+	copy(out[at+1:], out[at:])
+	out[at] = author
+	return out
 }
 
 // pickReviewers chooses the kinds of a round (bin/mesh's pick_reviewers): "auto" fills the size's slots, each
