@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# Builds the Windows installer and zip on the Windows side of a WSL machine, natively: nothing is installed system
-# wide and no admin prompt is needed. A portable Node (checked against nodejs.org's SHA-256) and pnpm go under
-# %USERPROFILE%\agent-mesh-build\tools, the committed source of desktop/ is copied to a folder there (never built from
-# a \\wsl$ path), `pnpm run pack` runs there, and the results are copied to the Downloads folder.
+# Builds the Windows installer and zip on the Windows side of a WSL machine, natively, with the Node and pnpm on the
+# Windows PATH (nvm-windows: see the error it prints if they are missing). The committed source of desktop/ is copied
+# to %USERPROFILE%\agent-mesh-build\src (never built from a \\wsl$ path), `pnpm run pack` runs there, and the results are
+# copied to the Downloads folder. No admin prompt.
 #
 #   desktop/scripts/build-windows.sh            # from the repo, in WSL: builds what is committed (HEAD)
 #
-# NODE_VERSION (default v24.20.0) picks the Node release; SOURCE_REPO builds another checkout's HEAD. Not code-signed: SmartScreen warns on the first run.
+# SOURCE_REPO builds another checkout's HEAD. Not code-signed: SmartScreen warns on the first run.
 set -euo pipefail
 
-NODE_VERSION="${NODE_VERSION:-v24.20.0}"
 repo="${SOURCE_REPO:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}"
 command -v powershell.exe >/dev/null || { echo "powershell.exe not found: run this in WSL" >&2; exit 1; }
 
@@ -25,36 +24,32 @@ if [ -n "$(git -C "$repo" status --porcelain -- desktop)" ]; then
 fi
 git -C "$repo" archive --format=tar -o "$root/src.tar" HEAD desktop
 
-cat > "$root/build.ps1" <<PS
-\$ErrorActionPreference = 'Continue'
-\$ver = '$NODE_VERSION'
-\$root = '$root_win'
-\$tools = Join-Path \$root 'tools'
-\$node = "\$tools\\node-\$ver-win-x64"
-New-Item -ItemType Directory -Force \$tools | Out-Null
-if (-not (Test-Path "\$node\\node.exe")) {
-  \$zip = "\$tools\\node-\$ver-win-x64.zip"
-  Invoke-WebRequest "https://nodejs.org/dist/\$ver/node-\$ver-win-x64.zip" -OutFile \$zip -UseBasicParsing
-  \$sums = (Invoke-WebRequest "https://nodejs.org/dist/\$ver/SHASUMS256.txt" -UseBasicParsing).Content
-  \$want = ((\$sums -split "\`n" | Where-Object { \$_ -match "node-\$ver-win-x64.zip" } | Select-Object -First 1) -split ' ')[0]
-  \$got = (Get-FileHash \$zip -Algorithm SHA256).Hash.ToLower()
-  if (\$want -ne \$got) { throw "Node's checksum does not match: \$want vs \$got" }
-  Expand-Archive \$zip -DestinationPath \$tools -Force
+cat > "$root/build.ps1" <<'PS'
+$ErrorActionPreference = 'Continue'
+# A process started from WSL keeps the Windows environment WSL began with, which lacks what was installed since (nvm's
+# PATH entries): rebuild PATH the way a new terminal gets it, from the registry.
+foreach ($n in 'NVM_HOME', 'NVM_SYMLINK') {
+  $v = [Environment]::GetEnvironmentVariable($n, 'User')
+  if ($v) { Set-Item "env:$n" $v }
 }
-\$env:Path = "\$node;\$tools\\pnpm\\node_modules\\.bin;\$env:Path"
-if (-not (Test-Path "\$tools\\pnpm\\node_modules\\.bin\\pnpm.cmd")) {
-  New-Item -ItemType Directory -Force "\$tools\\pnpm" | Out-Null
-  & "\$node\\npm.cmd" install --prefix "\$tools\\pnpm" pnpm@11 2>&1 | Out-Null
+$env:Path = [Environment]::ExpandEnvironmentVariables([Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User'))
+foreach ($tool in 'node', 'pnpm') {
+  if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+    Write-Error "$tool is not on the Windows PATH. Install Node with nvm-windows (winget install -e --id CoreyButler.NVMforWindows --source winget; then, in an Administrator terminal: nvm install lts; nvm use lts; npm install -g pnpm@11)."
+    exit 1
+  }
 }
-if (Test-Path "\$root\\src") { Remove-Item "\$root\\src" -Recurse -Force }
-New-Item -ItemType Directory "\$root\\src" | Out-Null
-tar -xf "\$root\\src.tar" -C "\$root\\src"
-Set-Location "\$root\\src\\desktop"
-\$env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
+"node " + (node -v) + ", pnpm " + (pnpm -v)
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (Test-Path "$root\src") { Remove-Item "$root\src" -Recurse -Force }
+New-Item -ItemType Directory "$root\src" | Out-Null
+tar -xf "$root\src.tar" -C "$root\src"
+Set-Location "$root\src\desktop"
+$env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
 pnpm install --frozen-lockfile
-if (\$LASTEXITCODE -ne 0) { exit 1 }
+if ($LASTEXITCODE -ne 0) { exit 1 }
 pnpm run pack
-exit \$LASTEXITCODE
+exit $LASTEXITCODE
 PS
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$root_win\\build.ps1"
