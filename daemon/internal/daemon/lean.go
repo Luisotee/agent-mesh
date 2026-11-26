@@ -66,7 +66,7 @@ func (d *Daemon) leanLaunch(ctx context.Context, a *v1.Agent, env map[string]str
 	if err != nil {
 		return nil, err
 	}
-	lean := &adapterv1.LeanLaunch{DenyTools: deny, HiddenSkills: slices.Compact(skills), OffPlugins: plugins}
+	lean := &adapterv1.LeanLaunch{DenyTools: deny, HiddenSkills: dedupe(skills), OffPlugins: plugins}
 	lean.HideClaudeaiSkills = keepSkills != true
 	mode, err := d.settingString(r, "claude.mcp")
 	if err != nil {
@@ -82,9 +82,12 @@ func (d *Daemon) leanLaunch(ctx context.Context, a *v1.Agent, env map[string]str
 	if mode != claude.MCPNone {
 		mode = claude.MCPRepo
 	}
-	cfg, _, err := claude.LeanMCPConfig(env, a.Repo, mode, keep, a.Mcp)
+	cfg, missing, err := claude.LeanMCPConfig(env, a.Repo, mode, keep, a.Mcp)
 	if err != nil {
 		return nil, err
+	}
+	if len(missing) > 0 {
+		d.log.Warn("MCP servers the user's Claude config doesn't define are left out", "agent", a.Name, "servers", missing)
 	}
 	path := d.leanMCPFile(a.Id)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -134,4 +137,17 @@ func (d *Daemon) checkMCP(ctx context.Context, kind, repo string, names []string
 			strings.Join(missing, ", "), strings.Join(have, ", ")))
 	}
 	return nil
+}
+
+// dedupe drops repeats, keeping the first of each in order.
+func dedupe(xs []string) []string {
+	seen := map[string]bool{}
+	out := xs[:0:0]
+	for _, x := range xs {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
 }

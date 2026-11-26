@@ -141,12 +141,12 @@ var publishCommands = []string{"git push", "gh pr review", "gh pr comment", "gh 
 // ReadOnly reports whether a role may not change code: an asker or a reviewer.
 func ReadOnly(role agentmeshv1.AgentRole) bool { return adapter.ReadOnly(role) }
 
-// DenyArgs is the `--disallowedTools` list of a read-only agent: no edits under its worktree or the main
+// DenyRules is the `--disallowedTools` list of a read-only agent: no edits under its worktree or the main
 // checkout, no publishing commands. Deny rules win over `--dangerously-skip-permissions`, so a read-only agent
 // stays read-only under it. The flag takes several values: put another flag after it. An edit rule stops Write
 // too; an agent can still write its report under the mesh's state dir.
-func DenyArgs(paths ...string) []string {
-	args := []string{"--disallowedTools"}
+func DenyRules(paths ...string) []string {
+	var args []string
 	seen := map[string]bool{}
 	for _, p := range paths {
 		if p == "" {
@@ -167,6 +167,11 @@ func DenyArgs(paths ...string) []string {
 		args = append(args, "Bash("+c+":*)")
 	}
 	return args
+}
+
+// DenyArgs is DenyRules as the flag's argv.
+func DenyArgs(paths ...string) []string {
+	return append([]string{"--disallowedTools"}, DenyRules(paths...)...)
 }
 
 // PlanLaunch builds the command line: a conversation id chosen now (so a resume finds it) or the one to resume,
@@ -206,7 +211,7 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	// One `--disallowedTools` carries both lists: the read-only rules and the lean tools.
 	var rules []string
 	if deny {
-		rules = DenyArgs(m.Cwd, m.Repo)[1:]
+		rules = DenyRules(m.Cwd, m.Repo)
 	}
 	if m.Lean != nil {
 		rules = append(rules, m.Lean.DenyTools...)
