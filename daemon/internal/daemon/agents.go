@@ -131,6 +131,7 @@ type runtime struct {
 	firstOutput map[string]time.Time // terminal id → first output time (for adapters without startup-hook)
 	tickets     map[string]ticket
 	delivering  map[string]*sync.Mutex // agent id → its lock; one mutex per agent for the daemon's lifetime (never deleted: a holder may be waited on)
+	worktrees   map[string]*sync.Mutex // worktree path → its git lock (independent of agentLock so ResumeAgent never deadlocks with reopen)
 	launching   map[string]bool        // reopen id → its new process died while a newer reopen replaced it
 	introduced  map[string]bool        // terminal id → its first doorbell has named the protocol
 	guard       guard
@@ -1165,6 +1166,20 @@ func (d *Daemon) agentLock(agentID string) *sync.Mutex {
 	if mu == nil {
 		mu = &sync.Mutex{}
 		d.rt.delivering[agentID] = mu
+	}
+	return mu
+}
+
+func (d *Daemon) worktreeLock(worktree string) *sync.Mutex {
+	d.rt.mu.Lock()
+	defer d.rt.mu.Unlock()
+	if d.rt.worktrees == nil {
+		d.rt.worktrees = map[string]*sync.Mutex{}
+	}
+	mu := d.rt.worktrees[worktree]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		d.rt.worktrees[worktree] = mu
 	}
 	return mu
 }

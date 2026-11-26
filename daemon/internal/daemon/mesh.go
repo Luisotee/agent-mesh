@@ -329,7 +329,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			!adapter.ReadOnly(cand.Role) && cand.Role != v1.AgentRole_AGENT_ROLE_ROOT &&
 			cand.Worktree != "" && cand.Repo != "" &&
 			(!IsAgent(actor.Class) || cand.ParentId == actor.Id) {
-			mu := d.agentLock(cand.Id)
+			mu := d.worktreeLock(cand.Worktree)
 			mu.Lock()
 			r2 := d.store.Read(ctx)
 			if cur, cerr := d.FindAgent(r2, actor, cand.Id); cerr == nil && stopped(cur) && cur.SessionId != "" {

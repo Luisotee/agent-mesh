@@ -442,7 +442,16 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 				BranchKept: true, Reason: "worktree is held by a live agent in another run"})
 			continue
 		}
-		out.Worktrees = append(out.Worktrees, d.removeWorktree(ctx, a))
+		var wo *v1.WorktreeOutcome
+		if a.Worktree != "" {
+			wmu := d.worktreeLock(a.Worktree)
+			wmu.Lock()
+			wo = d.removeWorktree(ctx, a)
+			wmu.Unlock()
+		} else {
+			wo = d.removeWorktree(ctx, a)
+		}
+		out.Worktrees = append(out.Worktrees, wo)
 	}
 	return connect.NewResponse(out), nil
 }

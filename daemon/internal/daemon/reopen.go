@@ -691,9 +691,11 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	out := &v1.ResumeAgentResponse{}
 	var prep *preparedWorktree
 	err = func() error {
-		mu := d.agentLock(a0.Id)
-		mu.Lock()
-		defer mu.Unlock()
+		if a0.Worktree != "" {
+			mu := d.worktreeLock(a0.Worktree)
+			mu.Lock()
+			defer mu.Unlock()
+		}
 		var perr error
 		prep, perr = d.prepareWorktreeForTask(ctx, a0, targetRunID, task != "")
 		if perr != nil {
