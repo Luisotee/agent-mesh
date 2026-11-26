@@ -121,7 +121,7 @@ func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (s
 	if effort == "" {
 		effort = e
 	}
-	return d.firstFree(kind, chain), effort, nil
+	return d.firstFree(r, kind, effort, chain), effort, nil
 }
 
 func validEffort(e string) bool {
@@ -339,6 +339,12 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 	}
 	out := &v1.ApproveAgentResponse{}
 	actor := auth.ActorFrom(ctx)
+	{
+		r := d.store.Read(ctx)
+		if a, err := d.FindAgent(r, actor, m.Agent); err == nil {
+			d.warmUsage(ctx, r, a.Kind, agyResolveKey{model: m.Model, effort: m.Effort})
+		}
+	}
 	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "approve") == nil && !stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceApproveAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
@@ -400,6 +406,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened on its "+
 				"execution model: approve it again once it has started", a.Name)
 		}
+		if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "approving "+a.Name); err != nil {
+			return err
+		}
 		body := "approved"
 		if extra := strings.TrimSpace(m.Body); extra != "" {
 			body += "\n\n" + extra
@@ -450,6 +459,12 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 	}
 	out := &v1.SwitchAgentResponse{}
 	actor := auth.ActorFrom(ctx)
+	{
+		r := d.store.Read(ctx)
+		if a, err := d.FindAgent(r, actor, m.Agent); err == nil {
+			d.warmUsage(ctx, r, a.Kind, agyResolveKey{model: m.Model, effort: m.Effort})
+		}
+	}
 	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "switch") == nil && !stopped(a) })
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSwitchAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
@@ -503,21 +518,21 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			if err != nil {
 				return err
 			}
+			if m.Effort != "" {
+				effort = m.Effort
+			}
 			i := index(chain, was)
 			switch {
 			case i < 0:
 				model = chain[0] // the chain changed since it started: its first model
 			case i+1 < len(chain):
 				// Never back to one before: they were tried. The first with quota left, else the next one.
-				if model = d.nextFree(a.Kind, chain, i); model == "" {
+				if model = d.nextFree(tx.Reader, a.Kind, effort, chain, i); model == "" {
 					model = chain[i+1]
 				}
 			default:
 				return failedPrecondition("%s is the last model of the %s %s chain (%s): nothing to move %s to",
 					was, a.Kind, phaseTier, strings.Join(chain, ", "), a.Name)
-			}
-			if m.Effort != "" {
-				effort = m.Effort
 			}
 		default:
 			effort = m.Effort
@@ -561,6 +576,95 @@ func index(xs []string, x string) int {
 
 // ResumeAgent reopens a stopped agent's conversation: with a task (planned under the deny list on a tier, or
 // direct), or as it was.
+func (d *Daemon) hasProcessOnSessionOrWorktree(r store.Reader, a *v1.Agent) error {
+	all, err := r.AllAgents()
+	if err != nil {
+		return err
+	}
+	for _, other := range all {
+		if other.Id == a.Id || !hasProcess(other) {
+			continue
+		}
+		if a.SessionId != "" && other.SessionId == a.SessionId {
+			return failedPrecondition("conversation %s is already running in %s (run %s): stop it before resuming",
+				a.SessionId, other.Name, other.RunId)
+		}
+		if a.Worktree != "" && other.Worktree == a.Worktree {
+			return failedPrecondition("worktree %s is already in use by %s (run %s): stop it before resuming",
+				a.Worktree, other.Name, other.RunId)
+		}
+	}
+	return nil
+}
+
+func uniqueAgentName(r store.Reader, runID, base string) (string, error) {
+	same, err := r.AgentsNamed(runID, base)
+	if err != nil {
+		return "", err
+	}
+	if len(same) == 0 {
+		return base, nil
+	}
+	for i := 2; ; i++ {
+		cand := fmt.Sprintf("%s-%d", base, i)
+		same, err := r.AgentsNamed(runID, cand)
+		if err != nil {
+			return "", err
+		}
+		if len(same) == 0 {
+			return cand, nil
+		}
+	}
+}
+
+func canResume(r store.Reader, actor *v1.Actor, a *v1.Agent, targetRunID string) error {
+	if targetRunID == "" || a.RunId == targetRunID {
+		return mayMove(actor, a, "resume")
+	}
+	if IsAgent(actor.Class) && (actor.Class != v1.ActorClass_ACTOR_CLASS_ROOT || actor.RunId == "") {
+		return denied("only a root or device may resume an agent across runs")
+	}
+	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
+		return denied("only non-root agents may be resumed across runs")
+	}
+	src, err := r.GetRun(a.RunId)
+	if errors.Is(err, store.ErrNotFound) {
+		return notFound("no run %q", a.RunId)
+	}
+	if err != nil {
+		return err
+	}
+	if src.Status == v1.RunStatus_RUN_STATUS_OPEN {
+		return denied("cannot resume %s from open run %s into %s: cross-run resume is only from closed runs",
+			a.Name, a.RunId, targetRunID)
+	}
+	return nil
+}
+
+func (d *Daemon) previewReviveTarget(r store.Reader, a *v1.Agent, spec reviveSpec) (string, string, error) {
+	model, effort, _ := target(a)
+	switch {
+	case spec.plan:
+		return d.pick(r, a.Kind, spec.tier, spec.model, spec.effort, a.Name+"'s planning")
+	case spec.task:
+		if spec.tier != "" || spec.model != "" {
+			return d.pick(r, a.Kind, spec.tier, spec.model, spec.effort, a.Name)
+		}
+		if spec.effort != "" {
+			effort = spec.effort
+		}
+		return model, effort, nil
+	case spec.tier != "" || spec.model != "":
+		return d.pick(r, a.Kind, spec.tier, spec.model, spec.effort, a.Name)
+	case spec.effort != "":
+		effort = spec.effort
+	}
+	return model, effort, nil
+}
+
+// ResumeAgent brings an exited or retired agent back, in its own conversation. A task gives it new work (under
+// the planning deny list when `plan`, else direct); a tier, model or effort moves it without changing phase.
+// A root may resume a stopped non-root worker from an earlier run into its own open run.
 func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.ResumeAgentRequest]) (*connect.Response[v1.ResumeAgentResponse], error) {
 	m := req.Msg
 	task := strings.TrimSpace(m.Task)
@@ -570,37 +674,236 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if m.Effort != "" && !validEffort(m.Effort) {
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
-	out := &v1.ResumeAgentResponse{}
 	actor := auth.ActorFrom(ctx)
-	d.learnSession(ctx, actor, m.Agent, func(a *v1.Agent) bool { return mayMove(actor, a, "resume") == nil && stopped(a) })
-	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceResumeAgentProcedure, out, func(tx *store.Tx) error {
-		a, err := d.FindAgent(tx.Reader, tx.Actor, m.Agent)
-		if err != nil {
-			return err
+	if IsAgent(actor.Class) {
+		if actor.RunId == "" {
+			return nil, denied("caller has no run")
 		}
-		if err := mayMove(tx.Actor, a, "resume"); err != nil {
-			return err
+		if m.RunId != "" && m.RunId != actor.RunId {
+			return nil, denied("a root resumes agents only into its own run")
 		}
-		if !stopped(a) {
-			return failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a.Name)
-		}
-		if task != "" {
-			if err := d.takeChange(tx, a, task, m.Plan); err != nil {
-				return err
+	}
+	r0 := d.store.Read(ctx)
+	if mid := m.Meta.GetMutationId(); mid != "" {
+		if _, resp, err := r0.Mutation(actor.Id, mid); err == nil {
+			out := &v1.ResumeAgentResponse{}
+			if err := proto.Unmarshal(resp, out); err != nil {
+				return nil, err
 			}
+			return connect.NewResponse(out), nil
 		}
-		spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why}
-		if task != "" {
-			if out.Message, err = storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_TASK, task); err != nil {
-				return err
-			}
-		}
-		if out.Reopen, err = d.revive(tx, a, spec); err != nil {
-			return err
-		}
-		out.Agent = a
-		return tx.PutAgent(a)
+	}
+	a0, err := d.findAgentCrossRun(r0, actor, m.Agent)
+	if err != nil {
+		return nil, err
+	}
+	targetRunID := m.RunId
+	if IsAgent(actor.Class) {
+		targetRunID = actor.RunId
+	} else if targetRunID == "" {
+		targetRunID = a0.RunId
+	}
+	if err := canResume(r0, actor, a0, targetRunID); err != nil {
+		return nil, err
+	}
+	if !stopped(a0) {
+		return nil, failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a0.Name)
+	}
+	if task != "" {
+		d.warmUsage(ctx, r0, a0.Kind, agyResolveKey{model: a0.Model, effort: a0.Effort}, agyResolveKey{model: m.Model, effort: m.Effort})
+	}
+	d.learnSession(ctx, actor, a0.Id, func(a *v1.Agent) bool {
+		return canResume(d.store.Read(ctx), actor, a, targetRunID) == nil && stopped(a)
 	})
+	r1 := d.store.Read(ctx)
+	a0, err = d.findAgentCrossRun(r1, actor, a0.Id)
+	if err != nil {
+		return nil, err
+	}
+	if err := canResume(r1, actor, a0, targetRunID); err != nil {
+		return nil, err
+	}
+	if !stopped(a0) {
+		return nil, failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a0.Name)
+	}
+	if a0.SessionId == "" {
+		return nil, failedPrecondition("%s never reported a conversation id, so there is nothing to resume", a0.Name)
+	}
+	run, err := r1.GetRun(targetRunID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, notFound("no run %q", targetRunID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
+		return nil, failedPrecondition("run %s is closed", targetRunID)
+	}
+	if err := d.hasProcessOnSessionOrWorktree(r1, a0); err != nil {
+		return nil, err
+	}
+	spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why}
+	if task != "" && a0.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+		pm, pe, err := d.previewReviveTarget(r1, a0, spec)
+		if err != nil {
+			return nil, err
+		}
+		if err := d.reserveCheck(r1, targetRunID, a0.Kind, pm, pe, "resuming "+a0.Name); err != nil {
+			return nil, err
+		}
+	}
+	if err := d.capGuard(r1, "resuming "+a0.Name, a0.Id); err != nil {
+		return nil, err
+	}
+	if err := d.checkMemoryGuard(r1, "resuming "+a0.Name); err != nil {
+		return nil, err
+	}
+
+	out := &v1.ResumeAgentResponse{}
+	err = func() error {
+		if a0.Worktree != "" {
+			mu := d.worktreeLock(a0.Worktree)
+			mu.Lock()
+			defer mu.Unlock()
+		}
+		prep, perr := d.prepareWorktreeForTask(ctx, a0, targetRunID, task != "")
+		if perr != nil {
+			return failedPrecondition("preparing worktree for %s: %v", a0.Name, perr)
+		}
+		_, werr := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceResumeAgentProcedure, out, func(tx *store.Tx) error {
+			a, err := d.findAgentCrossRun(tx.Reader, tx.Actor, a0.Id)
+			if err != nil {
+				return err
+			}
+			if err := canResume(tx.Reader, tx.Actor, a, targetRunID); err != nil {
+				return err
+			}
+			if !stopped(a) {
+				return failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a.Name)
+			}
+			if err := d.hasProcessOnSessionOrWorktree(tx.Reader, a); err != nil {
+				return err
+			}
+			if tr, err := tx.GetRun(targetRunID); errors.Is(err, store.ErrNotFound) {
+				return notFound("no run %q", targetRunID)
+			} else if err != nil {
+				return err
+			} else if tr.Status != v1.RunStatus_RUN_STATUS_OPEN {
+				return failedPrecondition("run %s is closed", targetRunID)
+			}
+			taskBody := task
+			if taskBody != "" && prep.taskNote != "" {
+				taskBody += "\n\n" + prep.taskNote
+			}
+			if prep.note != "" {
+				out.Notes = []string{prep.note}
+			}
+			out.LeftPr = prep.leftPR
+
+			if targetRunID == a.RunId {
+				// A change task makes an asker or reviewer the worker for it, before it is revived (takeChange).
+				if task != "" {
+					if err := d.takeChange(tx, a, task, m.Plan); err != nil {
+						return err
+					}
+				}
+				if prep.newBranch != "" {
+					a.Branch = prep.newBranch
+					a.BaseCommit = prep.newBaseCommit
+				}
+				if taskBody != "" {
+					if out.Message, err = storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_TASK, taskBody); err != nil {
+						return err
+					}
+				}
+				if out.Reopen, err = d.revive(tx, a, spec); err != nil {
+					return err
+				}
+				out.Agent = a
+				return tx.PutAgent(a)
+			}
+
+			// Cross-run resume: keep the earlier run's agent intact and spawn a follow-up agent in targetRunID
+			// pointing at the same conversation session and worktree.
+			name, err := uniqueAgentName(tx.Reader, targetRunID, a.Name)
+			if err != nil {
+				return err
+			}
+			parentID := ""
+			if IsAgent(tx.Actor.Class) {
+				parentID = tx.Actor.Id
+			}
+			branch, baseCommit := a.Branch, a.BaseCommit
+			if prep.newBranch != "" {
+				branch = prep.newBranch
+				baseCommit = prep.newBaseCommit
+			}
+			now := tsOf(tx.Now())
+			created := &v1.Agent{
+				Id:                 ids.New("a", 10),
+				RunId:              targetRunID,
+				ParentId:           parentID,
+				Name:               name,
+				Kind:               a.Kind,
+				Role:               a.Role,
+				Model:              a.Model,
+				Effort:             a.Effort,
+				Tier:               a.Tier,
+				ExecTier:           a.ExecTier,
+				Phase:              a.Phase,
+				Pinned:             a.Pinned,
+				DenyEdits:          a.DenyEdits,
+				State:              a.State,
+				Repo:               a.Repo,
+				Worktree:           a.Worktree,
+				Branch:             branch,
+				BaseCommit:         baseCommit,
+				SessionId:          a.SessionId,
+				CreatedAt:          now,
+				LastActivity:       now,
+				ResumedFromRunId:   a.RunId,
+				ResumedFromAgentId: a.Id,
+			}
+			// The follow-up of an asker or reviewer given a change task is a worker from its start (reviveAs then
+			// lifts or keeps its list as the task says).
+			if task != "" && d.becomesWorker(tx.Reader, created, task) {
+				created.Role = v1.AgentRole_AGENT_ROLE_WORKER
+			}
+			out.Agent = created
+			if err := d.mayLaunch(tx.Reader, "resuming "+created.Name, created.Id); err != nil {
+				return err
+			}
+			rv, err := d.reviveAs(tx, created, spec)
+			if err != nil {
+				d.rt.guard.release(created.Id)
+				return err
+			}
+			out.Reopen = rv
+			if err := tx.PutAgent(created); err != nil {
+				d.rt.guard.release(created.Id)
+				return err
+			}
+			if _, err := tx.AppendEvent(&v1.Event{
+				RunId:   created.RunId,
+				AgentId: created.Id,
+				Payload: &v1.Event_AgentSpawned{AgentSpawned: &v1.AgentSpawned{Agent: created}},
+			}); err != nil {
+				d.rt.guard.release(created.Id)
+				return err
+			}
+			if taskBody != "" {
+				if out.Message, err = storeMessage(tx, created, v1.MessageType_MESSAGE_TYPE_TASK, taskBody); err != nil {
+					d.rt.guard.release(created.Id)
+					return err
+				}
+			}
+			return nil
+		})
+		if werr != nil {
+			prep.rollback(ctx, a0.Repo, a0.Worktree)
+		}
+		return werr
+	}()
 	if err != nil {
 		if out.Reopen != nil {
 			d.rt.guard.release(out.Agent.GetId()) // the write failed after the guard passed: nothing was requested
@@ -651,6 +954,9 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 	if run, err := tx.GetRun(a.RunId); err == nil && run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 		return nil, failedPrecondition("run %s is closed", a.RunId)
 	}
+	if err := d.hasProcessOnSessionOrWorktree(tx.Reader, a); err != nil {
+		return nil, err
+	}
 	if err := d.mayLaunch(tx.Reader, "resuming "+a.Name, a.Id); err != nil {
 		return nil, err
 	}
@@ -677,6 +983,11 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 			tier = "" // a named model has no chain to walk
 		}
 		a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
+		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
+				return nil, err
+			}
+		}
 		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, "planned task"); err != nil {
 			return nil, err
 		}
@@ -696,6 +1007,11 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 			effort = spec.effort
 		}
 		a.Pinned, deny = spec.model != "" || spec.effort != "", adapter.ReadOnly(a.Role)
+		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
+				return nil, err
+			}
+		}
 		if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, "direct task"); err != nil {
 			return nil, err
 		}

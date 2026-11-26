@@ -2,22 +2,20 @@ package daemon
 
 // Usage limits: an agent whose CLI reported one (a `RateLimited` event: agy's 429 `Stop`, Claude's `StopFailure`)
 // sits at LIMITED, where doorbells wait because the turn they start would fail on the same quota. The daemon
-// remembers which models are held (until when) and acts on it twice:
+// persists which models are held (until when) in SQLite (`model_limits`) so a restart never forgets them, and
+// acts on it twice:
 //
-//   - A tier's chain is walked past held models: a new agent, an approve and a switch to a tier take the first
-//     model with quota left (bin/mesh's plan_model), and `SwitchAgent next` the first free one after the agent's own.
+//   - A tier's chain is walked past held models (and agy models at the reserve): a new agent, an approve and a
+//     switch to a tier take the first model with quota left (bin/mesh's plan_model), and `SwitchAgent next` the
+//     first free one after the agent's own.
 //   - limitPass moves a LIMITED agent on its own (setting `limits.auto`): to the next free model of its chain when
 //     the limit is its model's (`switch`), else, once the limit is over, it reopens the agent on the same model with
 //     a note to carry on (`switch` and `continue`). Both are reopens of the agent's own conversation.
-//
-// The holds are in memory: a restart forgets them, and a pass that finds a LIMITED agent with no hold holds its
-// model for `limits.hold` seconds, then continues it.
 
 import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
@@ -27,39 +25,6 @@ import (
 
 // holdAll is the model key of a hold on every model of a kind: an account-wide limit.
 const holdAll = "*"
-
-// holds are the models at a limit, by kind and model (or holdAll), until when.
-type holds struct {
-	mu    sync.Mutex
-	until map[string]map[string]time.Time
-}
-
-func (h *holds) set(kind, model string, until time.Time) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.until == nil {
-		h.until = map[string]map[string]time.Time{}
-	}
-	if h.until[kind] == nil {
-		h.until[kind] = map[string]time.Time{}
-	}
-	if until.After(h.until[kind][model]) {
-		h.until[kind][model] = until
-	}
-}
-
-// of is when a model is free again, counting a hold on every model of its kind; zero when it is free now.
-func (h *holds) of(kind, model string, now time.Time) time.Time {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var latest time.Time
-	for _, key := range []string{model, holdAll} {
-		if t := h.until[kind][key]; t.After(now) && t.After(latest) {
-			latest = t
-		}
-	}
-	return latest
-}
 
 // holdTime is how long a limit that named no reset holds its model.
 func (d *Daemon) holdTime(r store.Reader) time.Duration {
@@ -86,38 +51,67 @@ func limitUntil(rl *adapterv1.RateLimited, at time.Time, hold time.Duration) tim
 
 // noteLimit records the limit an agent's CLI reported: its model is held until the reset the CLI named, else for
 // `limits.hold`; an account-wide limit holds every model of the kind.
-func (d *Daemon) noteLimit(r store.Reader, a *v1.Agent, rl *adapterv1.RateLimited, at time.Time) {
-	until := limitUntil(rl, at, d.holdTime(r))
+func (d *Daemon) noteLimit(tx *store.Tx, a *v1.Agent, rl *adapterv1.RateLimited, at time.Time) error {
+	until := limitUntil(rl, at, d.holdTime(tx.Reader))
 	model := a.Model
 	if rl.AllModels || model == "" {
 		model = holdAll
 	}
-	d.rt.holds.set(a.Kind, model, until)
+	return tx.PutModelLimit(a.Kind, model, until)
 }
 
-// firstFree is the first model of a chain with quota left; with every one held, the one freed first.
-func (d *Daemon) firstFree(kind string, chain []string) string {
+// firstFree is the first model of a chain with quota left (not held in SQLite and not under agy's reserve); with
+// every one held or spent, the one freed first (or with the most quota left).
+func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) string {
 	now := d.now()
 	best, bestAt := chain[0], time.Time{}
+	var agySpent *struct {
+		left  int
+		model string
+	}
+	stop := d.quotaStop(r)
 	for i, m := range chain {
-		until := d.rt.holds.of(kind, m, now)
+		until, _, err := r.ModelHold(kind, m, now)
+		if err != nil {
+			continue
+		}
 		if until.IsZero() {
+			if kind == "agy" && stop < 100 {
+				if hit := d.agyModelAtReserveCached(m, effort, stop); hit != nil {
+					if agySpent == nil || hit.left > agySpent.left {
+						agySpent = &struct {
+							left  int
+							model string
+						}{hit.left, m}
+					}
+					continue
+				}
+			}
 			return m
 		}
 		if i == 0 || until.Before(bestAt) {
 			best, bestAt = m, until
 		}
 	}
+	if agySpent != nil {
+		return agySpent.model
+	}
 	return best
 }
 
-// nextFree is the first model after position i of a chain with quota left, or "".
-func (d *Daemon) nextFree(kind string, chain []string, i int) string {
+// nextFree is the first model after position i of a chain with quota left (not held and not under agy's reserve), or "".
+func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i int) string {
 	now := d.now()
+	stop := d.quotaStop(r)
 	for _, m := range chain[i+1:] {
-		if d.rt.holds.of(kind, m, now).IsZero() {
-			return m
+		until, _, err := r.ModelHold(kind, m, now)
+		if err != nil || !until.IsZero() {
+			continue
 		}
+		if kind == "agy" && stop < 100 && d.agyModelAtReserveCached(m, effort, stop) != nil {
+			continue
+		}
+		return m
 	}
 	return ""
 }
@@ -177,18 +171,30 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 			return nil
 		}
 		now := tx.Now()
-		held := d.rt.holds.of(a.Kind, a.Model, now)
-		if held.IsZero() && !d.rt.holds.known(a.Kind, a.Model) {
-			// A limit from before a restart: its reset is unknown, so hold the model a while.
-			d.rt.holds.set(a.Kind, a.Model, now.Add(d.holdTime(tx.Reader)))
-			held = d.rt.holds.of(a.Kind, a.Model, now)
+		held, known, err := tx.ModelHold(a.Kind, a.Model, now)
+		if err != nil {
+			return err
+		}
+		if held.IsZero() && !known {
+			// A limit with no recorded hold (e.g. a legacy DB before migration): hold it briefly.
+			if err := tx.PutModelLimit(a.Kind, a.Model, now.Add(d.holdTime(tx.Reader))); err != nil {
+				return err
+			}
+			held, _, err = tx.ModelHold(a.Kind, a.Model, now)
+			if err != nil {
+				return err
+			}
+		}
+		allHeld, _, err := tx.ModelHold(a.Kind, holdAll, now)
+		if err != nil {
+			return err
 		}
 		model, effort, deny := target(a)
 		var body, why string
 		switch {
-		case auto == "switch" && !held.IsZero() && d.rt.holds.of(a.Kind, holdAll, now).IsZero():
+		case auto == "switch" && !held.IsZero() && allHeld.IsZero():
 			// The limit is the model's own: the next model of the chain that has quota left.
-			next, err := d.nextOnChain(tx.Reader, a, model)
+			next, err := d.nextOnChain(tx.Reader, a, model, effort)
 			if err != nil || next == "" {
 				return err // no chain, or nothing free after it: wait for the reset
 			}
@@ -219,15 +225,6 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 	return nil
 }
 
-// known reports whether a model has a hold on record, over or not.
-func (h *holds) known(kind, model string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	_, ok := h.until[kind][model]
-	_, all := h.until[kind][holdAll]
-	return ok || all
-}
-
 func limitDetail(a *v1.Agent) string {
 	if s := strings.TrimSpace(a.StateDetail); s != "" {
 		return s
@@ -237,7 +234,7 @@ func limitDetail(a *v1.Agent) string {
 
 // nextOnChain is the model after the agent's own on its phase tier's chain that has quota left, "" when there is
 // none, and an error only for a store failure; an agent on a named model has no chain.
-func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model string) (string, error) {
+func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) (string, error) {
 	tier := a.Tier
 	if a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING {
 		tier = a.ExecTier
@@ -245,13 +242,16 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model string) (string,
 	if tier == "" {
 		return "", nil
 	}
-	chain, _, err := d.tierChain(r, a.Kind, tier)
+	chain, tierEffort, err := d.tierChain(r, a.Kind, tier)
 	if err != nil {
 		return "", nil // a tier the settings no longer have: nothing to walk
+	}
+	if effort == "" {
+		effort = tierEffort
 	}
 	i := index(chain, model)
 	if i < 0 {
 		return "", nil
 	}
-	return d.nextFree(a.Kind, chain, i), nil
+	return d.nextFree(r, a.Kind, effort, chain, i), nil
 }

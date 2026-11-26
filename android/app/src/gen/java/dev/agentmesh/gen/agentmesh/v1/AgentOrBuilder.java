@@ -421,4 +421,36 @@ public interface AgentOrBuilder extends
    */
   com.google.protobuf.ByteString
       getBaseCommitBytes();
+
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @return The resumedFromRunId.
+   */
+  java.lang.String getResumedFromRunId();
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @return The bytes for resumedFromRunId.
+   */
+  com.google.protobuf.ByteString
+      getResumedFromRunIdBytes();
+
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @return The resumedFromAgentId.
+   */
+  java.lang.String getResumedFromAgentId();
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @return The bytes for resumedFromAgentId.
+   */
+  com.google.protobuf.ByteString
+      getResumedFromAgentIdBytes();
 }

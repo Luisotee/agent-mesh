@@ -50,4 +50,65 @@ public interface ResumeAgentResponseOrBuilder extends
    * @return The reopen.
    */
   dev.agentmesh.gen.agentmesh.v1.Reopen getReopen();
+
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @return A list containing the notes.
+   */
+  java.util.List<java.lang.String>
+      getNotesList();
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @return The count of notes.
+   */
+  int getNotesCount();
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param index The index of the element to return.
+   * @return The notes at the given index.
+   */
+  java.lang.String getNotes(int index);
+  /**
+   * <pre>
+   * Notes about the resume (such as a branch move away from a merged or closed PR).
+   * </pre>
+   *
+   * <code>repeated string notes = 4 [json_name = "notes"];</code>
+   * @param index The index of the element to return.
+   * @return The notes at the given index.
+   */
+  com.google.protobuf.ByteString
+      getNotesBytes(int index);
+
+  /**
+   * <pre>
+   * URL of the merged or closed PR whose branch the resume moved off, if any.
+   * </pre>
+   *
+   * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+   * @return The leftPr.
+   */
+  java.lang.String getLeftPr();
+  /**
+   * <pre>
+   * URL of the merged or closed PR whose branch the resume moved off, if any.
+   * </pre>
+   *
+   * <code>string left_pr = 5 [json_name = "leftPr"];</code>
+   * @return The bytes for leftPr.
+   */
+  com.google.protobuf.ByteString
+      getLeftPrBytes();
 }

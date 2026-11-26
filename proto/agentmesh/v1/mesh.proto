@@ -214,12 +214,13 @@ service MeshService {
     };
   }
 
-  // The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
-  // page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
-  // page's `after_id`.
+  // The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
+  // mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
+  // the next page's `after_id`.
   rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse) {
     option (action) = {
       actors: [
+        ACTOR_CLASS_ROOT,
         ACTOR_CLASS_DEVICE,
         ACTOR_CLASS_READ_ONLY_DEVICE
       ]
@@ -357,6 +358,35 @@ service MeshService {
       write: true
       cli: "revoke-device"
       summary: "Revoke a paired device"
+    };
+  }
+
+  // Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
+  rpc GetUsage(GetUsageRequest) returns (GetUsageResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "usage"
+      summary: "Show Claude and agy quota usage and the reserve"
+    };
+  }
+
+  // Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
+  rpc SetReserve(SetReserveRequest) returns (SetReserveResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "reserve"
+      summary: "Let a run past the quota reserve (off) or hold it to it (on)"
     };
   }
 }
@@ -683,6 +713,8 @@ message ResumeAgentRequest {
   string model = 6;
   string effort = 7;
   string why = 8;
+  // Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+  string run_id = 9;
 }
 
 message ResumeAgentResponse {
@@ -690,6 +722,10 @@ message ResumeAgentResponse {
   // The task, when one was given.
   Message message = 2;
   Reopen reopen = 3;
+  // Notes about the resume (such as a branch move away from a merged or closed PR).
+  repeated string notes = 4;
+  // URL of the merged or closed PR whose branch the resume moved off, if any.
+  string left_pr = 5;
 }
 
 message CreatePairingRequest {
@@ -773,4 +809,68 @@ message WorktreeOutcome {
   bool branch_kept = 5;
   // Why a worktree or branch stayed.
   string reason = 6;
+}
+
+message GetUsageRequest {
+  // Bypass cached usage readings and fetch fresh ones.
+  bool refresh = 1;
+}
+
+message ClaudeUsageWindow {
+  // Window key ("five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet").
+  string key = 1;
+  // Human-readable window label ("five-hour window", ...).
+  string label = 2;
+  // Percent of the window used (0 to 100).
+  double used = 3;
+  // When the window resets, if known.
+  google.protobuf.Timestamp resets_at = 4;
+}
+
+message ClaudeUsage {
+  repeated ClaudeUsageWindow windows = 1;
+  google.protobuf.Timestamp fetched_at = 2;
+  // Where the reading came from ("statusline", "live", or "cache").
+  string source = 3;
+  // Labels of windows currently at or over quota_stop.
+  repeated string at_reserve = 4;
+}
+
+message AgyUsageRow {
+  string group = 1;
+  string label = 2;
+  int32 left = 3;
+  string resets = 4;
+}
+
+message AgyTierPick {
+  string tier = 1;
+  string model = 2;
+  // Percent left of the picked model's tightest quota, when has_left is true.
+  int32 left = 3;
+  bool has_left = 4;
+  repeated string notes = 5;
+}
+
+message GetUsageResponse {
+  ClaudeUsage claude = 1;
+  repeated AgyUsageRow agy_rows = 2;
+  repeated AgyTierPick agy_tiers = 3;
+  int32 quota_stop = 4;
+  int32 min_quota = 5;
+}
+
+message SetReserveRequest {
+  RequestMeta meta = 1;
+  // "on" (hold to quota_stop) or "off" (let the run past the reserve); empty inspects the current state.
+  string mode = 2;
+  // Run id (defaults to the caller's own run for a root; required for a device).
+  string run_id = 3;
+}
+
+message SetReserveResponse {
+  Run run = 1;
+  bool over_reserve = 2;
+  int32 quota_stop = 3;
+  string summary = 4;
 }

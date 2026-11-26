@@ -31,6 +31,8 @@ public  final class Agent extends
     tier_ = "";
     execTier_ = "";
     baseCommit_ = "";
+    resumedFromRunId_ = "";
+    resumedFromAgentId_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -1505,6 +1507,120 @@ public  final class Agent extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     baseCommit_ = value.toStringUtf8();
+
+  }
+
+  public static final int RESUMED_FROM_RUN_ID_FIELD_NUMBER = 28;
+  private java.lang.String resumedFromRunId_;
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @return The resumedFromRunId.
+   */
+  @java.lang.Override
+  public java.lang.String getResumedFromRunId() {
+    return resumedFromRunId_;
+  }
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @return The bytes for resumedFromRunId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getResumedFromRunIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(resumedFromRunId_);
+  }
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @param value The resumedFromRunId to set.
+   */
+  private void setResumedFromRunId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    resumedFromRunId_ = value;
+  }
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   */
+  private void clearResumedFromRunId() {
+
+    resumedFromRunId_ = getDefaultInstance().getResumedFromRunId();
+  }
+  /**
+   * <pre>
+   * When resumed from an earlier run, the run and agent id it came from.
+   * </pre>
+   *
+   * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+   * @param value The bytes for resumedFromRunId to set.
+   */
+  private void setResumedFromRunIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    resumedFromRunId_ = value.toStringUtf8();
+
+  }
+
+  public static final int RESUMED_FROM_AGENT_ID_FIELD_NUMBER = 29;
+  private java.lang.String resumedFromAgentId_;
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @return The resumedFromAgentId.
+   */
+  @java.lang.Override
+  public java.lang.String getResumedFromAgentId() {
+    return resumedFromAgentId_;
+  }
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @return The bytes for resumedFromAgentId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getResumedFromAgentIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(resumedFromAgentId_);
+  }
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @param value The resumedFromAgentId to set.
+   */
+  private void setResumedFromAgentId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    resumedFromAgentId_ = value;
+  }
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   */
+  private void clearResumedFromAgentId() {
+
+    resumedFromAgentId_ = getDefaultInstance().getResumedFromAgentId();
+  }
+  /**
+   * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+   * @param value The bytes for resumedFromAgentId to set.
+   */
+  private void setResumedFromAgentIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    resumedFromAgentId_ = value.toStringUtf8();
 
   }
 
@@ -3140,6 +3256,124 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * When resumed from an earlier run, the run and agent id it came from.
+     * </pre>
+     *
+     * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+     * @return The resumedFromRunId.
+     */
+    @java.lang.Override
+    public java.lang.String getResumedFromRunId() {
+      return instance.getResumedFromRunId();
+    }
+    /**
+     * <pre>
+     * When resumed from an earlier run, the run and agent id it came from.
+     * </pre>
+     *
+     * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+     * @return The bytes for resumedFromRunId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getResumedFromRunIdBytes() {
+      return instance.getResumedFromRunIdBytes();
+    }
+    /**
+     * <pre>
+     * When resumed from an earlier run, the run and agent id it came from.
+     * </pre>
+     *
+     * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+     * @param value The resumedFromRunId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResumedFromRunId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setResumedFromRunId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * When resumed from an earlier run, the run and agent id it came from.
+     * </pre>
+     *
+     * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearResumedFromRunId() {
+      copyOnWrite();
+      instance.clearResumedFromRunId();
+      return this;
+    }
+    /**
+     * <pre>
+     * When resumed from an earlier run, the run and agent id it came from.
+     * </pre>
+     *
+     * <code>string resumed_from_run_id = 28 [json_name = "resumedFromRunId"];</code>
+     * @param value The bytes for resumedFromRunId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResumedFromRunIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setResumedFromRunIdBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+     * @return The resumedFromAgentId.
+     */
+    @java.lang.Override
+    public java.lang.String getResumedFromAgentId() {
+      return instance.getResumedFromAgentId();
+    }
+    /**
+     * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+     * @return The bytes for resumedFromAgentId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getResumedFromAgentIdBytes() {
+      return instance.getResumedFromAgentIdBytes();
+    }
+    /**
+     * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+     * @param value The resumedFromAgentId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResumedFromAgentId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setResumedFromAgentId(value);
+      return this;
+    }
+    /**
+     * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearResumedFromAgentId() {
+      copyOnWrite();
+      instance.clearResumedFromAgentId();
+      return this;
+    }
+    /**
+     * <code>string resumed_from_agent_id = 29 [json_name = "resumedFromAgentId"];</code>
+     * @param value The bytes for resumedFromAgentId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setResumedFromAgentIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setResumedFromAgentIdBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -3184,13 +3418,15 @@ public  final class Agent extends
             "denyEdits_",
             "pendingReopen_",
             "baseCommit_",
+            "resumedFromRunId_",
+            "resumedFromAgentId_",
           };
           java.lang.String info =
-              "\u0000\u001b\u0000\u0001\u0001\u001b\u001b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u001d\u0000\u0001\u0001\u001d\u001d\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0208\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012" +
               "\u1009\u0001\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019" +
-              "\u0007\u001a\u1009\u0002\u001b\u0208";
+              "\u0007\u001a\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

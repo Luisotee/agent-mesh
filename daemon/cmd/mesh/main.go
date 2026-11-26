@@ -17,11 +17,32 @@ const Version = "0.1.0-dev"
 func main() {
 	env := cli.OSEnv()
 	os.Exit(cli.Main(os.Args[1:], env, map[string]func(cli.Env, []string) int{
-		"hook":    func(_ cli.Env, a []string) int { return runHook(a) },
-		"whoami":  cli.Whoami,
-		"dir":     cli.Dir,
-		"version": func(cli.Env, []string) int { fmt.Println("mesh", Version); return 0 },
+		"hook":       func(_ cli.Env, a []string) int { return runHook(a) },
+		"statusline": runStatusLine,
+		"whoami":     cli.Whoami,
+		"dir":        cli.Dir,
+		"version":    func(cli.Env, []string) int { fmt.Println("mesh", Version); return 0 },
 	}))
+}
+
+func runStatusLine(env cli.Env, args []string) int {
+	var state string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--state" && i+1 < len(args) {
+			state = args[i+1]
+			i++
+		}
+	}
+	if state == "" {
+		state = cli.DefaultState(env)
+	}
+	_ = hook.RunStatusLine(hook.StatusLineOptions{
+		StateDir: state,
+		Stdin:    env.Stdin,
+		Stdout:   env.Stdout,
+		Env:      env.Getenv,
+	})
+	return 0
 }
 
 // runHook always exits 0: a hook that fails must not disturb the agent's CLI. Failures go to the state dir's
