@@ -64,8 +64,8 @@ func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
 
 // waitsOnBackground is backgroundWork for an agent whose last activity is within waitMax.
 func (d *Daemon) waitsOnBackground(ctx context.Context, a *v1.Agent, waitMax time.Duration) bool {
-	if a.LastActivity != nil && d.now().Sub(a.LastActivity.AsTime()) >= waitMax {
-		return false
+	if a.LastActivity == nil || d.now().Sub(a.LastActivity.AsTime()) >= waitMax {
+		return false // no activity to measure the wait from, or it is over
 	}
 	return d.backgroundWork(ctx, a)
 }

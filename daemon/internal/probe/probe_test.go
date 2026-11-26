@@ -83,3 +83,11 @@ func TestAProbeWithNoPathInItsEnvironmentUsesTheDaemons(t *testing.T) {
 		t.Fatalf("out = %q, err = %v", out, err)
 	}
 }
+
+// What a failed probe printed on stderr comes back in its error (the callers have nothing else to say why).
+func TestAFailedProbesStderrIsInItsError(t *testing.T) {
+	_, err := Run(context.Background(), Spec{Bin: cli(t, `echo "unknown flag: --nope" >&2; exit 3`), Timeout: 10 * time.Second})
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --nope") || !strings.Contains(err.Error(), "exit status 3") {
+		t.Fatalf("err = %v", err)
+	}
+}

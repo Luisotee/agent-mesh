@@ -48,9 +48,12 @@ func (d *Daemon) agyProbeBlocked() bool {
 
 // noteAgyLogin records that a probe of agy tried to open a login.
 func (d *Daemon) noteAgyLogin() {
+	if _, hold := d.agyLoginState(d.now()); hold {
+		return // already recorded, and still held: the record's time (the hold and the alert's key) stays
+	}
 	path := d.paths.AgyLoginNeeded()
 	_ = os.MkdirAll(filepath.Dir(path), 0o700)
-	_ = fsutil.WriteAtomic(path, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"+d.agyTokenSig()), 0o600)
+	_ = fsutil.WriteAtomic(path, []byte(d.now().UTC().Format(time.RFC3339)+"\n"+d.agyTokenSig()), 0o600)
 	d.log.Warn("agy needs a login: a probe of it tried to open a browser; not probing it again for a while")
 }
 
@@ -74,6 +77,9 @@ func (d *Daemon) agyLoginState(now time.Time) (since time.Time, hold bool) {
 // agyLoginAlertPass tells the root of each open run that has an agy agent that agy needs a login, once per
 // record (and again a day later while it still does): the agents' own turns fail the same way.
 func (d *Daemon) agyLoginAlertPass(ctx context.Context) {
+	if _, err := os.Stat(d.paths.AgyLoginNeeded()); err != nil {
+		return // nothing recorded: no clock read, no work
+	}
 	now := d.now()
 	since, _ := d.agyLoginState(now)
 	if since.IsZero() {

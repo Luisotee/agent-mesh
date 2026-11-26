@@ -199,6 +199,7 @@ func New(cfg Config) (*Daemon, error) {
 	if a, err := d.rt.adapters.Get(agy.Kind); err == nil {
 		if ag, ok := a.(*agy.Adapter); ok {
 			ag.LoginNeeded = d.noteAgyLogin // a probe of agy that tried to open a login is recorded
+			ag.Hold = d.agyProbeBlocked     // and an agy found on PATH is not run while its token file is missing
 		}
 	}
 	d.notify = d.deliverSoon

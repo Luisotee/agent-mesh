@@ -64,6 +64,8 @@ type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
 	// LoginNeeded is called when a probe of the CLI found it wants a login (the daemon records it).
 	LoginNeeded func()
+	// Hold, when it says true, keeps `agy models` from being run (the daemon: an agy found on PATH whose token file is missing).
+	Hold func() bool
 	// ListModels overrides `agy models` in tests.
 	ListModels func(ctx context.Context, binary string, env map[string]string) (string, error)
 }
@@ -369,9 +371,15 @@ func (a *Adapter) listModelsDirect(ctx context.Context, bin string, env map[stri
 		}
 	}
 	// A probe: it can't open a login (internal/probe), and a CLI that tries says so.
-	out, err := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"models"}, Env: mapToEnv(env), Timeout: 45 * time.Second})
-	if errors.Is(err, probe.ErrLoginNeeded) && a.LoginNeeded != nil {
-		a.LoginNeeded()
+	var out []byte
+	var err error
+	if a.Hold != nil && a.Hold() {
+		err = probe.ErrLoginNeeded // not run: the cache below answers, if there is one
+	} else {
+		out, err = probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"models"}, Env: mapToEnv(env), Timeout: 45 * time.Second})
+		if errors.Is(err, probe.ErrLoginNeeded) && a.LoginNeeded != nil {
+			a.LoginNeeded()
+		}
 	}
 	if err == nil && hasParsedID(string(out)) {
 		if cacheFile != "" {

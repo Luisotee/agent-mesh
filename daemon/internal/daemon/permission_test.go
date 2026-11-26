@@ -180,3 +180,36 @@ func TestARootsPermissionPromptIsNotHeld(t *testing.T) {
 		t.Fatalf("a root's request: %v, %v after %s", res, err, time.Since(start))
 	}
 }
+
+// Parallel tool calls can each raise a prompt: the end of one tool call ends the oldest prompt for that tool,
+// never all of them.
+func TestAToolCallEndingEndsOnlyTheOldestPromptForThatTool(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	wk := w.worker(t, "wk")
+	c := w.as(w.token(t, wk.Id))
+	for _, summary := range []string{"first", "second"} {
+		go c.RequestPermission(ctx, connect.NewRequest(&v1.RequestPermissionRequest{Tool: "Bash", Summary: summary}))
+		waitFor(t, summary+" pending", func() bool {
+			res, _ := w.asRoot.ListPermissions(ctx, connect.NewRequest(&v1.ListPermissionsRequest{}))
+			for _, p := range res.Msg.Permissions {
+				if p.Summary == summary {
+					return true
+				}
+			}
+			return false
+		})
+	}
+	if _, err := c.ReportHook(ctx, connect.NewRequest(&v1.ReportHookRequest{Meta: meta(""), Kind: "claude", EventName: "PostToolUse",
+		Payload: []byte(`{"hook_event_name":"PostToolUse","tool_name":"Bash"}`)})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the oldest prompt to end", func() bool {
+		res, _ := w.asRoot.ListPermissions(ctx, connect.NewRequest(&v1.ListPermissionsRequest{}))
+		return len(res.Msg.Permissions) == 1
+	})
+	res, _ := w.asRoot.ListPermissions(ctx, connect.NewRequest(&v1.ListPermissionsRequest{}))
+	if res.Msg.Permissions[0].Summary != "second" {
+		t.Errorf("the prompt left is %q, want the newer one", res.Msg.Permissions[0].Summary)
+	}
+}

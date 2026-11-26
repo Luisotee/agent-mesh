@@ -8,10 +8,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -70,7 +72,9 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 	cmd.Env = env
 	cmd.Stdin = nil // /dev/null
 	var out bytes.Buffer
+	var stderr capped
 	cmd.Stdout = &out
+	cmd.Stderr = &stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // no controlling terminal, its own process group
 	cmd.Cancel = func() error {
 		if cmd.Process != nil {
@@ -83,6 +87,8 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 		return nil, err
 	}
 	done := make(chan struct{})
+	var mu sync.Mutex
+	reaped := false // once Wait has returned, its process group id may be someone else's: nothing is killed
 	go func() {
 		t := time.NewTicker(50 * time.Millisecond)
 		defer t.Stop()
@@ -92,19 +98,43 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 				return
 			case <-t.C:
 				if _, err := os.Stat(opened); err == nil {
-					syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+					mu.Lock()
+					if !reaped {
+						syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+					}
+					mu.Unlock()
 					return
 				}
 			}
 		}
 	}()
 	werr := cmd.Wait()
+	mu.Lock()
+	reaped = true
+	mu.Unlock()
 	close(done)
 	if _, err := os.Stat(opened); err == nil {
 		return nil, ErrLoginNeeded
 	}
+	if werr != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			werr = fmt.Errorf("%w: %s", werr, msg)
+		}
+	}
 	return out.Bytes(), werr
 }
+
+// capped keeps the first 2 KiB written to it: what a failed probe said, for the error.
+type capped struct{ b bytes.Buffer }
+
+func (c *capped) Write(p []byte) (int, error) {
+	if room := 2048 - c.b.Len(); room > 0 {
+		c.b.Write(p[:min(room, len(p))])
+	}
+	return len(p), nil
+}
+
+func (c *capped) String() string { return c.b.String() }
 
 // Env returns env for a probe: no display or Windows host variables, BROWSER and PATH pointing first at the
 // stub directory, and (on a WSL host) no PATH entry under /mnt, where the Windows programs are.

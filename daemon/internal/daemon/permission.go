@@ -81,15 +81,27 @@ func (t *permTable) list() []*v1.PendingPermission {
 }
 
 // endFor ends the prompts of an agent (it went on: the prompt was answered at its terminal, or its turn is over)
-// with no decision, so their hooks print nothing; tool limits it to the prompts for that tool ("" for all).
+// with no decision, so their hooks print nothing. With a tool, only the oldest prompt for it ends: the tool call
+// that finished is one of possibly several in parallel, and it raised the oldest.
 func (t *permTable) endFor(agentID, tool string) {
 	t.mu.Lock()
 	var ended []*pendingPermission
-	for id, p := range t.pending {
-		if p.AgentId == agentID && (tool == "" || p.Tool == tool) {
-			ended = append(ended, p)
-			delete(t.pending, id)
+	var oldest *pendingPermission
+	for _, p := range t.pending {
+		if p.AgentId != agentID {
+			continue
 		}
+		if tool == "" {
+			ended = append(ended, p)
+		} else if p.Tool == tool && (oldest == nil || p.Since.AsTime().Before(oldest.Since.AsTime())) {
+			oldest = p
+		}
+	}
+	if oldest != nil {
+		ended = append(ended, oldest)
+	}
+	for _, p := range ended {
+		delete(t.pending, p.Id)
 	}
 	t.mu.Unlock()
 	for _, p := range ended {
@@ -180,6 +192,12 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason}), nil
 	case <-timer.C:
 	case <-ctx.Done():
+	}
+	// Out of time: take the prompt back. If it is already gone, a decision (or the end of the prompt) has been
+	// taken and is on its way: wait for it, so the parent's answer is not lost.
+	if _, pending := d.perms.take(p.Id); !pending {
+		dec := <-p.ch
+		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason}), nil
 	}
 	return none, nil
 }
