@@ -4,7 +4,7 @@ import { joinWaiting, ROLE_LABEL, statusSentence } from './derive'
 import { AgentRole, AgentState, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
 import type { AgentTab, AppModel, HostRuntime } from './model'
 import { DEFAULT_KEYS, appKeys, type KeyedCommand } from './prefs'
-import { cycleTab as nextTab } from './workspace'
+import { MAX_SIDE_PANES, cycleTab as nextTab } from './workspace'
 
 /**
  * Everything the palette offers and the shortcuts run. A command that acts on a host calls a function of
@@ -98,6 +98,10 @@ export function buildCommands(app: AppModel): Command[] {
   view('tab_close', 'Close the open tab', !!s.agentId)
   const waiting = waitingTargets(app)
   view('waiting_next', 'Go to the next thing waiting on me', waiting.length > 0)
+  if (s.side.length > 0) {
+    out.push({ id: 'split-dir', title: s.splitDir === 'row' ? 'Stack the panes' : 'Put the panes side by side', group: 'View', detail: 'split layout', run: () => app.setSplitDir(s.splitDir === 'row' ? 'column' : 'row') })
+    out.push({ id: 'split-close', title: 'Close the splits', group: 'View', detail: 'panes beside', run: () => s.side.forEach((p) => app.unsplit(p)) })
+  }
   if (selected && canPair(selected.store)) out.push({ id: 'pair', title: 'Pair a device', group: 'View', run: () => app.openPairing(true) })
   out.push({ id: 'shortcuts', title: 'Keyboard shortcuts…', group: 'View', detail: 'rebind keys', run: () => app.openSettings(true, 'app.keys') })
 
@@ -141,6 +145,9 @@ export function buildCommands(app: AppModel): Command[] {
 function agentCommands(app: AppModel, h: HostRuntime, a: Agent, many: boolean, runTitle: string, hasPlanOrQuestion: boolean): Command[] {
   const detail = [ROLE_LABEL[a.role], statusSentence(a), runTitle, a.repo.split('/').pop(), many ? h.info.name : ''].filter(Boolean).join(' · ')
   const cmds: Command[] = [{ id: `agent:${h.info.id}/${a.id}`, title: `Go to ${a.name}`, group: 'Agents', detail, run: () => app.selectAgent(h.info.id, a.id) }]
+  const st = app.store.getState()
+  const shown = (st.hostId === h.info.id && st.agentId === a.id) || st.side.some((p) => p.hostId === h.info.id && p.agentId === a.id)
+  if (st.agentId && !shown && st.side.length < MAX_SIDE_PANES) cmds.push({ id: `split:${h.info.id}/${a.id}`, title: `Show ${a.name} beside the open agent`, group: 'Actions', detail, run: () => app.pinSplit(h.info.id, a.id) })
   if (!alive(a)) return cmds
   const on = many ? ` (${h.info.name})` : ''
   const act = (verb: string, run: (c: HostRuntime['client'], id: string) => Promise<unknown>, extra: Partial<Command> = {}): Command => ({

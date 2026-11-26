@@ -13,7 +13,8 @@ import type { Frame } from './connection'
 import { hostTransport } from './transport'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
-import { activate, cycleTab, closeTab, emptyWorkspace, forgetHost, noteSpawned, tabKey, type TabRef, type WorkspaceState } from './workspace'
+import { activate, cycleTab, closeTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, setPaneTab, tabKey, unsplit, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
+import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
 import type { DockNewAgents } from './prefs'
 
 /** A host the app is connected to (or trying to be): its state, its client, its connection. */
@@ -141,6 +142,15 @@ export interface AppModel {
   cycleTab(by: 1 | -1): void
   /** Shows or hides the live dock; showing it clears its count. */
   setDock(open: boolean): void
+  /** Shows an agent in a pane beside the main one (the dock's "pin as a split", the tab's split button). */
+  pinSplit(hostId: string, agentId: string): void
+  /** Takes a pane away from beside the main one; its tab stays open. */
+  unsplit(ref: TabRef): void
+  /** Changes the view a pane beside the main one is on. */
+  setPaneTab(ref: TabRef, tab: AgentTab): void
+  /** Makes a pane beside the main one the main pane. */
+  focusPane(ref: TabRef): void
+  setSplitDir(dir: SplitDir): void
   /** Takes a tile off the dock until its agent's state changes. */
   dismissTile(hostId: string, agentId: string): void
   openSettings(open: boolean, query?: string): void
@@ -170,11 +180,37 @@ export function createAppModel(api: DesktopApi): AppModel {
   const hooks: HostHooks = {
     spawned: (hostId, agent, mode) => set((s) => noteSpawned(s, { hostId, agentId: agent.id }, mode, Date.now())),
   }
+  // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
+  let saved = ''
+  let saveTimer: ReturnType<typeof setTimeout> | undefined
+  const save = () => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      try {
+        const text = JSON.stringify(layoutOf(store.getState()))
+        if (text !== saved) {
+          saved = text
+          localStorage.setItem(LAYOUT_KEY, text)
+        }
+      } catch {
+        // No storage: the layout isn't kept, and nothing else is affected.
+      }
+    }, 300)
+  }
+  let restored = false
+  store.subscribe((s, prev) => {
+    if (restored && (s.tabs !== prev.tabs || s.views !== prev.views || s.hostId !== prev.hostId || s.agentId !== prev.agentId || s.tab !== prev.tab || s.side !== prev.side || s.splitDir !== prev.splitDir || s.sidebarGroup !== prev.sidebarGroup || s.dockOpen !== prev.dockOpen)) save()
+  })
   const unwatch = new Map<string, () => void>()
   const watch = (rt: HostRuntime) =>
     unwatch.set(
       rt.info.id,
       rt.store.subscribe((s, prev) => {
+        // Its first snapshot says which agents it has: the tabs and panes of ones it lost since the last start go.
+        if (s.synced && !prev.synced) {
+          const patch = pruneHost(store.getState(), rt.info.id, s.agents)
+          if (patch) set(patch)
+        }
         if (s.waiting !== prev.waiting || s.agents !== prev.agents || s.runs !== prev.runs) recount()
         if (s.settings !== prev.settings && store.getState().hosts[0] === rt) configure()
       }),
@@ -189,7 +225,16 @@ export function createAppModel(api: DesktopApi): AppModel {
       const infos = await api.hosts.list()
       const hosts = infos.map((i) => connectHost(api, i, hooks))
       hosts.forEach(watch)
-      set({ loaded: true, hosts, hostId: hosts[0]?.info.id, error: undefined })
+      let layout: ReturnType<typeof parseLayout>
+      try {
+        layout = parseLayout(localStorage.getItem(LAYOUT_KEY))
+      } catch {
+        layout = undefined
+      }
+      const back = layout ? restoreOf(layout, new Set(hosts.map((h) => h.info.id))) : {}
+      saved = layout ? JSON.stringify(layout) : ''
+      set({ ...back, loaded: true, hosts, hostId: back.hostId ?? hosts[0]?.info.id, error: undefined })
+      restored = true
       recount()
       configure()
     } catch (e) {
@@ -238,6 +283,11 @@ export function createAppModel(api: DesktopApi): AppModel {
       if (next) set((s) => ({ ...activate(s, next.hostId, next.agentId), settingsOpen: false, pairOpen: false }))
     },
     setDock: (open) => set(open ? { dockOpen: true, dockBadge: 0 } : { dockOpen: false }),
+    pinSplit: (hostId, agentId) => set((s) => pinSplit(s, { hostId, agentId })),
+    unsplit: (ref) => set((s) => unsplit(s, ref)),
+    setPaneTab: (ref, tab) => set((s) => setPaneTab(s, ref, tab)),
+    focusPane: (ref) => set((s) => focusPane(s, ref)),
+    setSplitDir: (splitDir) => set({ splitDir }),
     dismissTile: (hostId, agentId) => {
       const state = store.getState().hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.state
       if (state !== undefined) set((s) => ({ dismissed: { ...s.dismissed, [tabKey({ hostId, agentId })]: state } }))

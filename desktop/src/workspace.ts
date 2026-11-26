@@ -12,9 +12,23 @@ export interface TabRef {
 
 export const tabKey = (r: TabRef) => `${r.hostId}/${r.agentId}`
 
+/** Which way the panes of a split lie: next to each other, or one above the next. */
+export type SplitDir = 'row' | 'column'
+
+/** An agent shown in a pane beside the main one, with the view it is on. */
+export interface PaneRef extends TabRef {
+  tab: AgentTab
+}
+
+/** The most panes beside the main one: more than three can't each show a terminal. */
+export const MAX_SIDE_PANES = 3
+
 export interface WorkspaceState {
   /** The agents open as tabs, in order, on any host. */
   tabs: TabRef[]
+  /** The panes beside the main one (the open agent): one pane until the user splits. */
+  side: PaneRef[]
+  splitDir: SplitDir
   /** The view each open tab was last on (the active one's is `tab`). */
   views: Record<string, AgentTab>
   /** Agents that started while the app was open, by tab key: when (ms) they were marked new in the dock. */
@@ -26,7 +40,7 @@ export interface WorkspaceState {
   dockBadge: number
 }
 
-export const emptyWorkspace = (): WorkspaceState => ({ tabs: [], views: {}, newTiles: {}, dismissed: {}, dockOpen: true, dockBadge: 0 })
+export const emptyWorkspace = (): WorkspaceState => ({ tabs: [], side: [], splitDir: 'row', views: {}, newTiles: {}, dismissed: {}, dockOpen: true, dockBadge: 0 })
 
 /** How long a tile stays marked new if nobody clicks it. */
 export const NEW_FOR_MS = 120_000
@@ -51,7 +65,8 @@ export function activate(s: WorkspaceState & Selection, hostId: string, agentId:
   const { [key]: _new, ...newTiles } = s.newTiles
   const shown = tab ?? views[key] ?? 'overview'
   views[key] = shown
-  return { hostId, agentId, tab: shown, tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], views, newTiles }
+  // An agent shown in a pane beside is the main pane's now, not both.
+  return { hostId, agentId, tab: shown, tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: s.side.filter((p) => !same(p, ref)), views, newTiles }
 }
 
 /** Opens an agent as a tab without making it active (and without changing what shows). */
@@ -67,11 +82,15 @@ export function closeTab(s: WorkspaceState & Selection, ref: TabRef): Partial<Wo
   const key = tabKey(ref)
   const { [key]: _view, ...views } = s.views
   const { [key]: _new, ...newTiles } = s.newTiles
+  const side = s.side.filter((p) => !same(p, ref))
   const active = s.hostId === ref.hostId && s.agentId === ref.agentId
-  if (!active) return { tabs, views, newTiles }
+  if (!active) return { tabs, views, newTiles, side }
+  // The agent closed was in the main pane: the pane beside it moves over if there is one, else the next tab shows.
+  const beside = side[0]
+  if (beside) return { tabs, views, newTiles, hostId: beside.hostId, agentId: beside.agentId, tab: beside.tab, side: side.slice(1) }
   const next = tabs[i] ?? tabs[i - 1]
-  if (!next) return { tabs, views, newTiles, agentId: undefined, tab: 'overview' }
-  return { tabs, views, newTiles, hostId: next.hostId, agentId: next.agentId, tab: views[tabKey(next)] ?? 'overview' }
+  if (!next) return { tabs, views, newTiles, side, agentId: undefined, tab: 'overview' }
+  return { tabs, views, newTiles, side: side.filter((p) => !same(p, next)), hostId: next.hostId, agentId: next.agentId, tab: views[tabKey(next)] ?? 'overview' }
 }
 
 /** The tab `by` places after the active one (wrapping); with none active, the first (or last, going back). */
@@ -86,7 +105,7 @@ export function cycleTab(s: WorkspaceState & Selection, by: 1 | -1): TabRef | un
 export function forgetHost(s: WorkspaceState, hostId: string): Partial<WorkspaceState> {
   const mine = (key: string) => key.startsWith(`${hostId}/`)
   const keep = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => !mine(k)))
-  return { tabs: s.tabs.filter((t) => t.hostId !== hostId), views: keep(s.views), newTiles: keep(s.newTiles), dismissed: keep(s.dismissed) }
+  return { tabs: s.tabs.filter((t) => t.hostId !== hostId), side: s.side.filter((p) => p.hostId !== hostId), views: keep(s.views), newTiles: keep(s.newTiles), dismissed: keep(s.dismissed) }
 }
 
 /** An agent that started while the app was open: what the host's `app.dock.new_agents` says to do about it. */
@@ -102,4 +121,36 @@ export function noteSpawned(s: WorkspaceState, ref: TabRef, mode: 'dock' | 'badg
     default:
       return {}
   }
+}
+
+/**
+ * Shows an agent in a pane beside the main one (opening it as a tab if it isn't open). It does nothing for the agent
+ * the main pane shows, one already beside, or when three panes are beside already.
+ */
+export function pinSplit(s: WorkspaceState & Selection, ref: TabRef, tab?: AgentTab): Partial<WorkspaceState> {
+  if (same(ref, { hostId: s.hostId ?? '', agentId: s.agentId ?? '' }) || s.side.some((p) => same(p, ref)) || s.side.length >= MAX_SIDE_PANES) return {}
+  const key = tabKey(ref)
+  const { [key]: _new, ...newTiles } = s.newTiles
+  return { tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: [...s.side, { ...ref, tab: tab ?? s.views[key] ?? 'overview' }], newTiles }
+}
+
+/** Takes a pane away from beside the main one; its tab stays open. */
+export function unsplit(s: WorkspaceState, ref: TabRef): Partial<WorkspaceState> {
+  return s.side.some((p) => same(p, ref)) ? { side: s.side.filter((p) => !same(p, ref)) } : {}
+}
+
+/** Changes the view a pane beside the main one is on. */
+export function setPaneTab(s: WorkspaceState, ref: TabRef, tab: AgentTab): Partial<WorkspaceState> {
+  return s.side.some((p) => same(p, ref) && p.tab !== tab) ? { side: s.side.map((p) => (same(p, ref) ? { ...p, tab } : p)) } : {}
+}
+
+/** Makes a pane beside the main one the main pane: the one that was main takes its place. */
+export function focusPane(s: WorkspaceState & Selection, ref: TabRef): Partial<WorkspaceState & Selection> {
+  const at = s.side.findIndex((p) => same(p, ref))
+  const target = s.side[at]
+  if (!target) return {}
+  const views = { ...s.views, [tabKey(target)]: target.tab }
+  // The main pane's agent takes the slot; with none open the slot just closes.
+  const swapped: PaneRef[] = s.side.flatMap((p, i) => (i !== at ? [p] : s.hostId && s.agentId ? [{ hostId: s.hostId, agentId: s.agentId, tab: s.tab }] : []))
+  return { hostId: target.hostId, agentId: target.agentId, tab: target.tab, side: swapped, views }
 }

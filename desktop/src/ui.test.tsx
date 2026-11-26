@@ -10,6 +10,7 @@ import { ConnectionBanner } from './components/connection-banner'
 import { ChatView } from './components/chat-view'
 import { CommandPalette } from './components/command-palette'
 import { Dock } from './components/dock'
+import { Panes } from './components/panes'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
@@ -544,6 +545,46 @@ describe('Dock and TabBar', () => {
     expect(screen.getByRole('status')).toHaveTextContent('2 started')
     await userEvent.click(screen.getByRole('button', { name: 'Show the live dock' }))
     expect(model.store.getState().dockBadge).toBe(0)
+  })
+})
+
+describe('Splits', () => {
+  it('shows an agent beside the open one from its tab or the dock, stacks and unstacks, swaps and closes a pane', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState({ daemon: { capabilities: [] } as never })
+    model.store.setState({ hostId: 'h1' })
+    model.selectAgent('h1', 'lead')
+    model.selectAgent('h1', 'w1')
+    model.selectAgent('h1', 'lead')
+    render(wrap(<><TabBar /><Panes host={host} agentId="lead" /><Dock /></>))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Show app-fix beside' }))
+    expect(model.store.getState().side).toEqual([{ hostId: 'h1', agentId: 'w1', tab: 'overview' }])
+    // The tab says it is beside, and has no split button now.
+    expect(within(tabs).queryByRole('button', { name: 'Show app-fix beside' })).toBeNull()
+    const split = screen.getByRole('region', { name: 'Split pane' })
+    expect(within(split).getByRole('article', { name: 'app-fix' })).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Main pane' })).getByRole('article', { name: 'app-lead' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Panes' }).className).toContain('flex-row')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Stack the panes' }))
+    expect(screen.getByRole('group', { name: 'Panes' }).className).toContain('flex-col')
+
+    // A pane has its own view.
+    await userEvent.click(within(split).getByRole('tab', { name: 'messages' }))
+    expect(model.store.getState().side[0]!.tab).toBe('messages')
+    expect(model.store.getState().tab).toBe('overview')
+
+    await userEvent.click(within(split).getByRole('button', { name: 'Make this the main pane' }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages', side: [{ agentId: 'lead', tab: 'overview' }] })
+
+    await userEvent.click(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('button', { name: 'Close this pane' }))
+    expect(model.store.getState().side).toEqual([])
+    expect(model.store.getState().tabs).toHaveLength(2)
+
+    // From the dock.
+    await userEvent.click(screen.getByRole('button', { name: 'Pin app-lead as a split' }))
+    expect(model.store.getState().side.map((p) => p.agentId)).toEqual(['lead'])
   })
 })
 

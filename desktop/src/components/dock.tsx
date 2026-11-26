@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Columns2, X } from 'lucide-react'
 import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -79,6 +79,15 @@ function DockTile({ tile, now, many, selected }: { tile: Tile; now: number; many
         <span className="truncate text-[11px] text-muted-foreground">
           {[tile.lastSent ? sentLabel(tile.lastSent) : '', when].filter(Boolean).join(' · ') || ' '}
         </span>
+      </button>
+      <button
+        type="button"
+        aria-label={`Pin ${a.name} as a split`}
+        title="Show beside the open agent"
+        onClick={() => app.pinSplit(tile.hostId, a.id)}
+        className="absolute top-1 right-7 hidden size-5 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
+      >
+        <Columns2 className="size-3" />
       </button>
       <button
         type="button"
