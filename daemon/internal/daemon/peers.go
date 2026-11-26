@@ -1181,7 +1181,9 @@ func reparentTo(ctx context.Context) string {
 func peerHeldBy(r store.Reader, mine *v1.Agent) (string, error) {
 	parent, err := r.GetAgent(mine.ParentId)
 	name := mine.ParentId
-	if err == nil {
+	if err != nil {
+		parent = nil
+	} else {
 		name = parent.Name
 	}
 	if held, _, err := collecting(r, mine.Id, mine.ParentId); err != nil {
@@ -1189,9 +1191,14 @@ func peerHeldBy(r store.Reader, mine *v1.Agent) (string, error) {
 	} else if held != nil {
 		return fmt.Sprintf("it is still answering an earlier question of %s", held.CallerName), nil
 	}
-	unread, err := r.Inbox(mine.Id, false)
-	if err != nil {
-		return "", err
+	// Mail it has not read only holds a peer that can still read it: a stopped one (retired, or gone without
+	// reading) would otherwise stay with its caller for good.
+	var unread []*v1.Message
+	if !stopped(mine) {
+		var err error
+		if unread, err = r.Inbox(mine.Id, false); err != nil {
+			return "", err
+		}
 	}
 	for _, m := range unread {
 		if m.From.GetId() == mine.ParentId && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER) {
@@ -1202,7 +1209,9 @@ func peerHeldBy(r store.Reader, mine *v1.Agent) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if last != nil && (last.Type == v1.MessageType_MESSAGE_TYPE_QUESTION || last.Type == v1.MessageType_MESSAGE_TYPE_PLAN) {
+	// Its caller can answer only while both are alive: a stopped peer, or one whose caller is stopped, is let go
+	// (retiring a peer is the way out of a question nobody answers).
+	if parent != nil && hasProcess(parent) && !stopped(mine) && last != nil && (last.Type == v1.MessageType_MESSAGE_TYPE_QUESTION || last.Type == v1.MessageType_MESSAGE_TYPE_PLAN) {
 		return fmt.Sprintf("it is waiting for the answer of %s to its %s", name, strings.ToLower(strings.TrimPrefix(last.Type.String(), "MESSAGE_TYPE_"))), nil
 	}
 	return "", nil

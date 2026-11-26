@@ -168,6 +168,12 @@ func (d *Daemon) limitPass(ctx context.Context) {
 			a.PendingReopen != nil || a.SessionId == "" {
 			continue
 		}
+		if auto == "off" {
+			// Nothing to move: only a pending member of a round can be settled, so no write for any other.
+			if ask, _, err := collecting(r, a.Id, a.ParentId); err != nil || ask == nil {
+				continue
+			}
+		}
 		if a.Kind == opencode.Kind && !warmedOpenCode && auto != "off" {
 			d.warmOpenCodeModels(ctx, opencode.Kind)
 			warmedOpenCode = true
@@ -204,14 +210,16 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		}
 		if auto == "off" {
 			// Nothing is moved: a round member that is held past its round's deadline is still settled.
-			if held.IsZero() {
-				return nil
+			allHeld, _, err := tx.ModelHold(a.Kind, holdAll, now)
+			if err != nil {
+				return err
 			}
 			until := held
-			if allHeld, _, err := tx.ModelHold(a.Kind, holdAll, now); err != nil {
-				return err
-			} else if allHeld.After(until) {
+			if allHeld.After(until) {
 				until = allHeld
+			}
+			if until.IsZero() {
+				return nil
 			}
 			settled, err = d.settleLimitedMember(tx, a, until, "limits.auto is off, so nothing moves it")
 			return err
@@ -292,8 +300,8 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 }
 
 // settleLimitedMember settles an agent stopped at a usage limit that lasts until `until` and that it is not
-// moved off (`reason` says why, in the member's line), when it is a pending member of its parent's collected ask and `until` is past the ask's deadline:
-// the round would wait out `ask.timeout` for a reviewer that cannot answer. The member's own work is untouched
+// moved off (`reason` says why, in the member's line), when it is a pending member of its parent's collected
+// ask and `until` is past the ask's deadline: the round would wait out `ask.timeout` for a reviewer that cannot answer. The member's own work is untouched
 // (a later report still reaches its parent as an ordinary one). It returns the message that rings the caller when
 // this was the last member pending.
 func (d *Daemon) settleLimitedMember(tx *store.Tx, a *v1.Agent, until time.Time, reason string) (*v1.Message, error) {

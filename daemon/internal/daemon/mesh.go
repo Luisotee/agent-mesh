@@ -408,6 +408,13 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		// parent moves in this write, with the task, and only when the task goes through (below).
 		var movedFrom string
 		if id := reparentTo(ctx); id != "" && id == actor.Id && to.Peer && to.ParentId != id {
+			// Held checked again: its parent may have given it work since startPeer looked (that holds under the
+			// peer's lock only against other asks).
+			if why, err := peerHeldBy(t.Reader, to); err != nil {
+				return err
+			} else if why != "" {
+				return connect.NewError(connect.CodeFailedPrecondition, errors.New(why))
+			}
 			movedFrom, to.ParentId = to.ParentId, id
 		}
 		var asked *collectRef // the round this report answers, when it is a member's
@@ -537,7 +544,14 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		if movedFrom != "" {
 			if out.ResumeError != "" {
-				to.ParentId = movedFrom // the task is refused: the peer stays with its caller
+				// The task is refused: the peer stays with its caller, whatever an earlier write of `to` stored.
+				to.ParentId = movedFrom
+				if cur, err := t.GetAgent(to.Id); err == nil && cur.ParentId != movedFrom {
+					cur.ParentId = movedFrom
+					if err := t.PutAgent(cur); err != nil {
+						return err
+					}
+				}
 			} else if err := t.PutAgent(to); err != nil {
 				return err
 			}

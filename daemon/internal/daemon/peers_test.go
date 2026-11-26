@@ -1118,3 +1118,94 @@ func TestAPeerMovesToItsNewCallerWithTheTaskNotBefore(t *testing.T) {
 		t.Fatalf("the peer's agent is parented to %s after the ask, want the root", got.ParentId)
 	}
 }
+
+// Mail a peer never read holds it only while it can still read it: a retired peer whose first caller's ask was
+// settled without an answer goes to the next caller.
+func TestAStoppedPeerWithUnreadMailIsNotHeldForever(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	w.quiet(t, peerAgent.Id) // its task is delivered, never read
+	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: peerAgent.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(peerAgent.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	waitFor(t, "the worker's ask settled", func() bool {
+		asks, _ := w.d.Store().Read(ctx).OpenAsks()
+		return len(asks) == 0
+	})
+	second := w.ask(t, &v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second", Timeout: 60})
+	if len(second.Agents) != 1 || second.Agents[0].Id != peerAgent.Id {
+		t.Fatalf("the second ask started %v (notes %v), want the same agent resumed", second.Agents, second.Notes)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != w.lead.Id {
+		t.Fatalf("the peer's agent is parented to %s, want the root", got.ParentId)
+	}
+}
+
+// The check that a peer is free is made again in the write that moves it: its caller may have given it work
+// since the ask looked (a task sent straight to it is not serialised with the asks).
+func TestAPeerGivenWorkMeanwhileIsNotTaken(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	w.quiet(t, peerAgent.Id)
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_DONE, "answer") // free now
+
+	daemon.OnSendPlanned(func() {
+		daemon.OnSendPlanned(nil)
+		// Between the ask's check and its write, the worker gives its peer a new task.
+		if _, err := w.as(wTok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: peerAgent.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "one more thing"})); err != nil {
+			t.Error(err)
+		}
+	})
+	t.Cleanup(func() { daemon.OnSendPlanned(nil) })
+	_, err = w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second", Timeout: 60}))
+	if err == nil || !strings.Contains(err.Error(), "has not yet read a message of repo-two") {
+		t.Fatalf("an ask of a peer given work meanwhile: %v", err)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != "a-w2" {
+		t.Fatalf("the peer's agent moved to %s", got.ParentId)
+	}
+}
+
+// A question nobody can answer anymore does not hold a peer: retiring it frees it for the next caller.
+func TestARetiredPeerThatAskedAQuestionGoesToTheNextCaller(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	up := newUpstream(t, "alpha")
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g", About: "alpha"})
+	wTok := w.seedAgent(w.run.Id, "a-w2", "repo-two", w.lead.Id, v1.AgentRole_AGENT_ROLE_WORKER)
+	first, err := w.as(wTok).Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "first", Timeout: 60}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerAgent := first.Msg.Agents[0]
+	w.quiet(t, peerAgent.Id)
+	w.say(t, peerAgent.Id, v1.MessageType_MESSAGE_TYPE_QUESTION, "which queue do you mean?")
+	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: peerAgent.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(peerAgent.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	second := w.ask(t, &v1.AskRequest{Peers: pa.Name, Tier: "mid", Body: "second", Timeout: 60})
+	if len(second.Agents) != 1 || second.Agents[0].Id != peerAgent.Id {
+		t.Fatalf("the second ask started %v (notes %v), want the same agent resumed", second.Agents, second.Notes)
+	}
+	if got := w.agent(peerAgent.Id); got.ParentId != w.lead.Id {
+		t.Fatalf("the peer's agent is parented to %s, want the root", got.ParentId)
+	}
+}

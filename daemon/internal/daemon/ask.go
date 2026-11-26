@@ -401,9 +401,9 @@ func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequ
 // the members (a reviewer's kind, a peer's name) and start(ctx, i) brings member i in: a member that can't be
 // reached is one with a line saying why, not an error. With oneSlot the members of the round share one place in
 // `caps.agents` (a review round: its first reviewer must fit the cap, the others then join it, so the round is
-// never cut short by it, and those of `running` already hold it); without, each counts as the agent it is (a peers group can be many). A mutation id of the request covers the whole ask: its
-// id comes from it, so a retry after an interruption finds the ask it left, keeps the members already started
-// (their own spawns replay too) and starts the rest; the final write records the mutation.
+// never cut short by it, and those of `running` already hold it); without, each counts as the agent it is (a
+// peers group can be many). A mutation id of the request covers the whole ask: its id comes from it, so a retry after an
+// interruption finds the ask it left, keeps the members already started (their own spawns replay too) and starts the rest; the final write records the mutation.
 func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, ask *v1.Ask, out *v1.AskResponse, keys []string, oneSlot bool, running []string,
 	start func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string), hint func(store.Reader, *v1.Ask) string) (*connect.Response[v1.AskResponse], error) {
 	have := map[string]*v1.AskMember{}
@@ -433,7 +433,9 @@ func (d *Daemon) collectRound(ctx context.Context, actor *v1.Actor, meta *v1.Req
 	for i, key := range keys {
 		if mem := have[key]; mem != nil {
 			if mem.AgentId != "" && mem.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
-				shared = append(shared, mem.AgentId)
+				if !slices.Contains(shared, mem.AgentId) {
+					shared = append(shared, mem.AgentId)
+				}
 				if cur, err := d.getAgent(d.store.Read(ctx), mem.AgentId); err == nil {
 					out.Agents = append(out.Agents, d.view(cur))
 				}
