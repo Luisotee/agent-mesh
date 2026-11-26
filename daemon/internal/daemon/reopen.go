@@ -240,7 +240,8 @@ func isReport(t v1.MessageType) bool {
 	return false
 }
 
-// lastReport is an agent's newest report since its last task or answer, or nil.
+// lastReport is an agent's newest report to its parent since its last task or answer, or nil (a question to
+// one of its own children is no report).
 func lastReport(r store.Reader, a *v1.Agent) (*v1.Message, error) {
 	msgs, err := r.RunMessages(a.RunId, "", -1) // -1: no limit
 	if err != nil {
@@ -251,7 +252,7 @@ func lastReport(r store.Reader, a *v1.Agent) (*v1.Message, error) {
 		switch {
 		case m.ToId == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
 			report = nil
-		case m.From.GetId() == a.Id && isReport(m.Type):
+		case m.From.GetId() == a.Id && m.ToId == a.ParentId && isReport(m.Type):
 			report = m
 		}
 	}

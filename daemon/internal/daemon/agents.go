@@ -314,6 +314,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 		}
 		// A reopen's own terminal that died: the reopen happened, and its agent exited.
 		realExit = true
+		lastSaid := a.StateDetail // the exit event below overwrites it
 		a.PendingReopen = nil
 		a.TerminalId = terminalID
 		tx.Actor = &v1.Actor{Class: ClassOf(a.Role), Id: a.Id, Name: a.Name, RunId: a.RunId}
@@ -328,7 +329,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 		}
 		// Its parent hears of it when it still owed a report (a stop someone asked for is told too: it is the
 		// parent's agent that ended).
-		if alert, err = alertExitTx(tx, a, code, signal, reason); err != nil {
+		if alert, err = alertExitTx(tx, a, lastSaid, code, signal, reason); err != nil {
 			return err
 		}
 		return tx.RevokeTokens(a.Id)
@@ -975,6 +976,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	defer mu.Unlock()
 	out := &v1.StopAgentResponse{}
 	dropped := false
+	var alert *v1.Message
 	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopAgentProcedure, out, func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
@@ -987,7 +989,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 			dropped = true
 			if cur.TerminalId == "" && !stopped(cur) {
 				// Its process already died, the exit left to the reopen this drops: record it now, or nothing would.
-				if err := d.recordStopped(tx, cur); err != nil {
+				if alert, err = d.recordStopped(tx, cur); err != nil {
 					return err
 				}
 			}
@@ -999,6 +1001,9 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 		return nil
 	}); err != nil {
 		return nil, err
+	}
+	if alert != nil && d.notify != nil {
+		d.notify(alert.ToId)
 	}
 	if dropped {
 		d.rt.guard.release(a.Id) // the resume it ends would have launched, and no longer will
@@ -1013,17 +1018,22 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 }
 
 // recordStopped records the exit of an agent whose process is already gone (applied to cur; the caller stores it).
-func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) error {
+func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) (*v1.Message, error) {
+	lastSaid := a.StateDetail // the exit event below overwrites it
 	ev := &adapterv1.AgentEvent{Time: timestamppb.New(tx.Now()),
 		Kind: &adapterv1.AgentEvent_ProcessExited{ProcessExited: &adapterv1.ProcessExited{ExitCode: -1}}}
 	if err := d.applyEvents(tx, a, []*adapterv1.AgentEvent{ev}); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentExited{
 		AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "stopped"}}}); err != nil {
-		return err
+		return nil, err
 	}
-	return tx.RevokeTokens(a.Id)
+	alert, err := alertExitTx(tx, a, lastSaid, -1, 0, "stopped")
+	if err != nil {
+		return nil, err
+	}
+	return alert, tx.RevokeTokens(a.Id)
 }
 
 // ── doorbells ──

@@ -264,8 +264,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if to.Id != self.ParentId && to.ParentId != self.Id {
 				return denied("an agent sends only to its parent or its children; %s is neither", to.Name)
 			}
-			// A report sent while a task or answer is unread would answer instructions the agent hasn't read.
-			if isReport(req.Msg.Type) {
+			// A report to its parent sent while a task or answer is unread would answer instructions the agent hasn't
+			// read (a question to its own child is not a report).
+			if to.Id == self.ParentId && isReport(req.Msg.Type) {
 				if err := unreadInstructions(t.Reader, self); err != nil {
 					return err
 				}

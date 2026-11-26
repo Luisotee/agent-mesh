@@ -281,6 +281,88 @@ func TestAWorkerThatExitsWithoutReportingTellsItsParent(t *testing.T) {
 	}
 }
 
+// The exit alert quotes what the agent last said, read before the exit event rewrites it: after a plain exit
+// (which clears it) and after a kill (which sets "killed by signal").
+func TestTheExitAlertQuotesWhatTheAgentLastSaid(t *testing.T) {
+	w := startReopen(t)
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	say := func(id, detail string) {
+		t.Helper()
+		err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			a, err := tx.GetAgent(id)
+			if err != nil {
+				return err
+			}
+			a.StateDetail = detail
+			return tx.PutAgent(a)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
+	say(crasher.Id, "reading the migration")
+	w.typeInto(crasher, "/crash\r")
+	w.waitState(crasher.Id, v1.AgentState_AGENT_STATE_EXITED)
+	head := "[mesh alert exited " + crasher.Id + "]"
+	waitFor(t, "the exit alert", func() bool { return w.alerts(t, lead.Id, head) == 1 })
+	if got := w.alertText(t, lead.Id, head); !strings.Contains(got, "It last said: reading the migration") {
+		t.Errorf("exit alert %q", got)
+	}
+
+	killed := w.spawnUnder(t, asLead, "killed", &v1.SpawnAgentRequest{})
+	say(killed.Id, "running the tests")
+	if _, err := asLead.StopAgent(context.Background(), connect.NewRequest(&v1.StopAgentRequest{Meta: meta(""), Agent: killed.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(killed.Id, v1.AgentState_AGENT_STATE_EXITED)
+	head = "[mesh alert exited " + killed.Id + "]"
+	waitFor(t, "the kill alert", func() bool { return w.alerts(t, lead.Id, head) == 1 })
+	if got := w.alertText(t, lead.Id, head); !strings.Contains(got, "It last said: running the tests") || strings.Contains(got, "last said: killed") {
+		t.Errorf("kill alert %q", got)
+	}
+}
+
+// A message to its own child is no report to its parent: it neither stops the nudge nor is refused for unread
+// instructions.
+func TestAQuestionToAChildIsNotAReportToTheParent(t *testing.T) {
+	a := newAcct(t)
+	midTok := a.seedAgent(a.run.Id, "a-mid", "repo-mid", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	a.seedAgent(a.run.Id, "a-kid", "repo-kid", "a-mid", v1.AgentRole_AGENT_ROLE_WORKER)
+	a.setting("accountability.nudge_after", 1.0)
+	if err := a.send(a.rootTok, "repo-mid", v1.MessageType_MESSAGE_TYPE_TASK, "do it"); err != nil {
+		t.Fatal(err)
+	}
+	// Its task unread, it may still ask its child; it may not report to its parent.
+	if err := a.send(midTok, "repo-kid", v1.MessageType_MESSAGE_TYPE_QUESTION, "which file?"); err != nil {
+		t.Errorf("a question to a child with an unread task: %v", err)
+	}
+	if err := a.send(midTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "x"); code(err) != connect.CodeFailedPrecondition {
+		t.Errorf("done to the parent with an unread task: %v", err)
+	}
+	readInbox(t, a.as(midTok))
+	if err := a.send(midTok, "repo-kid", v1.MessageType_MESSAGE_TYPE_QUESTION, "and which line?"); err != nil {
+		t.Fatal(err)
+	}
+	err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		m, err := tx.GetAgent("a-mid")
+		if err != nil {
+			return err
+		}
+		m.State, m.LastActivity = v1.AgentState_AGENT_STATE_IDLE, timestamppb.New(time.Now())
+		return tx.PutAgent(m)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-mid", "[mesh nudge]"); n != 1 {
+		t.Fatalf("a question to its child counted as a report: nudges %d, want 1", n)
+	}
+}
+
 func (w *reopenWorld) alerts(t *testing.T, agentID, prefix string) int {
 	t.Helper()
 	msgs, err := w.d.Store().Read(context.Background()).Inbox(agentID, true)

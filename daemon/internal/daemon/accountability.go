@@ -103,9 +103,9 @@ func reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAfter, waitMax 
 		switch {
 		case m.ToId == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
 			task, reported, nudged, wait, nudgedAt = m.CreatedAt.AsTime(), false, false, time.Time{}, time.Time{}
-		case m.From.GetId() == a.Id && isReport(m.Type):
+		case m.From.GetId() == a.Id && m.ToId == a.ParentId && isReport(m.Type):
 			reported = true
-		case m.From.GetId() == a.Id && m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
+		case m.From.GetId() == a.Id && m.ToId == a.ParentId && m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
 			wait = m.CreatedAt.AsTime()
 		case m.ToId == a.Id && m.From.GetId() == meshActor.Id && strings.HasPrefix(m.Body, nudgeTag):
 			nudged, nudgedAt = true, m.CreatedAt.AsTime()
@@ -191,18 +191,29 @@ func (d *Daemon) accountability(ctx context.Context) {
 // alertOnce tells the parent about an agent once per stretch of silence: the same alert is not repeated while
 // the agent's last activity is older than it.
 func (d *Daemon) alertOnce(ctx context.Context, a *v1.Agent, kind, text string) error {
-	since := time.Time{}
-	if a.LastActivity != nil {
-		since = a.LastActivity.AsTime()
-	}
 	var ring *v1.Message
 	err := d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
 			return err
 		}
-		if !owesParent(cur) || (kind == "limited" && cur.State != v1.AgentState_AGENT_STATE_LIMITED) {
+		if !owesParent(cur) {
 			return nil
+		}
+		// Re-checked in the write: the agent may have spoken, been reopened or moved on since the pass looked.
+		switch kind {
+		case "unknown":
+			if d.view(cur).State != v1.AgentState_AGENT_STATE_UNKNOWN {
+				return nil
+			}
+		case "limited":
+			if cur.State != v1.AgentState_AGENT_STATE_LIMITED || cur.PendingReopen != nil {
+				return nil // a reopen pending is already moving it
+			}
+		}
+		since := time.Time{}
+		if cur.LastActivity != nil {
+			since = cur.LastActivity.AsTime()
 		}
 		ring, err = alertParentTx(tx, cur, kind, text, since)
 		return err
@@ -250,7 +261,8 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 
 // alertExitTx tells an agent's parent that its process ended, when the agent still owed it a report. It runs in
 // the transaction that records the exit, so the alert and the exit are one write; the caller rings the message.
-func alertExitTx(tx *store.Tx, a *v1.Agent, code, signal int32, reason string) (*v1.Message, error) {
+// lastSaid is the agent's state detail from before the exit event was applied (which overwrites it).
+func alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid string, code, signal int32, reason string) (*v1.Message, error) {
 	if !owesParent(a) {
 		return nil, nil
 	}
@@ -259,14 +271,16 @@ func alertExitTx(tx *store.Tx, a *v1.Agent, code, signal int32, reason string) (
 	}
 	how := fmt.Sprintf("exited with code %d", code)
 	switch {
+	case reason == "stopped":
+		how = "was stopped"
 	case reason == "lost":
 		how = "lost its terminal (the process is gone and its exit was not seen)"
 	case signal != 0:
 		how = fmt.Sprintf("was killed by signal %d", signal)
 	}
 	text := fmt.Sprintf("%s %s with no report to you.", a.Name, how)
-	if a.StateDetail != "" {
-		text += " It last said: " + a.StateDetail
+	if lastSaid != "" {
+		text += " It last said: " + lastSaid
 	}
 	text += " Resume it (`mesh resume " + a.Name + "`) or reassign the work."
 	since := time.Time{}
