@@ -110,8 +110,9 @@ class DaemonE2ETest {
         val point = byteArrayOf(4) + coord(pub.w.affineX) + coord(pub.w.affineY)
         val auth = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
         val b64 = java.util.Base64.getUrlEncoder().withoutPadding()
-        // The push service (ntfy's part) is a mock on loopback, which meshd pushes to only with the setting on.
-        withContext(Dispatchers.IO) { api().setSetting("push.allow_private_endpoints", com.google.protobuf.Value.newBuilder().setBoolValue(true).build()) }
+        // The push service (ntfy's part) is a mock on loopback, which meshd pushes to only with the setting on (set
+        // from the host: a paired device may not change it).
+        withContext(Dispatchers.IO) { d.ctl("set", "--key", "push.allow_private_endpoints", "--value", "true") }
         val server = okhttp3.mockwebserver.MockWebServer().apply { enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(201)); start() }
         try {
             val reg = withContext(Dispatchers.IO) { api().registerPush(server.url("/upTest?up=1").toString(), b64.encodeToString(point), b64.encodeToString(auth)) }

@@ -277,6 +277,9 @@ func NewClient(allowPrivate func() bool) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = nil
 	tr.DialContext = dialer.DialContext
+	// Every push dials anew, so the address check (and the setting) applies to each: a kept connection opened while
+	// the setting was on would outlive it. Pushes are few.
+	tr.DisableKeepAlives = true
 	return &http.Client{
 		Timeout:   15 * time.Second,
 		Transport: tr,
@@ -289,12 +292,44 @@ func NewClient(allowPrivate func() bool) *http.Client {
 // ErrPrivate is a dial refused because the endpoint's address is not public.
 var ErrPrivate = errors.New("the endpoint's address is not public (the setting push.allow_private_endpoints allows it)")
 
-// Public reports whether ip is an address meshd may push to by default.
+// Public reports whether ip is an address meshd may push to by default: not loopback, private, link-local,
+// unspecified or multicast, nor a special-purpose range that is internal in practice (CGNAT, which Tailscale
+// uses, among them), nor an IPv6 address that carries a private IPv4 one (NAT64, 6to4).
 func Public(ip netip.Addr) bool {
 	ip = ip.Unmap()
-	return ip.IsValid() && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified() && !ip.IsMulticast()
+	if !ip.IsValid() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() || ip.IsMulticast() {
+		return false
+	}
+	for _, p := range internal {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	if ip.Is6() {
+		b := ip.As16()
+		switch {
+		case nat64.Contains(ip):
+			return Public(netip.AddrFrom4([4]byte(b[12:16])))
+		case sixToFour.Contains(ip):
+			return Public(netip.AddrFrom4([4]byte(b[2:6])))
+		}
+	}
+	return true
 }
+
+var (
+	internal = []netip.Prefix{
+		netip.MustParsePrefix("0.0.0.0/8"),
+		netip.MustParsePrefix("100.64.0.0/10"), // CGNAT (Tailscale)
+		netip.MustParsePrefix("192.0.0.0/24"),
+		netip.MustParsePrefix("198.18.0.0/15"),
+		netip.MustParsePrefix("240.0.0.0/4"), // reserved, and the broadcast address
+		netip.MustParsePrefix("64:ff9b:1::/48"),
+	}
+	nat64     = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour = netip.MustParsePrefix("2002::/16")
+)
 
 // failure is a POST that got no answer, said without the endpoint: its URL is a capability (whoever has it can push
 // to the phone), and the error reaches the log, last_error and the device. A *url.Error holds the whole URL; what

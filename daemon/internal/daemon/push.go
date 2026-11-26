@@ -66,8 +66,17 @@ type pushPayload struct {
 
 type pushJob struct {
 	endpoint string
+	keys     [32]byte // the keys it was encrypted for (keyPrint)
 	msg      webpush.Message
 }
+
+// keyPrint identifies a registration's WebPush keys.
+func keyPrint(reg store.PushRecord) [32]byte {
+	return sha256.Sum256(append(append([]byte{}, reg.P256dh...), reg.Auth...))
+}
+
+// onPushLeave is a test seam: it runs when a sender's endpoint stopped matching, before it decides to go.
+var onPushLeave func()
 
 // senderKey is one sender's: a device's endpoint. A device that moves to a new endpoint gets a new sender, so
 // pushes for it never wait behind, or get dropped with, the old endpoint's retries.
@@ -256,7 +265,7 @@ func (p *pusher) send(regs []store.PushRecord, pl pushPayload, urgent bool) {
 			p.d.log.Warn("push: encrypting", "device", reg.DeviceID, "err", err)
 			continue
 		}
-		p.queue(reg.DeviceID, pushJob{endpoint: reg.Endpoint, msg: m})
+		p.queue(reg.DeviceID, pushJob{endpoint: reg.Endpoint, keys: keyPrint(reg), msg: m})
 	}
 }
 
@@ -325,20 +334,16 @@ func (p *pusher) sender(ctx context.Context, k senderKey, s *pushSender) {
 			if p.deliver(ctx, k.device, j) {
 				continue
 			}
-			// The registration has another endpoint or none (revoked, unregistered, gone): what is still queued
-			// here is dropped with the sender, unless the device registered this same endpoint again meanwhile
-			// (then a new sender takes it; nothing more is queued here once this one is out of the map).
-			leave()
-			if ctx.Err() == nil && p.running() && p.current(ctx, k.device, k.endpoint) {
-				for {
-					select {
-					case j := <-s.ch:
-						p.queue(k.device, j)
-					default:
-						return
-					}
-				}
+			// The registration has another endpoint or none (revoked, unregistered, gone), or new keys: that job is
+			// dropped. If the device registered this same endpoint again meanwhile, the rest is still for it, in
+			// order; else what is still queued here goes with the sender.
+			if onPushLeave != nil {
+				onPushLeave()
 			}
+			if ctx.Err() == nil && p.running() && p.registered(ctx, k.device, k.endpoint) {
+				continue
+			}
+			leave()
 			return
 		}
 	}
@@ -351,8 +356,15 @@ func (p *pusher) running() bool {
 	return p.ctx != nil && p.ctx.Err() == nil
 }
 
-// current reports whether the device still has this endpoint, so nothing goes to a revoked or replaced one.
-func (p *pusher) current(ctx context.Context, device, endpoint string) bool {
+// current reports whether the device still has the job's endpoint and keys, so nothing goes to a revoked or
+// replaced endpoint, nor under keys the phone no longer has.
+func (p *pusher) current(ctx context.Context, device string, j pushJob) bool {
+	reg, err := p.d.store.Read(ctx).Push(device)
+	return err == nil && reg.Endpoint == j.endpoint && keyPrint(reg) == j.keys
+}
+
+// registered reports whether the device's registration has this endpoint (whatever its keys).
+func (p *pusher) registered(ctx context.Context, device, endpoint string) bool {
 	reg, err := p.d.store.Read(ctx).Push(device)
 	return err == nil && reg.Endpoint == endpoint
 }
@@ -360,7 +372,7 @@ func (p *pusher) current(ctx context.Context, device, endpoint string) bool {
 // deliver sends one job, with its retries. It returns false when the device's registration is gone.
 func (p *pusher) deliver(ctx context.Context, device string, j pushJob) bool {
 	for attempt := 0; ; attempt++ {
-		if !p.current(ctx, device, j.endpoint) {
+		if !p.current(ctx, device, j) {
 			return false
 		}
 		res := webpush.Post(ctx, p.client, j.endpoint, j.msg)
@@ -559,35 +571,30 @@ func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushR
 	if err != nil {
 		return nil, err
 	}
-	res := webpush.Post(ctx, d.push.client, reg.Endpoint, m)
-	if err := ctx.Err(); err != nil {
-		// The caller went away. What the push service answered still counts; a post we cut short says nothing.
-		if res.Status != 0 {
-			d.push.settle(context.WithoutCancel(ctx), device, reg.Endpoint, res)
-		}
-		code := connect.CodeCanceled
-		if errors.Is(err, context.DeadlineExceeded) {
-			code = connect.CodeDeadlineExceeded
-		}
-		return nil, connect.NewError(code, err)
-	}
-	d.push.settle(ctx, device, reg.Endpoint, res)
-	switch res.Outcome {
-	case webpush.Delivered:
-	case webpush.Gone:
+	// The post finishes (within the client's 15 s) even if the caller goes, cancelled or past its deadline, as a
+	// push once sent can't be taken back: its outcome is settled and a push the service took is recorded below,
+	// so a retry gets the answer instead of pushing twice.
+	wctx := context.WithoutCancel(ctx)
+	res := webpush.Post(wctx, d.push.client, reg.Endpoint, m)
+	gone := ctx.Err()
+	d.push.settle(wctx, device, reg.Endpoint, res)
+	switch {
+	case res.Outcome == webpush.Delivered:
+	case res.Outcome == webpush.Gone:
 		d.push.stop(device, "") // a sender waiting out a retry for it stops now
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("the push service says the endpoint is gone (removed): turn push off and on in the app"))
+	case gone != nil:
+		return nil, callerGone(gone)
 	default:
 		return nil, connect.NewError(connect.CodeUnavailable, res.Err)
 	}
-	// The push went out: its mutation is recorded even if the request expired during the post (checked before it),
-	// so a retry gets this answer instead of a second push.
+	// Recorded even if the request expired during the post (its expiry was checked before it).
 	meta := proto.CloneOf(req.Msg.Meta)
 	if meta != nil {
 		meta.ExpiresAt = nil
 	}
 	out := &v1.TestPushResponse{}
-	if _, err := d.write(ctx, meta, agentmeshv1connect.MeshServiceTestPushProcedure, out, func(t *store.Tx) error {
+	if _, err := d.write(wctx, meta, agentmeshv1connect.MeshServiceTestPushProcedure, out, func(t *store.Tx) error {
 		r, err := t.Push(device)
 		if err == nil {
 			out.Registration = r.Proto()
@@ -596,5 +603,16 @@ func (d *Daemon) TestPush(ctx context.Context, req *connect.Request[v1.TestPushR
 	}); err != nil {
 		return nil, err
 	}
+	if gone != nil {
+		return nil, callerGone(gone)
+	}
 	return connect.NewResponse(out), nil
+}
+
+// callerGone is the answer to a caller whose context ended.
+func callerGone(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return connect.NewError(connect.CodeDeadlineExceeded, err)
+	}
+	return connect.NewError(connect.CodeCanceled, err)
 }

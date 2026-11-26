@@ -172,7 +172,9 @@ func TestPostRefusesAPrivateAddressAndNeverQuotesTheEndpoint(t *testing.T) {
 	}
 	for addr, public := range map[string]bool{"8.8.8.8": true, "2606:4700::1": true, "10.0.0.5": false, "192.168.1.2": false,
 		"172.16.0.1": false, "127.0.0.1": false, "::1": false, "169.254.169.254": false, "fe80::1": false, "0.0.0.0": false,
-		"::ffff:10.0.0.5": false, "fd00::1": false} {
+		"::ffff:10.0.0.5": false, "fd00::1": false, "100.101.102.103": false, "198.18.0.1": false, "192.0.0.8": false,
+		"255.255.255.255": false, "64:ff9b::a00:5": false, "64:ff9b::808:808": true, "2002:a00:5::1": false,
+		"2002:808:808::1": true, "100.128.0.1": true} {
 		if got := Public(netip.MustParseAddr(addr)); got != public {
 			t.Errorf("Public(%s) = %v", addr, got)
 		}

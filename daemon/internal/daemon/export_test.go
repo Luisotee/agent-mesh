@@ -138,3 +138,6 @@ func PRText(row *v1.AgentPullRequests, done bool) string { return prText(row, do
 func (d *Daemon) PushSenders() (started, live int64) {
 	return d.push.started.Load(), d.push.live.Load()
 }
+
+// OnPushLeave sets the sender's seam for an endpoint that stopped matching (nil clears it).
+func OnPushLeave(f func()) { onPushLeave = f }

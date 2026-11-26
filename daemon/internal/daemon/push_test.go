@@ -66,10 +66,11 @@ func (f *fakePush) delivered() int {
 
 // phone is a paired device with its WebPush keys.
 type phone struct {
-	id   string
-	c    agentmeshv1connect.MeshServiceClient
-	key  *ecdh.PrivateKey
-	auth []byte
+	id       string
+	c        agentmeshv1connect.MeshServiceClient
+	key      *ecdh.PrivateKey
+	auth     []byte
+	endpoint string // for a test that registers it again
 }
 
 func pairPhone(t *testing.T, h *harness, name string, readOnly bool) *phone {
@@ -638,5 +639,97 @@ func TestPushesGoOnlyToPublicAddressesByDefault(t *testing.T) {
 	case <-srv.arrived:
 		t.Fatal("meshd posted to a loopback endpoint")
 	default:
+	}
+}
+
+func TestOnlyTheHostMayLetPushesIntoItsNetwork(t *testing.T) {
+	h := startPush(t)
+	ph := pairPhone(t, h, "pixel", false)
+	ctx := context.Background()
+	if _, err := ph.c.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta(""), Key: "push.allow_private_endpoints", Value: val(t, true)})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("a paired device set it: %v", err)
+	}
+	if _, err := ph.c.ResetSetting(ctx, connect.NewRequest(&v1.ResetSettingRequest{Meta: meta(""), Key: "push.allow_private_endpoints"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Fatalf("a paired device reset it: %v", err)
+	}
+	if _, err := ph.c.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta(""), Key: "app.notify.enabled", Value: val(t, true)})); err != nil {
+		t.Fatalf("other settings stay open to devices: %v", err)
+	}
+}
+
+func TestASenderWhoseEndpointCameBackKeepsItsQueue(t *testing.T) {
+	var ph *phone
+	var again sync.Once
+	var againErr error
+	t.Cleanup(func() { daemon.OnPushLeave(nil) }) // after the daemon stops (cleanups run last first)
+	daemon.OnPushLeave(func() {
+		again.Do(func() { // the device registers the same endpoint again before the sender decides
+			_, againErr = ph.c.RegisterPush(context.Background(), connect.NewRequest(&v1.RegisterPushRequest{Meta: meta(""), Endpoint: ph.endpoint,
+				P256Dh: base64.RawURLEncoding.EncodeToString(ph.key.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(ph.auth)}))
+		})
+	})
+	h := startPush(t, time.Hour)
+	got, rel := make(chan struct{}, 1), make(chan struct{})
+	var hits, ok atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if hits.Add(1) == 1 {
+			got <- struct{}{}
+			<-rel
+			w.WriteHeader(http.StatusGone) // the first push finds the endpoint gone
+			return
+		}
+		ok.Add(1)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(rel) })
+	ph = pairPhone(t, h, "pixel", false)
+	ph.endpoint = srv.URL + "/up"
+	ph.register(t, ph.endpoint)
+	plans(t, h, "cb", 5)
+	<-got
+	time.Sleep(300 * time.Millisecond) // the other four queue behind the held one
+	rel <- struct{}{}
+	waitFor(t, "the four queued pushes", func() bool { return ok.Load() == 4 })
+	if againErr != nil {
+		t.Fatal(againErr)
+	}
+	if started, _ := h.d.PushSenders(); started != 1 {
+		t.Fatalf("%d senders started", started)
+	}
+}
+
+func TestATestPushThatWentOutIsRecordedThoughTheCallerLeft(t *testing.T) {
+	h := startPush(t)
+	var posts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts.Add(1)
+		time.Sleep(400 * time.Millisecond)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(srv.Close)
+	ph := pairPhone(t, h, "pixel", false)
+	ph.register(t, srv.URL+"/up")
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if _, err := ph.c.TestPush(ctx, connect.NewRequest(&v1.TestPushRequest{Meta: meta("left")})); connect.CodeOf(err) != connect.CodeDeadlineExceeded {
+		t.Fatalf("first: %v", err)
+	}
+	waitFor(t, "the push to land", func() bool {
+		devs, err := h.device.Mesh.ListDevices(context.Background(), connect.NewRequest(&v1.ListDevicesRequest{}))
+		if err != nil {
+			return false
+		}
+		for _, d := range devs.Msg.Devices {
+			if d.Push.GetLastOkAt() != nil {
+				return true
+			}
+		}
+		return false
+	})
+	time.Sleep(200 * time.Millisecond) // the mutation is written right after
+	if _, err := ph.c.TestPush(context.Background(), connect.NewRequest(&v1.TestPushRequest{Meta: meta("left")})); err != nil || posts.Load() != 1 {
+		t.Fatalf("retry: %v, %d posts", err, posts.Load())
 	}
 }
