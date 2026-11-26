@@ -234,7 +234,7 @@ function CostBody({ cost }: { cost: GetCostResponse }) {
       <div className="flex flex-col gap-0.5 text-[13px]">
         <p>
           <span className="text-lg font-semibold tabular-nums" data-testid="cost-total">{v.tokens}</span>{' '}
-          <span className="text-xs text-muted-foreground">{v.scope}</span>
+          <span className="text-xs text-muted-foreground" data-testid="cost-scope">{v.scope}</span>
         </p>
         <p className="text-xs text-muted-foreground">
           Total = input + cache write + output. {v.breakdown}.

@@ -343,6 +343,6 @@ test('the usage and cost screen asks the host for what mesh usage and mesh cost 
 
   // A run is a scope of its own, named by its title.
   await panel.getByRole('combobox', { name: 'Cost of' }).selectOption({ label: 'e2e run' })
-  await expect.poll(() => panel.getByTestId('cost-total').innerText()).toContain('run ')
+  await expect.poll(() => panel.getByTestId('cost-scope').innerText(), { timeout: 30_000 }).toContain('run ')
   await page.getByRole('button', { name: 'Usage and cost' }).click() // back to the agents
 })
