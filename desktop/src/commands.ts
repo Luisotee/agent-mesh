@@ -53,6 +53,14 @@ function goToNextWaiting(app: AppModel): void {
   app.selectAgent(t.hostId, t.agentId, t.tab)
 }
 
+/** Whether the open agent has a terminal to switch to (the agent has one and the host has terminals): the chat toggle's other side. */
+function hasOpenTerminal(app: AppModel): boolean {
+  const { hostId, agentId } = app.store.getState()
+  const h = app.store.getState().hosts.find((x) => x.info.id === hostId)
+  const s = h?.store.getState()
+  return !!agentId && !!s?.daemon?.capabilities.includes('terminals') && !!s.agents[agentId]?.terminalId
+}
+
 /** The commands that have a shortcut of their own, by the id of their `app.keys.*` setting. */
 export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
   const st = () => app.store.getState()
@@ -62,7 +70,9 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     dock: () => app.setDock(!st().dockOpen),
     chat_toggle: () => {
       const { agentId, tab } = st()
-      if (agentId) app.setTab(tab === 'chat' ? 'terminal' : 'chat')
+      // From the chat to the terminal only where there is one (an exited agent has none): the panel would fall back
+      // to the overview, and the next press would go back to the chat.
+      if (agentId && (tab === 'chat' ? hasOpenTerminal(app) : true)) app.setTab(tab === 'chat' ? 'terminal' : 'chat')
     },
     tab_next: () => {
       const t = nextTab(st(), 1)
@@ -93,7 +103,7 @@ export function buildCommands(app: AppModel): Command[] {
   }
   view('settings', s.settingsOpen ? 'Close the host settings' : 'Open the host settings', !!selected)
   view('dock', s.dockOpen ? 'Hide the live dock' : 'Show the live dock')
-  view('chat_toggle', 'Switch the open agent between chat and terminal', !!s.agentId)
+  view('chat_toggle', 'Switch the open agent between chat and terminal', !!s.agentId && (s.tab !== 'chat' || hasOpenTerminal(app)))
   view('tab_next', 'Next tab', s.tabs.length > 1)
   view('tab_prev', 'Previous tab', s.tabs.length > 1)
   view('tab_close', 'Close the open tab', !!s.agentId)

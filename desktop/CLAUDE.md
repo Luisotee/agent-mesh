@@ -16,6 +16,8 @@ pnpm test src/store.test.ts   # one file
 pnpm typecheck                # the renderer and the main process (two tsconfigs)
 pnpm gen                      # TypeScript from ../proto after a .proto change
 pnpm build && pnpm e2e        # the end-to-end tests: the built app over CDP, against a real meshd
+pnpm pack:win                 # a Windows zip (builds on Linux without wine); the NSIS installer (`pnpm pack`) needs wine or a Windows host, see README "Packaging"
+pnpm pack:dir                 # the unpacked installer app in release/ (electron-builder.json; `pnpm pack:check` builds the deb and checks its agentmesh:// entry, opt-in)
 ```
 
 The e2e tests open a real Electron window. `pnpm e2e` (and `scripts/check.sh`) runs `scripts/e2e.sh`, which puts it on a virtual display with `xvfb-run` when installed, `DISPLAY` set or not: never set `DISPLAY=:0` to see it, since under WSLg that is the user's Windows screen. `E2E_VISIBLE=1` uses `DISPLAY` instead; without xvfb `DISPLAY` is required. They build meshd, mesh-term, mesh and the fake claude from `daemon/` into a temp dir and give every run its own state dir, HOME and user-data dir, so they touch nothing of the user's. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
@@ -24,15 +26,16 @@ The e2e tests open a real Electron window. `pnpm e2e` (and `scripts/check.sh`) r
 
 - `electron/`: the main process, kept thin: `main.ts` the window, `bridge.ts` and `socket.ts` the host bridge, `route.ts` and `pair.ts` how a paired host is reached (pinned TLS, direct or through the relay) and how a pairing link is redeemed, `hosts.ts` the saved host list, `local.ts` finding the daemon on this machine for the first run (a state dir, or a WSL distro through `wsl.exe`; the renderer passes ids, main runs fixed commands), `links.ts` pairing links the OS opens the app with (read in main, shown for the user to confirm, never redeemed on their own), `shell.ts` notifications and the tray (it knows nothing of agents), `preload.cts` the API the renderer gets.
 - `shared/api.ts`: types only, the contract between main and the renderer.
-- `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `actions.ts`, `workspace.ts` (tabs and the dock's marks), `dock.ts`, `commands.ts` (the palette's entries and the shortcuts' commands), `keys.ts`, `shortcuts.ts`, `transcript.ts` (the chat view), `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts`.
+- `src/`: the renderer. `transport.ts`, `connection.ts`, `store.ts`, `refresh.ts`, `derive.ts`, `usage.ts` (the usage and cost screen's rows), `actions.ts`, `workspace.ts` (tabs and the dock's marks), `dock.ts`, `commands.ts` (the palette's entries and the shortcuts' commands), `keys.ts`, `shortcuts.ts`, `transcript.ts` (the chat view), `components/` (shadcn-style primitives in `components/ui/`), `terminal/session.ts` (the terminal stream protocol, with no xterm or Electron in it), `theme.ts` (loads the six theme files of `../shared/themes/`, shared with Android, and applies the host's `app.theme`).
 - `src/gen/`: the generated TypeScript (committed).
+- `electron-builder.json`: the installers (a `protocols` entry registers `agentmesh://`); `scripts/check-package.mjs`: the opt-in deb check. Only `ws` and `electron-updater` (`electron/updates.ts`, installed apps only) are `dependencies` (the main process's); everything the page uses is a `devDependency`, as Vite bundles it.
 - `e2e/`: the end-to-end tests and their harness.
 
 `README.md` "Layout" says what each file holds.
 
 ## Conventions
 
-- **Styling:** Tailwind classes and shadcn/ui-style components on Base UI only. No CSS beyond Tailwind's one entry file, `src/index.css`. The primitives in `src/components/ui/` are copied into the repo so we own them: restyle them there rather than wrapping them. Colours are theme tokens (`theme.ts`), not literals.
+- **Styling:** Tailwind classes and shadcn/ui-style components on Base UI only. No CSS beyond Tailwind's one entry file, `src/index.css`. The primitives in `src/components/ui/` are copied into the repo so we own them: restyle them there rather than wrapping them. Colours are theme tokens (`theme.ts`), not literals; a theme is a JSON file in `shared/themes/`, never CSS. The theme follows the selected host's effective `app.theme` (its default included); Android follows the first host that set one itself, so with several hosts the two may differ.
 - **The renderer never reaches a host.** meshd refuses any request with an `Origin` header, and a token in the renderer would defeat that. The main process holds the tokens and forwards calls (`electron/bridge.ts`, `electron/socket.ts`). Keep the renderer sandboxed, with context isolation, its CSP, no navigation and no new windows.
 - **A paired host's certificate pin is the whole check.** `electron/route.ts` hands a connection on only after its leaf certificate matched the pin from the pairing link; never add a fallback to an unpinned or unverified connection, and keep the pairing link's parsing in main (the renderer sends text).
 - **Every call to a host** goes through `src/actions.ts` and must be a `MeshService` action a device may call. Only `src/transport.ts` reaches the network. `src/registry.test.ts` checks both, so a new call starts in `actions.ts`.

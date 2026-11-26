@@ -6,7 +6,7 @@
 package dev.agentmesh.gen.agentmesh.v1;
 
 @com.google.protobuf.Generated
-public interface TokenModelPhaseCostOrBuilder extends
+@java.lang.Deprecated public interface TokenModelPhaseCostOrBuilder extends
     // @@protoc_insertion_point(interface_extends:agentmesh.v1.TokenModelPhaseCost)
     com.google.protobuf.MessageLiteOrBuilder {
 

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/creack/pty"
 
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
@@ -363,10 +364,10 @@ func TestEndToEnd(t *testing.T) {
 	// committed before that is in no later frame (a client lists settings after a snapshot).
 	w.waitFor("the stream's snapshot", func() bool { return len(events.snapshot()) > 0 })
 	set := w.ctl("--json", `{"key":"caps.agents","value":3}`, "set")
-	if get(set, "setting", "value") != 3.0 || get(set, "setting", "isSet") != true || get(set, "setting", "default") != 16.0 {
+	if get(set, "setting", "value") != 3.0 || get(set, "setting", "isSet") != true || get(set, "setting", "default") != "auto" {
 		t.Fatalf("set %v", set)
 	}
-	if got := w.ctl("settings", "--format", "json", "--prefix", "caps."); len(get(got, "settings").([]any)) != 1 {
+	if got := w.ctl("settings", "--format", "json", "--prefix", "caps."); len(get(got, "settings").([]any)) != 2 {
 		t.Fatalf("settings %v", got)
 	}
 	w.waitFor("the setting on the stream", func() bool {
@@ -377,7 +378,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 		return false
 	})
-	if reset := w.ctl("unset", "--key", "caps.agents"); get(reset, "setting", "value") != 16.0 || get(reset, "setting", "isSet") == true {
+	if reset := w.ctl("unset", "--key", "caps.agents"); get(reset, "setting", "value") != "auto" || get(reset, "setting", "isSet") == true {
 		t.Fatalf("unset %v", reset)
 	}
 
@@ -740,7 +741,7 @@ func TestRelayAndPairingEndToEnd(t *testing.T) {
 	})
 
 	// Create a pairing via real mesh pair.
-	pairOut := w.ctl("pair", "--name", "e2e-phone")
+	pairOut := w.ctl("pair", "--name", "e2e-phone", "--format", "json")
 	p, err := pairing.ParseURI(str(pairOut, "uri"))
 	if err != nil {
 		t.Fatalf("ParseURI(%q): %v", str(pairOut, "uri"), err)
@@ -855,4 +856,82 @@ func lookPath(env []string, name string) string {
 		}
 	}
 	return ""
+}
+
+// An attached `mesh open` survives meshd being killed and started again (an install, a drop-in change): it prints one
+// status line, asks the new meshd for a fresh way in, repaints, and shows what the agent says from then on.
+func TestMeshOpenReattachesAfterMeshdRestarts(t *testing.T) {
+	root := t.TempDir()
+	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
+	os.MkdirAll(w.home, 0o700)
+	t.Cleanup(w.stopAll)
+	repo := filepath.Join(root, "shop-api")
+	os.MkdirAll(repo, 0o755)
+	for _, args := range [][]string{{"init", "-q", "-b", "main"},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = repo, w.env()
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	w.startMeshd()
+	run := str(w.ctl("start-run", "--title", "open"), "run", "id")
+	agent := str(w.ctl("spawn", "--run-id", run, "--repo", repo, "--slug", "watched", "--kind", "claude", "--role", "worker", "--tier", "mid"), "agent", "id")
+	w.waitFor("idle", func() bool { return w.agentState(agent) == "AGENT_STATE_IDLE" })
+	terminal := str(w.ctl("agent", "--agent", agent), "agent", "terminalId")
+
+	cmd := exec.Command(filepath.Join(bins, "mesh"), "open", agent)
+	cmd.Env = w.env()
+	master, err := pty.Start(cmd)
+	if err != nil {
+		t.Skip("no pty: ", err)
+	}
+	defer master.Close()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() { cmd.Process.Kill() })
+
+	var seen lockedBuffer
+	go io.Copy(&seen, master)
+	waitSeen := func(what, want string) {
+		t.Helper()
+		w.waitFor(what, func() bool { return strings.Contains(seen.String(), want) })
+	}
+	tc, err := termclient.New(statedir.Paths{Dir: w.state}.Term())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func(text string) {
+		t.Helper()
+		if _, err := tc.API.WriteTerminal(context.Background(), connect.NewRequest(&termv1.WriteTerminalRequest{Id: terminal, Data: []byte(text)})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitSeen("the attach", "Attached to")
+	write("before the restart\r")
+	waitSeen("output before the restart", "before the restart")
+
+	w.killMeshd()
+	waitSeen("the status line", "meshd went away, reconnecting")
+	w.startMeshd()
+	write("after the restart\r")
+	waitSeen("output after the restart", "after the restart")
+	if n := strings.Count(seen.String(), "meshd went away, reconnecting"); n != 1 {
+		t.Errorf("%d status lines:\n%s", n, seen.String())
+	}
+	select {
+	case err := <-exited:
+		t.Fatalf("mesh open ended: %v\n%s", err, seen.String())
+	default:
+	}
+	master.Write([]byte{0x1d}) // Ctrl-]
+	select {
+	case err := <-exited:
+		if err != nil || !strings.Contains(seen.String(), "[detached]") {
+			t.Errorf("detach: %v\n%s", err, seen.String())
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("Ctrl-] did not detach")
+	}
 }

@@ -21,6 +21,7 @@ func chatDaemon(t *testing.T, env map[string]string) (*agentsHarness, *v1.Agent)
 	state := filepath.Join(t.TempDir(), "state")
 	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) {
 		c.Env["FAKECLAUDE_TRANSCRIPT"] = "1"
+		c.Env["FAKECLAUDE_BOX"] = "1" // a prompt goes only into a box that reads empty
 		for k, v := range env {
 			c.Env[k] = v
 		}
@@ -30,6 +31,20 @@ func chatDaemon(t *testing.T, env map[string]string) (*agentsHarness, *v1.Agent)
 	a := h.spawn(run.Id, gitRepo(t), "chat", "")
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 	return h, a
+}
+
+// promptWhenReady sends a prompt as a user would: when the host says the box isn't empty yet (the agent is
+// still drawing its first prompt or the turn before), wait and send again.
+func (h *agentsHarness) promptWhenReady(agent, text string) error {
+	h.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := h.prompt(agent, text)
+		if err == nil || connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "input box") || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func (h *agentsHarness) prompt(agent, text string) error {
@@ -62,7 +77,7 @@ func TestAPromptTypedFromTheChatReachesTheCLIAndShowsInItsTranscript(t *testing.
 		t.Fatalf("an empty conversation: %v", first)
 	}
 
-	if err := h.prompt(a.Id, "fix the typo"); err != nil {
+	if err := h.promptWhenReady(a.Id, "fix the typo"); err != nil {
 		t.Fatal(err)
 	}
 	var tail *v1.ReadTranscriptResponse
@@ -79,7 +94,7 @@ func TestAPromptTypedFromTheChatReachesTheCLIAndShowsInItsTranscript(t *testing.
 	}
 
 	// Reading on from the end gives only what comes next; the agent is the same process and conversation.
-	if err := h.prompt(a.Id, "and the README"); err != nil {
+	if err := h.promptWhenReady(a.Id, "and the README"); err != nil {
 		t.Fatal(err)
 	}
 	var more *v1.ReadTranscriptResponse
@@ -98,7 +113,7 @@ func TestAPromptTypedFromTheChatReachesTheCLIAndShowsInItsTranscript(t *testing.
 
 func TestAPromptOfSeveralLinesIsOnePrompt(t *testing.T) {
 	h, a := chatDaemon(t, nil)
-	if err := h.prompt(a.Id, "first line\r\nsecond line\x1b[201~\x03"); err != nil {
+	if err := h.promptWhenReady(a.Id, "first line\r\nsecond line\x1b[201~\x03"); err != nil {
 		t.Fatal(err)
 	}
 	var got *v1.ReadTranscriptResponse
@@ -214,8 +229,12 @@ func TestARetriedPromptIsTypedOnceAndAnExpiredOneNotAtAll(t *testing.T) {
 	h, a := chatDaemon(t, nil)
 	ctx := context.Background()
 	send := func(m *v1.RequestMeta, text string) error {
-		_, err := h.device.Mesh.PromptAgent(ctx, connect.NewRequest(&v1.PromptAgentRequest{Meta: m, Agent: a.Id, Text: text}))
-		return err
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+			_, err := h.device.Mesh.PromptAgent(ctx, connect.NewRequest(&v1.PromptAgentRequest{Meta: m, Agent: a.Id, Text: text}))
+			if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "input box") || time.Now().After(deadline) {
+				return err
+			}
+		}
 	}
 	// A request past its expiry types nothing, and doesn't use up its id.
 	late := &v1.RequestMeta{MutationId: "late", ExpiresAt: timestamppb.New(time.Now().Add(-time.Second))}
@@ -254,4 +273,14 @@ func TestARetriedPromptIsTypedOnceAndAnExpiredOneNotAtAll(t *testing.T) {
 	if n != 2 {
 		t.Errorf("%d user turns, want 2", n)
 	}
+}
+
+func TestAPromptIsNotTypedWhereNoEmptyInputBoxIsOnTheScreen(t *testing.T) {
+	// A dropped line leaves a dialog where the box was: its Enter would pick an option.
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_DROP": "1", "FAKECLAUDE_DIALOG": "1"})
+	h.typeInto(a, "📬 [mesh] dropped\r")
+	waitFor(t, "the refusal", func() bool {
+		err := h.prompt(a.Id, "hello")
+		return connect.CodeOf(err) == connect.CodeFailedPrecondition && strings.Contains(err.Error(), "no empty input box")
+	})
 }

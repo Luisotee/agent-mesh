@@ -34,7 +34,7 @@ import java.io.File
 @Config(sdk = [36], qualifiers = "w411dp-h900dp-xxhdpi", application = PairTestApp::class)
 class PairScreenTest {
     @get:Rule val compose = createComposeRule()
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
     private val container get() = (ApplicationProvider.getApplicationContext<Application>() as MeshApp).container
 
     private val fp = "ab".repeat(32)
@@ -62,7 +62,7 @@ class PairScreenTest {
         show(initial = link)
         compose.onNodeWithTag("summary").assertIsDisplayed()
         compose.onNode(hasText("Through your relay: relay.example.com:8443")).assertIsDisplayed()
-        compose.onNode(hasText("Direct: https://100.64.0.1:9443")).assertIsDisplayed()
+        compose.onNode(hasText("Over your tailnet: https://100.64.0.1:9443 (needs the Tailscale app on this phone)")).assertIsDisplayed()
         compose.onNode(hasText("work station", substring = true)).assertIsDisplayed()
         compose.onNodeWithTag("pair").assertIsEnabled()
         assertTrue("nothing was sent before the tap", PairTestApp.calls.isEmpty())

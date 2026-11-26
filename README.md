@@ -23,14 +23,14 @@ You're building a feature in `shop-web` and find that `shop-api` doesn't return 
 2. **A worker starts inside `shop-api`,** in its own git worktree and its own terminal. It loads that repo's rules, skills and hooks.
 3. **It researches and sends a plan.** The root reviews it (right files, right contract, real tests) and approves it or sends it back. Nothing is edited before approval.
 4. **The same agent does the work,** in the same conversation, switched to its execution model, so no research is lost in a hand-off. It runs the repo's tests, lint and build, then opens a PR.
-5. **Reviewers read the PR:** Claude, Gemini (agy), Copilot or OpenCode, one by default (a small PR's from OpenCode first, a large PR's from the CLI that isn't the author's; a risky PR gets a relay of reviewers, one after another), each inside the repo at the PR's head. Findings go back to the worker that wrote it.
+5. **Reviewers read the PR:** Claude, Gemini (agy), Copilot or OpenCode, one by default (a small PR's from OpenCode first, a large PR's from the CLI that isn't the author's; a risky PR gets a relay of reviewers, one after another), each inside the repo at the PR's head. The worker that wrote the PR asks the round itself, checks each finding, fixes what holds up and reports what it declined, so the root reads one report per PR (a relay for a risky PR stays with the root).
 6. **You get one report** with the PR link, what changed and the checks that passed. Meanwhile your session kept building the badge.
 
 ```
 the root (a daemon agent, started by /delegate or the app)     keeps you in the loop
- ├── shop-api-restocked-at   (claude)          research ─▶ plan ─▶ approved ─▶ code ─▶ test ─▶ PR
- │                                                       plans on a strong tier, executes on mid
- └── shop-api-review-88-agy  (agy, read-only)  reviews the PR, reports findings
+ └── shop-api-restocked-at   (claude)          research ─▶ plan ─▶ approved ─▶ code ─▶ test ─▶ PR
+     │                                                   plans on a strong tier, executes on mid
+     └── shop-api-review-88-agy  (agy, read-only)  asked by the worker: reviews the PR, reports findings
 ```
 
 ## Quick start
@@ -92,7 +92,7 @@ Keep a running `TODO.md`, add to it as things come up, and when a batch has pile
 /delegate work through TODO.md
 ```
 
-The root sorts it into a few themed groups, shows you a board (which worker takes what, in which repo, on which model) and waits for your one go. Then up to eight workers run in parallel, one PR per group, each PR reviewed, and the findings go back to the worker that wrote it. You come back to a table of PRs with a suggested merge order. The root writes no code itself, so its context stays small however long the list is.
+The root sorts it into a few themed groups, shows you a board (which worker takes what, in which repo, on which model) and waits for your one go. Then as many workers run in parallel as the host carries (`caps.working`, sized from its cores), one PR per group, each PR reviewed, and the findings go back to the worker that wrote it. You come back to a table of PRs with a suggested merge order. The root writes no code itself, so its context stays small however long the list is.
 
 ### Reviews from several vendors
 
@@ -129,7 +129,7 @@ Every worker and reviewer is a full Claude Code or agy session drawing on your o
 - **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold); a big planner is compacted at approval, and a big worker before a follow-up.
 - **One machine's memory:** each worker gets a share of the cores (`worker_cpus`), so the test suites it runs start fewer workers; reviewers read the PR's CI before running tests; and no agent starts while memory runs short or the machine thrashes.
 - **A quota reserve:** it plans on the best model with quota left, the root moves an agy worker that hits a quota to the next model (a Claude worker is continued at the reset), and by default nothing new starts on a quota once it is 90% used.
-- **`mesh cost`** shows what each agent of a run spent, by phase.
+- **`mesh cost`** shows the tokens each agent of a run used, by phase, for Claude, agy and OpenCode (cache reads apart), with Claude's API-equivalent dollars beside them.
 
 ## How it compares
 

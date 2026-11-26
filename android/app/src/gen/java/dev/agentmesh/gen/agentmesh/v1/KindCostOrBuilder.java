@@ -123,4 +123,24 @@ public interface KindCostOrBuilder extends
    * @return The coldUsd.
    */
   double getColdUsd();
+
+  /**
+   * <pre>
+   * input + w1 + w5 + output, as AgentCost.total.
+   * </pre>
+   *
+   * <code>int64 total = 19 [json_name = "total"];</code>
+   * @return The total.
+   */
+  long getTotal();
+
+  /**
+   * <pre>
+   * This kind's percent of the tokens counted in total (`share` is the percent of the dollars).
+   * </pre>
+   *
+   * <code>double token_share = 20 [json_name = "tokenShare"];</code>
+   * @return The tokenShare.
+   */
+  double getTokenShare();
 }

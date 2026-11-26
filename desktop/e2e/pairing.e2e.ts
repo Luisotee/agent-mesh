@@ -45,6 +45,8 @@ async function makeLink(page: Page, directUrl: string, deviceName: string): Prom
   const screen = page.getByRole('region', { name: 'Pair a device' })
   if (!(await screen.isVisible())) await page.getByRole('button', { name: 'Pair a device' }).click()
   await screen.waitFor()
+  // The real host runs without --tailscale: the host's own app asks TailnetStatus and says the node is off.
+  await screen.getByRole('region', { name: 'Tailscale' }).getByText(/--tailscale/).waitFor()
   const again = screen.getByRole('button', { name: /^(Make another link|Pair another device)$/ })
   if (await again.isVisible().catch(() => false)) await again.click()
   await screen.getByLabel('Name of the device').fill(deviceName)

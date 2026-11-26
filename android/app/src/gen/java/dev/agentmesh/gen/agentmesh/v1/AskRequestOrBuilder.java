@@ -46,6 +46,7 @@ public interface AskRequestOrBuilder extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -55,6 +56,7 @@ public interface AskRequestOrBuilder extends
   /**
    * <pre>
    * The git repository a fresh asker or reviewer works in: a path, or a bare name of a folder of the repos.dir setting.
+   * A worker reviewing its own PR may leave it out (its own repo), and its own worktree stands for its repo.
    * </pre>
    *
    * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
@@ -124,11 +126,19 @@ public interface AskRequestOrBuilder extends
       getSizeBytes();
 
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @return The tier.
    */
   java.lang.String getTier();
   /**
+   * <pre>
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * </pre>
+   *
    * <code>string tier = 7 [json_name = "tier"];</code>
    * @return The bytes for tier.
    */
@@ -323,4 +333,18 @@ public interface AskRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getMcpBytes(int index);
+
+  /**
+   * <pre>
+   * A relay for a risky PR, one step per call (needs `repo` and `review`; `size` defaults to large and `tier`
+   * to strong): step 1 asks a CLI that isn't the author's to review the whole PR, step 2 the other family, at the
+   * new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
+   * review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
+   * 3 steps.
+   * </pre>
+   *
+   * <code>bool relay = 18 [json_name = "relay"];</code>
+   * @return The relay.
+   */
+  boolean getRelay();
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -17,6 +18,11 @@ func (p Paths) Socket() string      { return filepath.Join(p.Dir, "meshd.sock") 
 func (p Paths) Info() string        { return filepath.Join(p.Dir, "meshd.json") }
 func (p Paths) DB() string          { return filepath.Join(p.Dir, "meshd.db") }
 func (p Paths) DeviceToken() string { return filepath.Join(p.Dir, "device.token") }
+
+// Adopted is where an adopted session's identity is kept (`mesh adopt`): one file per Claude Code process.
+func (p Paths) Adopted(pid int) string {
+	return filepath.Join(p.Dir, "adopted", strconv.Itoa(pid)+".json")
+}
 func (p Paths) DaemonID() string    { return filepath.Join(p.Dir, "daemon.id") }
 func (p Paths) TLSCert() string     { return filepath.Join(p.Dir, "tls.crt") }
 func (p Paths) TLSKey() string      { return filepath.Join(p.Dir, "tls.key") }
@@ -70,4 +76,24 @@ func ReadInfo(dir string) (Info, error) {
 		return info, err
 	}
 	return info, json.Unmarshal(b, &info)
+}
+
+// AdoptedFile is what the daemon keeps for a Claude Code session it adopted as a run's root (`mesh adopt`), and
+// the CLI reads to act as that root: the session's process (a pid is only the session's while it started at
+// Start) and the AGENT_MESH_* environment an agent would have been started with.
+type AdoptedFile struct {
+	Pid   int               `json:"pid"`
+	Start uint64            `json:"start"`
+	Agent string            `json:"agent"`
+	Env   map[string]string `json:"env"`
+}
+
+// ReadAdopted reads the file of an adopted session; not found is os.ErrNotExist.
+func (p Paths) ReadAdopted(pid int) (AdoptedFile, error) {
+	var f AdoptedFile
+	b, err := os.ReadFile(p.Adopted(pid))
+	if err != nil {
+		return f, err
+	}
+	return f, json.Unmarshal(b, &f)
 }

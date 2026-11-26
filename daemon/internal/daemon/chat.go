@@ -100,12 +100,25 @@ func (d *Daemon) PromptAgent(ctx context.Context, req *connect.Request[v1.Prompt
 	if err := expired(req.Msg.Meta, d.now()); err != nil {
 		return nil, err
 	}
-	a, err := d.FindAgent(d.store.Read(ctx), actor, req.Msg.Agent)
+	found, err := d.FindAgent(d.store.Read(ctx), actor, req.Msg.Agent)
 	if err != nil {
 		return nil, err
 	}
 	precondition := func(format string, args ...any) error {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(format, args...))
+	}
+	// With a doorbell, a reopen or a stop in flight the agent's terminal is not ours to type into.
+	mu := d.agentLock(found.Id)
+	mu.Lock()
+	defer mu.Unlock()
+	// A twin of this request that held the lock first has typed and recorded by now.
+	if res, err := typed(); res != nil || err != nil {
+		return res, err
+	}
+	// What held the lock may have swapped the terminal (a reopen) or left the agent at a prompt: look again.
+	a, err := d.store.Read(ctx).GetAgent(found.Id)
+	if err != nil {
+		return nil, err
 	}
 	if a.TerminalId == "" || d.rt.term == nil {
 		return nil, precondition("%s has no terminal", a.Name)
@@ -116,20 +129,10 @@ func (d *Daemon) PromptAgent(ctx context.Context, req *connect.Request[v1.Prompt
 	case v1.AgentState_AGENT_STATE_NEEDS_INPUT:
 		return nil, precondition("%s waits at a prompt in its terminal: answer it there, a typed line would be its answer", a.Name)
 	}
-	// With a doorbell, a reopen or a stop in flight the agent's terminal is not ours to type into.
-	mu := d.agentLock(a.Id)
-	mu.Lock()
-	defer mu.Unlock()
-	// A twin of this request that held the lock first has typed and recorded by now.
-	if res, err := typed(); res != nil || err != nil {
-		return res, err
-	}
-	quiet, err := d.quietToType(ctx, a)
-	if err != nil {
+	if reason, err := d.whyNotToType(ctx, a); err != nil {
 		return nil, err
-	}
-	if !quiet {
-		return nil, precondition("%s's input box holds a draft or someone is typing in its terminal: finish or clear it, then send again", a.Name)
+	} else if reason != "" {
+		return nil, precondition("%s", reason)
 	}
 	if err := d.typePrompt(ctx, a, text); err != nil {
 		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("typing into %s's terminal: %w", a.Name, err))
@@ -170,11 +173,27 @@ func (d *Daemon) typePrompt(ctx context.Context, a *v1.Agent, text string) error
 	time.Sleep(d.rt.cfg.DeliveryDelay)
 	err := d.pressEnter(ctx, a.TerminalId)
 	if err != nil && writeDidNotHappen(err) {
-		// As typeLine does: the Enter certainly never went in, so take the paste back out (Ctrl-U) rather than
-		// leave a draft that blocks the retry and every doorbell. The box clears the line the cursor is on, as far
-		// as the CLI's Ctrl-U goes.
-		d.rt.term.API.WriteTerminal(context.WithoutCancel(ctx), connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
-			Data: []byte("\x15")}))
+		// The Enter certainly never went in, so take the paste back out rather than leave a draft that blocks the
+		// retry and every doorbell. Ctrl-U clears the line the cursor is on, which for a paste of several lines is
+		// the last: read the box after each and go on until it is empty. A box that can't be read, or that still
+		// holds text after a few tries, is said in the error: the user clears it.
+		cleared := false
+		for try := 0; try < 8 && !cleared; try++ {
+			d.rt.term.API.WriteTerminal(context.WithoutCancel(ctx), connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
+				Data: []byte("\x15")}))
+			time.Sleep(d.rt.cfg.DeliveryDelay)
+			switch d.readInputBox(context.WithoutCancel(ctx), a, "").GetBox() {
+			case adapterv1.InputBox_INPUT_BOX_EMPTY:
+				cleared = true
+			case adapterv1.InputBox_INPUT_BOX_TYPED:
+				continue
+			default:
+				try = 8 // no box to read: more Ctrl-U would tell nothing
+			}
+		}
+		if !cleared {
+			err = fmt.Errorf("%w (part of the prompt may remain in its input box: clear it before sending again)", err)
+		}
 	}
 	return err
 }
@@ -189,4 +208,24 @@ func CleanPrompt(s string) string {
 		}
 		return -1
 	}, s)
+}
+
+// whyNotToType says why a prompt may not be typed into an agent's terminal now, or "" when it may: only into a box
+// that reads empty (a draft would be typed after, a dialog or a picker would take the Enter as its choice, a CLI still
+// starting may drop it) and while nobody types in the terminal. The prompt is the user's own, so one refusal is cheap.
+func (d *Daemon) whyNotToType(ctx context.Context, a *v1.Agent) (string, error) {
+	typing, err := d.userTyping(ctx, a.TerminalId)
+	if err != nil {
+		return "", err
+	}
+	if typing {
+		return fmt.Sprintf("someone is typing in %s's terminal: finish there, then send again", a.Name), nil
+	}
+	switch d.readInputBox(ctx, a, "").GetBox() {
+	case adapterv1.InputBox_INPUT_BOX_EMPTY:
+		return "", nil
+	case adapterv1.InputBox_INPUT_BOX_TYPED:
+		return fmt.Sprintf("%s's input box holds a draft: finish or clear it, then send again", a.Name), nil
+	}
+	return fmt.Sprintf("%s's screen shows no empty input box (a dialog or a picker may be open, or it is still starting): look at its terminal, then send again", a.Name), nil
 }

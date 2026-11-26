@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,15 +111,18 @@ func TestTypePromptPastesWhatATypedKeyWouldMangleAndTakesAFailedPasteBack(t *tes
 		{"lines are pasted", "claude", "a\nb", nil, false, "\x1b[200~a\nb\x1b[201~,\r"},
 		{"a CLI without paste gets spaces for a tab", "agy", "a\tb", nil, false, "a b,\r"},
 		{"and one space per run of white space for lines", "agy", "a\n\tb", nil, false, "a b,\r"},
-		{"a paste whose Enter never went is taken back out", "claude", "a\nb", []error{down, down, down}, true, "\x1b[200~a\nb\x1b[201~,\r,\r,\r,\x15"},
+		{"a paste whose Enter never went is taken back out", "claude", "a\nb", []error{down, down, down}, true, "\x1b[200~a\nb\x1b[201~,\r,\r,\r,\x15"}, // the box can't be read here: one Ctrl-U, and the error says some may remain
 		{"an unknown Enter failure sends nothing more", "claude", "a\nb", []error{connect.NewError(connect.CodeUnknown, errors.New("?"))}, true, "\x1b[200~a\nb\x1b[201~,\r"},
 	}
 	for _, c := range cases {
 		stub := &stubTerm{enterErrs: c.errs}
-		d := &Daemon{rt: &runtime{adapters: reg, cfg: AgentConfig{DeliveryDelay: time.Millisecond}, term: &termclient.Client{API: stub}}}
+		d := &Daemon{rt: &runtime{adapters: reg, cfg: AgentConfig{DeliveryDelay: time.Millisecond}, term: &termclient.Client{API: stub, HTTP: &http.Client{Timeout: 50 * time.Millisecond}}}}
 		err := d.typePrompt(context.Background(), &v1.Agent{Kind: c.kind, TerminalId: "t1"}, c.text)
 		if (err != nil) != c.wantErr || strings.Join(stub.writes, ",") != c.wantWrites {
 			t.Errorf("%s: err %v, writes %q, want error %v and %q", c.name, err, strings.Join(stub.writes, ","), c.wantErr, c.wantWrites)
+		}
+		if strings.HasSuffix(c.wantWrites, "\x15") && (err == nil || !strings.Contains(err.Error(), "may remain")) {
+			t.Errorf("%s: a paste that couldn't be shown to be cleared says so, not %v", c.name, err)
 		}
 	}
 }

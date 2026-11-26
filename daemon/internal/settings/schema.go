@@ -31,7 +31,9 @@ const (
 	Slots    Type = "slots"
 	Kinds    Type = "kinds"
 	MBOrAuto Type = "mb_or_auto"
-	JSON     Type = "json"
+	// IntOrAuto is "auto" (the daemon works it out from the host) or a whole number, 0 or more.
+	IntOrAuto Type = "int_or_auto"
+	JSON      Type = "json"
 	// Shortcut is a key chord such as "Mod+Shift+P", or "" for none (ParseShortcut).
 	Shortcut Type = "shortcut"
 )
@@ -128,6 +130,8 @@ func (l Leaf) rule() string {
 		return "a list of " + strings.Join(l.kinds(), ", ")
 	case MBOrAuto:
 		return `"auto" or a whole number of MB, 0 or more`
+	case IntOrAuto:
+		return `"auto" or a whole number, 0 or more`
 	case JSON:
 		return "any JSON value"
 	case Shortcut:
@@ -179,7 +183,7 @@ func Check(l Leaf, v any) (any, error) {
 	}
 	switch l.Type {
 	case String:
-		if !text(v) || (len(l.Choices) > 0 && !oneOf(v, l.Choices)) {
+		if !text(v) || len(l.Choices) > 0 && !oneOf(v, l.Choices) { // a leaf with choices takes one of them
 			return bad()
 		}
 	case Strings:
@@ -223,6 +227,12 @@ func Check(l Leaf, v any) (any, error) {
 			return bad()
 		}
 	case MBOrAuto:
+		if s, ok := v.(string); !ok || s != "auto" {
+			if !whole(v, math.MaxInt32) {
+				return bad()
+			}
+		}
+	case IntOrAuto:
 		if s, ok := v.(string); !ok || s != "auto" {
 			if !whole(v, math.MaxInt32) {
 				return bad()
@@ -333,6 +343,12 @@ func DefaultLeaves() []Leaf {
 			Summary: "kinds asked again after a fix on a small PR even when skipped"},
 		Leaf{Key: "review.re_review.keep.large", Type: Kinds, Default: []any{}, Choices: AgentKinds,
 			Summary: "kinds asked again after a fix on a large PR even when skipped"},
+		Leaf{Key: "review.by", Type: String, Default: "worker", Choices: []string{"worker", "root"},
+			Summary: "who runs the review rounds of a worker's PR: the worker itself (once its self-review is done), or its parent, the root (a relay for a risky PR); `mesh spawn --reviews` and `mesh approve --reviews` set it per worker"},
+		Leaf{Key: "review.tier.small", Type: String, Default: "mid", Choices: []string{"light", "mid", "strong"},
+			Summary: "the tier the reviewers of a small PR run on when the round names none (a worker's own round)"},
+		Leaf{Key: "review.tier.large", Type: String, Default: "strong", Choices: []string{"light", "mid", "strong"},
+			Summary: "the tier the reviewers of a large PR run on when the round names none (a worker's own round)"},
 		Leaf{Key: "review.rounds.small", Type: Int, Default: 1.0,
 			Summary: "review rounds a small PR gets at most (a ceiling, not a quota)"},
 		Leaf{Key: "review.rounds.large", Type: Int, Default: 2.0,
@@ -343,6 +359,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "where `mesh add-peer <url>` clones a project: <dir>/<group>/<repo> (a leading ~ is the daemon's home)"},
 		Leaf{Key: "repos.dir", Type: Strings, Default: []any{},
 			Summary: "folders a bare `--repo <name>` is looked up in, in order: the name must be a repo's own top folder there (a leading ~ is the daemon's home); a repo in the caller's working directory needs no setting"},
+		Leaf{Key: "repos.no_free_models", Type: Strings, Default: []any{},
+			Summary: "top folders of repos whose code must not go to OpenCode's free models (some of their providers keep prompts or train on them): nothing there is started on, switched to or picked as a reviewer on a zero-cost model; a zero-cost model is one OpenCode itself lists at no cost, and one it lists no cost for is refused too; a paid OpenCode model is not held back (absolute folders; a leading ~ is the daemon's home: a relative entry matches nothing). Agents already running keep their model; one stopped is not resumed onto a free model, and a root names its model"},
 		Leaf{Key: "quota_stop", Type: Percent, Default: 90.0,
 			Summary: "percent of a vendor's quota used at which nothing new starts on it"},
 		Leaf{Key: "idle_retire", Type: Seconds, Default: 300.0,
@@ -421,8 +439,15 @@ func DefaultLeaves() []Leaf {
 				"limit is over; off leaves it to the root or the user"},
 		Leaf{Key: "limits.hold", Type: Seconds, Default: 1800.0,
 			Summary: "seconds a model counts as at its limit when the limit named no reset time"},
-		Leaf{Key: "caps.agents", Type: Int, Default: 16.0,
-			Summary: "live agent processes this host runs at once (agents still starting count); 0 means no cap"},
+		Leaf{Key: "inbox.summary_over", Type: Int, Default: 2000.0,
+			Summary: "characters above which a root's `mesh inbox` shows a plan or a `done` as a summary (its key parts, its file, and " +
+				"`mesh inbox --id <id>` for the whole text) instead of the whole body; 0 always prints whole bodies"},
+		Leaf{Key: "caps.agents", Type: IntOrAuto, Default: "auto",
+			Summary: `live agent processes this host runs at once (agents still starting count); "auto" sizes it from this host's memory and ` +
+				"cores and what an agent measured holds (`mesh brief` prints the number); 0 means no cap"},
+		Leaf{Key: "caps.working", Type: IntOrAuto, Default: "auto",
+			Summary: `workers the root keeps working at once; "auto" sizes it from this host's cores and what a working agent measured uses ` +
+				"(advice to the root: the daemon refuses nothing over it); 0 means no limit"},
 		Leaf{Key: "push.allow_private_endpoints", Type: Bool, Default: false,
 			Summary: "let a device's push endpoint be on a loopback, private or link-local address (a ntfy on this host or the LAN); off, meshd pushes only to public addresses, so a paired device can't make it POST into this network; only the host's own device may change it"},
 	)
@@ -501,6 +526,8 @@ func AppLeaves() []Leaf {
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
 			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit; phones' pushes follow it too, all but error and limited for now"},
+		{Key: "app.theme", Type: String, Default: "Dracula",
+			Summary: "the theme the apps draw with: Dracula, Alucard, Catppuccin Mocha, Catppuccin Latte, Tokyo Night or Nord (an app that has no theme of that name uses Dracula; the Android app's own choice overrides it on that phone)"},
 		{Key: "app.dock.new_agents", Type: String, Default: "dock", Choices: DockNewAgents,
 			Summary: "what a worker that starts while the app is open does: pop into the live dock marked new (dock), only count on the dock's toggle (badge), open as a tab in the background (tab), or nothing (none). It never takes focus"},
 		{Key: "app.keys.palette", Type: Shortcut, Default: "Mod+Shift+P", Summary: "shortcut: open the command palette"},

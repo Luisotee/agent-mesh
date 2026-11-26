@@ -172,7 +172,7 @@ describe('agents that went quiet', () => {
   it('keep what a reopen or an adoption said when it came while the list was on its way', async () => {
     for (const payload of [
       { case: 'agentReopened', value: { $typeName: 'agentmesh.v1.AgentReopened', terminalId: 't2', sessionId: 's2' } },
-      { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't2' } },
+      { case: 'agentAdopted', value: { $typeName: 'agentmesh.v1.AgentAdopted', terminalId: 't2', launched: false } },
       { case: 'agentPhaseChanged', value: { $typeName: 'agentmesh.v1.AgentPhaseChanged', why: '' } },
       { case: 'agentRoleChanged', value: { $typeName: 'agentmesh.v1.AgentRoleChanged', why: '' } },
     ] as const) {

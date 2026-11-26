@@ -29,6 +29,8 @@ describe('following a transcript', () => {
     expect(withLater(held, page([entry('b', TranscriptKind.ASSISTANT)], { startOffset: 40n, endOffset: 160n }), 40n)).toEqual({ kind: 'same' })
     expect(withLater(held, page([], { endOffset: 60n }))).toEqual({ kind: 'reload' })
     expect(withEarlier(held, page([entry('z', TranscriptKind.USER)], { sessionId: 's2' }))).toBe(held)
+    // A page that doesn't end where the held entries begin (in flight across a reload) would repeat entries.
+    expect(withEarlier(held, page([entry('z', TranscriptKind.USER)], { startOffset: 0n, endOffset: 20n }))).toBe(held)
   })
 
   it('knows a CLI the host reads no record for', () => {

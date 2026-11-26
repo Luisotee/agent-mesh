@@ -607,6 +607,15 @@ describe('SettingsPanel', () => {
 describe('ShortcutField', () => {
   const setting = (key: string, value: string) => create(SettingDescriptor, { key, value: fromJson(ValueSchema, value), isSet: true, schema: create(SettingSchemaSchema, { type: 'shortcut', summary: `shortcut: ${key}` }) })
 
+  it('on a host that is not the first only shows the keys, saying whose the app follows', () => {
+    const { host, wrap } = fixture()
+    const second = { ...host, info: { ...host.info, id: 'h2', name: 'work' } } as HostRuntime
+    render(wrap(<ShortcutField host={second} id="app.keys.dock" value="Mod+Shift+D" busy={false} save={vi.fn()} />))
+    expect(screen.queryByRole('button', { name: /Record a shortcut/ })).toBeNull()
+    expect(screen.getByText('Ctrl+Shift+D')).toBeInTheDocument()
+    expect(screen.getByText(/uses the keys of home, its first host/)).toBeInTheDocument()
+  })
+
   it('records the pressed chord, unbinds on Backspace, cancels on Escape, and refuses a chord another command has', async () => {
     const { host, wrap } = fixture()
     host.store.setState({ settings: { 'app.keys.dock': setting('app.keys.dock', 'Mod+Shift+D'), 'app.keys.settings': setting('app.keys.settings', 'Mod+,') } })
@@ -685,6 +694,16 @@ describe('ChatView', () => {
     expect(first).toHaveTextContent('the very first prompt')
     expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 10n, backward: true }))
     expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
+  })
+
+  it('reads the tail again when an earlier page does not join what is held', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward && req.offset === 10n ? res([entry('x', TranscriptKind.USER, { text: 'from elsewhere' })], { startOffset: 0n, endOffset: 40n, atStart: true }) : res(tail)))
+    const { ui } = chat({ read })
+    render(ui)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    await waitFor(() => expect(read.mock.calls.filter(([r]) => r.backward && r.offset === -1n)).toHaveLength(2))
+    expect(await screen.findByRole('list', { name: 'Conversation' })).toBeInTheDocument()
+    expect(screen.queryByText('from elsewhere')).toBeNull()
   })
 
   it('follows the conversation when the agent does something, from where it stopped', async () => {

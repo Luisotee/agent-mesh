@@ -62,6 +62,11 @@ const (
 	MeshServiceSendMessageProcedure = "/agentmesh.v1.MeshService/SendMessage"
 	// MeshServiceReadInboxProcedure is the fully-qualified name of the MeshService's ReadInbox RPC.
 	MeshServiceReadInboxProcedure = "/agentmesh.v1.MeshService/ReadInbox"
+	// MeshServiceAdoptSessionProcedure is the fully-qualified name of the MeshService's AdoptSession
+	// RPC.
+	MeshServiceAdoptSessionProcedure = "/agentmesh.v1.MeshService/AdoptSession"
+	// MeshServiceCheckAgentProcedure is the fully-qualified name of the MeshService's CheckAgent RPC.
+	MeshServiceCheckAgentProcedure = "/agentmesh.v1.MeshService/CheckAgent"
 	// MeshServiceListMessagesProcedure is the fully-qualified name of the MeshService's ListMessages
 	// RPC.
 	MeshServiceListMessagesProcedure = "/agentmesh.v1.MeshService/ListMessages"
@@ -106,6 +111,8 @@ const (
 	// MeshServiceRevokeDeviceProcedure is the fully-qualified name of the MeshService's RevokeDevice
 	// RPC.
 	MeshServiceRevokeDeviceProcedure = "/agentmesh.v1.MeshService/RevokeDevice"
+	// MeshServiceRevokeSelfProcedure is the fully-qualified name of the MeshService's RevokeSelf RPC.
+	MeshServiceRevokeSelfProcedure = "/agentmesh.v1.MeshService/RevokeSelf"
 	// MeshServiceRegisterPushProcedure is the fully-qualified name of the MeshService's RegisterPush
 	// RPC.
 	MeshServiceRegisterPushProcedure = "/agentmesh.v1.MeshService/RegisterPush"
@@ -200,6 +207,16 @@ type MeshServiceClient interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
+	// Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+	// calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+	// id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+	// accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+	// it runs in.
+	AdoptSession(context.Context, *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error)
+	// A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
+	// pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
+	// root otherwise fetches, diffs and lists by hand.
+	CheckAgent(context.Context, *connect.Request[v1.CheckAgentRequest]) (*connect.Response[v1.CheckAgentResponse], error)
 	// The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
 	// mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
 	// the next page's `after_id`.
@@ -250,6 +267,9 @@ type MeshServiceClient interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+	// device can't be revoked.
+	RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error)
 	// Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
 	// closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
 	// A device registers only itself; revoking the device deletes it.
@@ -274,7 +294,8 @@ type MeshServiceClient interface {
 	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
 	// again; a round of reviewers is collected into one answers file and one message to you.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
-	// Record the root's verdict on one reviewer's findings of a round.
+	// Record the judge's verdict on one reviewer's findings of a PR's newest round: the PR author's (a worker: its
+	// own newest round, never one the root asked) or the root's (which replaces it).
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
@@ -289,7 +310,8 @@ type MeshServiceClient interface {
 	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
 	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
-	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
+	// Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+	// The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
@@ -413,6 +435,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ReadInbox")),
 			connect.WithClientOptions(opts...),
 		),
+		adoptSession: connect.NewClient[v1.AdoptSessionRequest, v1.AdoptSessionResponse](
+			httpClient,
+			baseURL+MeshServiceAdoptSessionProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("AdoptSession")),
+			connect.WithClientOptions(opts...),
+		),
+		checkAgent: connect.NewClient[v1.CheckAgentRequest, v1.CheckAgentResponse](
+			httpClient,
+			baseURL+MeshServiceCheckAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CheckAgent")),
+			connect.WithClientOptions(opts...),
+		),
 		listMessages: connect.NewClient[v1.ListMessagesRequest, v1.ListMessagesResponse](
 			httpClient,
 			baseURL+MeshServiceListMessagesProcedure,
@@ -513,6 +547,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceRevokeDeviceProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeSelf: connect.NewClient[v1.RevokeSelfRequest, v1.RevokeSelfResponse](
+			httpClient,
+			baseURL+MeshServiceRevokeSelfProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RevokeSelf")),
 			connect.WithClientOptions(opts...),
 		),
 		registerPush: connect.NewClient[v1.RegisterPushRequest, v1.RegisterPushResponse](
@@ -690,6 +730,8 @@ type meshServiceClient struct {
 	stopRun          *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	sendMessage      *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox        *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
+	adoptSession     *connect.Client[v1.AdoptSessionRequest, v1.AdoptSessionResponse]
+	checkAgent       *connect.Client[v1.CheckAgentRequest, v1.CheckAgentResponse]
 	listMessages     *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
 	listWaiting      *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
 	subscribeEvents  *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
@@ -707,6 +749,7 @@ type meshServiceClient struct {
 	createPairing    *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices      *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice     *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	revokeSelf       *connect.Client[v1.RevokeSelfRequest, v1.RevokeSelfResponse]
 	registerPush     *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
 	unregisterPush   *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
 	testPush         *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
@@ -805,6 +848,16 @@ func (c *meshServiceClient) ReadInbox(ctx context.Context, req *connect.Request[
 	return c.readInbox.CallUnary(ctx, req)
 }
 
+// AdoptSession calls agentmesh.v1.MeshService.AdoptSession.
+func (c *meshServiceClient) AdoptSession(ctx context.Context, req *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error) {
+	return c.adoptSession.CallUnary(ctx, req)
+}
+
+// CheckAgent calls agentmesh.v1.MeshService.CheckAgent.
+func (c *meshServiceClient) CheckAgent(ctx context.Context, req *connect.Request[v1.CheckAgentRequest]) (*connect.Response[v1.CheckAgentResponse], error) {
+	return c.checkAgent.CallUnary(ctx, req)
+}
+
 // ListMessages calls agentmesh.v1.MeshService.ListMessages.
 func (c *meshServiceClient) ListMessages(ctx context.Context, req *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error) {
 	return c.listMessages.CallUnary(ctx, req)
@@ -888,6 +941,11 @@ func (c *meshServiceClient) ListDevices(ctx context.Context, req *connect.Reques
 // RevokeDevice calls agentmesh.v1.MeshService.RevokeDevice.
 func (c *meshServiceClient) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return c.revokeDevice.CallUnary(ctx, req)
+}
+
+// RevokeSelf calls agentmesh.v1.MeshService.RevokeSelf.
+func (c *meshServiceClient) RevokeSelf(ctx context.Context, req *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error) {
+	return c.revokeSelf.CallUnary(ctx, req)
 }
 
 // RegisterPush calls agentmesh.v1.MeshService.RegisterPush.
@@ -1052,6 +1110,16 @@ type MeshServiceHandler interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
+	// Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+	// calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+	// id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+	// accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+	// it runs in.
+	AdoptSession(context.Context, *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error)
+	// A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
+	// pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
+	// root otherwise fetches, diffs and lists by hand.
+	CheckAgent(context.Context, *connect.Request[v1.CheckAgentRequest]) (*connect.Response[v1.CheckAgentResponse], error)
 	// The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
 	// mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
 	// the next page's `after_id`.
@@ -1102,6 +1170,9 @@ type MeshServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+	// device can't be revoked.
+	RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error)
 	// Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
 	// closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
 	// A device registers only itself; revoking the device deletes it.
@@ -1126,7 +1197,8 @@ type MeshServiceHandler interface {
 	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
 	// again; a round of reviewers is collected into one answers file and one message to you.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
-	// Record the root's verdict on one reviewer's findings of a round.
+	// Record the judge's verdict on one reviewer's findings of a PR's newest round: the PR author's (a worker: its
+	// own newest round, never one the root asked) or the root's (which replaces it).
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
@@ -1141,7 +1213,8 @@ type MeshServiceHandler interface {
 	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
 	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
-	// Spend per agent, kind and phase from session files, plus reviewer verdicts.
+	// Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+	// The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
 	GetCost(context.Context, *connect.Request[v1.GetCostRequest]) (*connect.Response[v1.GetCostResponse], error)
 	// Check listed model families against the tiers: flag new or retired families, and acknowledge decided ones.
 	CheckModels(context.Context, *connect.Request[v1.CheckModelsRequest]) (*connect.Response[v1.CheckModelsResponse], error)
@@ -1261,6 +1334,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ReadInbox")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceAdoptSessionHandler := connect.NewUnaryHandler(
+		MeshServiceAdoptSessionProcedure,
+		svc.AdoptSession,
+		connect.WithSchema(meshServiceMethods.ByName("AdoptSession")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceCheckAgentHandler := connect.NewUnaryHandler(
+		MeshServiceCheckAgentProcedure,
+		svc.CheckAgent,
+		connect.WithSchema(meshServiceMethods.ByName("CheckAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceListMessagesHandler := connect.NewUnaryHandler(
 		MeshServiceListMessagesProcedure,
 		svc.ListMessages,
@@ -1361,6 +1446,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceRevokeDeviceProcedure,
 		svc.RevokeDevice,
 		connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRevokeSelfHandler := connect.NewUnaryHandler(
+		MeshServiceRevokeSelfProcedure,
+		svc.RevokeSelf,
+		connect.WithSchema(meshServiceMethods.ByName("RevokeSelf")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceRegisterPushHandler := connect.NewUnaryHandler(
@@ -1549,6 +1640,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceSendMessageHandler.ServeHTTP(w, r)
 		case MeshServiceReadInboxProcedure:
 			meshServiceReadInboxHandler.ServeHTTP(w, r)
+		case MeshServiceAdoptSessionProcedure:
+			meshServiceAdoptSessionHandler.ServeHTTP(w, r)
+		case MeshServiceCheckAgentProcedure:
+			meshServiceCheckAgentHandler.ServeHTTP(w, r)
 		case MeshServiceListMessagesProcedure:
 			meshServiceListMessagesHandler.ServeHTTP(w, r)
 		case MeshServiceListWaitingProcedure:
@@ -1583,6 +1678,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListDevicesHandler.ServeHTTP(w, r)
 		case MeshServiceRevokeDeviceProcedure:
 			meshServiceRevokeDeviceHandler.ServeHTTP(w, r)
+		case MeshServiceRevokeSelfProcedure:
+			meshServiceRevokeSelfHandler.ServeHTTP(w, r)
 		case MeshServiceRegisterPushProcedure:
 			meshServiceRegisterPushHandler.ServeHTTP(w, r)
 		case MeshServiceUnregisterPushProcedure:
@@ -1700,6 +1797,14 @@ func (UnimplementedMeshServiceHandler) ReadInbox(context.Context, *connect.Reque
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ReadInbox is not implemented"))
 }
 
+func (UnimplementedMeshServiceHandler) AdoptSession(context.Context, *connect.Request[v1.AdoptSessionRequest]) (*connect.Response[v1.AdoptSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.AdoptSession is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CheckAgent(context.Context, *connect.Request[v1.CheckAgentRequest]) (*connect.Response[v1.CheckAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CheckAgent is not implemented"))
+}
+
 func (UnimplementedMeshServiceHandler) ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListMessages is not implemented"))
 }
@@ -1766,6 +1871,10 @@ func (UnimplementedMeshServiceHandler) ListDevices(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeDevice is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RevokeSelf(context.Context, *connect.Request[v1.RevokeSelfRequest]) (*connect.Response[v1.RevokeSelfResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeSelf is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) RegisterPush(context.Context, *connect.Request[v1.RegisterPushRequest]) (*connect.Response[v1.RegisterPushResponse], error) {

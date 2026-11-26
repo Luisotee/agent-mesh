@@ -634,4 +634,44 @@ public interface AgentOrBuilder extends
    * @return The mcpAll.
    */
   boolean getMcpAll();
+
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @return The reviewBy.
+   */
+  java.lang.String getReviewBy();
+  /**
+   * <pre>
+   * Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+   * a relay for a risky PR). Empty means the `review.by` setting.
+   * </pre>
+   *
+   * <code>string review_by = 39 [json_name = "reviewBy"];</code>
+   * @return The bytes for reviewBy.
+   */
+  com.google.protobuf.ByteString
+      getReviewByBytes();
+
+  /**
+   * <pre>
+   * A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+   * clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+   * daemon's, and the daemon never signals it.
+   * </pre>
+   *
+   * <code>int32 adopted_pid = 40 [json_name = "adoptedPid"];</code>
+   * @return The adoptedPid.
+   */
+  int getAdoptedPid();
+
+  /**
+   * <code>uint64 adopted_pid_start = 41 [json_name = "adoptedPidStart"];</code>
+   * @return The adoptedPidStart.
+   */
+  long getAdoptedPidStart();
 }

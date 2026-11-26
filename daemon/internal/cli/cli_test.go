@@ -576,14 +576,29 @@ func TestReservePositionalAndUsageRenderer(t *testing.T) {
 	}
 }
 
+// The CLI rounds token counts as the desktop does (half up), so the two screens never differ by one.
+func TestTokensTextRoundsHalfUpLikeTheDesktop(t *testing.T) {
+	for n, want := range map[int64]string{300: "300", 999: "999", 1000: "1k", 2500: "3k", 2499: "2k", 340_000: "340k", 999_400: "999k", 999_600: "1.0M", 1_250_000: "1.3M", 1_240_000: "1.2M", 12_345_678: "12.3M"} {
+		if got := tokensText(n); got != want {
+			t.Errorf("tokensText(%d) = %q, want %q", n, got, want)
+		}
+	}
+}
+
 func TestCostModelsAndConflictsRenderers(t *testing.T) {
 	var out bytes.Buffer
 	renderCost(&v1.GetCostResponse{
-		Scope:      "run r1",
-		PricesAsOf: "2026-10-28",
-		Usd:        0.18,
+		Scope:       "run r1",
+		PricesAsOf:  "2026-10-28",
+		Usd:         0.18,
+		TotalTokens: 1_246_000,
+		TotalRead:   9_000_000,
+		Clis: []*v1.CliCost{
+			{Cli: "claude", Calls: 2, Input: 1_000_000, W1: 200_000, Output: 40_000, Total: 1_240_000, Read: 8_000_000, Basis: "exact: the API usage"},
+			{Cli: "agy", Calls: 1, Input: 5000, Output: 1000, Total: 6000, Read: 1_000_000, Basis: "an estimate"},
+		},
 		Agents: []*v1.AgentCost{
-			{Run: "r1", Name: "repo-fix", Kind: "worker", Calls: 2, Output: 4000, Usd: 0.05, PlanUsd: 0.02, ExecUsd: 0.03, SubUsd: 0.05, Cold: 1, ColdUsd: 0.02},
+			{Run: "r1", Name: "repo-fix", Kind: "worker", Calls: 2, Input: 800_000, W1: 100_000, Output: 4000, Total: 904_000, Read: 7_000_000, Usd: 0.05, PlanUsd: 0.02, ExecUsd: 0.03, SubUsd: 0.05, Cold: 1, ColdUsd: 0.02},
 		},
 		Kinds: []*v1.KindCost{
 			{Kind: "worker", Sessions: 1, Calls: 2, Usd: 0.05, Share: 100, UsdPerCall: 0.025, OutPerCall: 2000, FirstCtxMedian: 30000, HasFirstCtxMedian: true},
@@ -592,14 +607,14 @@ func TestCostModelsAndConflictsRenderers(t *testing.T) {
 			{Model: "opus", Phase: "plan", Calls: 1, Usd: 0.02, OutPerCall: 1000},
 		},
 		Verdicts: []*v1.VerdictCostSummary{
-			{Kind: "opencode", Model: "opencode/big-pickle", Tier: "mid", Reviews: 2, Findings: 8, AgreedPct: 38, HasAgreedPct: true, Blocking: 1},
+			{Kind: "opencode", Model: "opencode/big-pickle", Tier: "mid", Reviews: 2, ByAuthor: 1, Findings: 8, AgreedPct: 38, HasAgreedPct: true, Blocking: 1},
 		},
 		Reviews: &v1.ReviewCostSummary{
 			ReviewedPrs: 1, ReviewersPerPr: 1.0, HasReviewersPerPr: true,
 			ByCli: map[string]float64{"opencode": 1.0},
 		},
 	}, &out)
-	for _, want := range []string{"run r1: $0.18", "repo-fix", "by model and phase:", "review findings, by the root's verdict", "38%", "reviews: 1 PRs, 1.0 reviewers per PR (opencode 1.0)", "root resets: 0"} {
+	for _, want := range []string{"run r1: 1.2M tokens", "cache reads 9.0M apart", "≈ $0.18 at API prices", "total = input + cache write + output", "agy: an estimate", "cache write", "904k", "repo-fix", "by model and phase:", "review findings, by the judge's verdict", "38%", "reviews: 1 PRs, 1.0 reviewers per PR (opencode 1.0)", "root resets: 0"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("renderCost missing %q in:\n%s", want, out.String())
 		}
@@ -837,5 +852,40 @@ func TestRenderLogAndRing(t *testing.T) {
 		if !strings.Contains(gotRing, want) {
 			t.Errorf("renderRing missing %q in:\n%s", want, gotRing)
 		}
+	}
+}
+
+// renderPair draws the link as a QR code of half blocks above the link itself.
+func TestRenderPairDrawsAQRCodeAndTheLink(t *testing.T) {
+	uri := "agentmesh://pair?v=1&h=host&t=tok"
+	var out bytes.Buffer
+	renderPair(&v1.CreatePairingResponse{Uri: uri, HostName: "box", CertFingerprint: "AB:CD"}, &out)
+	lines := strings.Split(out.String(), "\n")
+	var qr []string
+	for _, l := range lines {
+		if l == "" {
+			break
+		}
+		qr = append(qr, l)
+	}
+	if len(qr) < 10 {
+		t.Fatalf("QR has %d lines:\n%s", len(qr), out.String())
+	}
+	width := len([]rune(qr[0]))
+	for _, l := range qr {
+		if len([]rune(l)) != width {
+			t.Errorf("QR rows differ in width: %q", l)
+		}
+		if strings.Trim(l, " █▀▄") != "" {
+			t.Errorf("QR row holds more than blocks: %q", l)
+		}
+	}
+	for _, want := range []string{uri, "host: box", "certificate: AB:CD"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output lacks %q:\n%s", want, out.String())
+		}
+	}
+	if !hasText("pair") {
+		t.Error("pair has no --format flag")
 	}
 }

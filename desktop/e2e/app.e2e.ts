@@ -196,7 +196,7 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
 
 test('settings are generated from the host, set from the app, and change live when an agent sets them', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Settings' })
   await panel.getByLabel('Filter settings').fill('app.notify.sound')
   const row = panel.locator('[data-setting="app.notify.sound"]')
@@ -230,7 +230,7 @@ test('settings are generated from the host, set from the app, and change live wh
   await panel.getByLabel('Filter settings').fill('app.notify.sound')
   await row.getByRole('button', { name: 'Reset app.notify.sound' }).click()
   await expect.poll(() => box.isChecked()).toBe(true)
-  await page.getByRole('button', { name: 'Settings' }).click() // back to the agents
+  await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
 })
 
 test('notifications follow the host\'s settings, history stays quiet, and the tray is told what waits', async () => {
@@ -261,4 +261,88 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   await expect.poll(() => log().filter((l) => l.type === 'waiting').at(-1)?.count, { timeout: 20_000 }).toBe(2)
   expect(notices()).toHaveLength(before)
   await host.client().resetSetting({ key: 'app.notify.events' })
+})
+
+test('the theme is a host setting: each of the six redraws the app, live, and an agent can change it', async () => {
+  const { page } = app
+  const themeOf = () => page.evaluate(() => ({ name: document.documentElement.dataset.theme, bg: getComputedStyle(document.body).backgroundColor, density: document.documentElement.dataset.density }))
+  expect((await themeOf()).name).toBe('Dracula')
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Settings' })
+  await panel.getByLabel('Filter settings').fill('app.theme')
+  const select = panel.getByRole('combobox', { name: 'Value of app.theme' })
+  const seen = new Map<string, string>()
+  for (const [name, file, bg] of [
+    ['Alucard', 'alucard', 'rgb(255, 251, 235)'],
+    ['Catppuccin Mocha', 'catppuccin-mocha', 'rgb(30, 30, 46)'],
+    ['Catppuccin Latte', 'catppuccin-latte', 'rgb(239, 241, 245)'],
+    ['Tokyo Night', 'tokyo-night', 'rgb(26, 27, 38)'],
+    ['Nord', 'nord', 'rgb(46, 52, 64)'],
+    ['Dracula', 'dracula', 'rgb(40, 42, 54)'],
+  ] as const) {
+    await select.selectOption(name)
+    await expect.poll(async () => (await themeOf()).name).toBe(name)
+    expect((await themeOf()).bg).toBe(bg)
+    seen.set(name, (await themeOf()).density ?? '')
+    await page.screenshot({ path: path.join(shots, `theme-${file}.png`) })
+  }
+  expect(seen.get('Nord')).toBe('comfortable')
+  expect(seen.get('Dracula')).toBe('compact')
+  // The host has it, recorded as set by the device.
+  await expect.poll(async () => (await host.client().listSettings({ prefix: 'app.theme' })).settings[0]?.isSet).toBe(true)
+
+  // An agent (or the CLI) sets it and the open app follows, no reload.
+  await host.client().setSetting({ key: 'app.theme', value: { kind: { case: 'stringValue', value: 'Nord' } } })
+  await expect.poll(async () => (await themeOf()).name).toBe('Nord')
+  // A name this build lacks leaves the default look.
+  await host.client().setSetting({ key: 'app.theme', value: { kind: { case: 'stringValue', value: 'Solarized' } } })
+  await expect.poll(async () => (await themeOf()).name).toBe('Dracula')
+  await host.client().resetSetting({ key: 'app.theme' })
+  await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
+})
+
+test('a repo is kept from free models by a switch in the settings, and the host then refuses OpenCode there', async () => {
+  const { page } = app
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const section = page.getByRole('region', { name: 'Free models by repo' })
+  const box = section.getByRole('checkbox', { name: /May use free models: repo$/ })
+  await expect.poll(() => box.isChecked()).toBe(true)
+  await page.screenshot({ path: path.join(shots, 'free-models.png') })
+  await box.click()
+  await expect.poll(() => box.isChecked()).toBe(false)
+  const listed = async () => (await host.client().listSettings({ prefix: 'repos.no_free_models' })).settings[0]
+  await expect.poll(async () => (await listed())?.isSet).toBe(true)
+
+  // The host enforces it: an OpenCode agent there is refused, naming the setting.
+  const asLead = host.client(host.agentToken(await agentId('repo-lead')))
+  await expect(asLead.spawnAgent({ repo: host.repo, slug: 'free', role: AgentRole.WORKER, kind: 'opencode', tier: 'light' })).rejects.toThrow(/repos\.no_free_models/)
+
+  // Switched back on, and the list is empty again.
+  await box.click()
+  await expect.poll(() => box.isChecked()).toBe(true)
+  await expect.poll(async () => JSON.stringify((await listed())?.value?.kind)).toContain('"values":[]')
+  await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
+})
+
+test('the usage and cost screen asks the host for what mesh usage and mesh cost print', async () => {
+  const { page } = app
+  await page.getByRole('button', { name: 'Usage and cost' }).click()
+  const panel = page.getByRole('region', { name: 'Usage' })
+  await panel.getByRole('heading', { name: /Usage and cost of local/ }).waitFor()
+  // A throwaway host has no Claude account (the screen says so), and the fake agy reports two quota rows, one nearly spent.
+  await panel.getByText(/Reserve: the host starts nothing new on a quota once 90% of it is used/).waitFor({ timeout: 30_000 })
+  await panel.getByText(/No reading/).waitFor()
+  await expect.poll(() => panel.getByRole('row', { name: /Neon/ }).innerText()).toContain('5% left')
+  await expect.poll(() => panel.getByRole('alert').innerText()).toContain('agy Gemini 4 Neon Neon')
+  // The same figures the host computes for the CLI: tokens first, the dollars beside them.
+  await panel.getByTestId('cost-total').waitFor({ timeout: 30_000 })
+  const cli = await host.client().getCost({ since: '7d' })
+  await expect.poll(() => panel.getByTestId('cost-total').innerText()).toContain('tokens')
+  await expect.poll(() => panel.getByTestId('cost-usd').innerText()).toContain(`≈ $${cli.usd.toFixed(2)}`)
+  await page.screenshot({ path: path.join(shots, 'usage.png') })
+
+  // A run is a scope of its own, named by its title.
+  await panel.getByRole('combobox', { name: 'Cost of' }).selectOption({ label: 'e2e run' })
+  await expect.poll(() => panel.getByTestId('cost-scope').innerText(), { timeout: 30_000 }).toContain('run ')
+  await page.getByRole('button', { name: 'Usage and cost' }).click() // back to the agents
 })

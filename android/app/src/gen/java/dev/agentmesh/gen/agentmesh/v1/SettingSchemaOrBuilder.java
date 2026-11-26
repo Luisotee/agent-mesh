@@ -12,7 +12,7 @@ public interface SettingSchemaOrBuilder extends
 
   /**
    * <pre>
-   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
    * string      a non-empty string
    * strings     a list of strings
    * int         a whole number, 0 or more
@@ -24,6 +24,7 @@ public interface SettingSchemaOrBuilder extends
    * slots       a list of slots, each a non-empty list of choices (agent kinds)
    * kinds       a list of choices (agent kinds)
    * mb_or_auto  "auto" or a whole number of MB, 0 or more
+   * int_or_auto "auto" or a whole number, 0 or more
    * json        any JSON value
    * </pre>
    *
@@ -33,7 +34,7 @@ public interface SettingSchemaOrBuilder extends
   java.lang.String getType();
   /**
    * <pre>
-   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
    * string      a non-empty string
    * strings     a list of strings
    * int         a whole number, 0 or more
@@ -45,6 +46,7 @@ public interface SettingSchemaOrBuilder extends
    * slots       a list of slots, each a non-empty list of choices (agent kinds)
    * kinds       a list of choices (agent kinds)
    * mb_or_auto  "auto" or a whole number of MB, 0 or more
+   * int_or_auto "auto" or a whole number, 0 or more
    * json        any JSON value
    * </pre>
    *

@@ -314,11 +314,35 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	// A message to a stopped agent resumes it, and a direct task to a planner reopens it without its deny list:
 	// both need its conversation id, found before the write (learnSession).
 	actor := auth.ActorFrom(ctx)
-	if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && req.Msg.To != "" && req.Msg.To != "parent" {
+	if resumes(req.Msg.Type) && req.Msg.To != "" {
 		r := d.store.Read(ctx)
-		if to, err := d.FindAgent(r, actor, req.Msg.To); err == nil && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
-			d.warmUsage(ctx, r, to.Kind, agyResolveKey{model: to.Model, effort: to.Effort})
+		var to *v1.Agent
+		var err error
+		if req.Msg.To == "parent" {
+			// The sender's parent, as the write below resolves it.
+			if IsAgent(actor.Class) {
+				if self, serr := d.getAgent(r, actor.Id); serr == nil && self.ParentId != "" {
+					to, err = d.getAgent(r, self.ParentId)
+				}
+			}
+		} else {
+			to, err = d.FindAgent(r, actor, req.Msg.To)
+		}
+		if to != nil && err == nil {
+			// Whatever the message is and whoever it is for (a root too): it may resume or reopen the agent, which
+			// reads OpenCode's model costs for `repos.no_free_models` (checkKept).
 			d.warmOpenCodeModels(ctx, to.Kind)
+			if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && req.Msg.To != "parent" && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+				d.warmUsage(ctx, r, to.Kind, agyResolveKey{model: to.Model, effort: to.Effort})
+			}
+		}
+	}
+	// A worker's done to its parent carries a footer on what its PR's reviews found; whether the worker has made
+	// commits is read here, outside the write (reviewFooter).
+	hasWork := true
+	if IsAgent(actor.Class) && req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE {
+		if self, err := d.store.Read(ctx).GetAgent(actor.Id); err == nil {
+			hasWork = hasBranchWork(ctx, self)
 		}
 	}
 	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {
@@ -360,7 +384,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					}
 					if okReserve &&
 						d.hasProcessOnSessionOrWorktree(r2, cur) == nil &&
-						d.capGuard(r2, "resuming "+cur.Name, cur.Id) == nil &&
+						d.capGuard(r2, "resuming "+cur.Name, cur.Id, capShared(ctx)...) == nil &&
 						d.checkMemoryGuard(r2, "resuming "+cur.Name) == nil {
 						prepCandID = cur.Id
 						asWorker := proto.Clone(cur).(*v1.Agent)
@@ -377,6 +401,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			}
 			prepLock = mu
 		}
+	}
+	if sendPlannedHook != nil {
+		sendPlannedHook()
 	}
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		actor := t.Actor
@@ -400,6 +427,19 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			}
 		} else if to, err = d.FindAgent(t.Reader, actor, req.Msg.To); err != nil {
 			return err
+		}
+		// A peer's agent asked by a caller other than its parent answers that caller from now on (startPeer): the
+		// parent moves in this write, with the task, and only when the task goes through (below).
+		var movedFrom string
+		if id := reparentTo(ctx); id != "" && id == actor.Id && to.Peer && to.ParentId != id {
+			// Held checked again: its parent may have given it work since startPeer looked (that holds under the
+			// peer's lock only against other asks).
+			if why, err := peerHeldBy(t.Reader, to); err != nil {
+				return err
+			} else if why != "" {
+				return connect.NewError(connect.CodeFailedPrecondition, errors.New(why))
+			}
+			movedFrom, to.ParentId = to.ParentId, id
 		}
 		var asked *collectRef // the round this report answers, when it is a member's
 		if IsAgent(actor.Class) {
@@ -481,7 +521,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if prepErr != nil && to.Id == prepCandID {
 				out.ResumeError = fmt.Sprintf("preparing worktree for %s: %v", to.Name, prepErr)
 			} else {
-				spec := reviveSpec{task: direct, taskText: req.Msg.Body}
+				spec := reviveSpec{task: direct, taskText: req.Msg.Body, capShared: capShared(ctx)}
 				// The guards answer before anything is written: a refusal keeps the message and says why the agent
 				// stayed stopped (a report to a retired parent must not be lost to the host's cap).
 				switch rv, err := d.revive(t, to, spec); {
@@ -524,6 +564,26 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 						return err
 					}
 				}
+			}
+		}
+		if movedFrom != "" {
+			if out.ResumeError != "" {
+				// The task is refused: the peer stays with its caller, whatever an earlier write of `to` stored.
+				to.ParentId = movedFrom
+				if cur, err := t.GetAgent(to.Id); err == nil && cur.ParentId != movedFrom {
+					cur.ParentId = movedFrom
+					if err := t.PutAgent(cur); err != nil {
+						return err
+					}
+				}
+			} else if err := t.PutAgent(to); err != nil {
+				return err
+			}
+		}
+		if IsAgent(actor.Class) && req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE && to.Id != "" {
+			// A worker's done to its parent carries what its PR's review rounds found (reviewFooter).
+			if self, err := t.Reader.GetAgent(actor.Id); err == nil && to.Id == self.ParentId {
+				msgBody += d.reviewFooter(t.Reader, self, req.Msg.Body, hasWork)
 			}
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
@@ -628,9 +688,21 @@ func resumes(t v1.MessageType) bool {
 func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error) {
 	out := &v1.ReadInboxResponse{}
 	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceReadInboxProcedure, out, func(t *store.Tx) error {
-		msgs, err := t.Inbox(t.Actor.Id, req.Msg.All)
-		if err != nil {
-			return err
+		var msgs []*v1.Message
+		if id := req.Msg.Id; id != "" {
+			m, err := t.Message(t.Actor.Id, id)
+			if errors.Is(err, store.ErrNotFound) {
+				return notFound("no message %q in your inbox", id)
+			}
+			if err != nil {
+				return err
+			}
+			msgs = []*v1.Message{m}
+		} else {
+			var err error
+			if msgs, err = t.Inbox(t.Actor.Id, req.Msg.All); err != nil {
+				return err
+			}
 		}
 		for _, m := range msgs {
 			if m.ReadAt == nil && !req.Msg.Peek {
@@ -641,6 +713,13 @@ func (d *Daemon) ReadInbox(ctx context.Context, req *connect.Request[v1.ReadInbo
 			}
 		}
 		out.Messages = msgs
+		if t.Actor.Class == v1.ActorClass_ACTOR_CLASS_ROOT && !req.Msg.Full && req.Msg.Id == "" {
+			over, err := d.Setting(t.Reader, "inbox.summary_over")
+			if err != nil {
+				return err
+			}
+			out.Messages = d.summarizeInbox(msgs, int(over.(float64)))
+		}
 		return nil
 	})
 	return connect.NewResponse(out), err

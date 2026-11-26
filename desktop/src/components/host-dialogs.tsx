@@ -55,7 +55,7 @@ export function AddHostForm({ onDone, opened }: { onDone?: () => void; opened?: 
         </Field>
       ) : (
         <>
-          <Field label="Pairing link" hint="From the other host's Pair a device screen (or mesh pair). It works once, for a few minutes.">
+          <Field label="Pairing link" hint="From the other host's Pair a device screen (or mesh pair). It works once, for a few minutes. A link over a tailnet needs the Tailscale app on this device.">
             <Textarea required value={link} onChange={(e) => setLink(e.target.value)} placeholder="agentmesh://pair?v=1&h=…" spellCheck={false} />
           </Field>
           <Field label="This device's name" hint="What the host calls this app in its list of paired devices.">

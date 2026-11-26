@@ -552,9 +552,17 @@ type Agent struct {
 	// True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
 	ToolsAdded bool `protobuf:"varint,37,opt,name=tools_added,json=toolsAdded,proto3" json:"tools_added,omitempty"`
 	// True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
-	McpAll        bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	McpAll bool `protobuf:"varint,38,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
+	// Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+	// a relay for a risky PR). Empty means the `review.by` setting.
+	ReviewBy string `protobuf:"bytes,39,opt,name=review_by,json=reviewBy,proto3" json:"review_by,omitempty"`
+	// A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+	// clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+	// daemon's, and the daemon never signals it.
+	AdoptedPid      int32  `protobuf:"varint,40,opt,name=adopted_pid,json=adoptedPid,proto3" json:"adopted_pid,omitempty"`
+	AdoptedPidStart uint64 `protobuf:"varint,41,opt,name=adopted_pid_start,json=adoptedPidStart,proto3" json:"adopted_pid_start,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -851,6 +859,27 @@ func (x *Agent) GetMcpAll() bool {
 		return x.McpAll
 	}
 	return false
+}
+
+func (x *Agent) GetReviewBy() string {
+	if x != nil {
+		return x.ReviewBy
+	}
+	return ""
+}
+
+func (x *Agent) GetAdoptedPid() int32 {
+	if x != nil {
+		return x.AdoptedPid
+	}
+	return 0
+}
+
+func (x *Agent) GetAdoptedPidStart() uint64 {
+	if x != nil {
+		return x.AdoptedPidStart
+	}
+	return 0
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -2266,8 +2295,10 @@ func (x *AgentExited) GetReason() string {
 // The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
 // the daemon found it still running at boot and took it back.
 type AgentAdopted struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TerminalId    string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	TerminalId string                 `protobuf:"bytes,1,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	// The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+	Launched      bool `protobuf:"varint,2,opt,name=launched,proto3" json:"launched,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2307,6 +2338,13 @@ func (x *AgentAdopted) GetTerminalId() string {
 		return x.TerminalId
 	}
 	return ""
+}
+
+func (x *AgentAdopted) GetLaunched() bool {
+	if x != nil {
+		return x.Launched
+	}
+	return false
 }
 
 // A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.
@@ -2849,7 +2887,7 @@ func (x *SettingChanged) GetToDefault() bool {
 // What a setting's value may be, enough for a client to draw its editor and validate before it sends.
 type SettingSchema struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+	// One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
 	//   string      a non-empty string
 	//   strings     a list of strings
 	//   int         a whole number, 0 or more
@@ -2861,6 +2899,7 @@ type SettingSchema struct {
 	//   slots       a list of slots, each a non-empty list of choices (agent kinds)
 	//   kinds       a list of choices (agent kinds)
 	//   mb_or_auto  "auto" or a whole number of MB, 0 or more
+	//   int_or_auto "auto" or a whole number, 0 or more
 	//   json        any JSON value
 	Type    string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
 	Summary string `protobuf:"bytes,2,opt,name=summary,proto3" json:"summary,omitempty"`
@@ -3328,8 +3367,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
 	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\x12\x14\n" +
-	"\x05setup\x18\a \x01(\bR\x05setup\"\xf9\n" +
-	"\n" +
+	"\x05setup\x18\a \x01(\bR\x05setup\"\xe3\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -3378,7 +3416,11 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"addedTools\x12\x1f\n" +
 	"\vtools_added\x18% \x01(\bR\n" +
 	"toolsAdded\x12\x17\n" +
-	"\amcp_all\x18& \x01(\bR\x06mcpAll\"\x9c\x02\n" +
+	"\amcp_all\x18& \x01(\bR\x06mcpAll\x12\x1b\n" +
+	"\treview_by\x18' \x01(\tR\breviewBy\x12\x1f\n" +
+	"\vadopted_pid\x18( \x01(\x05R\n" +
+	"adoptedPid\x12*\n" +
+	"\x11adopted_pid_start\x18) \x01(\x04R\x0fadoptedPidStart\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
@@ -3493,10 +3535,11 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\vAgentExited\x12\x1b\n" +
 	"\texit_code\x18\x01 \x01(\x05R\bexitCode\x12\x16\n" +
 	"\x06signal\x18\x02 \x01(\x05R\x06signal\x12\x16\n" +
-	"\x06reason\x18\x03 \x01(\tR\x06reason\"/\n" +
+	"\x06reason\x18\x03 \x01(\tR\x06reason\"K\n" +
 	"\fAgentAdopted\x12\x1f\n" +
 	"\vterminal_id\x18\x01 \x01(\tR\n" +
-	"terminalId\"D\n" +
+	"terminalId\x12\x1a\n" +
+	"\blaunched\x18\x02 \x01(\bR\blaunched\"D\n" +
 	"\x14AgentReopenRequested\x12,\n" +
 	"\x06reopen\x18\x01 \x01(\v2\x14.agentmesh.v1.ReopenR\x06reopen\"}\n" +
 	"\rAgentReopened\x12,\n" +

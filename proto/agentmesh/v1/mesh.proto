@@ -221,6 +221,35 @@ service MeshService {
     };
   }
 
+  // Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
+  // calls act as the root. The run's own root, when it has one, is retired and this session takes its place (its
+  // id, name, mailbox and workers). Needs the session to take cross-session frames (`crossSessionInbound`
+  // accept in the user's own Claude settings: mesh never edits them). `mesh adopt` fills `pid` from the session
+  // it runs in.
+  rpc AdoptSession(AdoptSessionRequest) returns (AdoptSessionResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "adopt"
+      summary: "Make this Claude Code session the run's root"
+    };
+  }
+
+  // A change worker's work at a glance: its branch's commits past the base, the diff stat, whether the tip is
+  // pushed and the worktree clean, and its PRs with their checks (read from GitHub now). One call for what the
+  // root otherwise fetches, diffs and lists by hand.
+  rpc CheckAgent(CheckAgentRequest) returns (CheckAgentResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "check"
+      summary: "Check a worker's branch, diff and PR"
+    };
+  }
+
   // The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
   // mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
   // the next page's `after_id`.
@@ -454,6 +483,20 @@ service MeshService {
     };
   }
 
+  // Revoke the calling device's own pairing and close its streams: how a paired app unpairs itself. The host's own
+  // device can't be revoked.
+  rpc RevokeSelf(RevokeSelfRequest) returns (RevokeSelfResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      write: true
+      cli: "revoke-self"
+      summary: "Revoke this device's own pairing"
+    };
+  }
+
   // Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
   // closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
   // A device registers only itself; revoking the device deletes it.
@@ -553,11 +596,13 @@ service MeshService {
     };
   }
 
-  // Record the root's verdict on one reviewer's findings of a round.
+  // Record the judge's verdict on one reviewer's findings of a PR's newest round: the PR author's (a worker: its
+  // own newest round, never one the root asked) or the root's (which replaces it).
   rpc RecordVerdict(RecordVerdictRequest) returns (RecordVerdictResponse) {
     option (action) = {
       actors: [
         ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
         ACTOR_CLASS_DEVICE
       ]
       write: true
@@ -649,7 +694,8 @@ service MeshService {
     };
   }
 
-  // Spend per agent, kind and phase from session files, plus reviewer verdicts.
+  // Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
+  // The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
   rpc GetCost(GetCostRequest) returns (GetCostResponse) {
     option (action) = {
       actors: [
@@ -661,7 +707,7 @@ service MeshService {
         ACTOR_CLASS_READ_ONLY_DEVICE
       ]
       cli: "cost"
-      summary: "Spend per agent, kind and phase, from session files"
+      summary: "Tokens per agent, kind and phase (dollars at API prices beside them), from session files"
     };
   }
 
@@ -906,10 +952,16 @@ message SpawnAgentRequest {
   // such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
   // (else every server loads already).
   repeated string mcp = 14;
+  // Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+  string reviews = 15;
 }
 
 message SpawnAgentResponse {
   Agent agent = 1;
+  // How many more agents fit on this host now, and how many workers work (`mesh brief` prints the same line):
+  // "7 more agents fit (9 of 16 live, caps.agents auto); 6 of 8 workers working (caps.working auto)". Empty on
+  // a retried spawn.
+  string capacity = 2;
 }
 
 message ListAgentsRequest {
@@ -963,10 +1015,42 @@ message ReadInboxRequest {
   bool peek = 2;
   // Include messages already read.
   bool all = 3;
+  // Print every body whole. A root's `plan` and `done` messages longer than `inbox.summary_over` characters come
+  // back as a summary (their key parts, the file they are kept in, and this flag's command); other callers
+  // always get whole bodies.
+  bool full = 4;
+  // Only this message of yours (any read state), whole: read a summarised plan or report in full. Marks it
+  // read unless peek is set.
+  string id = 5;
 }
 
 message ReadInboxResponse {
   repeated Message messages = 1;
+}
+
+message AdoptSessionRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+  // The Claude Code process to adopt and its start in clock ticks (`mesh adopt` finds the session above it
+  // and fills both in).
+  int32 pid = 3;
+  uint64 pid_start_ticks = 4;
+}
+
+message AdoptSessionResponse {
+  Agent agent = 1;
+  // What changed, in a line: a new root, or the run's own taken over.
+  string note = 2;
+}
+
+message CheckAgentRequest {
+  // An agent id, or a name (within the caller's run, or unique across open runs).
+  string agent = 1;
+}
+
+message CheckAgentResponse {
+  // The report, as text: commits, diff stat, pushed and clean, PRs and their checks.
+  string text = 1;
 }
 
 message ListMessagesRequest {
@@ -1020,6 +1104,9 @@ message SubscribeEventsRequest {
   Cursor cursor = 1;
   // Only this run's events; empty means all.
   string run_id = 2;
+  // Also send the ephemeral AgentActivity frames (the tool an agent runs now). Off by default: a client that wants
+  // state changes only (`mesh events`) would otherwise get a frame per tool call. The desktop sets it.
+  bool activity = 3;
 }
 
 message SubscribeEventsResponse {
@@ -1194,6 +1281,8 @@ message ApproveAgentRequest {
   string body = 7;
   // Why this tier, recorded on the reopen.
   string why = 8;
+  // Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+  string reviews = 9;
 }
 
 message ApproveAgentResponse {
@@ -1302,6 +1391,14 @@ message RevokeDeviceRequest {
 }
 
 message RevokeDeviceResponse {
+  Device device = 1;
+}
+
+message RevokeSelfRequest {
+  RequestMeta meta = 1;
+}
+
+message RevokeSelfResponse {
   Device device = 1;
 }
 

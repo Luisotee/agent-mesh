@@ -15,6 +15,7 @@ import (
 // ResolveModel (`mesh model`, bin/mesh's `mesh model`) says what a spawn of a kind and tier would run now. It
 // asks `pick`, the function a spawn calls, so the two cannot disagree; the chain lists each model's standing so
 // the ones a spawn would skip are visible.
+// It takes no repo, so `repos.no_free_models` (freemodels.go) does not apply to what it reports.
 func (d *Daemon) ResolveModel(ctx context.Context, req *connect.Request[v1.ResolveModelRequest]) (*connect.Response[v1.ResolveModelResponse], error) {
 	m := req.Msg
 	kind := m.Kind

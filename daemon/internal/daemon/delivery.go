@@ -164,6 +164,9 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	if held, err := d.compactStep(ctx, a); held || err != nil {
 		return err // a compaction first: the reopen and the doorbell wait for it
 	}
+	if isAdopted(a) {
+		return d.deliverAdopted(ctx, a) // a session of the user's own: one frame into its socket, no ring to follow
+	}
 	if a.PendingReopen != nil {
 		return d.reopen(ctx, a)
 	}

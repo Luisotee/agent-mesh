@@ -14,6 +14,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -141,6 +142,15 @@ func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i
 
 // limitsAuto is the `limits.auto` policy: "off", "continue" or "switch"; anything else counts as off.
 func (d *Daemon) limitsAuto(r store.Reader) string {
+	// A value stored before `Choices` were enforced and outside them (a host that wrote "none") is off, as it always
+	// was, not the default: Setting would answer "switch" and start moving limited agents.
+	if rec, err := r.Setting("limits.auto"); err == nil {
+		var s string
+		if json.Unmarshal([]byte(rec.Value), &s) == nil && (s == "continue" || s == "switch") {
+			return s
+		}
+		return "off"
+	}
 	v, err := d.Setting(r, "limits.auto")
 	if err != nil {
 		return "off"
@@ -152,14 +162,12 @@ func (d *Daemon) limitsAuto(r store.Reader) string {
 	return "off"
 }
 
-// limitPass moves the agents at a usage limit on, as `limits.auto` says. It looks at each non-root LIMITED agent
-// with no reopen pending; the root's model is the user's, so the root or the user moves a root.
+// limitPass moves the agents at a usage limit on, as `limits.auto` says (with "off" it moves none, but still
+// settles a round member that can't answer in time). It looks at each non-root LIMITED agent with no reopen
+// pending; the root's model is the user's, so the root or the user moves a root.
 func (d *Daemon) limitPass(ctx context.Context) {
 	r := d.store.Read(ctx)
 	auto := d.limitsAuto(r)
-	if auto == "off" {
-		return
-	}
 	agents, err := r.ListAgents("")
 	if err != nil {
 		return
@@ -170,7 +178,13 @@ func (d *Daemon) limitPass(ctx context.Context) {
 			a.PendingReopen != nil || a.SessionId == "" {
 			continue
 		}
-		if a.Kind == opencode.Kind && !warmedOpenCode {
+		if auto == "off" {
+			// Nothing to move: only a pending member of a round can be settled, so no write for any other.
+			if ask, _, err := collecting(r, a.Id, a.ParentId); err != nil || ask == nil {
+				continue
+			}
+		}
+		if a.Kind == opencode.Kind && !warmedOpenCode && auto != "off" {
 			d.warmOpenCodeModels(ctx, opencode.Kind)
 			warmedOpenCode = true
 		}
@@ -190,7 +204,7 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 	mu.Lock()
 	defer mu.Unlock()
 	moved := false
-	var told *v1.Message
+	var told, settled *v1.Message
 	err := d.store.Write(ctx, meshdActor, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
@@ -202,6 +216,20 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		now := tx.Now()
 		held, known, err := tx.ModelHold(a.Kind, a.Model, now)
 		if err != nil {
+			return err
+		}
+		if auto == "off" {
+			// Nothing is moved: a round member that is held past its round's deadline is still settled.
+			allHeld, _, err := tx.ModelHold(a.Kind, holdAll, now)
+			if err != nil {
+				return err
+			}
+			until := held
+			if allHeld.After(until) {
+				until = allHeld
+			}
+			// Whatever the limit's end: with `off` nothing continues the agent at its reset.
+			settled, err = d.settleLimitedMember(tx, a, until, "limits.auto is off, so nothing moves it or continues it", true)
 			return err
 		}
 		if held.IsZero() && !known {
@@ -224,19 +252,49 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		case auto == "switch" && !held.IsZero() && allHeld.IsZero():
 			// The limit is the model's own: the next model of the chain that has quota left.
 			next, err := d.nextOnChain(tx.Reader, a, model, effort)
-			if err != nil || next == "" {
-				return err // no chain, or nothing free after it: wait for the reset
+			if err != nil {
+				return err
+			}
+			if next == "" { // no chain, or nothing free after it: wait for the reset
+				settled, err = d.settleLimitedMember(tx, a, held, "no other model to move to", false)
+				return err
 			}
 			why = "quota"
 			body = fmt.Sprintf("Your previous model (%s) hit its usage limit; you are now on %s, in the same "+
 				"conversation. Continue exactly where you stopped.", model, next)
 			model = next
 		case held.IsZero():
+			// Back on the model it had: not when that is a free one and its repo has since been set against them
+			// (freemodels.go). It stays at its limit, and its parent is told once why, and what to do.
+			if kerr := d.checkKept(tx.Reader, a, model); kerr != nil {
+				since := time.Time{}
+				if a.LastActivity != nil {
+					since = a.LastActivity.AsTime()
+				}
+				text := fmt.Sprintf("%s's usage limit on %s is over, but it is not reopened (%s). Switch it to a paid model "+
+					"(`mesh switch --agent %s --model <model>`), or take its repo off `repos.no_free_models`.", a.Name, model, errMessage(kerr), a.Name)
+				if told, err = d.alertParentTx(tx, a, "kept", text, since); err != nil {
+					return err
+				}
+				return nil
+			}
 			why = "limit reset"
 			body = fmt.Sprintf("Your usage limit has reset; you are back on %s, in the same conversation. "+
 				"Continue exactly where you stopped.", model)
-		default:
-			return nil // the limit isn't over and no other model is free
+		default: // the limit isn't over and no other model is free
+			until := held
+			if allHeld.After(until) {
+				until = allHeld
+			}
+			reason := "no other model to move to"
+			switch {
+			case auto == "continue":
+				reason = "limits.auto is continue, so it waits for the reset"
+			case !allHeld.IsZero():
+				reason = "the account or CLI is at its limit, on every model"
+			}
+			settled, err = d.settleLimitedMember(tx, a, until, reason, false)
+			return err
 		}
 		if _, err := storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_INFO, body); err != nil {
 			return err
@@ -253,14 +311,38 @@ func (d *Daemon) settleLimit(ctx context.Context, agentID, auto string) error {
 		moved = true
 		return tx.PutAgent(a)
 	})
-	if err != nil || !moved {
+	if err == nil && settled != nil && d.notify != nil {
+		d.notify(settled.ToId)
+	}
+	if err != nil {
 		return err
 	}
 	if told != nil && d.notify != nil {
 		d.notify(told.ToId)
 	}
+	if !moved {
+		return nil
+	}
 	d.deliverSoon(agentID)
 	return nil
+}
+
+// settleLimitedMember settles an agent stopped at a usage limit that lasts until `until` and that it is not
+// moved off (`reason` says why, in the member's line), when it is a pending member of its parent's collected
+// ask and `until` is past the ask's deadline (or `always`, when nothing will bring it back): the round would wait out `ask.timeout` for a reviewer that cannot answer. The member's own work is untouched
+// (a later report still reaches its parent as an ordinary one). It returns the message that rings the caller when
+// this was the last member pending.
+func (d *Daemon) settleLimitedMember(tx *store.Tx, a *v1.Agent, until time.Time, reason string, always bool) (*v1.Message, error) {
+	ask, idx, err := collecting(tx.Reader, a.Id, a.ParentId)
+	if err != nil || ask == nil || !always && (ask.Deadline == nil || !until.After(ask.Deadline.AsTime())) {
+		return nil, err
+	}
+	line := "at its usage limit"
+	if !until.IsZero() {
+		line += " until " + until.UTC().Format(time.RFC3339)
+	}
+	line += ", and " + reason
+	return d.settleMember(tx, ask, idx, v1.AskMemberStatus_ASK_MEMBER_STATUS_SETTLED, "limited", line, "")
 }
 
 func limitDetail(a *v1.Agent) string {
@@ -285,6 +367,14 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 		return "", nil // a tier the settings no longer have: nothing to walk
 	}
 	chain = d.expandChain(a.Kind, chain)
+	// A repo set against free models (freemodels.go) never moves on to one: the next paid model, or none.
+	if off := d.freeOffFor(r, a.Kind, a.Repo); off != "" {
+		kept, err := d.dropFree(a.Repo, off, chain)
+		if err != nil {
+			return "", nil
+		}
+		chain = kept
+	}
 	if len(chain) == 0 {
 		return "", nil
 	}

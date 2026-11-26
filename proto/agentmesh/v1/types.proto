@@ -143,6 +143,14 @@ message Agent {
   bool tools_added = 37;
   // True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
   bool mcp_all = 38;
+  // Who runs the review rounds of this worker's PR: "worker" (it asks them itself) or "root" (its parent does:
+  // a relay for a risky PR). Empty means the `review.by` setting.
+  string review_by = 39;
+  // A root that is the user's own Claude Code session, adopted by `mesh adopt`: the process (pid and its start in
+  // clock ticks) the daemon doorbells through its inbox socket. It has no terminal, worktree or branch of the
+  // daemon's, and the daemon never signals it.
+  int32 adopted_pid = 40;
+  uint64 adopted_pid_start = 41;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -323,6 +331,8 @@ message AgentExited {
 // the daemon found it still running at boot and took it back.
 message AgentAdopted {
   string terminal_id = 1;
+  // The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+  bool launched = 2;
 }
 
 // A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.
@@ -393,7 +403,7 @@ message SettingChanged {
 
 // What a setting's value may be, enough for a client to draw its editor and validate before it sends.
 message SettingSchema {
-  // One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, json.
+  // One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
   //   string      a non-empty string
   //   strings     a list of strings
   //   int         a whole number, 0 or more
@@ -405,6 +415,7 @@ message SettingSchema {
   //   slots       a list of slots, each a non-empty list of choices (agent kinds)
   //   kinds       a list of choices (agent kinds)
   //   mb_or_auto  "auto" or a whole number of MB, 0 or more
+  //   int_or_auto "auto" or a whole number, 0 or more
   //   json        any JSON value
   string type = 1;
   string summary = 2;

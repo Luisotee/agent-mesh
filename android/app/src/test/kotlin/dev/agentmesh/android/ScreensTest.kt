@@ -49,6 +49,7 @@ private object Silent : MeshApi {
     override suspend fun listSettings(prefix: String) = emptyList<dev.agentmesh.gen.agentmesh.v1.Setting>()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value) = error("unused")
     override suspend fun resetSetting(key: String) = error("unused")
+    override suspend fun revokeSelf() = error("unused")
     override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
     override suspend fun unregisterPush(): Boolean = error("unused")
     override suspend fun testPush(): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
@@ -60,7 +61,7 @@ class ScreensTest {
     @get:Rule val compose = createComposeRule()
     @get:Rule val tmp = TemporaryFolder()
 
-    private val theme = Themes.resolve(Themes.parse(File("src/main/assets/themes/dracula.json").readText()))
+    private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
 
     private fun runtime(): HostRuntime {
         val repo = HostRepository(tmp.newFile("hosts.json").also { it.delete() }, Plain)

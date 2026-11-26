@@ -123,6 +123,13 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
       // The conversation was reset while this read was out: it is another one's earlier part.
       if (mine !== gen.current) return
       const next = withEarlier(cur.current.t, res)
+      if (next === cur.current.t) {
+        // The page doesn't join what is held (the record changed while it was out): read the tail again.
+        cur.current = { t: emptyTranscript(), loaded: false }
+        setState(cur.current)
+        void sync()
+        return
+      }
       cur.current = { t: next, loaded: true }
       setState(cur.current)
     } catch (e) {
@@ -130,7 +137,7 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
     } finally {
       setEarlierBusy(false)
     }
-  }, [host, agentId, earlierBusy])
+  }, [host, agentId, earlierBusy, sync])
 
   return { transcript: state.t, loaded: state.loaded, error, sync, loadEarlier, earlierBusy }
 }

@@ -106,3 +106,47 @@ func Signal(pid int, startTicks uint64, sig syscall.Signal) error {
 	}
 	return syscall.Kill(pid, sig)
 }
+
+// ClockTicks is the kernel's USER_HZ: the unit of the CPU times in /proc/<pid>/stat (100 on every Linux the
+// daemon runs on).
+const ClockTicks = 100
+
+// Usage is a process's resident memory in kB (/proc/<pid>/statm) and the CPU time it has used, user plus system,
+// in clock ticks (/proc/<pid>/stat fields 14 and 15), with that of the children it has waited for (fields 16 and
+// 17): a build or a test run that starts and ends between two samples is only ever seen there.
+func Usage(pid int) (rssKB, cpuTicks uint64, err error) {
+	f, err := stat(pid)
+	if err != nil {
+		return 0, 0, err
+	}
+	var ticks uint64
+	for _, i := range []int{11, 12, 13, 14} { // utime, stime, cutime, cstime
+		n, perr := strconv.ParseUint(f[i], 10, 64)
+		if perr != nil {
+			return 0, 0, fmt.Errorf("unparseable CPU times in /proc/%d/stat", pid)
+		}
+		ticks += n
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/statm", pid))
+	if err != nil {
+		return 0, 0, err
+	}
+	m := strings.Fields(string(b))
+	if len(m) < 2 {
+		return 0, 0, fmt.Errorf("short /proc/%d/statm", pid)
+	}
+	pages, err := strconv.ParseUint(m[1], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	return pages * uint64(os.Getpagesize()) / 1024, ticks, nil
+}
+
+// PPID is a process's parent (/proc/<pid>/stat field 4).
+func PPID(pid int) (int, error) {
+	f, err := stat(pid)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(f[1])
+}

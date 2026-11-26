@@ -21,4 +21,14 @@ public interface AgentAdoptedOrBuilder extends
    */
   com.google.protobuf.ByteString
       getTerminalIdBytes();
+
+  /**
+   * <pre>
+   * The terminal was started by a launch just now, not found running at boot: `mesh log` says "launched".
+   * </pre>
+   *
+   * <code>bool launched = 2 [json_name = "launched"];</code>
+   * @return The launched.
+   */
+  boolean getLaunched();
 }
