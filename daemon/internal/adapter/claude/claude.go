@@ -20,7 +20,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1/adapterv1connect"
 	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
-	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/shellmatch"
 )
 
 // Kind is the adapter's kind.
@@ -404,7 +404,7 @@ var months = map[string]time.Month{"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may"
 // ── PreToolUse publish check ──
 
 // EvaluatePreToolUse checks a Claude PreToolUse payload against the publish rules, and says whether the tool
-// call is denied and why. Only the Bash tool's command is read, by agy's matcher (the same list of gh reads, the
+// call is denied and why. Only the Bash tool's command is read, by shellmatch (the same list of gh reads, the
 // same unwrapping of `env`, `sh -c` and the like). With denyPublish set, a payload that can't be read is denied:
 // the rule fails closed. It guards against an agent's mistake, not a determined one (a script it writes, a git
 // alias): the role's prompt says what it may do.
@@ -425,7 +425,7 @@ func EvaluatePreToolUse(raw []byte, denyPublish bool) (bool, string) {
 	if err := json.Unmarshal(p.ToolInput, &in); err != nil {
 		return true, "read-only/planning agent: the shell command could not be read (" + err.Error() + ")"
 	}
-	if pub := agy.MatchPublishCommand(in.Command); pub != "" {
+	if pub := shellmatch.MatchPublishCommand(in.Command); pub != "" {
 		return true, fmt.Sprintf("read-only/planning agent may not run %q", pub)
 	}
 	return false, ""

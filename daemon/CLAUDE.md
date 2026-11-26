@@ -22,7 +22,7 @@ Run `check.sh` before you report a change here: the repo runs no hosted CI, so i
 
 ## Layout
 
-`cmd/` holds the four binaries; `internal/` one package per concern (`daemon` the server and handlers, `registry` who may call what, `store` SQLite and migrations, `settings` the settings table, `events`, `termhost`/`termclient`, `adapter/claude` and `adapter/agy`, `reducer`, `hook`, `relay`, `pairing`, `tlsutil`, `auth`, `cli`); `gen/` the generated Go; `e2e/` the end-to-end test of the real binaries; `packaging/` the systemd units and the relay's container. `share/` the protocol and skills daemon agents read (`README.md`, "Protocol and skills"). `README.md` "Layout" maps every package.
+`cmd/` holds the four binaries; `internal/` one package per concern (`daemon` the server and handlers, `registry` who may call what, `store` SQLite and migrations, `settings` the settings table, `events`, `termhost`/`termclient`, `adapter/claude` and `adapter/agy`, `shellmatch`, `reducer`, `hook`, `relay`, `pairing`, `tlsutil`, `auth`, `cli`); `gen/` the generated Go; `e2e/` the end-to-end test of the real binaries; `packaging/` the systemd units and the relay's container. `share/` the protocol and skills daemon agents read (`README.md`, "Protocol and skills"). `README.md` "Layout" maps every package.
 
 ## Conventions
 
