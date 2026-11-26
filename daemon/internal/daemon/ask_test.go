@@ -116,6 +116,17 @@ func (w *reviewWorld) say(t *testing.T, agentID string, typ v1.MessageType, body
 	return res.Msg.Message
 }
 
+// quiet waits until an agent has taken its task's doorbell and ended the turn it started (do it before the
+// agent reads its inbox: a task read first is never rung).
+func (w *reviewWorld) quiet(t *testing.T, id string) {
+	t.Helper()
+	waitFor(t, "its task delivered", func() bool {
+		in, _ := w.d.Store().Read(context.Background()).Inbox(id, true)
+		return len(in) > 0 && in[len(in)-1].DeliveredAt != nil
+	})
+	w.waitState(id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
 // roundMessages are the messages the root got that announce a finished ask.
 func (w *reviewWorld) answers(t *testing.T) []*v1.Message {
 	t.Helper()
@@ -379,6 +390,7 @@ func TestAReReviewInTheSameRunAsksTheSameReviewersAgainOnTheNewHead(t *testing.T
 		t.Fatalf("round 1 %v", round1)
 	}
 	for _, a := range round1.Agents {
+		w.quiet(t, a.Id)
 		w.say(t, a.Id, v1.MessageType_MESSAGE_TYPE_DONE, "finding in "+a.Kind)
 	}
 	waitFor(t, "round 1's message", func() bool { return len(w.answers(t)) == 1 })
@@ -573,11 +585,7 @@ func TestAMemberThatCrashesSettlesWithItsExitAlertInsteadOfRingingTheCaller(t *t
 		}
 	}
 	// Its task's doorbell rang and its turn is over: then it takes typed input.
-	waitFor(t, "its task delivered", func() bool {
-		in, _ := w.d.Store().Read(context.Background()).Inbox(claude.Id, true)
-		return len(in) > 0 && in[0].DeliveredAt != nil
-	})
-	w.waitState(claude.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.quiet(t, claude.Id)
 	w.typeInto(w.agent(claude.Id), "/crash\r")
 	w.waitState(claude.Id, v1.AgentState_AGENT_STATE_EXITED)
 	w.say(t, agy.Id, v1.MessageType_MESSAGE_TYPE_DONE, "agy: fine")
@@ -599,6 +607,7 @@ func TestAReusedReviewersWorktreeThatCantMoveStaysAndSaysSo(t *testing.T) {
 	head1 := w.pr.push(t, "the feature")
 	round1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "mid", Reviewers: "claude"})
 	rev := round1.Agents[0]
+	w.quiet(t, rev.Id)
 	w.say(t, rev.Id, v1.MessageType_MESSAGE_TYPE_DONE, "finding")
 	waitFor(t, "round 1's message", func() bool { return len(w.answers(t)) == 1 })
 	// The reviewer left a file in its worktree: it is not moved.
