@@ -91,6 +91,10 @@ const (
 	// MeshServiceRevokeDeviceProcedure is the fully-qualified name of the MeshService's RevokeDevice
 	// RPC.
 	MeshServiceRevokeDeviceProcedure = "/agentmesh.v1.MeshService/RevokeDevice"
+	// MeshServiceGetUsageProcedure is the fully-qualified name of the MeshService's GetUsage RPC.
+	MeshServiceGetUsageProcedure = "/agentmesh.v1.MeshService/GetUsage"
+	// MeshServiceSetReserveProcedure is the fully-qualified name of the MeshService's SetReserve RPC.
+	MeshServiceSetReserveProcedure = "/agentmesh.v1.MeshService/SetReserve"
 	// MeshServiceAskProcedure is the fully-qualified name of the MeshService's Ask RPC.
 	MeshServiceAskProcedure = "/agentmesh.v1.MeshService/Ask"
 	// MeshServiceRecordVerdictProcedure is the fully-qualified name of the MeshService's RecordVerdict
@@ -132,9 +136,9 @@ type MeshServiceClient interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
-	// The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
-	// page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
-	// page's `after_id`.
+	// The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
+	// mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
+	// the next page's `after_id`.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
 	// to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
@@ -162,6 +166,10 @@ type MeshServiceClient interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
+	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
+	// Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
+	SetReserve(context.Context, *connect.Request[v1.SetReserveRequest]) (*connect.Response[v1.SetReserveResponse], error)
 	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
 	// again; a round of reviewers is collected into one answers file and one message to you.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
@@ -332,6 +340,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		getUsage: connect.NewClient[v1.GetUsageRequest, v1.GetUsageResponse](
+			httpClient,
+			baseURL+MeshServiceGetUsageProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetUsage")),
+			connect.WithClientOptions(opts...),
+		),
+		setReserve: connect.NewClient[v1.SetReserveRequest, v1.SetReserveResponse](
+			httpClient,
+			baseURL+MeshServiceSetReserveProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SetReserve")),
+			connect.WithClientOptions(opts...),
+		),
 		ask: connect.NewClient[v1.AskRequest, v1.AskResponse](
 			httpClient,
 			baseURL+MeshServiceAskProcedure,
@@ -380,6 +400,8 @@ type meshServiceClient struct {
 	createPairing   *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices     *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice    *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	getUsage        *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
+	setReserve      *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
 	ask             *connect.Client[v1.AskRequest, v1.AskResponse]
 	recordVerdict   *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
 	listAsks        *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
@@ -510,6 +532,16 @@ func (c *meshServiceClient) RevokeDevice(ctx context.Context, req *connect.Reque
 	return c.revokeDevice.CallUnary(ctx, req)
 }
 
+// GetUsage calls agentmesh.v1.MeshService.GetUsage.
+func (c *meshServiceClient) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
+	return c.getUsage.CallUnary(ctx, req)
+}
+
+// SetReserve calls agentmesh.v1.MeshService.SetReserve.
+func (c *meshServiceClient) SetReserve(ctx context.Context, req *connect.Request[v1.SetReserveRequest]) (*connect.Response[v1.SetReserveResponse], error) {
+	return c.setReserve.CallUnary(ctx, req)
+}
+
 // Ask calls agentmesh.v1.MeshService.Ask.
 func (c *meshServiceClient) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {
 	return c.ask.CallUnary(ctx, req)
@@ -557,9 +589,9 @@ type MeshServiceHandler interface {
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
-	// The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
-	// page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
-	// page's `after_id`.
+	// The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
+	// mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
+	// the next page's `after_id`.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// What waits on the user (what `bin/mesh status` calls waiting rows, for a person): a plan or a question sent
 	// to an open run's lead that nobody has answered since, from an agent that is still there to hear the answer,
@@ -587,6 +619,10 @@ type MeshServiceHandler interface {
 	ListDevices(context.Context, *connect.Request[v1.ListDevicesRequest]) (*connect.Response[v1.ListDevicesResponse], error)
 	// Revoke a paired device's token and close its active streams. Only the host's own device may call this.
 	RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error)
+	// Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
+	GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error)
+	// Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
+	SetReserve(context.Context, *connect.Request[v1.SetReserveRequest]) (*connect.Response[v1.SetReserveResponse], error)
 	// Ask a question, or have a pull request reviewed. A fresh read-only agent starts, or an existing one is asked
 	// again; a round of reviewers is collected into one answers file and one message to you.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
@@ -753,6 +789,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("RevokeDevice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceGetUsageHandler := connect.NewUnaryHandler(
+		MeshServiceGetUsageProcedure,
+		svc.GetUsage,
+		connect.WithSchema(meshServiceMethods.ByName("GetUsage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceSetReserveHandler := connect.NewUnaryHandler(
+		MeshServiceSetReserveProcedure,
+		svc.SetReserve,
+		connect.WithSchema(meshServiceMethods.ByName("SetReserve")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceAskHandler := connect.NewUnaryHandler(
 		MeshServiceAskProcedure,
 		svc.Ask,
@@ -823,6 +871,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListDevicesHandler.ServeHTTP(w, r)
 		case MeshServiceRevokeDeviceProcedure:
 			meshServiceRevokeDeviceHandler.ServeHTTP(w, r)
+		case MeshServiceGetUsageProcedure:
+			meshServiceGetUsageHandler.ServeHTTP(w, r)
+		case MeshServiceSetReserveProcedure:
+			meshServiceSetReserveHandler.ServeHTTP(w, r)
 		case MeshServiceAskProcedure:
 			meshServiceAskHandler.ServeHTTP(w, r)
 		case MeshServiceRecordVerdictProcedure:
@@ -936,6 +988,14 @@ func (UnimplementedMeshServiceHandler) ListDevices(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RevokeDevice(context.Context, *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RevokeDevice is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetUsage(context.Context, *connect.Request[v1.GetUsageRequest]) (*connect.Response[v1.GetUsageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetUsage is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SetReserve(context.Context, *connect.Request[v1.SetReserveRequest]) (*connect.Response[v1.SetReserveResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetReserve is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {

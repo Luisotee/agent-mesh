@@ -340,3 +340,32 @@ func TestHooksJSONPreToolUseFailOpenForWritersAndFailClosedForDeny(t *testing.T)
 		t.Fatalf("unexpected deny PreToolUse: %+v", pre)
 	}
 }
+
+func TestUsageParsingAndModelQuotaMatching(t *testing.T) {
+	raw := strings.Join([]string{
+		"header ignored",
+		"Gemini 4 Neon\tNeon\t5%\t12:00",
+		"Gemini 4 Hydrogen and Carbon models\tShared\t75%\t14:00",
+		"Claude models\tClaude\t100%\tin 4h",
+	}, "\n")
+	rows := ParseUsage(raw)
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows: %+v", len(rows), rows)
+	}
+	listing := "gemini-4-neon-high\tGemini 4 Neon (High)\n" +
+		"gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n" +
+		"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n"
+	names := ListingNames(listing)
+	if names["gemini-4-neon-high"] != "Gemini 4 Neon (High)" {
+		t.Fatalf("ListingNames = %#v", names)
+	}
+	if q, ok := ModelQuota("gemini-4-neon-high", names["gemini-4-neon-high"], rows); !ok || q.Left != 5 || q.Resets != "12:00" {
+		t.Errorf("neon quota = %+v, %v", q, ok)
+	}
+	if !QuotaApplies("Gemini and Claude models", "gemini-4-hydrogen-high", "") {
+		t.Errorf("expected 'and ... models' group to match by model prefix")
+	}
+	if q, ok := ModelQuota("claude-opus-5-5-high", names["claude-opus-5-5-high"], rows); !ok || q.Left != 100 {
+		t.Errorf("claude quota = %+v, %v", q, ok)
+	}
+}

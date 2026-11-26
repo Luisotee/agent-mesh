@@ -20,6 +20,7 @@ var renderers = map[string]struct {
 }{
 	"inbox":    {func() proto.Message { return &v1.ReadInboxResponse{} }, renderInbox},
 	"settings": {func() proto.Message { return &v1.ListSettingsResponse{} }, renderSettings},
+	"usage":    {func() proto.Message { return &v1.GetUsageResponse{} }, renderUsage},
 }
 
 // hasText reports whether a command has a text form (and so a --format flag).
@@ -86,4 +87,54 @@ func jsonOf(m proto.Message) string {
 
 func enumLower(e interface{ String() string }, prefix string) string {
 	return strings.ToLower(strings.TrimPrefix(e.String(), prefix))
+}
+
+func renderUsage(m proto.Message, w io.Writer) {
+	u := m.(*v1.GetUsageResponse)
+	if c := u.Claude; c != nil && len(c.Windows) > 0 {
+		parts := make([]string, 0, len(c.Windows))
+		for _, win := range c.Windows {
+			res := "?"
+			if win.ResetsAt != nil {
+				res = win.ResetsAt.AsTime().Local().Format("15:04")
+			}
+			parts = append(parts, fmt.Sprintf("%s %.0f%% (resets %s)", win.Label, win.Used, res))
+		}
+		line := "Claude: " + strings.Join(parts, " · ")
+		if c.Source != "" && c.Source != "live" {
+			line += " [" + c.Source + "]"
+		}
+		if len(c.AtReserve) > 0 {
+			line += " — at the reserve: " + strings.Join(c.AtReserve, ", ")
+		}
+		fmt.Fprintln(w, line)
+	} else {
+		fmt.Fprintln(w, "Claude: unknown (no reading)")
+	}
+	if len(u.AgyRows) > 0 {
+		fmt.Fprintln(w)
+		for _, r := range u.AgyRows {
+			fmt.Fprintf(w, "  %-24s %-16s %3d%% left  (%s)\n", r.Group, r.Label, r.Left, r.Resets)
+		}
+	} else {
+		fmt.Fprintln(w, "agy: `agy -p /usage` gave no quota rows")
+	}
+	if len(u.AgyTiers) > 0 {
+		fmt.Fprintln(w)
+		for _, t := range u.AgyTiers {
+			model := t.Model
+			if model == "" {
+				model = "nothing (every model of it is at the reserve)"
+			}
+			extra := ""
+			if t.HasLeft {
+				extra = fmt.Sprintf(" (%d%% left)", t.Left)
+			}
+			fmt.Fprintf(w, "agy %s: %s%s\n", t.Tier, model, extra)
+			for _, note := range t.Notes {
+				fmt.Fprintf(w, "  %s\n", note)
+			}
+		}
+	}
+	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota once %d%% of it is used (quota_stop)\n", u.QuotaStop)
 }

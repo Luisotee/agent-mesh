@@ -110,4 +110,24 @@ public interface ResumeAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWhyBytes();
+
+  /**
+   * <pre>
+   * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+   * </pre>
+   *
+   * <code>string run_id = 9 [json_name = "runId"];</code>
+   * @return The runId.
+   */
+  java.lang.String getRunId();
+  /**
+   * <pre>
+   * Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
+   * </pre>
+   *
+   * <code>string run_id = 9 [json_name = "runId"];</code>
+   * @return The bytes for runId.
+   */
+  com.google.protobuf.ByteString
+      getRunIdBytes();
 }

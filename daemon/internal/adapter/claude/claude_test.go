@@ -180,3 +180,34 @@ func TestDecodeHook(t *testing.T) {
 		t.Errorf("new session id not carried: %v", evs)
 	}
 }
+
+func TestSettingsEmitsStatusLineWhenStateFlagPresent(t *testing.T) {
+	b, err := Settings([]string{"/usr/bin/mesh", "hook", "--state", "/tmp/mesh state", "claude"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(b), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	sl, ok := parsed["statusLine"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing statusLine in %s", b)
+	}
+	cmd, _ := sl["command"].(string)
+	if sl["type"] != "command" || !strings.Contains(cmd, "statusline --state") || !strings.Contains(cmd, "'/tmp/mesh state'") {
+		t.Errorf("unexpected statusLine command: %#v", sl)
+	}
+
+	bNoState, err := Settings([]string{"/usr/bin/mesh", "hook", "claude"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsedNoState map[string]any
+	if err := json.Unmarshal([]byte(bNoState), &parsedNoState); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := parsedNoState["statusLine"]; exists {
+		t.Errorf("statusLine emitted without --state: %s", bNoState)
+	}
+}

@@ -539,3 +539,39 @@ func TestARepeatedTextFlagIsDescribedAsRepeatable(t *testing.T) {
 		t.Errorf("repeated text flag: %q", got)
 	}
 }
+
+func TestReservePositionalAndUsageRenderer(t *testing.T) {
+	m, err := Request(action(t, "reserve"), []string{"off", "--run-id", "r1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := as(t, m, &v1.SetReserveRequest{})
+	if req.Mode != "off" || req.RunId != "r1" {
+		t.Errorf("reserve positional: %+v", req)
+	}
+
+	var out bytes.Buffer
+	renderUsage(&v1.GetUsageResponse{
+		QuotaStop: 90,
+		MinQuota:  10,
+		Claude: &v1.ClaudeUsage{
+			Source: "statusline",
+			Windows: []*v1.ClaudeUsageWindow{
+				{Key: "five_hour", Label: "five-hour window", Used: 92, ResetsAt: timestamppb.New(time.Date(2026, 11, 26, 18, 0, 0, 0, time.UTC))},
+			},
+			AtReserve: []string{"five-hour window"},
+		},
+		AgyRows: []*v1.AgyUsageRow{
+			{Group: "Gemini 4 Neon", Label: "Neon", Left: 5, Resets: "1h"},
+		},
+		AgyTiers: []*v1.AgyTierPick{
+			{Tier: "strong", Model: "hydrogen", Left: 80, HasLeft: true, Notes: []string{"neon at reserve (5% left)"}},
+		},
+	}, &out)
+	s := out.String()
+	for _, want := range []string{"Claude: five-hour window 92%", "at the reserve: five-hour window", "Gemini 4 Neon", "5% left", "agy strong: hydrogen (80% left)", "quota_stop"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("renderUsage missing %q in:\n%s", want, s)
+		}
+	}
+}

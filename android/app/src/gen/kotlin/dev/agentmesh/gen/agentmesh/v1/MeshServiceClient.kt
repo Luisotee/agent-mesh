@@ -223,9 +223,9 @@ public class MeshServiceClient(
 
 
   /**
-   *  The stored messages of a run, oldest first, for a device to read (ReadInbox is an agent's own mailbox). A
-   *  page ends at `limit`; `more` says there are further messages after the last one, whose id is the next
-   *  page's `after_id`.
+   *  The stored messages of a run, oldest first, for a device or a root to read (ReadInbox is an agent's own
+   *  mailbox). A page ends at `limit`; `more` says there are further messages after the last one, whose id is
+   *  the next page's `after_id`.
    */
   override suspend fun listMessages(request: ListMessagesRequest, headers: Headers): ResponseMessage<ListMessagesResponse> = client.unary(
     request,
@@ -389,6 +389,36 @@ public class MeshServiceClient(
     "agentmesh.v1.MeshService/RevokeDevice",
       dev.agentmesh.gen.agentmesh.v1.RevokeDeviceRequest::class,
       dev.agentmesh.gen.agentmesh.v1.RevokeDeviceResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Quota usage for Claude and agy, what each agy tier would start on, and the reserve threshold.
+   */
+  override suspend fun getUsage(request: GetUsageRequest, headers: Headers): ResponseMessage<GetUsageResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetUsage",
+      dev.agentmesh.gen.agentmesh.v1.GetUsageRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetUsageResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Let a run go on past the quota reserve (`off`), hold it to it again (`on`), or read its state.
+   */
+  override suspend fun setReserve(request: SetReserveRequest, headers: Headers): ResponseMessage<SetReserveResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/SetReserve",
+      dev.agentmesh.gen.agentmesh.v1.SetReserveRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.SetReserveResponse::class,
       StreamType.UNARY,
     ),
   )
