@@ -18,6 +18,16 @@ class DevicePrefs(context: Context) {
         _background.value = on
     }
 
+    private val _push = MutableStateFlow(prefs.getBoolean(PUSH, false))
+
+    /** Notifications through UnifiedPush (a distributor such as ntfy), which arrive with the app's process stopped. */
+    val push: StateFlow<Boolean> get() = _push
+
+    fun setPush(on: Boolean) {
+        prefs.edit().putBoolean(PUSH, on).apply()
+        _push.value = on
+    }
+
     /** Whether the notification permission was already asked for: it is asked once, then left to Settings. */
     var askedForNotifications: Boolean
         get() = prefs.getBoolean(ASKED, false)
@@ -26,5 +36,6 @@ class DevicePrefs(context: Context) {
     private companion object {
         const val BACKGROUND = "background"
         const val ASKED = "asked_notifications"
+        const val PUSH = "push"
     }
 }

@@ -302,6 +302,17 @@ func (d *Daemon) ListDevices(ctx context.Context, req *connect.Request[v1.ListDe
 	if err != nil {
 		return nil, err
 	}
+	regs, err := d.store.Read(ctx).ListPush()
+	if err != nil {
+		return nil, err
+	}
+	for _, dev := range devs {
+		for _, r := range regs {
+			if r.DeviceID == dev.Id {
+				dev.Push = r.Proto()
+			}
+		}
+	}
 	return connect.NewResponse(&v1.ListDevicesResponse{Devices: devs}), nil
 }
 
@@ -353,6 +364,9 @@ func (d *Daemon) revokeDevice(ctx context.Context, meta *v1.RequestMeta, procedu
 			if err := tx.RevokeTokens(id); err != nil {
 				return err
 			}
+			if _, err := tx.DeletePush(id, ""); err != nil {
+				return err
+			}
 			dev.RevokedAt = tsOf(tx.Now())
 			if _, err := tx.AppendEvent(&v1.Event{
 				Payload: &v1.Event_DeviceRevoked{DeviceRevoked: &v1.DeviceRevoked{DeviceId: dev.Id, Name: dev.Name}},
@@ -368,6 +382,7 @@ func (d *Daemon) revokeDevice(ctx context.Context, meta *v1.RequestMeta, procedu
 	}
 	d.relayTokensChanged()
 	d.disconnectActor(id)
+	d.push.stop(id, "")
 	return nil
 }
 

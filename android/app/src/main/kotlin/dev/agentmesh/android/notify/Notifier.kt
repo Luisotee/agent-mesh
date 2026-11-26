@@ -51,8 +51,19 @@ class Notifier(private val context: Context) {
     private fun id(hostId: String, agentId: String) = "$hostId:$agentId".hashCode()
     private fun tag(hostId: String) = "agent-mesh:$hostId"
 
+    /** The (host, event) pairs posted lately: a push and the live stream may both bring the same event. */
+    private val posted = object : LinkedHashMap<String, Unit>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?) = size > POSTED_MAX
+    }
+
+    /** Whether this event was already posted (and marks it posted). An event without a seq is never a repeat. */
+    private fun repeat(hostId: String, seq: Long): Boolean {
+        if (seq <= 0) return false
+        synchronized(posted) { return posted.put("$hostId:$seq", Unit) != null }
+    }
+
     fun post(hostId: String, hostName: String?, n: Notice) {
-        if (!allowed()) return
+        if (!allowed() || repeat(hostId, n.seq)) return
         val nid = id(hostId, n.agentId)
         val waiting = n.kind == NoticeKind.Plan || n.kind == NoticeKind.Question || n.kind == NoticeKind.Input
         val open = PendingIntent.getActivity(
@@ -98,6 +109,16 @@ class Notifier(private val context: Context) {
 
     fun cancel(hostId: String, agentId: String) = manager.cancel(tag(hostId), id(hostId, agentId))
 
+    /** A notification about the host itself, with no agent and no action (a test push). */
+    fun showInfo(hostId: String, title: String, text: String) {
+        if (!allowed()) return
+        notifySafely(
+            tag(hostId), id(hostId, ""),
+            NotificationCompat.Builder(context, CH_REPORTS).setSmallIcon(R.drawable.ic_stat_mesh).setContentTitle(title).setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text)).setAutoCancel(true).build(),
+        )
+    }
+
     /** Replaces an agent's notification with the outcome of its action (an error the user should see). */
     fun showError(hostId: String, agentId: String, title: String, text: String) {
         if (!allowed()) return
@@ -112,6 +133,7 @@ class Notifier(private val context: Context) {
         const val CH_WAITING = "waiting"
         const val CH_REPORTS = "reports"
         const val CH_CONNECTION = "connection"
+        private const val POSTED_MAX = 256
     }
 }
 

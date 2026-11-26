@@ -441,6 +441,39 @@ service MeshService {
     };
   }
 
+  // Register the calling device's UnifiedPush endpoint (WebPush, RFC 8030/8291) for notifications with the app
+  // closed. One endpoint per device: a new one replaces the old, and an endpoint another device held moves here.
+  // A device registers only itself; revoking the device deletes it.
+  rpc RegisterPush(RegisterPushRequest) returns (RegisterPushResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE, ACTOR_CLASS_READ_ONLY_DEVICE]
+      write: true
+      cli: "register-push"
+      summary: "Register this device's UnifiedPush endpoint"
+    };
+  }
+
+  // Remove a device's push endpoint: the caller's own, or (the host's own device only) another device's.
+  rpc UnregisterPush(UnregisterPushRequest) returns (UnregisterPushResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE, ACTOR_CLASS_READ_ONLY_DEVICE]
+      write: true
+      cli: "unregister-push"
+      summary: "Remove a device's push endpoint"
+    };
+  }
+
+  // Send a test notification to a device's push endpoint: the caller's own, or (the host's own device only)
+  // another device's. Answers once the push service took it, or with its error.
+  rpc TestPush(TestPushRequest) returns (TestPushResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE, ACTOR_CLASS_READ_ONLY_DEVICE]
+      write: true
+      cli: "test-push"
+      summary: "Send a test notification to a device's push endpoint"
+    };
+  }
+
   // The host's built-in Tailscale node (`meshd --tailscale`): its state, the login URL while it needs one, and its
   // tailnet addresses. Only the host's own device may call this: the login URL attaches the node to whichever
   // tailnet opens it.
@@ -1225,6 +1258,41 @@ message RevokeSelfRequest {
 
 message RevokeSelfResponse {
   Device device = 1;
+}
+
+message RegisterPushRequest {
+  RequestMeta meta = 1;
+  // The push endpoint URL the distributor gave the app: `https://`, or `http://` to a loopback host.
+  string endpoint = 2;
+  // The device's P-256 public key, uncompressed, base64url (RFC 8291 `p256dh`).
+  string p256dh = 3;
+  // The 16-byte authentication secret, base64url (RFC 8291 `auth`).
+  string auth = 4;
+}
+
+message RegisterPushResponse {
+  PushRegistration registration = 1;
+}
+
+message UnregisterPushRequest {
+  RequestMeta meta = 1;
+  // Empty: the caller's own. Another device's only for the host's own device.
+  string device_id = 2;
+}
+
+message UnregisterPushResponse {
+  // Whether there was an endpoint to remove.
+  bool removed = 1;
+}
+
+message TestPushRequest {
+  RequestMeta meta = 1;
+  // Empty: the caller's own. Another device's only for the host's own device.
+  string device_id = 2;
+}
+
+message TestPushResponse {
+  PushRegistration registration = 1;
 }
 
 message TailnetStatusRequest {}
