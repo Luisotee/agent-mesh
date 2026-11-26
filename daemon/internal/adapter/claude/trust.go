@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -103,6 +104,10 @@ const defaultProject = `{"allowedTools":[],"mcpContextUris":[],"mcpServers":{},"
 	`"disabledMcpjsonServers":[],"hasTrustDialogAccepted":true,"projectOnboardingSeenCount":0,` +
 	`"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":false}`
 
+// pretrustLocks serialise the Pretrust calls of this process per config file: the file lock alone cannot tell a
+// stale lock from a live one made by a concurrent call, and would break it.
+var pretrustLocks sync.Map // file → *sync.Mutex
+
 // Pretrust makes Claude Code trust the folder it is about to be launched in, so its folder-trust dialog never
 // shows: it adds `projects[<resolved cwd>].hasTrustDialogAccepted` to the global config of the agent's
 // environment, unless the folder, its canonical git root or a parent is trusted already. It writes under the lock
@@ -126,6 +131,9 @@ func Pretrust(env map[string]string, cwd string) error {
 	if real, err := filepath.EvalSymlinks(dir); err == nil {
 		dir = real
 	}
+	mu, _ := pretrustLocks.LoadOrStore(file, &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
 	unlock, err := lockConfig(file)
 	if err != nil {
 		return err
@@ -139,21 +147,29 @@ func Pretrust(env map[string]string, cwd string) error {
 	if err := json.Unmarshal(b, &top); err != nil {
 		return fmt.Errorf("%s is not readable JSON: %w", file, err)
 	}
+	if top == nil { // a file holding `null`
+		top = map[string]json.RawMessage{}
+	}
 	projects := map[string]json.RawMessage{}
 	if raw, ok := top["projects"]; ok {
 		if err := json.Unmarshal(raw, &projects); err != nil {
 			return fmt.Errorf("%s: projects: %w", file, err)
 		}
+		if projects == nil { // `"projects": null`
+			projects = map[string]json.RawMessage{}
+		}
 	}
 	if trustedFolder(projects, dir) {
 		return nil
 	}
+	var entry map[string]json.RawMessage
 	if raw, ok := projects[dir]; ok {
-		// An entry without the trust flag: set it and keep what else it holds.
-		var entry map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &entry); err != nil {
 			return fmt.Errorf("%s: project %s: %w", file, dir, err)
 		}
+	}
+	if entry != nil {
+		// An entry without the trust flag: set it and keep what else it holds. A `null` one counts as absent.
 		entry["hasTrustDialogAccepted"] = json.RawMessage("true")
 		if projects[dir], err = marshal(entry); err != nil {
 			return err

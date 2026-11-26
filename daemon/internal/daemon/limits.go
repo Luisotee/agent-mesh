@@ -70,13 +70,24 @@ func (d *Daemon) holdTime(r store.Reader) time.Duration {
 	return time.Duration(v.(float64) * float64(time.Second))
 }
 
+// limitUntil is when a reported limit ends: the reset time it named (Claude), else its relative reset (agy's
+// "Resets in 1h2m3s"), else `hold` after it was reported.
+func limitUntil(rl *adapterv1.RateLimited, at time.Time, hold time.Duration) time.Time {
+	if rl.ResetAt != nil {
+		return rl.ResetAt.AsTime()
+	}
+	if rl.ResetIn != "" {
+		if d, err := time.ParseDuration(rl.ResetIn); err == nil && d > 0 {
+			return at.Add(d)
+		}
+	}
+	return at.Add(hold)
+}
+
 // noteLimit records the limit an agent's CLI reported: its model is held until the reset the CLI named, else for
 // `limits.hold`; an account-wide limit holds every model of the kind.
 func (d *Daemon) noteLimit(r store.Reader, a *v1.Agent, rl *adapterv1.RateLimited, at time.Time) {
-	until := at.Add(d.holdTime(r))
-	if rl.ResetAt != nil {
-		until = rl.ResetAt.AsTime()
-	}
+	until := limitUntil(rl, at, d.holdTime(r))
 	model := a.Model
 	if rl.AllModels || model == "" {
 		model = holdAll

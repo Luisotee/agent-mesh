@@ -115,7 +115,7 @@ func TestParseResetBareTimeIsTheNextOne(t *testing.T) {
 	if !ok || !at.Equal(time.Date(2027, 1, 2, 9, 0, 0, 0, time.UTC)) {
 		t.Errorf("Jan 2: %v %v", at, ok)
 	}
-	if at, ok = parseReset("resets 3pm (Not/AZone)", fired); !ok || at.Location() != time.Local && at.Hour() != 15 {
+	if at, ok = parseReset("resets 3pm (Not/AZone)", fired); !ok || at.Location() != time.Local || at.Hour() != 15 {
 		t.Errorf("unknown zone: %v %v", at, ok)
 	}
 	for _, text := range []string{"no reset here", "resets soon", "resets 13pm (UTC)"} {

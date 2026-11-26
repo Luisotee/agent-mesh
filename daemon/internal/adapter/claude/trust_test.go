@@ -195,3 +195,57 @@ func TestPretrustWaitsForALiveLockAndBreaksAStaleOne(t *testing.T) {
 		t.Error("not trusted after a stale lock")
 	}
 }
+
+// A `null` where the config has an object (the file, `projects`, or the folder's entry) is an absent one, not a
+// nil map to write into.
+func TestPretrustTakesNullForAbsent(t *testing.T) {
+	wt := realDir(t, t.TempDir())
+	for name, content := range map[string]string{
+		"the file":    `null`,
+		"projects":    `{"numStartups": 3, "projects": null}`,
+		"the project": `{"projects": {"` + wt + `": null}}`,
+	} {
+		env, file := claudeHome(t, content)
+		if err := Pretrust(env, wt); err != nil {
+			t.Errorf("null %s: %v", name, err)
+			continue
+		}
+		if projects(t, file)[wt]["hasTrustDialogAccepted"] != true {
+			t.Errorf("null %s: not trusted: %s", name, mustRead(t, file))
+		}
+	}
+}
+
+func mustRead(t *testing.T, file string) string {
+	t.Helper()
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// Two Pretrust calls of one process never break each other's lock: the file lock cannot tell a stale lock from a
+// live one, so a mutex per file orders them, and both folders end up trusted.
+func TestPretrustCallsInOneProcessDoNotBreakEachOthersLock(t *testing.T) {
+	env, file := claudeHome(t, `{"projects": {}}`)
+	dirs := make([]string, 8)
+	errs := make(chan error, len(dirs))
+	for i := range dirs {
+		dirs[i] = realDir(t, t.TempDir())
+	}
+	for _, d := range dirs {
+		go func() { errs <- Pretrust(env, d) }()
+	}
+	for range dirs {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := projects(t, file)
+	for _, d := range dirs {
+		if got[d]["hasTrustDialogAccepted"] != true {
+			t.Errorf("%s lost: %v", d, got)
+		}
+	}
+}
