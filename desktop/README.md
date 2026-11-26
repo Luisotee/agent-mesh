@@ -53,3 +53,7 @@ AGENT_MESH_DESKTOP_STATE=$state AGENT_MESH_DESKTOP_USERDATA=$(mktemp -d) pnpm st
 ```
 
 `AGENT_MESH_DESKTOP_SHELL_LOG=<file>` makes main record what it was asked to notify, count and configure instead of showing notifications (the e2e tests read it). `AGENT_MESH_DESKTOP_STATE` makes the state dir the app's one fixed host (no host list is read or written); without it the app asks for a host and keeps the list in its user-data dir.
+
+## Building the Windows installer from WSL
+
+`scripts/build-windows.sh` (run in WSL, in the repo) builds the NSIS installer and the zip natively on the Windows side, with no wine, no admin prompt and nothing installed system-wide: it puts a portable Node (checked against nodejs.org's SHA-256) and pnpm under `%USERPROFILE%\agent-mesh-build\tools`, copies the committed `desktop/` there (never build from a `\\wsl$` path), runs `pnpm run pack` (note: plain `pnpm pack` is pnpm's own tarball command) and copies `agent-mesh Setup <version>.exe` and `agent-mesh-<version>-win.zip` to `Downloads`. It needs the packaging of `electron-builder.json` and the `pack` script (the apps branch). Not code-signed: SmartScreen warns on the first run (More info, Run anyway). The installer is per-user, lets the user pick the folder and registers `agentmesh://`; the zip is the unpacked app to run from anywhere.
