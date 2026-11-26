@@ -24,6 +24,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
@@ -726,6 +727,11 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if m.Effort != "" && !validEffort(m.Effort) {
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
+	reqMCP, clearMCP, err := parseMCPArg(m.Mcp)
+	if err != nil {
+		return nil, err
+	}
+	hasMCPFlag := len(m.Mcp) > 0
 	actor := auth.ActorFrom(ctx)
 	if IsAgent(actor.Class) {
 		if actor.RunId == "" {
@@ -760,6 +766,18 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	}
 	if !stopped(a0) {
 		return nil, failedPrecondition("%s is running: resume is for a stopped agent (switch moves a running one)", a0.Name)
+	}
+	if hasMCPFlag {
+		if !clearMCP {
+			if err := d.checkMCP(ctx, a0.Kind, a0.Repo, reqMCP); err != nil {
+				return nil, err
+			}
+			if err := d.checkMCPLease(r0, reqMCP, a0.Id); err != nil {
+				return nil, err
+			}
+		} else if a0.Kind != claude.Kind {
+			return nil, invalid("mcp is for Claude agents: %s has no lean session to clear servers on", a0.Kind)
+		}
 	}
 	if task != "" {
 		d.warmUsage(ctx, r0, a0.Kind, agyResolveKey{model: a0.Model, effort: a0.Effort}, agyResolveKey{model: m.Model, effort: m.Effort})
@@ -875,6 +893,20 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 						return err
 					}
 				}
+				if hasMCPFlag {
+					if clearMCP {
+						a.Mcp, a.McpAll = nil, false
+					} else {
+						if err := d.checkMCPLease(tx.Reader, reqMCP, a.Id); err != nil {
+							return err
+						}
+						a.Mcp, a.McpAll = reqMCP, false
+					}
+				} else if dropNote, dropped, err := d.dropHeldExclusiveMCP(tx.Reader, a); err != nil {
+					return err
+				} else if dropped {
+					out.Notes = append(out.Notes, dropNote)
+				}
 				if prep.newBranch != "" {
 					a.Branch = prep.newBranch
 					a.BaseCommit = prep.newBaseCommit
@@ -922,6 +954,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 				Peer:               a.Peer, // a peer stays a peer in the new run: read-only, its worktree kept
 				Pinned:             a.Pinned,
 				Mcp:                slices.Clone(a.Mcp), // the servers its spawn named: the new launch loads them too
+				AddedTools:         slices.Clone(a.AddedTools),
+				ToolsAdded:         a.ToolsAdded,
+				McpAll:             a.McpAll,
 				DenyEdits:          a.DenyEdits,
 				State:              a.State,
 				Repo:               a.Repo,
@@ -938,6 +973,20 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			// lifts or keeps its list as the task says).
 			if task != "" && d.becomesWorker(tx.Reader, created, task) {
 				created.Role = v1.AgentRole_AGENT_ROLE_WORKER
+			}
+			if hasMCPFlag {
+				if clearMCP {
+					created.Mcp, created.McpAll = nil, false
+				} else {
+					if err := d.checkMCPLease(tx.Reader, reqMCP, a.Id); err != nil {
+						return err
+					}
+					created.Mcp, created.McpAll = reqMCP, false
+				}
+			} else if dropNote, dropped, err := d.dropHeldExclusiveMCP(tx.Reader, created); err != nil {
+				return err
+			} else if dropped {
+				out.Notes = append(out.Notes, dropNote)
 			}
 			out.Agent = created
 			if err := d.mayLaunch(tx.Reader, "resuming "+created.Name, created.Id); err != nil {

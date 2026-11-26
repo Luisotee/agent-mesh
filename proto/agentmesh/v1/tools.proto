@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package agentmesh.v1;
+
+import "agentmesh/v1/options.proto";
+import "agentmesh/v1/types.proto";
+
+message ListToolsRequest {
+  // An agent id or name; empty defaults to the calling agent.
+  string agent = 1;
+}
+
+message ListToolsResponse {
+  bool lean = 1;
+  repeated string tools = 2;
+  repeated string skills = 3;
+  repeated string plugins = 4;
+  // Set (typically "anthropic-skills") when synced claude.ai skills are hidden, else empty.
+  string claudeai_skills = 5;
+  // "repo", "none", or "inherit".
+  string mcp_mode = 6;
+  repeated string mcp_loaded = 7;
+  repeated string mcp_cut = 8;
+  // Set ("claude.ai") when claude.ai connectors are disabled, else empty.
+  string claudeai_connectors = 9;
+  repeated string added = 10;
+}
+
+message AddToolsRequest {
+  RequestMeta meta = 1;
+  // An agent id or name; empty defaults to the calling agent (a worker or read-only agent may only add to itself).
+  string agent = 2;
+  // Cut items to add back: tools, skills, plugin names, MCP servers, `anthropic-skills`, or `claude.ai`.
+  repeated string names = 3;
+  // Optional instruction appended to the post-reopen message telling the agent what to continue with.
+  string next = 4;
+}
+
+message AddToolsResponse {
+  Agent agent = 1;
+  Reopen reopen = 2;
+  repeated string added = 3;
+}
+
+message ListMCPServersRequest {
+  // Optional git repository whose local and project MCP config is included.
+  string repo = 1 [(path) = true];
+}
+
+message MCPServerInfo {
+  string name = 1;
+  string scope = 2;
+  string about = 3;
+  bool always = 4;
+  bool exclusive = 5;
+  string held_by = 6;
+}
+
+message ListMCPServersResponse {
+  repeated MCPServerInfo servers = 1;
+}

@@ -6,7 +6,7 @@ import type { GenExtension, GenFile, GenMessage } from "@bufbuild/protobuf/codeg
 import { extDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { ActorClass } from "./actor_pb";
 import { file_agentmesh_v1_actor } from "./actor_pb";
-import type { MethodOptions, ServiceOptions } from "@bufbuild/protobuf/wkt";
+import type { FieldOptions, MethodOptions, ServiceOptions } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_descriptor } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/options.proto.
  */
 export const file_agentmesh_v1_options: GenFile = /*@__PURE__*/
-  fileDesc("ChphZ2VudG1lc2gvdjEvb3B0aW9ucy5wcm90bxIMYWdlbnRtZXNoLnYxImYKDUFjdGlvbk9wdGlvbnMSKAoGYWN0b3JzGAEgAygOMhguYWdlbnRtZXNoLnYxLkFjdG9yQ2xhc3MSDQoFd3JpdGUYAiABKAgSCwoDY2xpGAMgASgJEg8KB3N1bW1hcnkYBCABKAkiSwoRUGVybWlzc2lvbk9wdGlvbnMSDAoEbmFtZRgBIAEoCRIoCgZhY3RvcnMYAiADKA4yGC5hZ2VudG1lc2gudjEuQWN0b3JDbGFzczpVCgZhY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxjRhgMgASgLMhsuYWdlbnRtZXNoLnYxLkFjdGlvbk9wdGlvbnNSBmFjdGlvbjpkCgtwZXJtaXNzaW9ucxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxjShgMgAygLMh8uYWdlbnRtZXNoLnYxLlBlcm1pc3Npb25PcHRpb25zUgtwZXJtaXNzaW9uc2IGcHJvdG8z", [file_agentmesh_v1_actor, file_google_protobuf_descriptor]);
+  fileDesc("ChphZ2VudG1lc2gvdjEvb3B0aW9ucy5wcm90bxIMYWdlbnRtZXNoLnYxImYKDUFjdGlvbk9wdGlvbnMSKAoGYWN0b3JzGAEgAygOMhguYWdlbnRtZXNoLnYxLkFjdG9yQ2xhc3MSDQoFd3JpdGUYAiABKAgSCwoDY2xpGAMgASgJEg8KB3N1bW1hcnkYBCABKAkiSwoRUGVybWlzc2lvbk9wdGlvbnMSDAoEbmFtZRgBIAEoCRIoCgZhY3RvcnMYAiADKA4yGC5hZ2VudG1lc2gudjEuQWN0b3JDbGFzczpVCgZhY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxjRhgMgASgLMhsuYWdlbnRtZXNoLnYxLkFjdGlvbk9wdGlvbnNSBmFjdGlvbjpkCgtwZXJtaXNzaW9ucxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxjShgMgAygLMh8uYWdlbnRtZXNoLnYxLlBlcm1pc3Npb25PcHRpb25zUgtwZXJtaXNzaW9uczozCgRwYXRoEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxjThgMgASgIUgRwYXRoYgZwcm90bzM", [file_agentmesh_v1_actor, file_google_protobuf_descriptor]);
 
 /**
  * ActionOptions makes an RPC an action of the registry. Every RPC of a registry service must carry one: the
@@ -94,4 +94,12 @@ export const action: GenExtension<MethodOptions, ActionOptions> = /*@__PURE__*/
  */
 export const permissions: GenExtension<ServiceOptions, PermissionOptions[]> = /*@__PURE__*/
   extDesc(file_agentmesh_v1_options, 1);
+
+/**
+ * Resolved by the CLI against the caller's working directory (~ expanded) before sending, when not a URL or -flag.
+ *
+ * @generated from extension: bool path = 50003;
+ */
+export const path: GenExtension<FieldOptions, boolean> = /*@__PURE__*/
+  extDesc(file_agentmesh_v1_options, 2);
 

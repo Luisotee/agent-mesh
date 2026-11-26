@@ -149,7 +149,7 @@ public  final class SpawnAgentRequest extends
    * Path to the git repository.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The repo.
    */
   @java.lang.Override
@@ -161,7 +161,7 @@ public  final class SpawnAgentRequest extends
    * Path to the git repository.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for repo.
    */
   @java.lang.Override
@@ -174,7 +174,7 @@ public  final class SpawnAgentRequest extends
    * Path to the git repository.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @param value The repo to set.
    */
   private void setRepo(
@@ -188,7 +188,7 @@ public  final class SpawnAgentRequest extends
    * Path to the git repository.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    */
   private void clearRepo() {
 
@@ -199,7 +199,7 @@ public  final class SpawnAgentRequest extends
    * Path to the git repository.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @param value The bytes for repo to set.
    */
   private void setRepoBytes(
@@ -1209,7 +1209,7 @@ public  final class SpawnAgentRequest extends
      * Path to the git repository.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @return The repo.
      */
     @java.lang.Override
@@ -1221,7 +1221,7 @@ public  final class SpawnAgentRequest extends
      * Path to the git repository.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @return The bytes for repo.
      */
     @java.lang.Override
@@ -1234,7 +1234,7 @@ public  final class SpawnAgentRequest extends
      * Path to the git repository.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @param value The repo to set.
      * @return This builder for chaining.
      */
@@ -1249,7 +1249,7 @@ public  final class SpawnAgentRequest extends
      * Path to the git repository.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @return This builder for chaining.
      */
     public Builder clearRepo() {
@@ -1262,7 +1262,7 @@ public  final class SpawnAgentRequest extends
      * Path to the git repository.
      * </pre>
      *
-     * <code>string repo = 3 [json_name = "repo"];</code>
+     * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
      * @param value The bytes for repo to set.
      * @return This builder for chaining.
      */

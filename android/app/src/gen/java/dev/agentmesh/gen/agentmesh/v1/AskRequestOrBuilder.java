@@ -48,7 +48,7 @@ public interface AskRequestOrBuilder extends
    * The git repository a fresh asker or reviewer works in.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The repo.
    */
   java.lang.String getRepo();
@@ -57,7 +57,7 @@ public interface AskRequestOrBuilder extends
    * The git repository a fresh asker or reviewer works in.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for repo.
    */
   com.google.protobuf.ByteString
@@ -282,4 +282,45 @@ public interface AskRequestOrBuilder extends
    * @return The timeout.
    */
   int getTimeout();
+
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @return A list containing the mcp.
+   */
+  java.util.List<java.lang.String>
+      getMcpList();
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @return The count of mcp.
+   */
+  int getMcpCount();
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  java.lang.String getMcp(int index);
+  /**
+   * <pre>
+   * Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+   * </pre>
+   *
+   * <code>repeated string mcp = 17 [json_name = "mcp"];</code>
+   * @param index The index of the element to return.
+   * @return The mcp at the given index.
+   */
+  com.google.protobuf.ByteString
+      getMcpBytes(int index);
 }

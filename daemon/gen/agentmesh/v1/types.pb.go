@@ -527,7 +527,14 @@ type Agent struct {
 	Peer bool `protobuf:"varint,30,opt,name=peer,proto3" json:"peer,omitempty"`
 	// The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
 	// (`claude.mcp_keep`); every reopen keeps them.
-	Mcp           []string `protobuf:"bytes,31,rep,name=mcp,proto3" json:"mcp,omitempty"`
+	Mcp []string `protobuf:"bytes,31,rep,name=mcp,proto3" json:"mcp,omitempty"`
+	// Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+	// `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+	AddedTools []string `protobuf:"bytes,32,rep,name=added_tools,json=addedTools,proto3" json:"added_tools,omitempty"`
+	// True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+	ToolsAdded bool `protobuf:"varint,33,opt,name=tools_added,json=toolsAdded,proto3" json:"tools_added,omitempty"`
+	// True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+	McpAll        bool `protobuf:"varint,34,opt,name=mcp_all,json=mcpAll,proto3" json:"mcp_all,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -777,6 +784,27 @@ func (x *Agent) GetMcp() []string {
 		return x.Mcp
 	}
 	return nil
+}
+
+func (x *Agent) GetAddedTools() []string {
+	if x != nil {
+		return x.AddedTools
+	}
+	return nil
+}
+
+func (x *Agent) GetToolsAdded() bool {
+	if x != nil {
+		return x.ToolsAdded
+	}
+	return false
+}
+
+func (x *Agent) GetMcpAll() bool {
+	if x != nil {
+		return x.McpAll
+	}
+	return false
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -2732,7 +2760,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
-	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xad\b\n" +
+	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\x88\t\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -2771,7 +2799,12 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x13resumed_from_run_id\x18\x1c \x01(\tR\x10resumedFromRunId\x121\n" +
 	"\x15resumed_from_agent_id\x18\x1d \x01(\tR\x12resumedFromAgentId\x12\x12\n" +
 	"\x04peer\x18\x1e \x01(\bR\x04peer\x12\x10\n" +
-	"\x03mcp\x18\x1f \x03(\tR\x03mcp\"\x86\x02\n" +
+	"\x03mcp\x18\x1f \x03(\tR\x03mcp\x12\x1f\n" +
+	"\vadded_tools\x18  \x03(\tR\n" +
+	"addedTools\x12\x1f\n" +
+	"\vtools_added\x18! \x01(\bR\n" +
+	"toolsAdded\x12\x17\n" +
+	"\amcp_all\x18\" \x01(\bR\x06mcpAll\"\x86\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +

@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,9 +20,11 @@ import (
 
 // MCP modes of `claude.mcp`: which servers a lean agent loads besides the always-loaded ones.
 const (
-	MCPRepo    = "repo"    // the repo's own (its project entry in ~/.claude.json, its approved .mcp.json)
-	MCPNone    = "none"    // only the always-loaded ones
-	MCPInherit = "inherit" // not lean about MCP: whatever the user's config loads
+	MCPRepo            = "repo"    // the repo's own (its project entry in ~/.claude.json, its approved .mcp.json)
+	MCPNone            = "none"    // only the always-loaded ones
+	MCPInherit         = "inherit" // not lean about MCP: whatever the user's config loads
+	ClaudeAISkills     = "anthropic-skills"
+	ClaudeAIConnectors = "claude.ai"
 )
 
 // readObject is a JSON file's top-level object; {} when it is missing, unreadable or not an object.
@@ -83,8 +86,8 @@ func UserPlugins(env map[string]string) []string {
 	return out
 }
 
-// leanPlugins are the enabled plugins whose name (before the `@marketplace`) is in off.
-func leanPlugins(env map[string]string, off []string) []string {
+// LeanPlugins are the enabled plugins whose name (before the `@marketplace`) is in off.
+func LeanPlugins(env map[string]string, off []string) []string {
 	skip := map[string]bool{}
 	for _, n := range off {
 		skip[n] = true
@@ -111,7 +114,7 @@ func leanSettings(env map[string]string, l *adapterv1.LeanLaunch) map[string]any
 	if l.HideClaudeaiSkills {
 		out["syncClaudeAiSkills"] = false
 	}
-	if plugins := leanPlugins(env, l.OffPlugins); len(plugins) > 0 {
+	if plugins := LeanPlugins(env, l.OffPlugins); len(plugins) > 0 {
 		off := map[string]bool{}
 		for _, p := range plugins {
 			off[p] = false
@@ -124,12 +127,52 @@ func leanSettings(env map[string]string, l *adapterv1.LeanLaunch) map[string]any
 	return out
 }
 
-// LeanArgs are the flags of a lean launch: the strict MCP config.
+// LeanArgs are the flags of a lean launch: the strict MCP config and, once a built-in tool has been added back
+// via `mesh tools add`, `--system-prompt-snapshot off` so subsequent resumes include the newly added tool.
 func LeanArgs(l *adapterv1.LeanLaunch) []string {
-	if l == nil || l.McpConfigPath == "" {
+	if l == nil {
 		return nil
 	}
-	return []string{"--strict-mcp-config", "--mcp-config", l.McpConfigPath}
+	var args []string
+	if l.McpConfigPath != "" {
+		args = append(args, "--strict-mcp-config", "--mcp-config", l.McpConfigPath)
+	}
+	if l.DisablePromptSnapshot {
+		args = append(args, "--system-prompt-snapshot", "off")
+	}
+	return args
+}
+
+// MCPAbout formats one summary line for an MCP server without leaking headers, env vars, or arguments.
+func MCPAbout(name string, server MCPServer, custom map[string]any) string {
+	if s, ok := custom[name].(string); ok && s != "" {
+		return s
+	}
+	if rawURL, ok := server.Config["url"].(string); ok && rawURL != "" {
+		host := "?"
+		if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
+			host = u.Hostname()
+			if p := u.Port(); p != "" {
+				host += ":" + p
+			}
+		}
+		typ, _ := server.Config["type"].(string)
+		if typ == "" {
+			typ = "http"
+		}
+		return typ + " " + host
+	}
+	typ, _ := server.Config["type"].(string)
+	if typ == "" {
+		typ = "stdio"
+	}
+	cmd, _ := server.Config["command"].(string)
+	if cmd == "" {
+		cmd = "?"
+	} else {
+		cmd = filepath.Base(cmd)
+	}
+	return typ + " " + cmd
 }
 
 // MCPServer is a server the user's Claude config defines, with where it comes from.

@@ -26,7 +26,7 @@ public interface ImportPeersRequestOrBuilder extends
    * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
    * </pre>
    *
-   * <code>string from = 2 [json_name = "from"];</code>
+   * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
    * @return The from.
    */
   java.lang.String getFrom();
@@ -35,7 +35,7 @@ public interface ImportPeersRequestOrBuilder extends
    * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
    * </pre>
    *
-   * <code>string from = 2 [json_name = "from"];</code>
+   * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for from.
    */
   com.google.protobuf.ByteString

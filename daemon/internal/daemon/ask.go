@@ -50,10 +50,13 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 	}
 	switch {
 	case m.Peers != "":
+		if len(m.Mcp) > 0 {
+			return nil, invalid("mcp is for a fresh Claude asker or single reviewer, not peers")
+		}
 		return d.askPeers(ctx, actor, m, body)
 	case m.Agent != "":
-		if m.Repo != "" || m.Reviewers != "" || m.Slug != "" || m.Kind != "" || m.Tier != "" || m.Model != "" || m.Effort != "" {
-			return nil, invalid("ask an existing agent with its name and a body (or --review): repo, reviewers, slug, kind, tier, model and effort are for a fresh one")
+		if m.Repo != "" || m.Reviewers != "" || m.Slug != "" || m.Kind != "" || m.Tier != "" || m.Model != "" || m.Effort != "" || len(m.Mcp) > 0 {
+			return nil, invalid("ask an existing agent with its name and a body (or --review): repo, reviewers, slug, kind, tier, model, effort and mcp are for a fresh one")
 		}
 		return d.askAgent(ctx, actor, m, body)
 	case strings.TrimSpace(m.Repo) == "":
@@ -138,6 +141,10 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 	if slug == "" {
 		slug = askSlug(body)
 	}
+	mcpNames, _, err := parseMCPArg(m.Mcp)
+	if err != nil {
+		return nil, err
+	}
 	// A retry of an ask whose spawn went through replays that spawn: no slug or guard to find again.
 	if !d.spawnReplays(ctx, actor, meta) {
 		d.warmOpenCodeModels(ctx, orClaude(m.Kind))
@@ -150,7 +157,7 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 	}
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta, Repo: top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_ASKER, Kind: m.Kind, Model: m.Model, Effort: m.Effort, Tier: m.Tier,
-		Task: askPrefix + "\n\n" + body}))
+		Task: askPrefix + "\n\n" + body, Mcp: mcpNames}))
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +274,10 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	last := m.Since
 	task := reviewTask(reviewSpec{pr: pr, kind: kind, level: level, body: body, last: last,
 		narrow: narrowSince(ctx, top, last, pr.Head)})
+	mcpNames, _, err := parseMCPArg(m.Mcp)
+	if err != nil {
+		return nil, err
+	}
 	if !replay {
 		d.warmOpenCodeModels(ctx, kind)
 		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, m.Model, effort, "a reviewer in "+top); err != nil {
@@ -274,7 +285,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		}
 	}
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: spawnMeta, Repo: top, Slug: slug,
-		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: m.Kind, Model: m.Model, Effort: effort, Tier: m.Tier, Base: pr.Head, Task: task}))
+		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: m.Kind, Model: m.Model, Effort: effort, Tier: m.Tier, Base: pr.Head, Task: task, Mcp: mcpNames}))
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +309,9 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 // reviewer of each at the PR's head (or, in the same run, asks the earlier round's own again), and records
 // the ask the answers are collected by.
 func (d *Daemon) reviewRound(ctx context.Context, actor *v1.Actor, m *v1.AskRequest, body string) (*connect.Response[v1.AskResponse], error) {
+	if len(m.Mcp) > 0 {
+		return nil, invalid("mcp is for a fresh Claude asker or single reviewer, not a round")
+	}
 	if m.Tier == "" {
 		return nil, invalid("give the tier the reviewers run on (--tier): there is no default model")
 	}

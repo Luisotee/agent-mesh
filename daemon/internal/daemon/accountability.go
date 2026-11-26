@@ -95,6 +95,9 @@ const (
 // the store and the clock, so the pass and the write that acts on it agree. It returns the time the agent's
 // task or answer came, which dedupes an alert to its parent.
 func reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAfter, waitMax time.Duration) (owed, time.Time, error) {
+	if a.PendingReopen != nil {
+		return owesNothing, time.Time{}, nil
+	}
 	msgs, err := r.RunMessages(a.RunId, "", -1)
 	if err != nil {
 		return owesNothing, time.Time{}, err

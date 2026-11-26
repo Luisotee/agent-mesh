@@ -500,6 +500,13 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				default:
 					out.Resumed = rv
 					resumedID = to.Id
+					if dropNote, dropped, err := d.dropHeldExclusiveMCP(t.Reader, to); err != nil {
+						return err
+					} else if dropped {
+						if _, err := tellTx(t, to, dropNote); err != nil {
+							return err
+						}
+					}
 					if willPrep && prep.taskNote != "" {
 						msgBody += "\n\n" + prep.taskNote
 					}

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package agentmesh.v1;
 
+import "agentmesh/v1/options.proto";
 import "agentmesh/v1/types.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -125,7 +126,7 @@ message AskRequest {
   // fresh agent is started in `repo`.
   string agent = 2;
   // The git repository a fresh asker or reviewer works in.
-  string repo = 3;
+  string repo = 3 [(path) = true];
   // The question, or the notes to the reviewers; `@file` reads it from a file.
   string body = 4;
   // A pull request to review (its URL or number in `repo`): the ask is a review, of the PR's head commit.
@@ -151,6 +152,8 @@ message AskRequest {
   bool no_refresh = 15;
   // Seconds a collected ask waits for its members, instead of `ask.timeout`.
   int32 timeout = 16;
+  // Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+  repeated string mcp = 17;
 }
 
 message AskResponse {
@@ -254,7 +257,7 @@ message ListPeersResponse {
 message AddPeerRequest {
   RequestMeta meta = 1;
   // A git URL (cloned into `peers.dir`/<group>/<repo>) or the path of a clone that exists.
-  string source = 2;
+  string source = 2 [(path) = true];
   string group = 3;
   string about = 4;
   // Default `<repo>-research`.
@@ -295,7 +298,7 @@ message RemovePeerResponse {
 message ImportPeersRequest {
   RequestMeta meta = 1;
   // bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
-  string from = 2;
+  string from = 2 [(path) = true];
 }
 
 message ImportPeersResponse {

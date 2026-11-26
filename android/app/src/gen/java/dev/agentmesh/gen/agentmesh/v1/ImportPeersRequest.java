@@ -72,7 +72,7 @@ public  final class ImportPeersRequest extends
    * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
    * </pre>
    *
-   * <code>string from = 2 [json_name = "from"];</code>
+   * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
    * @return The from.
    */
   @java.lang.Override
@@ -84,7 +84,7 @@ public  final class ImportPeersRequest extends
    * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
    * </pre>
    *
-   * <code>string from = 2 [json_name = "from"];</code>
+   * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for from.
    */
   @java.lang.Override
@@ -97,7 +97,7 @@ public  final class ImportPeersRequest extends
    * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
    * </pre>
    *
-   * <code>string from = 2 [json_name = "from"];</code>
+   * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
    * @param value The from to set.
    */
   private void setFrom(
@@ -111,7 +111,7 @@ public  final class ImportPeersRequest extends
    * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
    * </pre>
    *
-   * <code>string from = 2 [json_name = "from"];</code>
+   * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
    */
   private void clearFrom() {
 
@@ -122,7 +122,7 @@ public  final class ImportPeersRequest extends
    * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
    * </pre>
    *
-   * <code>string from = 2 [json_name = "from"];</code>
+   * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
    * @param value The bytes for from to set.
    */
   private void setFromBytes(
@@ -281,7 +281,7 @@ public  final class ImportPeersRequest extends
      * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
      * </pre>
      *
-     * <code>string from = 2 [json_name = "from"];</code>
+     * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
      * @return The from.
      */
     @java.lang.Override
@@ -293,7 +293,7 @@ public  final class ImportPeersRequest extends
      * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
      * </pre>
      *
-     * <code>string from = 2 [json_name = "from"];</code>
+     * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
      * @return The bytes for from.
      */
     @java.lang.Override
@@ -306,7 +306,7 @@ public  final class ImportPeersRequest extends
      * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
      * </pre>
      *
-     * <code>string from = 2 [json_name = "from"];</code>
+     * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
      * @param value The from to set.
      * @return This builder for chaining.
      */
@@ -321,7 +321,7 @@ public  final class ImportPeersRequest extends
      * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
      * </pre>
      *
-     * <code>string from = 2 [json_name = "from"];</code>
+     * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
      * @return This builder for chaining.
      */
     public Builder clearFrom() {
@@ -334,7 +334,7 @@ public  final class ImportPeersRequest extends
      * bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
      * </pre>
      *
-     * <code>string from = 2 [json_name = "from"];</code>
+     * <code>string from = 2 [json_name = "from", (.agentmesh.v1.path) = true];</code>
      * @param value The bytes for from to set.
      * @return This builder for chaining.
      */

@@ -12,6 +12,7 @@ public final class OptionsProto {
       com.google.protobuf.ExtensionRegistryLite registry) {
     registry.add(dev.agentmesh.gen.agentmesh.v1.OptionsProto.action);
     registry.add(dev.agentmesh.gen.agentmesh.v1.OptionsProto.permissions);
+    registry.add(dev.agentmesh.gen.agentmesh.v1.OptionsProto.path);
   }
   public static final int ACTION_FIELD_NUMBER = 50001;
   /**
@@ -45,6 +46,26 @@ public final class OptionsProto {
         com.google.protobuf.WireFormat.FieldType.MESSAGE,
         false,
         dev.agentmesh.gen.agentmesh.v1.PermissionOptions.class);
+  public static final int PATH_FIELD_NUMBER = 50003;
+  /**
+   * <pre>
+   * Resolved by the CLI against the caller's working directory (~ expanded) before sending, when not a URL or -flag.
+   * </pre>
+   *
+   * <code>extend .google.protobuf.FieldOptions { ... }</code>
+   */
+  public static final
+    com.google.protobuf.GeneratedMessageLite.GeneratedExtension<
+      com.google.protobuf.DescriptorProtos.FieldOptions,
+      java.lang.Boolean> path = com.google.protobuf.GeneratedMessageLite
+          .newSingularGeneratedExtension(
+        com.google.protobuf.DescriptorProtos.FieldOptions.getDefaultInstance(),
+        false,
+        null,
+        null,
+        50003,
+        com.google.protobuf.WireFormat.FieldType.BOOL,
+        java.lang.Boolean.class);
 
   static {
   }

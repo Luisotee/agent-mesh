@@ -728,7 +728,9 @@ type AskRequest struct {
 	// Ask the peers as they are: don't fetch their upstream or move their checkout.
 	NoRefresh bool `protobuf:"varint,15,opt,name=no_refresh,json=noRefresh,proto3" json:"no_refresh,omitempty"`
 	// Seconds a collected ask waits for its members, instead of `ask.timeout`.
-	Timeout       int32 `protobuf:"varint,16,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	Timeout int32 `protobuf:"varint,16,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	// Names of the user's MCP servers a fresh asker loads besides `claude.mcp_keep` (Claude only).
+	Mcp           []string `protobuf:"bytes,17,rep,name=mcp,proto3" json:"mcp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -873,6 +875,13 @@ func (x *AskRequest) GetTimeout() int32 {
 		return x.Timeout
 	}
 	return 0
+}
+
+func (x *AskRequest) GetMcp() []string {
+	if x != nil {
+		return x.Mcp
+	}
+	return nil
 }
 
 type AskResponse struct {
@@ -2070,7 +2079,7 @@ var File_agentmesh_v1_ask_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\n" +
-	"\x16agentmesh/v1/ask.proto\x12\fagentmesh.v1\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe7\x02\n" +
+	"\x16agentmesh/v1/ask.proto\x12\fagentmesh.v1\x1a\x1aagentmesh/v1/options.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe7\x02\n" +
 	"\tAskMember\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -2125,12 +2134,12 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\vfinished_at\x18\x16 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"finishedAt\x12\x1a\n" +
 	"\bstarting\x18\x17 \x01(\bR\bstarting\x12\x18\n" +
-	"\acontext\x18\x18 \x01(\tR\acontext\"\x92\x03\n" +
+	"\acontext\x18\x18 \x01(\tR\acontext\"\xaa\x03\n" +
 	"\n" +
 	"AskRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
-	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x12\n" +
-	"\x04repo\x18\x03 \x01(\tR\x04repo\x12\x12\n" +
+	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x18\n" +
+	"\x04repo\x18\x03 \x01(\tB\x04\x98\xb5\x18\x01R\x04repo\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x16\n" +
 	"\x06review\x18\x05 \x01(\tR\x06review\x12\x12\n" +
 	"\x04size\x18\x06 \x01(\tR\x04size\x12\x12\n" +
@@ -2145,7 +2154,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05peers\x18\x0e \x01(\tR\x05peers\x12\x1d\n" +
 	"\n" +
 	"no_refresh\x18\x0f \x01(\bR\tnoRefresh\x12\x18\n" +
-	"\atimeout\x18\x10 \x01(\x05R\atimeout\"\xba\x01\n" +
+	"\atimeout\x18\x10 \x01(\x05R\atimeout\x12\x10\n" +
+	"\x03mcp\x18\x11 \x03(\tR\x03mcp\"\xba\x01\n" +
 	"\vAskResponse\x12#\n" +
 	"\x03ask\x18\x01 \x01(\v2\x11.agentmesh.v1.AskR\x03ask\x12+\n" +
 	"\x06agents\x18\x02 \x03(\v2\x13.agentmesh.v1.AgentR\x06agents\x12\x14\n" +
@@ -2202,10 +2212,10 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05group\x18\x01 \x01(\tR\x05group\"n\n" +
 	"\x11ListPeersResponse\x12(\n" +
 	"\x05peers\x18\x01 \x03(\v2\x12.agentmesh.v1.PeerR\x05peers\x12/\n" +
-	"\x06groups\x18\x02 \x03(\v2\x17.agentmesh.v1.PeerGroupR\x06groups\"\xab\x01\n" +
+	"\x06groups\x18\x02 \x03(\v2\x17.agentmesh.v1.PeerGroupR\x06groups\"\xb1\x01\n" +
 	"\x0eAddPeerRequest\x12-\n" +
-	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x16\n" +
-	"\x06source\x18\x02 \x01(\tR\x06source\x12\x14\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x1c\n" +
+	"\x06source\x18\x02 \x01(\tB\x04\x98\xb5\x18\x01R\x06source\x12\x14\n" +
 	"\x05group\x18\x03 \x01(\tR\x05group\x12\x14\n" +
 	"\x05about\x18\x04 \x01(\tR\x05about\x12\x12\n" +
 	"\x04name\x18\x05 \x01(\tR\x04name\x12\x12\n" +
@@ -2225,10 +2235,10 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\fdelete_clone\x18\x03 \x01(\bR\vdeleteClone\"U\n" +
 	"\x12RemovePeerResponse\x12\x1a\n" +
 	"\bworktree\x18\x01 \x01(\tR\bworktree\x12#\n" +
-	"\rdeleted_clone\x18\x02 \x01(\tR\fdeletedClone\"W\n" +
+	"\rdeleted_clone\x18\x02 \x01(\tR\fdeletedClone\"]\n" +
 	"\x12ImportPeersRequest\x12-\n" +
-	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
-	"\x04from\x18\x02 \x01(\tR\x04from\"K\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x18\n" +
+	"\x04from\x18\x02 \x01(\tB\x04\x98\xb5\x18\x01R\x04from\"K\n" +
 	"\x13ImportPeersResponse\x12\x1a\n" +
 	"\bimported\x18\x01 \x03(\tR\bimported\x12\x18\n" +
 	"\askipped\x18\x02 \x03(\tR\askipped*c\n" +
@@ -2336,6 +2346,7 @@ func file_agentmesh_v1_ask_proto_init() {
 	if File_agentmesh_v1_ask_proto != nil {
 		return
 	}
+	file_agentmesh_v1_options_proto_init()
 	file_agentmesh_v1_types_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{

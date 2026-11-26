@@ -9,6 +9,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.adapter.v1.DescribeResponse.kind":               "The kind agents name it by, such as \"claude\".",
 	"agentmesh.adapter.v1.DescribeResponse.verified_versions":  "CLI versions its decoding was verified against; others get a warning.",
 	"agentmesh.adapter.v1.LeanLaunch.deny_tools":               "Tools denied by name (a bare name drops the tool's schema from every request), merged with the read-only deny list.",
+	"agentmesh.adapter.v1.LeanLaunch.disable_prompt_snapshot":  "Pass `--system-prompt-snapshot off` on resume so tools added after the initial lean turn appear in requests.",
 	"agentmesh.adapter.v1.LeanLaunch.hidden_skills":            "Skills hidden from the model's listing (the user can still type them).",
 	"agentmesh.adapter.v1.LeanLaunch.hide_claudeai_skills":     "Hide the skills synced from claude.ai.",
 	"agentmesh.adapter.v1.LeanLaunch.mcp_config_path":          "A file of the MCP servers to load (Claude's `--mcp-config` format); only these load (`--strict-mcp-config`), and claude.ai's connectors are off. Empty: the CLI loads every server the user's config has.",

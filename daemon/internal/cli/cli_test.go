@@ -575,3 +575,96 @@ func TestReservePositionalAndUsageRenderer(t *testing.T) {
 		}
 	}
 }
+
+func TestPathOptionResolvesRelativeAndHomePathsAgainstCallerCwd(t *testing.T) {
+	home := t.TempDir()
+	wd := filepath.Join(home, "projects", "demo")
+	env := Env{
+		Stdin:  strings.NewReader(""),
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+		Getenv: func(k string) string {
+			if k == "HOME" {
+				return home
+			}
+			return ""
+		},
+		Getwd: func() (string, error) { return wd, nil },
+	}
+	parse := func(cmd string, args ...string) proto.Message {
+		c := newCommand(action(t, cmd), env, "")
+		m, err := c.parse(args)
+		if err != nil {
+			t.Fatalf("%s %v: %v", cmd, args, err)
+		}
+		return m
+	}
+
+	if req := as(t, parse("ask", "--repo", ".", "--tier", "mid", "--body", "hi"), &v1.AskRequest{}); req.Repo != wd {
+		t.Errorf("ask --repo . = %q, want %q", req.Repo, wd)
+	}
+	if req := as(t, parse("spawn", "--repo", "../other", "--slug", "x", "--tier", "mid"), &v1.SpawnAgentRequest{}); req.Repo != filepath.Join(home, "projects", "other") {
+		t.Errorf("spawn --repo ../other = %q", req.Repo)
+	}
+	if req := as(t, parse("add-peer", "--source", "./clone"), &v1.AddPeerRequest{}); req.Source != filepath.Join(wd, "clone") {
+		t.Errorf("add-peer local = %q", req.Source)
+	}
+	if req := as(t, parse("add-peer", "--source", "https://github.com/org/repo.git"), &v1.AddPeerRequest{}); req.Source != "https://github.com/org/repo.git" {
+		t.Errorf("add-peer https URL = %q", req.Source)
+	}
+	if req := as(t, parse("add-peer", "--source", "git@github.com:org/repo.git"), &v1.AddPeerRequest{}); req.Source != "git@github.com:org/repo.git" {
+		t.Errorf("add-peer ssh URL = %q", req.Source)
+	}
+	if req := as(t, parse("import-peers"), &v1.ImportPeersRequest{}); req.From != "" {
+		t.Errorf("import-peers default from = %q, want empty", req.From)
+	}
+	if req := as(t, parse("import-peers", "--from", "~/peers.json"), &v1.ImportPeersRequest{}); req.From != filepath.Join(home, "peers.json") {
+		t.Errorf("import-peers ~/peers.json = %q", req.From)
+	}
+}
+
+func TestTwoWordToolsDispatchAndRenderers(t *testing.T) {
+	// Dispatch two-word subcommands: tools add <names...> and tools servers.
+	var helpOut, helpErr bytes.Buffer
+	env := Env{Stdin: strings.NewReader(""), Stdout: &helpOut, Stderr: &helpErr, Getenv: func(string) string { return "" }}
+	if code := Main([]string{"help", "tools", "add"}, env, nil); code != ExitOK || !strings.Contains(helpOut.String(), "tools-add") {
+		t.Errorf("help tools add: %d out=%q err=%q", code, helpOut.String(), helpErr.String())
+	}
+
+	m, err := Request(action(t, "tools-add"), []string{"Edit", "--next", "finish", "playwright"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addReq := as(t, m, &v1.AddToolsRequest{})
+	if !reflect.DeepEqual(addReq.Names, []string{"Edit", "playwright"}) || addReq.Next != "finish" {
+		t.Errorf("tools-add parsed = %+v", addReq)
+	}
+
+	var out bytes.Buffer
+	renderTools(&v1.ListToolsResponse{
+		Lean:               true,
+		Tools:              []string{"Edit"},
+		Skills:             []string{"delegate-agy"},
+		McpMode:            "repo",
+		McpLoaded:          []string{"context7"},
+		McpCut:             []string{"playwright"},
+		ClaudeaiConnectors: "claude.ai",
+		Added:              []string{"sentry"},
+	}, &out)
+	for _, want := range []string{"tools cut: Edit", "skills cut: delegate-agy", "mcp (repo): loaded [context7]; cut [playwright]", "connectors cut: claude.ai", "added back: sentry"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("renderTools missing %q in:\n%s", want, out.String())
+		}
+	}
+
+	out.Reset()
+	renderToolsServers(&v1.ListMCPServersResponse{Servers: []*v1.MCPServerInfo{
+		{Name: "context7", About: "stdio ctx", Always: true},
+		{Name: "playwright", About: "stdio pw", Exclusive: true, HeldBy: "repo-ui (run r1)"},
+	}}, &out)
+	for _, want := range []string{"context7    stdio ctx  [always loaded]", "playwright  stdio pw  [exclusive]  held by repo-ui (run r1)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("renderToolsServers missing %q in:\n%s", want, out.String())
+		}
+	}
+}

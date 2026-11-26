@@ -166,6 +166,14 @@ var file_agentmesh_v1_options_proto_extTypes = []protoimpl.ExtensionInfo{
 		Tag:           "bytes,50002,rep,name=permissions",
 		Filename:      "agentmesh/v1/options.proto",
 	},
+	{
+		ExtendedType:  (*descriptorpb.FieldOptions)(nil),
+		ExtensionType: (*bool)(nil),
+		Field:         50003,
+		Name:          "agentmesh.v1.path",
+		Tag:           "varint,50003,opt,name=path",
+		Filename:      "agentmesh/v1/options.proto",
+	},
 }
 
 // Extension fields to descriptorpb.MethodOptions.
@@ -178,6 +186,14 @@ var (
 var (
 	// repeated agentmesh.v1.PermissionOptions permissions = 50002;
 	E_Permissions = &file_agentmesh_v1_options_proto_extTypes[1]
+)
+
+// Extension fields to descriptorpb.FieldOptions.
+var (
+	// Resolved by the CLI against the caller's working directory (~ expanded) before sending, when not a URL or -flag.
+	//
+	// optional bool path = 50003;
+	E_Path = &file_agentmesh_v1_options_proto_extTypes[2]
 )
 
 var File_agentmesh_v1_options_proto protoreflect.FileDescriptor
@@ -194,7 +210,8 @@ const file_agentmesh_v1_options_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\x06actors\x18\x02 \x03(\x0e2\x18.agentmesh.v1.ActorClassR\x06actors:U\n" +
 	"\x06action\x12\x1e.google.protobuf.MethodOptions\x18ц\x03 \x01(\v2\x1b.agentmesh.v1.ActionOptionsR\x06action:d\n" +
-	"\vpermissions\x12\x1f.google.protobuf.ServiceOptions\x18҆\x03 \x03(\v2\x1f.agentmesh.v1.PermissionOptionsR\vpermissionsB\xb5\x01\n" +
+	"\vpermissions\x12\x1f.google.protobuf.ServiceOptions\x18҆\x03 \x03(\v2\x1f.agentmesh.v1.PermissionOptionsR\vpermissions:3\n" +
+	"\x04path\x12\x1d.google.protobuf.FieldOptions\x18ӆ\x03 \x01(\bR\x04pathB\xb5\x01\n" +
 	"\x10com.agentmesh.v1B\fOptionsProtoP\x01ZBgithub.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1;agentmeshv1\xa2\x02\x03AXX\xaa\x02\fAgentmesh.V1\xca\x02\fAgentmesh\\V1\xe2\x02\x18Agentmesh\\V1\\GPBMetadata\xea\x02\rAgentmesh::V1b\x06proto3"
 
 var (
@@ -216,18 +233,20 @@ var file_agentmesh_v1_options_proto_goTypes = []any{
 	(ActorClass)(0),                     // 2: agentmesh.v1.ActorClass
 	(*descriptorpb.MethodOptions)(nil),  // 3: google.protobuf.MethodOptions
 	(*descriptorpb.ServiceOptions)(nil), // 4: google.protobuf.ServiceOptions
+	(*descriptorpb.FieldOptions)(nil),   // 5: google.protobuf.FieldOptions
 }
 var file_agentmesh_v1_options_proto_depIdxs = []int32{
 	2, // 0: agentmesh.v1.ActionOptions.actors:type_name -> agentmesh.v1.ActorClass
 	2, // 1: agentmesh.v1.PermissionOptions.actors:type_name -> agentmesh.v1.ActorClass
 	3, // 2: agentmesh.v1.action:extendee -> google.protobuf.MethodOptions
 	4, // 3: agentmesh.v1.permissions:extendee -> google.protobuf.ServiceOptions
-	0, // 4: agentmesh.v1.action:type_name -> agentmesh.v1.ActionOptions
-	1, // 5: agentmesh.v1.permissions:type_name -> agentmesh.v1.PermissionOptions
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	4, // [4:6] is the sub-list for extension type_name
-	2, // [2:4] is the sub-list for extension extendee
+	5, // 4: agentmesh.v1.path:extendee -> google.protobuf.FieldOptions
+	0, // 5: agentmesh.v1.action:type_name -> agentmesh.v1.ActionOptions
+	1, // 6: agentmesh.v1.permissions:type_name -> agentmesh.v1.PermissionOptions
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	5, // [5:7] is the sub-list for extension type_name
+	2, // [2:5] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
 }
 
@@ -244,7 +263,7 @@ func file_agentmesh_v1_options_proto_init() {
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_options_proto_rawDesc), len(file_agentmesh_v1_options_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   2,
-			NumExtensions: 2,
+			NumExtensions: 3,
 			NumServices:   0,
 		},
 		GoTypes:           file_agentmesh_v1_options_proto_goTypes,

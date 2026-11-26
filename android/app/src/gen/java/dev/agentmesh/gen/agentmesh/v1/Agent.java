@@ -34,6 +34,7 @@ public  final class Agent extends
     resumedFromRunId_ = "";
     resumedFromAgentId_ = "";
     mcp_ = emptyProtobufList();
+    addedTools_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -1802,6 +1803,220 @@ public  final class Agent extends
     checkByteStringIsUtf8(value);
     ensureMcpIsMutable();
     mcp_.add(value.toStringUtf8());
+  }
+
+  public static final int ADDED_TOOLS_FIELD_NUMBER = 32;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> addedTools_;
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @return A list containing the addedTools.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getAddedToolsList() {
+    return addedTools_;
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @return The count of addedTools.
+   */
+  @java.lang.Override
+  public int getAddedToolsCount() {
+    return addedTools_.size();
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @param index The index of the element to return.
+   * @return The addedTools at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getAddedTools(int index) {
+    return addedTools_.get(index);
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the addedTools at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAddedToolsBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        addedTools_.get(index));
+  }
+  private void ensureAddedToolsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        addedTools_;  if (!tmp.isModifiable()) {
+      addedTools_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @param index The index to set the value at.
+   * @param value The addedTools to set.
+   */
+  private void setAddedTools(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureAddedToolsIsMutable();
+    addedTools_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @param value The addedTools to add.
+   */
+  private void addAddedTools(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureAddedToolsIsMutable();
+    addedTools_.add(value);
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @param values The addedTools to add.
+   */
+  private void addAllAddedTools(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureAddedToolsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, addedTools_);
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   */
+  private void clearAddedTools() {
+    addedTools_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+   * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+   * </pre>
+   *
+   * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+   * @param value The bytes of the addedTools to add.
+   */
+  private void addAddedToolsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureAddedToolsIsMutable();
+    addedTools_.add(value.toStringUtf8());
+  }
+
+  public static final int TOOLS_ADDED_FIELD_NUMBER = 33;
+  private boolean toolsAdded_;
+  /**
+   * <pre>
+   * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+   * </pre>
+   *
+   * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+   * @return The toolsAdded.
+   */
+  @java.lang.Override
+  public boolean getToolsAdded() {
+    return toolsAdded_;
+  }
+  /**
+   * <pre>
+   * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+   * </pre>
+   *
+   * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+   * @param value The toolsAdded to set.
+   */
+  private void setToolsAdded(boolean value) {
+    
+    toolsAdded_ = value;
+  }
+  /**
+   * <pre>
+   * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+   * </pre>
+   *
+   * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+   */
+  private void clearToolsAdded() {
+
+    toolsAdded_ = false;
+  }
+
+  public static final int MCP_ALL_FIELD_NUMBER = 34;
+  private boolean mcpAll_;
+  /**
+   * <pre>
+   * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+   * </pre>
+   *
+   * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+   * @return The mcpAll.
+   */
+  @java.lang.Override
+  public boolean getMcpAll() {
+    return mcpAll_;
+  }
+  /**
+   * <pre>
+   * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+   * </pre>
+   *
+   * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+   * @param value The mcpAll to set.
+   */
+  private void setMcpAll(boolean value) {
+    
+    mcpAll_ = value;
+  }
+  /**
+   * <pre>
+   * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+   * </pre>
+   *
+   * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+   */
+  private void clearMcpAll() {
+
+    mcpAll_ = false;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
@@ -3734,6 +3949,223 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @return A list containing the addedTools.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getAddedToolsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getAddedToolsList());
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @return The count of addedTools.
+     */
+    @java.lang.Override
+    public int getAddedToolsCount() {
+      return instance.getAddedToolsCount();
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @param index The index of the element to return.
+     * @return The addedTools at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getAddedTools(int index) {
+      return instance.getAddedTools(index);
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the addedTools at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAddedToolsBytes(int index) {
+      return instance.getAddedToolsBytes(index);
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @param index The index to set the value at.
+     * @param value The addedTools to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAddedTools(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setAddedTools(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @param value The addedTools to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAddedTools(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addAddedTools(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @param values The addedTools to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllAddedTools(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllAddedTools(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAddedTools() {
+      copyOnWrite();
+      instance.clearAddedTools();
+      return this;
+    }
+    /**
+     * <pre>
+     * Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+     * `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+     * </pre>
+     *
+     * <code>repeated string added_tools = 32 [json_name = "addedTools"];</code>
+     * @param value The bytes of the addedTools to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAddedToolsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addAddedToolsBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+     * </pre>
+     *
+     * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+     * @return The toolsAdded.
+     */
+    @java.lang.Override
+    public boolean getToolsAdded() {
+      return instance.getToolsAdded();
+    }
+    /**
+     * <pre>
+     * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+     * </pre>
+     *
+     * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+     * @param value The toolsAdded to set.
+     * @return This builder for chaining.
+     */
+    public Builder setToolsAdded(boolean value) {
+      copyOnWrite();
+      instance.setToolsAdded(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+     * </pre>
+     *
+     * <code>bool tools_added = 33 [json_name = "toolsAdded"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearToolsAdded() {
+      copyOnWrite();
+      instance.clearToolsAdded();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+     * </pre>
+     *
+     * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+     * @return The mcpAll.
+     */
+    @java.lang.Override
+    public boolean getMcpAll() {
+      return instance.getMcpAll();
+    }
+    /**
+     * <pre>
+     * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+     * </pre>
+     *
+     * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+     * @param value The mcpAll to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMcpAll(boolean value) {
+      copyOnWrite();
+      instance.setMcpAll(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+     * </pre>
+     *
+     * <code>bool mcp_all = 34 [json_name = "mcpAll"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMcpAll() {
+      copyOnWrite();
+      instance.clearMcpAll();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -3782,14 +4214,17 @@ public  final class Agent extends
             "resumedFromAgentId_",
             "peer_",
             "mcp_",
+            "addedTools_",
+            "toolsAdded_",
+            "mcpAll_",
           };
           java.lang.String info =
-              "\u0000\u001f\u0000\u0001\u0001\u001f\u001f\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
-              "\u000b\u0208\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012" +
-              "\u1009\u0001\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019" +
-              "\u0007\u001a\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a" +
-              "";
+              "\u0000\"\u0000\u0001\u0001\"\"\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
+              "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
+              "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
+              "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u021a!" +
+              "\u0007\"\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

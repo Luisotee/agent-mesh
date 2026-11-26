@@ -5,6 +5,7 @@ package agentmesh.v1;
 import "agentmesh/v1/actor.proto";
 import "agentmesh/v1/ask.proto";
 import "agentmesh/v1/options.proto";
+import "agentmesh/v1/tools.proto";
 import "agentmesh/v1/types.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
@@ -499,6 +500,56 @@ service MeshService {
       summary: "Import the peers of bin/mesh's peers.json (read only), unbriefed"
     };
   }
+
+  // List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
+  // added back.
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "tools"
+      summary: "List what a lean Claude session runs without and what it added back"
+    };
+  }
+
+  // Add cut tools, skills, plugins, MCP servers, `anthropic-skills`, or `claude.ai` connectors back to a lean
+  // Claude session by reopening the same conversation at its next idle.
+  rpc AddTools(AddToolsRequest) returns (AddToolsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "tools-add"
+      summary: "Add cut tools, skills, plugins or MCP servers back via reopen"
+    };
+  }
+
+  // List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
+  rpc ListMCPServers(ListMCPServersRequest) returns (ListMCPServersResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "tools-servers"
+      summary: "List the user's MCP servers and exclusive holders"
+    };
+  }
 }
 
 message HelloRequest {
@@ -546,7 +597,7 @@ message SpawnAgentRequest {
   // Defaults to the caller's run for an agent; required for a device.
   string run_id = 2;
   // Path to the git repository.
-  string repo = 3;
+  string repo = 3 [(path) = true];
   // Names the branch (mesh/<run>/<slug>) and the agent (<repo>-<slug>).
   string slug = 4;
   AgentRole role = 5;
@@ -829,6 +880,9 @@ message ResumeAgentRequest {
   string why = 8;
   // Target run to resume into (defaults to the caller's run for a root, or the stopped agent's run for a device).
   string run_id = 9;
+  // Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
+  // had, dropping any exclusive server another live agent now holds.
+  repeated string mcp = 10;
 }
 
 message ResumeAgentResponse {

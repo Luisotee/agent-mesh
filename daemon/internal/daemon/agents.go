@@ -873,7 +873,14 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err != nil {
 		return nil, invalid("%s is not a git repository: %v", m.Repo, err)
 	}
-	if err := d.checkMCP(ctx, kind, top, m.Mcp); err != nil {
+	mcpNames, _, err := parseMCPArg(m.Mcp)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.checkMCP(ctx, kind, top, mcpNames); err != nil {
+		return nil, err
+	}
+	if err := d.checkMCPLease(r, mcpNames, ""); err != nil {
 		return nil, err
 	}
 	name := filepath.Base(top) + "-" + m.Slug
@@ -913,7 +920,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		Repo: top, Worktree: worktree, Branch: branch, BaseCommit: baseCommit, Model: model, Effort: effort, Tier: spawnTier(m),
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		// A planner plans under the deny list until approved; a read-only role keeps it.
-		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: dedupe(m.Mcp),
+		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: mcpNames,
 		// A named model or effort covers the whole task: no plan phase, now or later.
 		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
 	if m.Plan {
@@ -949,6 +956,9 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 			return failedPrecondition("run %s is closed", runID)
 		}
 		if err := d.mayLaunch(tx.Reader, "agent "+name, agent.Id); err != nil {
+			return err
+		}
+		if err := d.checkMCPLease(tx.Reader, agent.Mcp, agent.Id); err != nil {
 			return err
 		}
 		if err := tx.PutAgent(agent); err != nil {

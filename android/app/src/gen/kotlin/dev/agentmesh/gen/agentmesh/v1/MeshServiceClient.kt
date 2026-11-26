@@ -544,4 +544,51 @@ public class MeshServiceClient(
     ),
   )
 
+
+  /**
+   *  List what a lean Claude session starts without (tools, skills, plugins, MCP servers, connectors) and what it
+   *  added back.
+   */
+  override suspend fun listTools(request: ListToolsRequest, headers: Headers): ResponseMessage<ListToolsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListTools",
+      dev.agentmesh.gen.agentmesh.v1.ListToolsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListToolsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Add cut tools, skills, plugins, MCP servers, `anthropic-skills`, or `claude.ai` connectors back to a lean
+   *  Claude session by reopening the same conversation at its next idle.
+   */
+  override suspend fun addTools(request: AddToolsRequest, headers: Headers): ResponseMessage<AddToolsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/AddTools",
+      dev.agentmesh.gen.agentmesh.v1.AddToolsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.AddToolsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
+   */
+  override suspend fun listMCPServers(request: ListMCPServersRequest, headers: Headers): ResponseMessage<ListMCPServersResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListMCPServers",
+      dev.agentmesh.gen.agentmesh.v1.ListMCPServersRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListMCPServersResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

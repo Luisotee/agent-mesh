@@ -76,7 +76,7 @@ public  final class AddPeerRequest extends
    * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
    * </pre>
    *
-   * <code>string source = 2 [json_name = "source"];</code>
+   * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
    * @return The source.
    */
   @java.lang.Override
@@ -88,7 +88,7 @@ public  final class AddPeerRequest extends
    * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
    * </pre>
    *
-   * <code>string source = 2 [json_name = "source"];</code>
+   * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for source.
    */
   @java.lang.Override
@@ -101,7 +101,7 @@ public  final class AddPeerRequest extends
    * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
    * </pre>
    *
-   * <code>string source = 2 [json_name = "source"];</code>
+   * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
    * @param value The source to set.
    */
   private void setSource(
@@ -115,7 +115,7 @@ public  final class AddPeerRequest extends
    * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
    * </pre>
    *
-   * <code>string source = 2 [json_name = "source"];</code>
+   * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
    */
   private void clearSource() {
 
@@ -126,7 +126,7 @@ public  final class AddPeerRequest extends
    * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
    * </pre>
    *
-   * <code>string source = 2 [json_name = "source"];</code>
+   * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
    * @param value The bytes for source to set.
    */
   private void setSourceBytes(
@@ -513,7 +513,7 @@ public  final class AddPeerRequest extends
      * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
      * </pre>
      *
-     * <code>string source = 2 [json_name = "source"];</code>
+     * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
      * @return The source.
      */
     @java.lang.Override
@@ -525,7 +525,7 @@ public  final class AddPeerRequest extends
      * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
      * </pre>
      *
-     * <code>string source = 2 [json_name = "source"];</code>
+     * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
      * @return The bytes for source.
      */
     @java.lang.Override
@@ -538,7 +538,7 @@ public  final class AddPeerRequest extends
      * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
      * </pre>
      *
-     * <code>string source = 2 [json_name = "source"];</code>
+     * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
      * @param value The source to set.
      * @return This builder for chaining.
      */
@@ -553,7 +553,7 @@ public  final class AddPeerRequest extends
      * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
      * </pre>
      *
-     * <code>string source = 2 [json_name = "source"];</code>
+     * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
      * @return This builder for chaining.
      */
     public Builder clearSource() {
@@ -566,7 +566,7 @@ public  final class AddPeerRequest extends
      * A git URL (cloned into `peers.dir`/&lt;group&gt;/&lt;repo&gt;) or the path of a clone that exists.
      * </pre>
      *
-     * <code>string source = 2 [json_name = "source"];</code>
+     * <code>string source = 2 [json_name = "source", (.agentmesh.v1.path) = true];</code>
      * @param value The bytes for source to set.
      * @return This builder for chaining.
      */

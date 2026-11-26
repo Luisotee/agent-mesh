@@ -70,6 +70,8 @@ message LeanLaunch {
   // A file of the MCP servers to load (Claude's `--mcp-config` format); only these load (`--strict-mcp-config`),
   // and claude.ai's connectors are off. Empty: the CLI loads every server the user's config has.
   string mcp_config_path = 5;
+  // Pass `--system-prompt-snapshot off` on resume so tools added after the initial lean turn appear in requests.
+  bool disable_prompt_snapshot = 6;
 }
 
 message WorktreeFile {

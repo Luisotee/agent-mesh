@@ -19,5 +19,6 @@ daemon/scripts/check.sh                     # runs buf lint and buf breaking (FI
 - **Never edit generated code** in any of the three `gen` folders by hand.
 - **Breaking changes:** `buf breaking` checks against `main` at file level. Evolve a message by adding fields; never renumber or reuse a field number, and reserve the number and name of a field you remove.
 - **Every RPC of `MeshService` is an action:** it needs `option (action) = { actors: […], write: …, summary: … }` (`agentmesh/v1/options.proto`), or meshd refuses to start. A write takes a `RequestMeta`. `mesh` builds its commands from these options, so a new action is a CLI command with no extra code.
+- **A request field holding a filesystem path** carries `[(path) = true]` (`options.proto`): the CLI resolves it against the caller's cwd and `~`, since the daemon's cwd is not the caller's.
 - **Who may call what** is pinned three times: `daemon/internal/registry/testdata/actors.golden` (accept a reviewed change with `cd daemon && go test ./internal/registry -update`), the desktop's `src/registry.test.ts` and Android's `RegistryPinTest`, which check that every action an app calls is one a device may call. Giving an actor class a new right is a security decision: say so in the PR.
 - A change to these commands or conventions updates this file in the same PR.

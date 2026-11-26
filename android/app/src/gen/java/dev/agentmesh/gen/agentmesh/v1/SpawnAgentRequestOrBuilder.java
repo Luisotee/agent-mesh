@@ -46,7 +46,7 @@ public interface SpawnAgentRequestOrBuilder extends
    * Path to the git repository.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The repo.
    */
   java.lang.String getRepo();
@@ -55,7 +55,7 @@ public interface SpawnAgentRequestOrBuilder extends
    * Path to the git repository.
    * </pre>
    *
-   * <code>string repo = 3 [json_name = "repo"];</code>
+   * <code>string repo = 3 [json_name = "repo", (.agentmesh.v1.path) = true];</code>
    * @return The bytes for repo.
    */
   com.google.protobuf.ByteString

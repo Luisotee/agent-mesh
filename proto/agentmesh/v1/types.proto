@@ -123,6 +123,13 @@ message Agent {
   // The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
   // (`claude.mcp_keep`); every reopen keeps them.
   repeated string mcp = 31;
+  // Lean session items added back via `mesh tools add` (built-in tool names, skills, plugin bare names,
+  // `anthropic-skills`). Stored separately from `mcp` so resuming doesn't conflate plugin/skill names with MCP servers.
+  repeated string added_tools = 32;
+  // True once a built-in tool was added back, so every reopen passes `--system-prompt-snapshot off`.
+  bool tools_added = 33;
+  // True once `claude.ai` connectors were added back (loads the user's full MCP config without `--strict-mcp-config`).
+  bool mcp_all = 34;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
