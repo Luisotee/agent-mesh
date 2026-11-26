@@ -2,6 +2,8 @@
 
 The decisions behind agent-mesh, roughly in the order they were made, and the alternatives that lost.
 
+> **This records the `bin/mesh` era.** The Python script `bin/mesh`, herdr and the first protocol and skills were retired by the daemon's cutover (PR 6 of `docs/apps.md`, "Switchover"); the commit before it, `e3c05e0`, has them. The lessons here (why panes, mailbox plus doorbell, same conversation, the alternatives that lost) still hold for the daemon where `docs/apps.md` and `daemon/README.md` don't say otherwise. Function names, commands (`mesh status`, `mesh routing`, `mesh tools add`, …), file paths (`bin/mesh`, `protocol/`) and herdr details below are the old script's.
+
 ## 1. Interactive panes, not headless `-p`
 
 Both CLIs have a print mode (`claude -p`, `agy -p`): run one prompt, print the answer, exit. It's the obvious way for one agent to drive another, and it has three problems:

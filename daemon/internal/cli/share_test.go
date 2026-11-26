@@ -144,7 +144,7 @@ func TestTheSharedSkillsAreAPlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	var manifest struct{ Name, Description string }
-	if err := json.Unmarshal(raw, &manifest); err != nil || manifest.Name != "agent-mesh-daemon" || manifest.Description == "" {
+	if err := json.Unmarshal(raw, &manifest); err != nil || manifest.Name != "agent-mesh" || manifest.Description == "" {
 		t.Errorf("plugin.json: %+v, %v", manifest, err)
 	}
 	skills, _ := filepath.Glob("../../share/skills/*/SKILL.md")
