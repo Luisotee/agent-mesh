@@ -444,6 +444,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		if self, err := d.store.Read(ctx).GetAgent(actor.Id); err == nil {
 			facts.hasWork = hasBranchWork(ctx, self)
 			facts.after, facts.over = d.commitsAfterReview(ctx, self)
+			facts.linked = linkedWorktreeBranches(ctx, self.Repo)
 		}
 	}
 	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {

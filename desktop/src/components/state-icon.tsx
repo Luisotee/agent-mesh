@@ -10,14 +10,15 @@ import { cn } from '@/lib/utils'
  * purpose, a message wakes it), a gauge at its usage limit, an octagon with a mark its last turn ended in an error.
  */
 export function StateIcon({ agent, className }: { agent: Agent; className?: string }) {
-  const c = cn('size-4 shrink-0', className)
+  // A changed state is a different icon, drawn new: it fades in. The spinner has its own animation, which the fade would override.
+  const c = cn('size-4 shrink-0 animate-state-in motion-reduce:animate-none', className)
   switch (agent.state) {
     case AgentState.STARTING:
       return <CircleDashed aria-label="starting" className={cn(c, 'text-state-idle')} />
     case AgentState.IDLE:
       return <Pause aria-label="idle" className={cn(c, 'text-state-idle')} />
     case AgentState.WORKING:
-      return <LoaderCircle aria-label="working" className={cn(c, 'animate-spin text-state-working motion-reduce:animate-none')} />
+      return <LoaderCircle aria-label="working" className={cn('size-4 shrink-0', className, 'animate-spin text-state-working motion-reduce:animate-none')} />
     case AgentState.NEEDS_INPUT:
       return <CircleAlert aria-label="needs you" className={cn(c, 'text-state-needs')} />
     case AgentState.EXITED:

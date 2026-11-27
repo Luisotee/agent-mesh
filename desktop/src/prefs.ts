@@ -85,6 +85,7 @@ export const DEFAULT_KEYS = {
   panel: 'Ctrl+Alt+B',
   find: 'Mod+F',
   rename: 'F2',
+  composer: 'Mod+L',
 } as const
 
 export type KeyedCommand = keyof typeof DEFAULT_KEYS

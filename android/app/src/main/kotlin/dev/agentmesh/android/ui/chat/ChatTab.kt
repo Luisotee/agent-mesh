@@ -112,7 +112,10 @@ import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.store.HostState
 import dev.agentmesh.android.ui.MonoSmall
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
+import dev.agentmesh.android.ui.messages.MarkdownCache
 import dev.agentmesh.android.ui.messages.MarkdownText
+import dev.agentmesh.android.ui.messages.isLong
+import dev.agentmesh.android.ui.messages.preview
 import dev.agentmesh.gen.agentmesh.v1.ActorClass
 import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.AgentState
@@ -145,7 +148,7 @@ fun ChatTab(
 ) {
     val ownScope = rememberCoroutineScope()
     val scope = actionScope ?: ownScope
-    val sync = remember(runtime, agentId) { ChatSync(ownScope, runtime::api, agentId) }
+    val sync = remember(runtime, agentId) { ChatSync(ownScope, runtime::api, agentId, warm = { MarkdownCache.warm(it) }) }
     DisposableEffect(sync) { onDispose { sync.stop() } }
     val host by runtime.state.collectAsStateWithLifecycleCompat()
     val agent = host.agents[agentId] ?: return
@@ -192,6 +195,8 @@ fun ChatTab(
     val whole = chat.transcript.atStart || !chat.transcript.supported
     val entries = remember(blocks, messages, known, whole, waitingOn) { mergeTimeline(blocks, if (known) messages else emptyList(), cards = known, whole = whole, keep = { it.id in waitingOn }) }
     val stamps = remember(entries) { stamped(entries) }
+    // The cards' bodies are parsed ahead as well (the newest first), as the transcript's replies are by the sync.
+    LaunchedEffect(messages) { MarkdownCache.warm(messages.takeLast(30).reversed().map { if (isLong(it.body)) preview(it.body) else it.body }) }
     val readOnly = isReadOnlyDevice(host)
     val now by produceState(System.currentTimeMillis()) { while (true) { delay(60_000); value = System.currentTimeMillis() } }
     // The user's own words are tinted with the project's identity hue (the same colour on the desktop).
@@ -530,7 +535,7 @@ private fun ChatBlock(block: Block, bubble: Color, quote: ((String) -> Unit)?, r
         // The reply: full-width prose, no bubble and no avatar.
         is Block.Assistant -> Box(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { menu = true }).testTag("chat-assistant")) {
-                Maybe(select) { MarkdownText(block.entry.text, large = block.entry.text.length > 2_000) }
+                Maybe(select) { MarkdownText(block.entry.text) }
                 if (block.entry.truncated) Text("… cut here", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             MessageMenu(menu, { menu = false }, block.entry.text, quote) { select = true }
@@ -563,6 +568,9 @@ private fun ToolsBlock(block: Block.Tools, running: Boolean) {
     }
 }
 
+/** The lines of a tool's answer shown before Show all. */
+private const val TOOL_RESULT_LINES = 8
+
 @Composable
 private fun ToolCallRow(call: ToolCall) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -573,8 +581,21 @@ private fun ToolCallRow(call: ToolCall) {
         val r = call.result
         if (r == null) Skeleton(Modifier.fillMaxWidth(0.4f).semantics { contentDescription = "Running" }, height = 10.dp)
         else if (r.text.isNotEmpty()) {
-            Box(Modifier.fillMaxWidth().heightIn(max = 200.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)).verticalScroll(rememberScrollState()).padding(8.dp)) {
-                Text(r.text + if (r.truncated) "\n… cut here" else "", style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            // No scroll of its own inside the chat's list (a drag that began on it would be taken from the list): a few lines, and Show all.
+            var all by rememberSaveable(call.id) { mutableStateOf(false) }
+            // Whether the eight lines cut something (a long line wraps: counting characters or newlines would miss it).
+            var cut by remember { mutableStateOf(false) }
+            Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)).padding(8.dp)) {
+                Text(
+                    r.text, style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    maxLines = if (all) Int.MAX_VALUE else TOOL_RESULT_LINES, overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (!all) cut = it.hasVisualOverflow },
+                )
+                if (r.truncated) Text("… cut here", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (all || cut) Text(
+                    if (all) "Show less" else "Show all", Modifier.clickable { all = !all }.padding(top = 6.dp).testTag("tool-result-toggle"),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }

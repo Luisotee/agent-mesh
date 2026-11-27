@@ -131,7 +131,14 @@ export function TerminalView({ host, agentId = '', shellId = '', active }: { hos
     }
     refitRef.current = refit
     refit()
-    const ro = new ResizeObserver(refit)
+    // A box that is being animated (the side panel sliding) changes size at every frame: the program is told once it settles.
+    let settle: ReturnType<typeof setTimeout> | undefined
+    const ro = new ResizeObserver(() => {
+      // The first fit is not waited for.
+      if (!started) return refit()
+      clearTimeout(settle)
+      settle = setTimeout(refit, 120)
+    })
     ro.observe(el)
     // Another theme repaints this terminal in its colours and font.
     const offTheme = onThemeChange((th) => {
@@ -141,6 +148,7 @@ export function TerminalView({ host, agentId = '', shellId = '', active }: { hos
     })
     return () => {
       offTheme()
+      clearTimeout(settle)
       ro.disconnect()
       session.dispose()
       t.dispose()

@@ -65,6 +65,21 @@ export interface ProjectRow {
   pinned: boolean
 }
 
+const sameList = <T,>(a: readonly T[], b: readonly T[], same: (x: T, y: T) => boolean = Object.is) => a.length === b.length && a.every((x, i) => same(x, b[i]!))
+export const sameWorker = (a: WorkerRow, b: WorkerRow): boolean => a.agent === b.agent && a.elsewhere === b.elsewhere && sameList(a.helpers, b.helpers) && sameList(a.workers, b.workers, sameWorker)
+
+/** Whether two builds of a run's row are the same to draw: `buildProjects` makes every row anew, but the agents and the run in it are the store's own records, unchanged unless an event changed them. */
+export const sameLead = (a: LeadRow, b: LeadRow): boolean =>
+  a === b || (a.hostId === b.hostId && a.run === b.run && a.lead === b.lead && a.needs === b.needs && a.last === b.last && a.earlier === b.earlier && sameList(a.helpers, b.helpers) && sameList(a.workers, b.workers, sameWorker))
+
+/** The same for a project's. */
+export const sameProject = (a: ProjectRow, b: ProjectRow): boolean =>
+  a === b ||
+  (a.key === b.key && a.hostName === b.hostName && a.here === b.here && a.up === b.up && a.down === b.down && a.repo === b.repo && a.name === b.name && a.needs === b.needs && a.last === b.last && a.pinned === b.pinned &&
+    sameList(a.runs, b.runs, sameLead) && sameList(a.earlier, b.earlier, sameLead) && sameList(a.also, b.also, sameLead))
+
+export const sameAgents = (a: readonly Agent[], b: readonly Agent[]) => sameList(a, b)
+
 export const projectKey = (hostId: string, repo: string) => `${hostId}\n${repo}`
 
 /** The project an agent is in, as the sidebar files it: its host and the repo its run's lead works in (else its own). */

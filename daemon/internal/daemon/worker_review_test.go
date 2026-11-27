@@ -2,9 +2,11 @@ package daemon_test
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // authorWorld is a review world with a worker whose branch is the PR's head: the PR is the worker's own.
@@ -534,6 +537,35 @@ func TestTheFooterTellsTheWorkersOwnPRByItsHeadBranch(t *testing.T) {
 	}
 }
 
+// A PR the worker opened from another branch of its run, checked out in a linked worktree of the repo, is its own in the
+// footer too: a done naming it, with no round asked, says so; the same PR on a branch of another run does not.
+func TestTheFooterTellsAPRFromAnotherBranchOfTheRunByItsWorktree(t *testing.T) {
+	a := startAuthor(t, "")
+	a.commit(t)
+	base := strings.TrimSuffix(a.pr.url(), "7")
+	extra := "mesh/" + a.worker.RunId + "/extra"
+	gitIn(t, a.pr.repo, "worktree", "add", "-q", "-b", extra, filepath.Join(shortdir.New(t), "extra"), "main")
+	gitIn(t, a.pr.repo, "branch", "mesh/other-run/extra", "main")
+	record := func(num int32, head string) {
+		t.Helper()
+		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: a.worker.Id, Url: base + strconv.Itoa(int(num)), Number: num, State: "open", Source: "report", HeadRef: head})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(8, extra)
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "done: PR "+base+"8")
+	if got := a.doneBody(t); !strings.Contains(got, "PR #8: NEEDS YOU: "+a.worker.Name+" asked no review round") {
+		t.Errorf("a PR from a branch of its run in a linked worktree:\n%s", got)
+	}
+	record(9, "mesh/other-run/extra")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "also "+base+"9")
+	if got := a.doneBody(t); strings.Contains(got, "PR #9") {
+		t.Errorf("a PR from a branch of another run:\n%s", got)
+	}
+}
+
 func TestAVerdictsNotFoundErrorSaysByYouOnlyToAWorker(t *testing.T) {
 	a := startAuthor(t, "")
 	a.pr.push(t, "the feature")
@@ -808,5 +840,141 @@ func TestAMovedBranchIsTheWorkersOwnOnlyWhenNothingMakesItAnothers(t *testing.T)
 		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
 			t.Errorf("a PR another worker's record holds: %v", err)
 		}
+	})
+}
+
+// A worker that opens a PR from a worktree it made itself, on another branch of its run (`mesh/<run>/<other>`), reviews
+// it: the branch is checked out in a linked worktree of the repo, or its report names the PR, and no other agent owns
+// it. A branch of another run, one nothing ties to the worker, the repo's main checkout, and one another agent owns are
+// still the root's.
+func TestAWorkerReviewsAPRFromAnotherBranchOfItsRunThatItMade(t *testing.T) {
+	newBranch := func(a *authorWorld, branch string, checkout bool) string {
+		t.Helper()
+		gitIn(t, a.pr.repo, "branch", branch, "main")
+		if !checkout {
+			return ""
+		}
+		dir := filepath.Join(shortdir.New(t), "extra")
+		gitIn(t, a.pr.repo, "worktree", "add", "-q", dir, branch)
+		gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "its work")
+		return dir
+	}
+	refused := func(a *authorWorld, why, head string) {
+		t.Helper()
+		a.pr.headRef = head
+		a.pr.push(t, why)
+		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+			t.Errorf("%s: %v", why, err)
+		}
+	}
+	t.Run("a worktree it made", func(t *testing.T) {
+		a := startAuthor(t, "")
+		a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, true)
+		a.pr.headRef = head
+		a.pr.push(t, "its other change")
+		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"}); err != nil {
+			t.Fatalf("a PR from a branch of its run checked out in a worktree of the repo: %v", err)
+		}
+	})
+	t.Run("not checked out anywhere", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, false)
+		refused(a, "a branch of its run nothing ties to it", head)
+	})
+	t.Run("the main checkout", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, false)
+		gitIn(t, a.pr.repo, "checkout", "-q", head)
+		t.Cleanup(func() { gitIn(t, a.pr.repo, "checkout", "-q", "main") })
+		refused(a, "the user's own checkout is not the worker's", head)
+	})
+	t.Run("another run", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/other-run/extra"
+		newBranch(a, head, true)
+		refused(a, "a branch of another run", head)
+	})
+	t.Run("another worker owns it", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, true)
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			cur, err := tx.GetAgent(other.Id)
+			if err != nil {
+				return err
+			}
+			cur.Branch = head // it was registered on that branch
+			return tx.PutAgent(cur)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		refused(a, "a branch another worker is registered on", head)
+	})
+	t.Run("another worker has its PR recorded", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, true)
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		a.pr.headRef = head
+		a.pr.push(t, "theirs")
+		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: other.Id, Url: a.pr.url(), Number: 7, State: "open", Source: "report"})
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+			t.Errorf("a PR another worker's record holds: %v", err)
+		}
+	})
+	t.Run("its report names the PR", func(t *testing.T) {
+		a := startAuthor(t, "")
+		a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, false) // its worktree is gone by now
+		a.pr.headRef = head
+		a.pr.push(t, "its other change")
+		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: a.worker.Id, Url: a.pr.url(), Number: 7, State: "open", Source: "report", HeadRef: head})
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"}); err != nil {
+			t.Fatalf("a PR its report named: %v", err)
+		}
+	})
+	t.Run("the reviewer is of another CLI than its author's", func(t *testing.T) {
+		a := startAuthor(t, "")
+		a.set(t, "review.reviewers.small", []any{[]any{"claude", "agy"}})
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, true)
+		a.pr.headRef = head
+		a.pr.push(t, "its other change")
+		res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Agents) != 1 || res.Agents[0].Kind != "agy" {
+			t.Errorf("a claude worker's PR from a branch no agent is registered on was reviewed by %v, want agy: its author's own CLI goes last", res.Agents)
+		}
+	})
+	t.Run("a worktree that was removed", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/extra"
+		dir := newBranch(a, head, true)
+		if err := os.RemoveAll(dir); err != nil { // gone without `git worktree remove`: git still lists it, as prunable
+			t.Fatal(err)
+		}
+		refused(a, "a branch no worktree has any more", head)
+	})
+	t.Run("its own worktree on a branch with no commit of its own", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/empty"
+		gitIn(t, a.worker.Worktree, "switch", "-q", "-c", head)
+		refused(a, "nobody's PR", head)
 	})
 }

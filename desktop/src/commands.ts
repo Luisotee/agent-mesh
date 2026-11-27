@@ -119,6 +119,11 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
       if (el?.closest('.xterm')) return void el.dispatchEvent(new CustomEvent(TERMINAL_SEARCH, { bubbles: true }))
       app.openFind(!st().findOpen)
     },
+    composer: () => {
+      // The first message box on screen: the main pane's, else a split pane's (a chat whose pane shows the terminal is hidden).
+      const boxes = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLTextAreaElement>('textarea[data-composer]:not(:disabled)')]
+      boxes.find((b) => !b.closest('[hidden]'))?.focus()
+    },
     rename: () => {
       // The focused sidebar row's run, else the open agent's.
       const row = document.activeElement?.closest<HTMLElement>('[data-sidebar-row="agent"]')
@@ -173,6 +178,7 @@ export function buildCommands(app: AppModel): Command[] {
   view('panel', s.panelOpen ? 'Hide the side panel' : 'Show the side panel')
   view('find', 'Find in the window')
   view('rename', 'Rename the open run', !!s.agentId)
+  view('composer', 'Focus the message box', !!s.agentId && s.tab === 'chat')
   const waiting = waitingTargets(app)
   view('waiting_next', 'Go to the next thing waiting on me', waiting.length > 0)
   out.push({ id: 'watch-all', title: s.watchOpen ? 'Close Watch all' : 'Watch all agents', group: 'View', detail: 'grid every live agent', run: () => app.openWatch(!s.watchOpen) })
