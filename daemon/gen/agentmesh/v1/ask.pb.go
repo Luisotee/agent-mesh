@@ -359,9 +359,12 @@ type Verdict struct {
 	Blocking int32                  `protobuf:"varint,8,opt,name=blocking,proto3" json:"blocking,omitempty"`
 	At       *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=at,proto3" json:"at,omitempty"`
 	// Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
-	Judge         string `protobuf:"bytes,10,opt,name=judge,proto3" json:"judge,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Judge string `protobuf:"bytes,10,opt,name=judge,proto3" json:"judge,omitempty"`
+	// How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+	// is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+	DeclinedBlocking int32 `protobuf:"varint,11,opt,name=declined_blocking,json=declinedBlocking,proto3" json:"declined_blocking,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Verdict) Reset() {
@@ -462,6 +465,13 @@ func (x *Verdict) GetJudge() string {
 		return x.Judge
 	}
 	return ""
+}
+
+func (x *Verdict) GetDeclinedBlocking() int32 {
+	if x != nil {
+		return x.DeclinedBlocking
+	}
+	return 0
 }
 
 // Ask is the record of one `mesh ask` that started or reached agents.
@@ -1013,13 +1023,16 @@ type RecordVerdictRequest struct {
 	// The pull request (URL or number) of the round.
 	Pr string `protobuf:"bytes,2,opt,name=pr,proto3" json:"pr,omitempty"`
 	// The reviewer, by name.
-	Reviewer      string `protobuf:"bytes,3,opt,name=reviewer,proto3" json:"reviewer,omitempty"`
-	Agree         int32  `protobuf:"varint,4,opt,name=agree,proto3" json:"agree,omitempty"`
-	Other         int32  `protobuf:"varint,5,opt,name=other,proto3" json:"other,omitempty"`
-	Disagree      int32  `protobuf:"varint,6,opt,name=disagree,proto3" json:"disagree,omitempty"`
-	Blocking      int32  `protobuf:"varint,7,opt,name=blocking,proto3" json:"blocking,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Reviewer string `protobuf:"bytes,3,opt,name=reviewer,proto3" json:"reviewer,omitempty"`
+	Agree    int32  `protobuf:"varint,4,opt,name=agree,proto3" json:"agree,omitempty"`
+	Other    int32  `protobuf:"varint,5,opt,name=other,proto3" json:"other,omitempty"`
+	Disagree int32  `protobuf:"varint,6,opt,name=disagree,proto3" json:"disagree,omitempty"`
+	Blocking int32  `protobuf:"varint,7,opt,name=blocking,proto3" json:"blocking,omitempty"`
+	// Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+	// makes the PR's review outcome NEEDS YOU: the root settles it.
+	DeclinedBlocking int32 `protobuf:"varint,8,opt,name=declined_blocking,json=declinedBlocking,proto3" json:"declined_blocking,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RecordVerdictRequest) Reset() {
@@ -1097,6 +1110,13 @@ func (x *RecordVerdictRequest) GetDisagree() int32 {
 func (x *RecordVerdictRequest) GetBlocking() int32 {
 	if x != nil {
 		return x.Blocking
+	}
+	return 0
+}
+
+func (x *RecordVerdictRequest) GetDeclinedBlocking() int32 {
+	if x != nil {
+		return x.DeclinedBlocking
 	}
 	return 0
 }
@@ -2158,7 +2178,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x04head\x18\v \x01(\tR\x04head\x12\x1b\n" +
 	"\tpeer_repo\x18\f \x01(\tR\bpeerRepo\x12!\n" +
 	"\fupstream_new\x18\r \x01(\x05R\vupstreamNew\x12\x14\n" +
-	"\x05about\x18\x0e \x01(\tR\x05about\"\x89\x02\n" +
+	"\x05about\x18\x0e \x01(\tR\x05about\"\xb6\x02\n" +
 	"\aVerdict\x12\x1a\n" +
 	"\breviewer\x18\x01 \x01(\tR\breviewer\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -2170,7 +2190,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\bblocking\x18\b \x01(\x05R\bblocking\x12*\n" +
 	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12\x14\n" +
 	"\x05judge\x18\n" +
-	" \x01(\tR\x05judge\"\xca\x06\n" +
+	" \x01(\tR\x05judge\x12+\n" +
+	"\x11declined_blocking\x18\v \x01(\x05R\x10declinedBlocking\"\xca\x06\n" +
 	"\x03Ask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
@@ -2230,7 +2251,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x06agents\x18\x02 \x03(\v2\x13.agentmesh.v1.AgentR\x06agents\x12\x14\n" +
 	"\x05notes\x18\x03 \x03(\tR\x05notes\x12\x12\n" +
 	"\x04hint\x18\x04 \x01(\tR\x04hint\x12/\n" +
-	"\amessage\x18\x05 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\"\xd5\x01\n" +
+	"\amessage\x18\x05 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\"\x82\x02\n" +
 	"\x14RecordVerdictRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x0e\n" +
 	"\x02pr\x18\x02 \x01(\tR\x02pr\x12\x1a\n" +
@@ -2238,7 +2259,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x05agree\x18\x04 \x01(\x05R\x05agree\x12\x14\n" +
 	"\x05other\x18\x05 \x01(\x05R\x05other\x12\x1a\n" +
 	"\bdisagree\x18\x06 \x01(\x05R\bdisagree\x12\x1a\n" +
-	"\bblocking\x18\a \x01(\x05R\bblocking\"m\n" +
+	"\bblocking\x18\a \x01(\x05R\bblocking\x12+\n" +
+	"\x11declined_blocking\x18\b \x01(\x05R\x10declinedBlocking\"m\n" +
 	"\x15RecordVerdictResponse\x12#\n" +
 	"\x03ask\x18\x01 \x01(\v2\x11.agentmesh.v1.AskR\x03ask\x12/\n" +
 	"\averdict\x18\x02 \x01(\v2\x15.agentmesh.v1.VerdictR\averdict\"U\n" +

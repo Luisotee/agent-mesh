@@ -1,7 +1,7 @@
 import { ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server } from 'lucide-react'
 import { AnimatePresence, m } from 'motion/react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
-import { renameRun, retireAgent, stopAgent } from '@/actions'
+import { renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Chip, Chips } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm'
@@ -13,7 +13,7 @@ import { useApp, useAppState, useHostState } from '@/context'
 import { canArchive } from '@/agent-work'
 import { githubNote } from '@/buckets'
 import { repoName, ROLE_LABEL, statusSentence } from '@/derive'
-import { AgentState, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
+import { AgentState, RunStatus, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
 import { useKeys, useSidebarHosts } from '@/hooks'
 import { hueStyle } from '@/hue'
 import { displayChord } from '@/keys'
@@ -287,10 +287,15 @@ function HiddenProjects({ rows }: { rows: ProjectRow[] }) {
 }
 
 /** The dialogs a row's menu can open, one at a time. */
-type RowDialog = { kind: 'stop' | 'retire' | 'archive'; agent: Agent } | undefined
+type RowDialog = { kind: 'stop' | 'retire' | 'archive'; agent: Agent } | { kind: 'stoprun'; runId: string; title: string } | undefined
 
 function RowDialogs({ host, dialog, onClose }: { host?: HostRuntime; dialog: RowDialog; onClose: () => void }) {
   if (!host || !dialog) return null
+  if (dialog.kind === 'stoprun') {
+    return (
+      <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Stop ${dialog.title}?`} description="Every agent in the run is retired and the run is closed. A finished worktree goes; one with changes stays." action="Stop the run" run={() => stopRun(host.client, dialog.runId)} />
+    )
+  }
   const a = dialog.agent
   if (dialog.kind === 'archive') return <ArchiveDialog host={host} agent={a} open onOpenChange={(o) => !o && onClose()} />
   return dialog.kind === 'stop' ? (
@@ -340,6 +345,7 @@ function LeadItem({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
     { label: 'Rename', onSelect: () => app.renameRun({ hostId: row.hostId, runId: row.run.id }), hint: 'F2' },
     { label: 'Add an agent', onSelect: () => app.openWorkspace(true, row.run.id, { hostId: row.hostId, repo: lead?.repo ?? '' }) },
     { label: 'Copy run id', onSelect: () => copy(row.run.id) },
+    { label: 'Stop run…', onSelect: () => setDialog({ kind: 'stoprun', runId: row.run.id, title }), disabled: row.run.status !== RunStatus.OPEN, destructive: true },
     ...(lead
       ? (['separator', ...agentEntries(app, row.hostId, lead, setDialog).slice(1), ...archiveEntry(lead, setDialog)] as MenuEntry[])
       : []),

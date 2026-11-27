@@ -300,7 +300,8 @@ public interface SpawnAgentRequestOrBuilder extends
 
   /**
    * <pre>
-   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * Who runs the review rounds of this worker's PR: "worker", "relay" (the worker runs them as a relay, for a risky PR)
+   * or "root"; empty means the `review.by` setting.
    * </pre>
    *
    * <code>string reviews = 15 [json_name = "reviews"];</code>
@@ -309,7 +310,8 @@ public interface SpawnAgentRequestOrBuilder extends
   java.lang.String getReviews();
   /**
    * <pre>
-   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * Who runs the review rounds of this worker's PR: "worker", "relay" (the worker runs them as a relay, for a risky PR)
+   * or "root"; empty means the `review.by` setting.
    * </pre>
    *
    * <code>string reviews = 15 [json_name = "reviews"];</code>

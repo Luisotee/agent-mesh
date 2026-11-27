@@ -703,6 +703,9 @@ func renderAsks(m proto.Message, w io.Writer) {
 				if v.Blocking > 0 {
 					p += fmt.Sprintf(" (%d blocking)", v.Blocking)
 				}
+				if v.DeclinedBlocking > 0 {
+					p += fmt.Sprintf(" (%d blocking DECLINED)", v.DeclinedBlocking)
+				}
 				if v.Judge != "" {
 					p += " by " + v.Judge
 				}
