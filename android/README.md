@@ -10,7 +10,7 @@ Hosts (several, each with routes tried in order), a connection per host with a b
 
 ## One navigation
 
-A drawer holds everything you move between (`ui/Sidebar.kt`; the rules are the desktop's `sidebar.ts`, ported as `derive/Projects.kt` with its cases). It slides over home and the open agent; from 840 dp wide (a tablet, a folded phone) it stays open beside them. From the top:
+A drawer holds everything you move between (`ui/Sidebar.kt`; the rules are the desktop's `sidebar.ts` (desktop PR #193), ported as `derive/Projects.kt` with its cases). It slides over home and the open agent; from 840 dp wide (a tablet, a folded phone) it stays open beside them. From the top:
 
 - **Search** over projects, runs, agents, CLIs and models.
 - **Waiting on you**, only while something does: a plan or a question opens in place with Approve or an answer; a prompt in a terminal opens its terminal.

@@ -53,7 +53,7 @@ import dev.agentmesh.android.notify.Tab
 @Composable
 fun HomeScreen(
     model: SidebarModel, onMenu: (() -> Unit)?, onAgent: (hostId: String, agentId: String, Tab) -> Unit, onLive: () -> Unit,
-    onNewLead: (hostId: String) -> Unit, onPair: () -> Unit, onAdd: () -> Unit,
+    onNewLead: (hostId: String) -> Unit, onPair: () -> Unit, onAdd: () -> Unit, onAddAgent: (hostId: String, runId: String) -> Unit = { _, _ -> },
 ) {
     val container = LocalContainer.current
     val writable = model.hosts.filter { !it.readOnly }
@@ -101,7 +101,12 @@ fun HomeScreen(
             }
             if (live.isNotEmpty()) item(key = "live-header") { SectionHeader("Live runs") }
             items(live, key = { "run:${it.hostId}:${it.run.id}" }) { r ->
-                LeadCard(r, model.many, model.hosts.firstOrNull { it.hostId == r.hostId }?.name.orEmpty()) { r.lead?.let { onAgent(r.hostId, it.id, Tab.Chat) } }
+                LeadCard(r, model.many, model.hosts.firstOrNull { it.hostId == r.hostId }?.name.orEmpty()) {
+                    // A run with no agent yet offers to start one (when this device may).
+                    val lead = r.lead
+                    if (lead != null) onAgent(r.hostId, lead.id, Tab.Chat)
+                    else if (model.hosts.none { h -> h.hostId == r.hostId && h.readOnly }) onAddAgent(r.hostId, r.run.id)
+                }
             }
             if (live.isEmpty() && !model.loading && model.waiting.isEmpty() && model.hosts.any { !it.loading }) item(key = "empty") {
                 Text("No live runs. Start a lead with New lead, or from the host's CLI.", Modifier.padding(16.dp).testTag("home-empty"), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -117,7 +122,7 @@ private fun LeadCard(r: LeadRow, withHost: Boolean, hostName: String, onClick: (
     val hue = LocalMeshTheme.current.hues[hueOf(lead?.repo.orEmpty()) - 1]
     val attention = r.needs > 0
     Card(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable(enabled = lead != null, onClick = onClick).testTag("run-card"),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable(onClick = onClick).testTag("run-card"),
         colors = CardDefaults.cardColors(containerColor = if (attention) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {

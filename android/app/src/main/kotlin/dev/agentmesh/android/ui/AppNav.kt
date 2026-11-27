@@ -8,6 +8,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalDrawerSheet
@@ -106,7 +107,11 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     // What the sheet starts: `host`, `repo` and `run` (empty for a new run) joined by newlines (saved across rotation).
     var spawn by rememberSaveable { mutableStateOf<String?>(null) }
     var adding by rememberSaveable { mutableStateOf<String?>(null) }
-    fun closeDrawer(then: () -> Unit) { scope.launch { drawer.close() }; then() }
+    val reduced = LocalReducedMotion.current
+    // The slide stands still under reduced motion.
+    fun closeDrawer(then: () -> Unit) { scope.launch { if (reduced) drawer.snapTo(DrawerValue.Closed) else drawer.close() }; then() }
+    // System Back closes an open drawer first.
+    BackHandler(enabled = drawer.isOpen && !wide) { closeDrawer {} }
     val actions = SidebarActions(
         openAgent = { h, a, t -> closeDrawer { openAgent(h, a, t) } },
         home = { closeDrawer { nav.popBackStack(Routes.HOME, inclusive = false) } },
@@ -117,10 +122,10 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         addAgent = { h, run -> closeDrawer { spawn = "$h\n\n$run" } },
         addProject = { h -> closeDrawer { adding = h } },
     )
-    val sheet: @Composable () -> Unit = { SidebarContent(model, current, actions, Modifier.statusBarsPadding()) }
+    val sheet: @Composable () -> Unit = { SidebarContent(model, current, actions, Modifier.statusBarsPadding(), active = wide || drawer.isOpen) }
     // One scrim dim and a slide; no alpha over the window. The menu button of a screen opens it.
-    val openDrawer: (() -> Unit)? = if (wide || !hasDrawer) null else ({ scope.launch { drawer.open() }; Unit })
-    val content: @Composable () -> Unit = { Routed(nav, runtimes, model, openDrawer, ::openAgent, wide) }
+    val openDrawer: (() -> Unit)? = if (wide || !hasDrawer) null else ({ scope.launch { if (reduced) drawer.snapTo(DrawerValue.Open) else drawer.open() }; Unit })
+    val content: @Composable () -> Unit = { Routed(nav, runtimes, model, openDrawer, ::openAgent, wide, onAddAgent = { h, r -> spawn = "$h\n\n$r" }) }
     if (wide) {
         PermanentNavigationDrawer(drawerContent = { if (hasDrawer) PermanentDrawerSheet(Modifier.width(320.dp)) { sheet() } }, content = content)
     } else {
@@ -134,7 +139,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
 @Composable
 private fun Routed(
     nav: NavHostController, runtimes: Map<String, dev.agentmesh.android.HostRuntime>, model: SidebarModel, openDrawer: (() -> Unit)?,
-    openAgent: (String, String, Tab) -> Unit, wide: Boolean,
+    openAgent: (String, String, Tab) -> Unit, wide: Boolean, onAddAgent: (String, String) -> Unit,
 ) {
     val container = LocalContainer.current
     // One short slide (the old page gives way by a quarter of the width), no crossfade: an alpha over the whole window costs
@@ -152,7 +157,7 @@ private fun Routed(
     ) {
         composable(Routes.HOME) {
             HomeScreen(
-                model, openDrawer, onAgent = openAgent, onLive = { nav.navigate(Routes.DOCK_ALL) }, onNewLead = { newLead = it },
+                model, openDrawer, onAgent = openAgent, onAddAgent = onAddAgent, onLive = { nav.navigate(Routes.DOCK_ALL) }, onNewLead = { newLead = it },
                 onPair = { nav.navigate(Routes.PAIR) }, onAdd = { nav.navigate(Routes.ADD) },
             )
         }

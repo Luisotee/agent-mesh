@@ -263,4 +263,38 @@ class SidebarTest {
         assertTrue(again.hidden.value.isEmpty())
         assertEquals(mapOf("h2" to listOf("/p/a")), dev.agentmesh.android.DevicePrefs(ApplicationProvider.getApplicationContext<Application>()).pins.value)
     }
+
+    @Test fun `a run with no agent can still be given one, from the drawer and from home`() {
+        api = RecordingApi(); NotificationsTest.api = api
+        host("wsl", listOf(run("r9", "Empty run")), emptyList())
+        val added = mutableListOf<Pair<String, String>>()
+        val acts = SidebarActions({ _, _, _ -> }, {}, {}, {}, {}, { _, _ -> }, { h, r -> added += h to r }, {})
+        compose.setContent {
+            CompositionLocalProvider(LocalContainer provides container) {
+                AgentMeshTheme(theme) {
+                    val m = rememberSidebar()
+                    androidx.compose.foundation.layout.Column {
+                        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) { SidebarContent(m, null, acts) }
+                        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.weight(1f)) { HomeScreen(m, null, { _, _, _ -> }, {}, {}, {}, {}, onAddAgent = { h, r -> added += h to r }) }
+                    }
+                }
+            }
+        }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("lead-r9").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("lead-r9").performClick()
+        compose.onNodeWithText("Add an agent").performClick()
+        compose.onNodeWithTag("run-card").performClick()
+        assertEquals(2, added.size)
+        assertEquals("r9", added[0].second)
+    }
+
+    @Test fun `a project that stays listed because it waits on you can be shown again, not hidden twice`() {
+        api = RecordingApi(); NotificationsTest.api = api
+        val rt = host("wsl", runs, team)
+        container.prefs.toggleHidden(dev.agentmesh.android.derive.projectKey(rt.hostId, shop))
+        drawer()
+        waitForText("shop-api")
+        compose.onNodeWithContentDescription("Menu of shop-api").performClick()
+        compose.onNodeWithText("Show again").assertIsDisplayed()
+    }
 }

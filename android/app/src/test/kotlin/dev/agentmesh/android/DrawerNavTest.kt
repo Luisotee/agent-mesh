@@ -4,7 +4,8 @@ import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,7 +33,7 @@ import java.io.File
 
 /** The drawer around the screens: always open beside them when wide, a slide-over below, and an agent from it replaces the open one. */
 abstract class DrawerNavBase {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<androidx.activity.ComponentActivity>()
     protected val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
     protected val container get() = (ApplicationProvider.getApplicationContext<Application>() as MeshApp).container
     protected var nav: NavHostController? = null
@@ -115,5 +116,17 @@ class NarrowDrawerNavTest : DrawerNavBase() {
         open("worker-w2")
         assertEquals(listOf("home", agentRoute), stack())
         assertEquals("w2", nav!!.currentBackStackEntry!!.arguments!!.getString("agent"))
+    }
+
+    @Test fun `system Back closes an open drawer before it does anything else`() {
+        start()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("open-drawer").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("sidebar").assertIsDisplayed()
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("sidebar").assertIsNotDisplayed()
+        assertEquals(listOf("home"), stack())
     }
 }

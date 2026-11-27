@@ -44,14 +44,16 @@ fun AddProjectSheet(runtime: HostRuntime, onDismiss: () -> Unit) {
     }
     val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
     val shown = projects.filter { (path, name) -> path !in pinned && words.all { it in name.lowercase() || it in path.lowercase() } }.take(30)
+    // Only an absolute path: a project is matched to its runs by the exact path, and the host doesn't expand `~`.
+    val typed = query.trim().trimEnd('/', '\\').takeIf { it.startsWith("/") || Regex("^[A-Za-z]:[\\\\/].*").matches(it) }
     fun add(path: String) { prefs.togglePin(runtime.hostId, path); onDismiss() }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().testTag("add-project")) {
             Text("Add a project on ${runtime.host?.name ?: "the host"}", style = MaterialTheme.typography.titleMedium)
             Text("It stays in the drawer, pinned, before any run works in it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().testTag("project-query"), singleLine = true, label = { Text("A name, or a path on the host") })
+            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().testTag("project-query"), singleLine = true, label = { Text("A name, or an absolute path on the host") })
             if (error.isNotEmpty() && projects.isEmpty()) Text("Couldn't list the host's projects: $error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-            if ((query.contains('/') || query.contains('\\') || query.startsWith("~")) && query.trim() !in pinned) Text("Add ${query.trim()}", Modifier.fillMaxWidth().clickable { add(query.trim()) }.padding(vertical = 12.dp).testTag("add-typed-path"), color = MaterialTheme.colorScheme.primary)
+            if (typed != null && typed !in pinned) Text("Add $typed", Modifier.fillMaxWidth().clickable { add(typed) }.padding(vertical = 12.dp).testTag("add-typed-path"), color = MaterialTheme.colorScheme.primary)
             LazyColumn(Modifier.padding(top = 8.dp)) {
                 items(shown, key = { it.first }) { (path, name) ->
                     Column(Modifier.fillMaxWidth().clickable { add(path) }.padding(vertical = 8.dp).testTag("project-option")) {

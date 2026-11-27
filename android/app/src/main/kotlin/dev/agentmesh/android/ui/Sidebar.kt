@@ -65,6 +65,7 @@ import dev.agentmesh.android.derive.WaitingKind
 import dev.agentmesh.android.derive.WorkerRow
 import dev.agentmesh.android.derive.anyWorking
 import dev.agentmesh.android.derive.buildProjects
+import androidx.lifecycle.repeatOnLifecycle
 import dev.agentmesh.android.derive.helpersLabel
 import dev.agentmesh.android.derive.hueOf
 import dev.agentmesh.android.derive.quotaLines
@@ -116,8 +117,9 @@ fun rememberSidebar(): SidebarModel {
     val pins by container.prefs.pins.collectAsStateWithLifecycleCompat()
     val flow = remember(hosts, runtimes, pins) {
         val rts = hosts.mapNotNull { runtimes[it.id] }
-        val empty = SidebarModel(emptyList(), buildProjects(emptyList(), pins), emptyList())
-        if (rts.isEmpty()) flowOf(empty)
+        // Hosts paired but their runtimes not built yet: still loading, not "no hosts".
+        val loading = SidebarModel(hosts.map { HostStatus(it.id, it.name, up = false, loading = true, readOnly = false, note = "") }, emptyList(), emptyList())
+        if (rts.isEmpty()) flowOf(loading)
         else combine(rts.map { it.state }) { states ->
             val side = ArrayList<SidebarHost>()
             val status = ArrayList<HostStatus>()
@@ -135,8 +137,7 @@ fun rememberSidebar(): SidebarModel {
         }.flowOn(Dispatchers.Default).distinctUntilChanged()
     }
     // Until the first model is built, the paired hosts are loading (not "no hosts").
-    val initial = remember(hosts) { SidebarModel(hosts.map { HostStatus(it.id, it.name, up = false, loading = true, readOnly = false, note = "") }, emptyList(), emptyList()) }
-    return flow.collectAsStateWithLifecycleCompat(initial).value
+    return flow.collectAsStateWithLifecycleCompat(SidebarModel(hosts.map { HostStatus(it.id, it.name, up = false, loading = true, readOnly = false, note = "") }, emptyList(), emptyList())).value
 }
 
 /** What the drawer can do: each is a navigation or a sheet the app's root owns. */
@@ -154,8 +155,9 @@ class SidebarActions(
 private val stringSet = listSaver<Set<String>, String>(save = { it.toList() }, restore = { it.toSet() })
 
 /** The drawer's content: search, what waits on the user, every project with its leads and their workers, and the quota. */
+/** [active]: the drawer is in view (open, or always open); the quota is read only then. */
 @Composable
-fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: SidebarActions, modifier: Modifier = Modifier) {
+fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: SidebarActions, modifier: Modifier = Modifier, active: Boolean = true) {
     val container = LocalContainer.current
     val hidden by container.prefs.hidden.collectAsStateWithLifecycleCompat()
     var query by rememberSaveable { mutableStateOf("") }
@@ -209,7 +211,7 @@ fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: Sideb
                 }
             }
         }
-        QuotaFooter(model, a.usage)
+        QuotaFooter(model, active, a.usage)
         HorizontalDivider()
         Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = a.settings, Modifier.testTag("open-settings")) { Icon(Icons.Default.Settings, "Settings") }
@@ -276,6 +278,7 @@ private fun ProjectHeader(p: ProjectRow, model: SidebarModel, open: Boolean, a: 
     val container = LocalContainer.current
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
+    val hidden by container.prefs.hidden.collectAsStateWithLifecycleCompat()
     val hue = LocalMeshTheme.current.hues[hueOf(p.repo) - 1]
     val live = p.runs.size
     val readOnly = model.hosts.any { it.hostId == p.hostId && it.readOnly }
@@ -307,7 +310,7 @@ private fun ProjectHeader(p: ProjectRow, model: SidebarModel, open: Boolean, a: 
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text("New lead here") }, enabled = !readOnly && p.repo.isNotEmpty(), onClick = { menu = false; a.newLead(p.hostId, p.repo) })
                 DropdownMenuItem(text = { Text(if (p.pinned) "Unpin" else "Pin to the top") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; container.prefs.togglePin(p.hostId, p.repo) })
-                DropdownMenuItem(text = { Text("Hide") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; container.prefs.toggleHidden(p.key) })
+                DropdownMenuItem(text = { Text(if (p.key in hidden) "Show again" else "Hide") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; container.prefs.toggleHidden(p.key) })
                 DropdownMenuItem(text = { Text("Copy the path") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; copy(context, p.repo) })
             }
         }
@@ -334,7 +337,7 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
     Box {
         Row(
             Modifier.fillMaxWidth().then(if (here) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
-                .combinedClickable(enabled = lead != null, onClick = { lead?.let { a.openAgent(r.hostId, it.id, Tab.Chat) } }, onLongClick = { menu = true })
+                .combinedClickable(onClick = { lead?.let { a.openAgent(r.hostId, it.id, Tab.Chat) } ?: run { menu = true } }, onLongClick = { menu = true })
                 .padding(start = 28.dp, end = 16.dp, top = 6.dp, bottom = 6.dp).testTag("lead-${r.run.id}"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -388,19 +391,24 @@ private fun HelperChip(helpers: List<Agent>) {
 
 /** One meter per quota line of each host, read every minute while the host is up: green, amber from the reserve, red when used up. A tap opens Usage and cost. */
 @Composable
-private fun QuotaFooter(model: SidebarModel, onUsage: (String) -> Unit) {
+private fun QuotaFooter(model: SidebarModel, active: Boolean, onUsage: (String) -> Unit) {
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val container = LocalContainer.current
     val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
     val quotas = remember { mutableStateMapOf<String, List<QuotaLine>>() }
     model.hosts.forEach { h ->
         val rt = runtimes[h.hostId]
         androidx.compose.runtime.key(h.hostId) {
-            LaunchedEffect(h.hostId, h.up, rt) {
+            LaunchedEffect(h.hostId, h.up, rt, active) {
                 // A host that is down has no reading to show: a frozen figure would pass for the current one.
                 if (!h.up || rt == null) { quotas.remove(h.hostId); return@LaunchedEffect }
-                while (true) {
+                if (!active) return@LaunchedEffect
+                // Read while the drawer is in view and the app started, not for a drawer nobody can see.
+                lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                  while (true) {
                     try { quotas[h.hostId] = quotaLines(usageView(rt.awaitApi().getUsage(refresh = false))) } catch (e: CancellationException) { throw e } catch (e: Exception) { quotas.remove(h.hostId) }
                     delay(60_000)
+                  }
                 }
             }
         }

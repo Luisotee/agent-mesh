@@ -9,7 +9,7 @@ import dev.agentmesh.gen.agentmesh.v1.Run
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
 
 /**
- * The drawer's projects across every host (the desktop's `sidebar.ts`, with its rules). A project is a repo some run is
+ * The drawer's projects across every host (the desktop's `sidebar.ts`, from desktop PR #193, with its rules). A project is a repo some run is
  * led from or works in, plus the ones the user pinned. Nothing here reads the network: the host's runs, agents and what
  * waits on the user come in as [SidebarHost].
  */
