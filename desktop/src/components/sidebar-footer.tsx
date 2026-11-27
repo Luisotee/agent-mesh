@@ -82,7 +82,17 @@ const toneOf = (r: QuotaLine): MeterTone => (r.used >= 100 ? 'over' : r.atReserv
 
 /** What a quota bar says in its tip: the window, how full, when it resets and where the host stops starting work. */
 const lineTip = (l: QuotaLine, reserve: number) =>
-  [`${l.title}: ${Math.round(l.used)}% used`, l.resetsAt ? resetText(l.resetsAt) : l.resetsIn ? `resets in ${l.resetsIn}` : '', reserve < 100 ? `the host starts nothing new from ${reserve}%` : ''].filter(Boolean).join(', ')
+  [`${l.title}: ${Math.round(l.used)}% used`, resetWords(l), reserve < 100 ? `the host starts nothing new from ${reserve}%` : ''].filter(Boolean).join(', ')
+
+/** When a window resets: a time as a span ("resets in 2 h"), agy's own text as it gave it ("resets in 1h" for a span, else "resets 12:00"). */
+function resetWords(l: QuotaLine): string {
+  if (l.resetsAt) return resetText(l.resetsAt)
+  const t = l.resetsIn?.trim()
+  if (!t) return ''
+  const at = /^\d{4}-\d\d-\d\dT/.test(t) ? new Date(t) : undefined
+  if (at && !Number.isNaN(at.getTime())) return resetText(at)
+  return /^\d+\s*(h|m|d|min|hr)\b/i.test(t) ? `resets in ${t}` : `resets ${t}`
+}
 
 /**
  * One host's quota, a section per provider: its mark and name, then a bar per window labelled "5h" or "7d" with its percent
@@ -93,7 +103,15 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
   const up = useHostState(host, (s) => s.conn.kind === 'ready')
   const usage = usePolled(() => getUsage(host.client), host.info.id, 60_000, up)
   const q = useMemo(() => (usage.value ? quotaSections(usage.value) : undefined), [usage.value])
-  if (!q || q.sections.length === 0) return null
+  if (!q) return null
+  // A host with no reading (no Claude account, no agy) still has its Usage and cost screen: the way in stays.
+  if (q.sections.length === 0) {
+    return (
+      <Button type="button" size="sm" variant="ghost" className="mb-1 h-6 w-full justify-start px-1.5 text-xs text-muted-foreground" aria-label={`Quota${many ? ` of ${host.info.name}` : ''}: open usage and cost`} onClick={() => toggleUsage(app, host.info.id)}>
+        Usage and cost
+      </Button>
+    )
+  }
   return (
     <button
       type="button"
@@ -112,7 +130,7 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
               <Tip key={l.title} label={lineTip(l, q.reserve)}>
                 <li className="grid grid-cols-[minmax(0,3.25rem)_1fr_2.5rem] items-center gap-2 text-xs">
                   <span className="truncate text-muted-foreground">{l.label}</span>
-                  <Meter label={`${s.name} ${l.label}`} value={l.used} tone={toneOf(l)} mark={q.reserve} />
+                  <Meter label={`${s.name} ${l.label}`} valueText={lineTip(l, q.reserve)} value={l.used} tone={toneOf(l)} mark={q.reserve} />
                   <span className={toneOf(l) === 'ok' ? 'text-right tabular-nums text-muted-foreground' : 'text-right font-semibold tabular-nums text-state-needs'}>{Math.round(l.used)}%</span>
                 </li>
               </Tip>

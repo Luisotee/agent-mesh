@@ -36,10 +36,14 @@ export function Dock() {
   const runId = useMemo(() => views.find((v) => v.hostId === hostId)?.agents[agentId ?? '']?.runId, [views, hostId, agentId])
   const all = useMemo(() => dockTiles(views, { newTiles, dismissed }, now), [views, newTiles, dismissed, now])
   const shown = useMemo(() => treeTiles(all, hostId && runId ? { hostId, runId } : undefined), [all, hostId, runId])
-  // Only what is live shows; the idle ones rest behind a count (a lead and the open agent always show).
-  const [showResting, setShowResting] = useState(false)
-  const live = shown.filter(({ tile: t }) => isActive(t.agent, { waiting: t.waiting, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }))
-  const resting = shown.length - live.length
+  // Only what is live shows; the idle ones rest behind a count (a lead and the open agent always show). A tile whose
+  // agent is idle stays while a reviewer or asker folded into it works. Asking for the resting ones holds for this run
+  // only: another run or host starts folded again.
+  const scope = `${hostId ?? ''}/${runId ?? ''}`
+  const [asked, setAsked] = useState({ scope: '', on: false })
+  const showResting = asked.on && asked.scope === scope
+  const live = shown.filter(({ tile: t, helpers }) => isActive(t.agent, { waiting: t.waiting, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }) || helpers.some((h) => isActive(h, { waiting: false, keep: false })))
+  const resting = shown.reduce((n, t) => n + (live.includes(t) ? 0 : 1 + t.helpers.length), 0)
   const listed = showResting ? shown : live
   const tiles = listed.map((t) => t.tile)
   const fresh = tiles.filter((t) => t.isNew).length
@@ -52,9 +56,9 @@ export function Dock() {
           <span className="text-[13px] font-semibold">Live</span>
         </Button>
         <span className="text-xs text-muted-foreground">{tiles.length} {runId ? 'in this run' : tiles.length === 1 ? 'lead' : 'leads'}</span>
-        {resting > 0 && (
-          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" aria-pressed={showResting} onClick={() => setShowResting(!showResting)}>
-            {showResting ? 'Hide' : 'Show'} {resting} resting
+        {(resting > 0 || showResting) && (
+          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" aria-pressed={showResting} onClick={() => setAsked({ scope, on: !showResting })}>
+            {showResting ? 'Hide resting' : `Show ${resting} resting`}
           </Button>
         )}
         {needs > 0 && <Badge className="border-state-needs text-state-needs">{needs} need you</Badge>}
