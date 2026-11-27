@@ -229,3 +229,50 @@ func TestCopilotGutterBox(t *testing.T) {
 		})
 	}
 }
+
+// A Claude Code 2.1.332 screen as the lead's terminal showed it, idle, its box holding the suggested prompt (rows 59 to 61 of
+// a 249x63 repaint, the rules cut to 120 columns; the rows above were the conversation). The suggestion is dim (`\x1b[2m`).
+const claudeSuggestion = "\x1b[?25l\x1b[m\x1b[H\x1b[2J" +
+	"\x1b[1;1H\x1b[38;2;136;136;136m" + "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────" + "\x1b[m\x1b[m" +
+	"\x1b[2;1H❯ \x1b[2mrebuild the windows installer when 202 merges\x1b[m\x1b[m" +
+	"\x1b[3;1H\x1b[38;2;136;136;136m" + "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────" + "\x1b[m\x1b[m" +
+	"\x1b[4;1H  \x1b[38;2;255;107;128m⏵⏵\x1b[m \x1b[38;2;255;107;128mbypass\x1b[m \x1b[38;2;255;107;128mpermissions\x1b[m \x1b[38;2;255;107;128mon\x1b[m"
+
+// The ghost text of an empty box when Claude's terminal has the focus: it paints its cursor on the text by inverting the
+// first character (`Cr()` in the 2.1.332 binary: `invert(p[0]) + dim(p.slice(1))`, invert being `\x1b[7m` and `\x1b[27m`).
+func focused(ghost string) string {
+	r := []rune(ghost)
+	return "\x1b[7m" + string(r[:1]) + "\x1b[27m" + dim + string(r[1:]) + reset
+}
+
+func TestClaudeSuggestedPromptIsEmptyWithOrWithoutTheCursorOnIt(t *testing.T) {
+	if got := inputbox.Read([]byte(claudeSuggestion), inputbox.Claude, "x"); got.State != inputbox.Empty {
+		t.Errorf("the captured screen: %v %q, want empty", got.State, got.Text)
+	}
+	for _, ghost := range []string{
+		"rebuild the windows installer when 202 merges",            // the suggested prompt
+		`Try "fix lint errors"`,                                    // the placeholder
+		"Press up to edit queued messages, Enter to send them now", // the hint while messages wait
+		"Message @reviewer…",
+	} {
+		got := inputbox.Read(repaint(t, 120, 24, claudeScreen(focused(ghost))), inputbox.Claude, "x")
+		if got.State != inputbox.Empty || got.Draft() {
+			t.Errorf("%q with the cursor on it: %v %q, want empty", ghost, got.State, got.Text)
+		}
+	}
+}
+
+func TestADraftWithTheCursorOnItIsStillADraft(t *testing.T) {
+	for name, text := range map[string]string{
+		"cursor at the end":              "fix the typo\x1b[7m \x1b[27m",
+		"cursor on the first character":  "\x1b[7mf\x1b[27mix the typo",
+		"cursor in the middle":           "fix \x1b[7mt\x1b[27mhe typo",
+		"a draft before an inline ghost": "/com" + dim + "pact" + reset,
+		"one character, cursor on it":    "\x1b[7mx\x1b[27m",
+	} {
+		got := inputbox.Read(repaint(t, 120, 24, claudeScreen(text)), inputbox.Claude, "x")
+		if got.State != inputbox.Typed || !got.Draft() {
+			t.Errorf("%s: %v %q, want a draft", name, got.State, got.Text)
+		}
+	}
+}
