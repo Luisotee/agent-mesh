@@ -201,3 +201,39 @@ func TestSignalSessionReachesJobsOutsideTheLeadersGroup(t *testing.T) {
 		t.Errorf("the leader was signalled: %v", cmd.ProcessState)
 	}
 }
+
+// A process left in a session whose leader has gone is found by the session id alone (it has no terminal then).
+func TestSignalSessionMembersReachesWhatTheLeaderLeftBehind(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "sleep 300 </dev/null >/dev/null 2>&1 & echo $!")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	out, err := cmd.Output() // the shell prints the job's pid and exits
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || job <= 1 {
+		t.Fatalf("job pid %q", out)
+	}
+	t.Cleanup(func() { syscall.Kill(job, syscall.SIGKILL) })
+	leader := cmd.Process.Pid
+	if n := SignalSessionMembers(leader, syscall.SIGKILL); n != 1 {
+		t.Fatalf("signalled %d, want the one job", n)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		f, err := stat(job)
+		if err != nil || f[0] == "Z" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the job is still running")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := SignalSessionMembers(leader, syscall.SIGKILL); n != 0 {
+		t.Errorf("signalled %d after it ended", n)
+	}
+	if n := SignalSessionMembers(1, syscall.SIGKILL); n != 0 {
+		t.Errorf("signalled %d for pid 1", n)
+	}
+}

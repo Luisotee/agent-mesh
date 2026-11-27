@@ -376,7 +376,22 @@ func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillT
 	if err != nil && !errors.Is(err, proc.ErrGone) {
 		return nil, err
 	}
+	if sig == syscall.SIGHUP || sig == syscall.SIGTERM {
+		go t.resignalSession(sig)
+	}
 	return connect.NewResponse(&termv1.KillTerminalResponse{}), nil
+}
+
+// resignalSession sends an ending signal again, for a second, to what is left of the terminal's session. A job that
+// was between fork and exec when it first came ran its shell's handler, which took the HUP and let the job go on as a
+// stray under init (TestEndingAShellHangsUpItsBackgroundJobs, on a loaded host); once it has exec'd the signal ends it.
+func (t *Terminal) resignalSession(sig syscall.Signal) {
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if proc.SignalSessionMembers(t.pid, sig) == 0 {
+			return
+		}
+	}
 }
 
 // WriteTerminal types into a terminal for the daemon (a doorbell).

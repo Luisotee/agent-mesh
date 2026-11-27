@@ -126,6 +126,35 @@ func SignalSession(pid int, tty uint64, sig syscall.Signal) {
 	}
 }
 
+// SignalSessionMembers signals every process of session sid but its leader, by the session id alone, and returns how
+// many it signalled. It is for the moments after a terminal's end was signalled: a job still between fork and exec then
+// runs its shell's signal handler, which swallows a SIGHUP, and a session whose leader has gone has no terminal any
+// more (tty_nr 0), so SignalSession matches nothing. The kernel doesn't reuse a pid that names a live session, so a
+// process of session sid is the terminal's own.
+func SignalSessionMembers(sid int, sig syscall.Signal) int {
+	if sid <= 1 {
+		return 0
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	want, n := strconv.Itoa(sid), 0
+	for _, e := range entries {
+		p, err := strconv.Atoi(e.Name())
+		if err != nil || p <= 1 || p == sid {
+			continue
+		}
+		// fields: state, ppid, pgrp, session
+		if f, err := stat(p); err == nil && f[3] == want && f[0] != "Z" {
+			if syscall.Kill(p, sig) == nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // Signal signals one process, after checking pid is still the recorded process.
 func Signal(pid int, startTicks uint64, sig syscall.Signal) error {
 	if pid <= 1 || !Same(pid, startTicks) {
