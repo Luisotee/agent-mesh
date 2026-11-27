@@ -129,8 +129,8 @@ func githubRepoOf(u string) string {
 
 // workerGuard refuses what a worker may not do with a review of this PR: one that is not its own (its head is not
 // the worker's branch, nor the branch checked out in its own worktree: a worker may open its PR from another
-// branch than the one it was registered on), and one whose rounds its parent runs (`review.by`, `--reviews root`: a
-// relay for a risky PR). Anyone else passes.
+// branch than the one it was registered on), one whose rounds its parent runs (`review.by`, `--reviews root`), and,
+// for a worker on `--reviews relay` (a risky PR), any ask but a relay step. Anyone else passes.
 func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Actor, pr *prInfo, relay bool) error {
 	self := d.selfWorker(r, actor)
 	if self == nil {
@@ -138,12 +138,12 @@ func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Acto
 	}
 	if d.reviewByOf(r, self) == reviewByRoot {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"your parent runs the reviews of your PR (review.by or --reviews root: a relay, or a PR it reads itself): "+
+			"your parent runs the reviews of your PR (review.by or --reviews root): "+
 				"don't ask a round; report `done` and it starts them"))
 	}
 	if d.reviewByOf(r, self) == reviewByRelay && !relay {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"your PR's reviews are a relay (it is risky): run `mesh ask --repo <repo> --review <PR> --relay` (one step, then fix, then the next), not a round"))
+			"your PR's reviews are a relay (it is risky): no round and no single reviewer, only `mesh ask --repo <repo> --review <PR> --relay` (one step, then fix, then the next)"))
 	}
 	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr)) {
 		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
@@ -564,7 +564,7 @@ func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url strin
 	if asked == 0 {
 		why = append(why, "no reviewer could be asked")
 	}
-	if self.ReviewBy == reviewByRelay || steps > 0 {
+	if d.reviewByOf(r, self) == reviewByRelay || steps > 0 {
 		switch {
 		case steps == 0:
 			why = append(why, "its relay has not started")
@@ -613,7 +613,6 @@ func prNumberOf(url string) string {
 	return url[strings.LastIndex(url, "/")+1:]
 }
 
-// roundsFooter describes one PR's asks by one worker, oldest first.
 func orDefault(s, d string) string {
 	if s == "" {
 		return d

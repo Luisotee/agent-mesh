@@ -843,14 +843,11 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 	if m.Pr == "" || m.Reviewer == "" {
 		return nil, invalid("name the pull request and the reviewer")
 	}
-	if m.Agree < 0 || m.Other < 0 || m.Disagree < 0 || m.Blocking < 0 {
+	if m.Agree < 0 || m.Other < 0 || m.Disagree < 0 || m.Blocking < 0 || m.DeclinedBlocking < 0 {
 		return nil, invalid("counts can't be negative")
 	}
 	if m.Agree == 0 && m.Other == 0 && m.Disagree == 0 {
 		return nil, invalid("give at least one of agree, other and disagree: how many of the reviewer's findings you agreed with, found otherwise useful, and disagreed with")
-	}
-	if m.DeclinedBlocking < 0 {
-		return nil, invalid("counts can't be negative")
 	}
 	if m.DeclinedBlocking > m.Disagree+m.Other {
 		return nil, invalid("declined_blocking (%d) can't be more than disagree + other (%d): a declined finding is one you disagreed with or found otherwise useful but did not fix", m.DeclinedBlocking, m.Disagree+m.Other)
