@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { m } from 'motion/react'
 import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, sendPromptAnyway, withdrawPrompt } from '@/actions'
 import { ConfirmDialog } from '@/components/ui/confirm'
-import { attachName, attachProblem, attachRef, imagesUnsupported, isImagePath, keepThumb, rewindUnsupported, splitImages, thumbs } from '@/attachments'
+import { attachName, attachProblem, attachRef, imagesUnsupported, isImagePath, keepThumb, pastedFiles, rewindUnsupported, splitImages, thumbs } from '@/attachments'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
 import { MarkdownField } from '@/components/ui/markdown-field'
@@ -815,7 +815,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
           onValueChange={setText}
           onSend={() => void send()}
           onPaste={(e) => {
-            const files = [...e.clipboardData.files]
+            const files = pastedFiles(e.clipboardData)
             if (files.length === 0 || noImages) return
             e.preventDefault()
             void attach(files)

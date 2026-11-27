@@ -51,7 +51,7 @@ import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/p
 import { AgentCostSchema, GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
 import { CheckModelsResponseSchema, KindModelsSchema, ModelFamilyEntrySchema } from './gen/agentmesh/v1/report_pb'
 import { ShellSchema, ListShellsResponseSchema, OpenShellResponseSchema, CloseShellResponseSchema } from './gen/agentmesh/v1/mesh_pb'
-import { ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
+import { type ListProjectsResponse, ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
 const noLocal = { detect: async () => [], connect: vi.fn(), fix: vi.fn() }
@@ -1273,8 +1273,8 @@ describe('SidebarFooter', () => {
 
   it('shows rows where the host\'s projects will be while they are on their way', async () => {
     const { wrap, client } = fixture()
-    let land: (r: unknown) => void = () => {}
-    client.listProjects.mockImplementation(() => new Promise((r) => { land = r }))
+    let land: (r: ListProjectsResponse) => void = () => {}
+    client.listProjects.mockImplementation(() => new Promise<ListProjectsResponse>((r) => { land = r }))
     render(wrap(<ProjectSidebar />))
     await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
     expect(await screen.findByRole('status', { name: "Loading the host's projects" })).toBeInTheDocument()

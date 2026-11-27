@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_THUMBS, MAX_THUMB_CHARS, attachName, attachProblem, attachRef, fileRef, imageRef, imagesUnsupported, isImagePath, keepThumb, rewindUnsupported, splitImages, terminalAttachText, thumbs } from './attachments'
+import { MAX_THUMBS, MAX_THUMB_CHARS, attachName, attachProblem, attachRef, fileRef, imageRef, imagesUnsupported, isImagePath, keepThumb, pastedFiles, rewindUnsupported, splitImages, terminalAttachText, thumbs } from './attachments'
 
 describe('attachments', () => {
   it('takes a file up to 10 MB, not an empty one', () => {
@@ -52,5 +52,16 @@ describe('attachments', () => {
     expect([...thumbs.keys()]).toEqual(['/b', '/c'])
     keepThumb('/huge', 'x'.repeat(MAX_THUMB_CHARS + 10))
     expect([...thumbs.keys()]).toEqual(['/huge'])
+  })
+
+  it('keeps the text of a clipboard that holds text and only images, and takes a copied file', () => {
+    const png = new File(['x'], 'a.png', { type: 'image/png' })
+    const doc = new File(['x'], 'notes.txt', { type: 'text/plain' })
+    const clip = (files: File[], text: string) => ({ files, getData: (t: string) => (t === 'text/plain' ? text : '') }) as unknown as DataTransfer
+    expect(pastedFiles(clip([png], ''))).toEqual([png])
+    expect(pastedFiles(clip([png], 'alt text'))).toEqual([])
+    expect(pastedFiles(clip([doc], 'notes.txt'))).toEqual([doc])
+    expect(pastedFiles(clip([], 'text'))).toEqual([])
+    expect(pastedFiles(null)).toEqual([])
   })
 })

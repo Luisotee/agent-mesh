@@ -32,6 +32,18 @@ export function attachName(f: { name: string; type: string }): string {
   return base + ext
 }
 
+/**
+ * The files a paste carries as attachments. A clipboard that holds text as well as only images (a spreadsheet or Word selection,
+ * a browser's copy of an image with its alt text) is a text paste, so its text is kept; one with a file that is not an image
+ * (a file copied in the file manager, which also carries its name as text) is a file paste.
+ */
+export function pastedFiles(data: DataTransfer | null): File[] {
+  const files = [...(data?.files ?? [])]
+  if (files.length === 0) return []
+  if (data!.getData('text/plain') && files.every((f) => f.type in IMAGE_TYPES)) return []
+  return files
+}
+
 export const imageRef = (path: string) => `[image: ${path}]`
 export const fileRef = (path: string) => `[file: ${path}]`
 /** The prompt line for a stored attachment, by what the path is. */

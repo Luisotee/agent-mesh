@@ -7,7 +7,7 @@ import '@xterm/xterm/css/xterm.css'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { addAttachment, openShellTerminal, openTerminal } from '@/actions'
-import { attachName, attachProblem, terminalAttachText } from '@/attachments'
+import { attachName, attachProblem, pastedFiles, terminalAttachText } from '@/attachments'
 import { useApp, useHostState } from '@/context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -115,13 +115,14 @@ export function TerminalView({ host, agentId = '', shellId = '', active }: { hos
     term.current = t
     // Before xterm's own handlers (a capture listener on its parent): a clipboard or drop that holds files is not text for it.
     const onPaste = (e: ClipboardEvent) => {
-      const list = [...(e.clipboardData?.files ?? [])]
-      if (list.length === 0 || !agentId) return
+      const list = pastedFiles(e.clipboardData)
+      // Only what is typed into the terminal: the find box takes its own paste.
+      if (list.length === 0 || !agentId || !t.element?.contains(e.target as Node)) return
       e.preventDefault()
       e.stopPropagation()
       files.current?.(list)
     }
-    const hasFiles = (e: DragEvent) => !!agentId && !!e.dataTransfer?.types.includes('Files')
+    const hasFiles = (e: DragEvent) => !!agentId && !!e.dataTransfer?.types.includes('Files') && !!t.element?.contains(e.target as Node)
     const onDragOver = (e: DragEvent) => {
       if (hasFiles(e)) e.preventDefault()
     }
