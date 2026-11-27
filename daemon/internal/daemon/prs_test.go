@@ -649,6 +649,63 @@ func TestAWorkersStackOfBranchesHasItsPRsFoundNotOnlyTheRecordedBranchs(t *testi
 	}
 }
 
+// The daemon names a worker's moves from the recorded slug: `fix`, `fix-2`, `fix-2-2`. Recorded on the third, the first
+// PR is still the worker's.
+func TestAStackTheDaemonNamedFromTheRecordedSlugIsFoundWhole(t *testing.T) {
+	w := startPR(t)
+	stem := "mesh/" + w.run.Id + "/fix"
+	tips := map[string]string{stem: w.branchTip}
+	for _, b := range []string{stem + "-2", stem + "-2-2"} {
+		runGit(t, w.repo, "checkout", "-b", b)
+		runGit(t, w.repo, "commit", "--allow-empty", "-m", b)
+		tips[b] = runGit(t, w.repo, "rev-parse", "HEAD")
+	}
+	w.edit("a-w1", func(a *v1.Agent) { a.Branch = stem + "-2-2" })
+	w.mu.Lock()
+	w.byHead = map[string][]map[string]any{
+		stem:          {ghPR(1, "MERGED", tips[stem], false)},
+		stem + "-2":   {ghPR(2, "MERGED", tips[stem+"-2"], false)},
+		stem + "-2-2": {ghPR(3, "OPEN", tips[stem+"-2-2"], false)},
+	}
+	w.mu.Unlock()
+	rows := w.prs("demo-fix", true)
+	var numbers []int32
+	for _, p := range rows[0].PullRequests {
+		numbers = append(numbers, p.Number)
+	}
+	if len(numbers) != 3 {
+		t.Errorf("PRs %v, want 1, 2 and 3 (the whole chain)", numbers)
+	}
+}
+
+// `fix` moved on to `fix-3` and so records no `fix` any more; `fix-2`'s agent must not take the first PR of `fix`.
+func TestAnAgentDoesNotTakeThePRsAnotherAgentOwnsOnceItMovedOn(t *testing.T) {
+	w := startPR(t)
+	stem := "mesh/" + w.run.Id + "/fix"
+	runGit(t, w.repo, "branch", stem+"-2", w.base)
+	runGit(t, w.repo, "branch", stem+"-3", w.base)
+	w.edit("a-w1", func(a *v1.Agent) { a.Branch = stem + "-3" }) // the first agent moved on; its PR #1 is from `fix`
+	w.harness.seedAgent(w.run.Id, "a-w2", "demo-fix-2", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	w.edit("a-w2", func(a *v1.Agent) { a.Repo, a.Worktree, a.Branch, a.BaseCommit = w.repo, w.repo, stem+"-2", w.base })
+	w.mu.Lock()
+	first := ghPR(1, "MERGED", w.branchTip, false)
+	first["headRefName"] = stem
+	w.byHead = map[string][]map[string]any{stem: {first}}
+	w.mu.Unlock()
+	w.prs("demo-fix", true) // the first agent reads its own: PR #1 is recorded for it
+	w.mu.Lock()
+	w.heads = nil
+	w.mu.Unlock()
+	w.prs("demo-fix-2", true)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, h := range w.heads {
+		if h != stem+"-2" {
+			t.Errorf("fix-2's agent asked about %s, which another agent owns: %v", h, w.heads)
+		}
+	}
+}
+
 // Slugs `fix` and `fix-2` in one run: the agent recorded on `fix-2` cannot tell `fix`'s later branch `fix-3` from its own.
 func TestAnAgentRecordedOnASuffixedBranchLeavesTheBaseAgentsStackAlone(t *testing.T) {
 	w := startPR(t)

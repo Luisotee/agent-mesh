@@ -109,7 +109,7 @@ export function waitSentence(w: AgentWait): string {
       return `Waiting${w.detail ? `: ${cut(w.detail)}` : ''}${until ? `, until ${until}` : ''}`
     }
     case AgentWaitKind.ANSWER:
-      return w.from === 'user' ? 'Waiting for your answer' : `Asked ${w.from || 'its parent'}, waiting for the answer`
+      return `Asked ${w.from || 'its parent'}, waiting for the answer`
     case AgentWaitKind.REPORTED:
       return `Reported to ${w.from || 'its parent'}, nothing owed`
     default:

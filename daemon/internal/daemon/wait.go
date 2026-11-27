@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -28,12 +29,12 @@ func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
 	if err != nil {
 		return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 	}
-	return waitFrom(a, parent, msgs)
+	return waitFrom(a, parent, msgs, d.now())
 }
 
 // waitFrom reads the wait off the run's messages: the newest one that settles it, scanning from the end. A task or an
 // answer to the agent ends every wait before it; a message of the agent to its parent starts the one it names.
-func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message) *v1.AgentWait {
+func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time) *v1.AgentWait {
 	to := a.ParentId // a lead has no parent: what it sends up goes to the user
 	if to == "" {
 		to = userRecipient
@@ -46,9 +47,13 @@ func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message) *v1.AgentWait {
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 		case m.From.GetId() != a.Id || m.ToId != to:
 			continue
+		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT && m.WaitUntil != nil && !m.WaitUntil.AsTime().After(now):
+			// Its deadline has passed: the wait is over, as the accountability check reads it.
+			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED, Detail: statusLine(m.Body), From: parent, Until: m.WaitUntil}
-		case m.Type == v1.MessageType_MESSAGE_TYPE_QUESTION || m.Type == v1.MessageType_MESSAGE_TYPE_PLAN:
+		case (m.Type == v1.MessageType_MESSAGE_TYPE_QUESTION || m.Type == v1.MessageType_MESSAGE_TYPE_PLAN) && a.ParentId != "":
+			// (Not a lead's: a person answers one by typing into its terminal, which leaves no message to end the wait.)
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_ANSWER, Detail: statusLine(m.Body), From: parent}
 		case m.Type == v1.MessageType_MESSAGE_TYPE_DONE || m.Type == v1.MessageType_MESSAGE_TYPE_FAILED:
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_REPORTED, From: parent}
@@ -90,9 +95,17 @@ func (d *Daemon) contextMarks(r store.Reader, a *v1.Agent, window int64) []*v1.C
 		}
 	case a.Phase == v1.AgentPhase_AGENT_PHASE_PLANNING:
 		add("compact.approve", "The mesh compacts this plan when it is approved")
-	default:
+		add("compact.approve_switch", "The mesh compacts this plan when it is approved onto another model")
+	case a.Role == v1.AgentRole_AGENT_ROLE_WORKER && !a.Peer:
 		add("compact.followup", "The mesh compacts before a follow-up task")
-		add("compact.claude", "The mesh compacts this conversation")
+		add("compact.claude", "The mesh compacts this conversation when it is resumed")
+	case a.Role == v1.AgentRole_AGENT_ROLE_ASKER || a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER:
+		// Read-only agents are compacted at twice the size, on resume (`requestResumeCompaction`).
+		if at, err := d.settingInt(r, "compact.claude"); err == nil && at > 0 && int64(at)*2 < window {
+			marks = append(marks, &v1.ContextMark{Tokens: int64(at) * 2, Label: "The mesh compacts this conversation when it is resumed", Setting: "compact.claude"})
+		}
+	default: // a peer
+		add("compact.claude", "The mesh compacts this conversation when it is resumed")
 	}
 	slices.SortFunc(marks, func(x, y *v1.ContextMark) int { return int(x.Tokens - y.Tokens) })
 	return marks

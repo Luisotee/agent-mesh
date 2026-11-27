@@ -76,26 +76,36 @@ func evalLine(script string) string {
 	return strings.TrimSpace(cmd)
 }
 
-// unquoteFirst is the text of the shell string `s` opens with, to its closing quote (what follows, the `< /dev/null` and
-// the cwd plumbing, is left out): a single-quoted string writes a quote inside it as '\” and holds a backslash as itself,
-// a double-quoted one escapes a quote or a backslash with a backslash. An unclosed string is taken whole.
+// unquoteFirst is the shell word `s` opens with, unquoted: single-quoted parts as they are, double-quoted ones with a
+// backslash escaping a quote or a backslash, and a backslash outside quotes escaping the next character, joined until a
+// space ends the word (what follows, the `< /dev/null` and the cwd plumbing, is left out). Claude Code writes a quote
+// inside a command as `'"'"'` (close, a double-quoted quote, reopen), a shell as `'\”`: both read as a quote. An unclosed
+// quote takes the rest.
 func unquoteFirst(s string) string {
-	q := s[0]
 	var b strings.Builder
-	for i := 1; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case q == '\'' && c == '\'':
-			if strings.HasPrefix(s[i:], `'\''`) {
-				b.WriteByte('\'')
-				i += 3
-				continue
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '\'':
+			j := strings.IndexByte(s[i+1:], '\'')
+			if j < 0 {
+				b.WriteString(s[i+1:])
+				return b.String()
 			}
-			return b.String()
-		case q == '"' && c == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\'):
-			b.WriteByte(s[i+1])
-			i++
-		case q == '"' && c == '"':
+			b.WriteString(s[i+1 : i+1+j])
+			i += j + 1
+		case '"':
+			for i++; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
+					i++
+				}
+				b.WriteByte(s[i])
+			}
+		case '\\':
+			if i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+			}
+		case ' ', '\t', '\n':
 			return b.String()
 		default:
 			b.WriteByte(c)

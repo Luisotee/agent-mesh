@@ -257,7 +257,7 @@ func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error
 	dir := ghDir(a)
 	atHead := a.Worktree != "" && dir == a.Worktree // else dir is the main checkout, whose HEAD is not the branch
 	var own []ghPRState
-	seen := map[int32]bool{}
+	seen := map[string]bool{} // by URL: two repos' PRs may share a number
 	for _, branch := range stackBranches(ctx, d.store.Read(ctx), a, dir) {
 		remote := prRemote(ctx, a.Repo, branch, remotes)
 		args := []string{"pr", "list", "--repo", remotes[remote], "--head", branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
@@ -270,13 +270,21 @@ func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error
 			return nil, err
 		}
 		for _, p := range prs {
-			if !seen[p.Number] && prOnBranch(ctx, dir, p.HeadRefOid, branch, a.BaseCommit, atHead) {
-				seen[p.Number] = true
+			if key := prSeenKey(p); !seen[key] && prOnBranch(ctx, dir, p.HeadRefOid, branch, a.BaseCommit, atHead) {
+				seen[key] = true
 				own = append(own, p)
 			}
 		}
 	}
 	return own, nil
+}
+
+// prSeenKey is what makes two rows one PR: its URL, else its number.
+func prSeenKey(p ghPRState) string {
+	if p.URL != "" {
+		return p.URL
+	}
+	return strconv.Itoa(int(p.Number))
 }
 
 func (d *Daemon) viewPR(ctx context.Context, a *v1.Agent, url string) (ghPRState, error) {

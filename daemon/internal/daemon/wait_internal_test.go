@@ -37,6 +37,7 @@ func TestWaitFromNamesWhatAnIdleAgentWaitsOn(t *testing.T) {
 	lead := &v1.Agent{Id: "L", Name: "lead"}
 	w := &v1.Agent{Id: "W", Name: "worker", ParentId: "L"}
 	until := timestamppb.New(time.Date(2026, 11, 27, 14, 40, 0, 0, time.UTC))
+	now := time.Date(2026, 11, 27, 14, 0, 0, 0, time.UTC)
 	wait := msg("3", v1.MessageType_MESSAGE_TYPE_WAIT, w, lead, "CI on #12\nsecond line")
 	wait.WaitUntil = until
 	for _, tc := range []struct {
@@ -57,7 +58,7 @@ func TestWaitFromNamesWhatAnIdleAgentWaitsOn(t *testing.T) {
 		{"a wait after a done", []*v1.Message{msg("5", v1.MessageType_MESSAGE_TYPE_DONE, w, lead, "done"), wait}, v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED, "lead", "CI on #12"},
 		{"an info to the parent says nothing", []*v1.Message{msg("1", v1.MessageType_MESSAGE_TYPE_TASK, lead, w, "go"), msg("6", v1.MessageType_MESSAGE_TYPE_INFO, w, lead, "fyi")}, v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, "lead", ""},
 	} {
-		got := waitFrom(w, "lead", tc.msgs)
+		got := waitFrom(w, "lead", tc.msgs, now)
 		if got.Kind != tc.kind || got.From != tc.from || got.Detail != tc.det {
 			t.Errorf("%s: %v from %q detail %q, want %v from %q detail %q", tc.name, got.Kind, got.From, got.Detail, tc.kind, tc.from, tc.det)
 		}
@@ -68,15 +69,19 @@ func TestWaitFromNamesWhatAnIdleAgentWaitsOn(t *testing.T) {
 		return &v1.Message{Id: "u", Type: typ, From: &v1.Actor{Id: root.Id}, ToId: "user", Body: "which one?"}
 	}
 	for typ, want := range map[v1.MessageType]v1.AgentWaitKind{
-		v1.MessageType_MESSAGE_TYPE_QUESTION: v1.AgentWaitKind_AGENT_WAIT_KIND_ANSWER,
+		// (Not an answer wait: a person answers a lead by typing into its terminal, which leaves no message to end it.)
+		v1.MessageType_MESSAGE_TYPE_QUESTION: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE,
 		v1.MessageType_MESSAGE_TYPE_WAIT:     v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED,
 		v1.MessageType_MESSAGE_TYPE_DONE:     v1.AgentWaitKind_AGENT_WAIT_KIND_REPORTED,
 	} {
-		if got := waitFrom(root, "user", []*v1.Message{toUser(typ)}); got.Kind != want || got.From != "user" {
+		if got := waitFrom(root, "user", []*v1.Message{toUser(typ)}, now); got.Kind != want || got.From != "user" {
 			t.Errorf("a lead's %v to the user: %v from %q, want %v", typ, got.Kind, got.From, want)
 		}
 	}
-	if got := waitFrom(w, "lead", []*v1.Message{wait}); got.Until == nil || !got.Until.AsTime().Equal(until.AsTime()) {
+	if got := waitFrom(w, "lead", []*v1.Message{wait}, until.AsTime().Add(time.Minute)); got.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.Until != nil {
+		t.Errorf("a wait past its deadline is still shown: %v", got)
+	}
+	if got := waitFrom(w, "lead", []*v1.Message{wait}, now); got.Until == nil || !got.Until.AsTime().Equal(until.AsTime()) {
 		t.Errorf("a declared wait lost its deadline: %v", got.Until)
 	}
 }
