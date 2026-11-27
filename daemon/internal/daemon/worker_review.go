@@ -147,13 +147,17 @@ func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Acto
 
 // movedBranchIsItsOwn reports whether the PR is the worker's own though its head is not the branch it was
 // registered on: the head is the branch checked out in the worker's own worktree, with commits of its own past its
-// base, and nothing says it is anyone else's: it is not the repo's default branch, no other agent of the repo is
-// registered on it or has it checked out, and no other worker owns or asked a round on the PR. `git switch` onto
-// another worker's branch (or `main`) does not make that PR the worker's own.
+// base, or the next branch of its own series (`mesh/<run>/<slug>` and `mesh/<run>/<slug>-N`, as a worker that
+// stacks PRs names them: registered on `-2`, it opens `-3`); and nothing says it is anyone else's: it is not the
+// repo's default branch, no other agent of the repo is registered on it or has it checked out, and no other worker
+// owns or asked a round on the PR. `git switch` onto another worker's branch (or `main`) does not make that PR the
+// worker's own.
 func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, pr *prInfo) bool {
 	head := pr.HeadRef
-	if head == "" || worktreeBranch(ctx, self) != head || head == "main" || head == "master" ||
-		head == strings.TrimPrefix(defaultBaseRO(ctx, self.Repo), "origin/") || !hasBranchWork(ctx, self) {
+	if head == "" || head == "main" || head == "master" || head == strings.TrimPrefix(defaultBaseRO(ctx, self.Repo), "origin/") {
+		return false
+	}
+	if !(worktreeBranch(ctx, self) == head && hasBranchWork(ctx, self)) && !inSeriesOf(self.Branch, head) {
 		return false
 	}
 	agents, err := r.ListAgents("")
@@ -193,6 +197,16 @@ func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *
 		}
 	}
 	return true
+}
+
+// seriesRE is a branch name `mesh/<run>/<slug>` whose slug may end in `-N`.
+var seriesRE = regexp.MustCompile(`^(mesh/[^/]+/.+?)(?:-[0-9]+)?$`)
+
+// inSeriesOf reports whether head is registered's own series: the same `mesh/<run>/` and the same slug, with or
+// without a `-N` suffix on either (`ui-overhaul`, `ui-overhaul-2`, `ui-overhaul-3`).
+func inSeriesOf(registered, head string) bool {
+	a, b := seriesRE.FindStringSubmatch(registered), seriesRE.FindStringSubmatch(head)
+	return a != nil && b != nil && a[1] == b[1]
 }
 
 // worktreeBranch is the branch checked out in a worker's own worktree (read-only), or "" when it has none, the
