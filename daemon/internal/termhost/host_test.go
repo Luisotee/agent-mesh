@@ -73,11 +73,13 @@ type fixture struct {
 	done   chan error
 }
 
-func startHost(t *testing.T) *fixture {
+func startHost(t *testing.T) *fixture { return startHostGrace(t, -1) } // no grace: a leave grows the terminal at once
+
+func startHostGrace(t *testing.T, grow time.Duration) *fixture {
 	t.Helper()
 	dir := shortdir.New(t)
 	h, err := termhost.Open(termhost.Config{Dir: dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		KillGrace: 500 * time.Millisecond})
+		KillGrace: 500 * time.Millisecond, GrowGrace: grow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -682,4 +684,116 @@ func TestFocusReportsPassThroughButOnlyKeysCountAsTyping(t *testing.T) {
 	s.Input(ctx, []byte("mark\n"))
 	col.until(t, s, "mark")
 	waitFor("a typed line to count as typing", func(x *termv1.Terminal) bool { return x.LastClientInput != nil })
+}
+
+func (f *fixture) size(id string) (cols, rows uint32, epoch uint64) {
+	f.t.Helper()
+	l, err := f.c.API.ListTerminals(context.Background(), connect.NewRequest(&termv1.ListTerminalsRequest{}))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	for _, x := range l.Msg.Terminals {
+		if x.Id == id {
+			return x.Cols, x.Rows, x.Epoch
+		}
+	}
+	f.t.Fatalf("no terminal %s", id)
+	return
+}
+
+// The smallest client leaving does not grow the terminal at once: for the grace period it stays at that client's size, so the
+// client coming back with an EXACT attach continues (same epoch, no repaint); after the grace the terminal grows, in a new epoch.
+func TestAClientThatLeavesAndComesBackInTheGraceKeepsItsExactAttach(t *testing.T) {
+	f := startHostGrace(t, 2*time.Second)
+	term := f.spawn("echo")
+	ctx := context.Background()
+	big := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
+	var cb collector
+	cb.next(t, big)
+	small := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 20})
+	var cs collector
+	cs.next(t, small)
+	small.Ready(ctx)
+	small.Input(ctx, []byte("one\n"))
+	cs.until(t, small, "got:one\r\r\n")
+	epoch, offset := cs.epoch, cs.offset
+	small.Close()
+
+	// Gone, but the grace is running: the terminal has not grown, and has not moved its epoch.
+	time.Sleep(150 * time.Millisecond)
+	if c, r, e := f.size(term.Id); c != 60 || r != 20 || e != epoch {
+		t.Fatalf("in the grace the terminal is %dx%d in epoch %d, want 60x20 in %d", c, r, e, epoch)
+	}
+	back := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_EXACT, Epoch: epoch, Offset: offset, Cols: 60, Rows: 20})
+	var cbk collector
+	att := cbk.next(t, back).GetAttached()
+	if att.Mode != termv1.AttachMode_ATTACH_MODE_EXACT || att.Reanchored || att.Epoch != epoch || att.Offset != offset {
+		t.Fatalf("the return was answered %v, want an exact continue in epoch %d from offset %d", att, epoch, offset)
+	}
+	// Its return ended the wait: well after the grace, the terminal is still 60x20 in the same epoch.
+	time.Sleep(2500 * time.Millisecond)
+	if c, r, e := f.size(term.Id); c != 60 || r != 20 || e != epoch {
+		t.Fatalf("after the return the terminal is %dx%d in epoch %d, want 60x20 in %d (the timer must not grow it)", c, r, e, epoch)
+	}
+
+	// Leaving for good: after the grace it grows, in a new epoch, and the client still there is told.
+	back.Close()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		c, r, e := f.size(term.Id)
+		if c == 100 && r == 30 && e > epoch {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal is %dx%d in epoch %d long after the grace, want 100x30 in a later epoch", c, r, e)
+		}
+	}
+	var told []*termv1.Resized // the 60x20 from when the small client came, then the growth
+	for len(told) == 0 || told[len(told)-1].Cols != 100 {
+		if r := cb.next(t, big).GetResized(); r != nil {
+			told = append(told, r)
+		}
+	}
+	if r := told[len(told)-1]; r.Rows != 30 || r.Epoch <= epoch || len(told) != 2 {
+		t.Errorf("the client left behind was told %v, want 60x20 and then, once, 100x30 in a later epoch than %d", told, epoch)
+	}
+}
+
+// During the grace another client only growing (a new client at a larger size, a window dragged larger) does not spend it: the
+// terminal stays at the leaver's size so its return still continues; a client that needs less room decides at once.
+func TestAnotherClientGrowingInTheGraceDoesNotSpendItButASmallerOneEndsIt(t *testing.T) {
+	f := startHostGrace(t, time.Hour)
+	term := f.spawn("echo")
+	ctx := context.Background()
+	big := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
+	var cb collector
+	cb.next(t, big)
+	small := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 20})
+	var cs collector
+	cs.next(t, small)
+	_, _, epoch := f.size(term.Id)
+	small.Close()
+	time.Sleep(100 * time.Millisecond)
+	// A new client at a larger size and the big one dragged larger: both only grow, so nothing moves.
+	other := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 120, Rows: 40})
+	var co collector
+	if at := co.next(t, other).GetAttached(); at.Cols != 60 || at.Rows != 20 || at.Epoch != epoch {
+		t.Fatalf("a larger client in the grace was attached at %v, want the leaver's 60x20 in epoch %d", at, epoch)
+	}
+	if err := big.Send(ctx, &termv1.TermFrame{Frame: &termv1.TermFrame_Resize{Resize: &termv1.Resize{Cols: 110, Rows: 35}}}); err != nil {
+		t.Fatal(err)
+	}
+	for { // the asker is answered with the size that stands: the leaver's, in the same epoch
+		if r := cb.next(t, big).GetResized(); r != nil && r.Epoch == epoch && r.Cols == 60 && r.Rows == 20 {
+			break
+		}
+	}
+	if c, rr, e := f.size(term.Id); c != 60 || rr != 20 || e != epoch {
+		t.Fatalf("after larger clients the terminal is %dx%d in epoch %d, want 60x20 in %d", c, rr, e, epoch)
+	}
+	// A client that needs less room decides now, whatever the wait.
+	tiny := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 40, Rows: 10})
+	var ct collector
+	if at := ct.next(t, tiny).GetAttached(); at.Cols != 40 || at.Rows != 10 || at.Epoch <= epoch {
+		t.Fatalf("a smaller client was attached at %v, want 40x10 in a later epoch than %d", at, epoch)
+	}
 }

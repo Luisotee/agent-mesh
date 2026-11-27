@@ -377,10 +377,14 @@ export function createAppModel(api: DesktopApi): AppModel {
     const first = store.getState().hosts[0]
     api.shell.configure({ closeToTray: appPrefs(first?.store.getState().settings ?? {}).closeToTray })
   }
+  const shellFrames: Record<string, number> = {} // per host: the shell frames seen, to notice one that came while ListShells was on its way
   const hooks: HostHooks = {
     spawned: (hostId, agent, mode) => set((s) => noteSpawned(s, { hostId, agentId: agent.id }, mode, Date.now())),
     view: (hostId, v, openViews) => offerView(model, hostId, v, openViews),
-    shell: (hostId, c) => set((s) => applyShellChange(s, hostId, c)),
+    shell: (hostId, c) => {
+      shellFrames[hostId] = (shellFrames[hostId] ?? 0) + 1 // a listing on its way may predate it: loadShells asks again
+      set((s) => applyShellChange(s, hostId, c))
+    },
   }
   // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
   let saved = ''
@@ -545,7 +549,14 @@ export function createAppModel(api: DesktopApi): AppModel {
       const h = store.getState().hosts.find((x) => x.info.id === hostId)
       if (!h) return
       try {
-        const res = await listShells(h.client)
+        // A frame that came while the list was on its way may be missing from it (the host read its shells before the change, or the
+        // frame found no list to join yet): ask again, a few times at most.
+        let seen = shellFrames[hostId] ?? 0
+        let res = await listShells(h.client)
+        for (let tries = 0; tries < 3 && (shellFrames[hostId] ?? 0) !== seen; tries++) {
+          seen = shellFrames[hostId] ?? 0
+          res = await listShells(h.client)
+        }
         set((s) => {
           const shells = { ...s.shells, [hostId]: res.shells }
           const { [hostId]: _was, ...shellsError } = s.shellsError

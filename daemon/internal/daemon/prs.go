@@ -248,7 +248,8 @@ func ghDir(a *v1.Agent) string {
 }
 
 // branchPRs reads the PRs from an agent's branches: all states, those whose head is on one of its stack's branches
-// (`stackBranches`: the recorded one and the `-2`, `-3` … it moved on to).
+// (`stackBranches`: the recorded one and the `-2`, `-3` … it moved on to). The branches are asked about at once, so one
+// slow `gh` does not hold up the rest inside the brief's wait (`briefGitHubWait`); the answers are read in branch order.
 func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error) {
 	remotes := githubRepos(ctx, a.Repo)
 	if len(remotes) == 0 {
@@ -256,20 +257,37 @@ func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error
 	}
 	dir := ghDir(a)
 	atHead := a.Worktree != "" && dir == a.Worktree // else dir is the main checkout, whose HEAD is not the branch
+	branches := stackBranches(ctx, d.store.Read(ctx), a, dir)
+	type answer struct {
+		prs []ghPRState
+		err error
+	}
+	answers := make([]answer, len(branches))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, stackFetchers)
+	for i, branch := range branches {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() { // joined below, within this call
+			defer wg.Done()
+			defer func() { <-sem }()
+			remote := prRemote(ctx, a.Repo, branch, remotes)
+			args := []string{"pr", "list", "--repo", remotes[remote], "--head", branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
+			out, err := d.runGH(ctx, dir, args...)
+			if err == nil {
+				err = json.Unmarshal(out, &answers[i].prs)
+			}
+			answers[i].err = err
+		}()
+	}
+	wg.Wait()
 	var own []ghPRState
 	seen := map[string]bool{} // by URL: two repos' PRs may share a number
-	for _, branch := range stackBranches(ctx, d.store.Read(ctx), a, dir) {
-		remote := prRemote(ctx, a.Repo, branch, remotes)
-		args := []string{"pr", "list", "--repo", remotes[remote], "--head", branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
-		out, err := d.runGH(ctx, dir, args...)
-		if err != nil {
-			return nil, err
+	for i, branch := range branches {
+		if answers[i].err != nil {
+			return nil, answers[i].err
 		}
-		var prs []ghPRState
-		if err := json.Unmarshal(out, &prs); err != nil {
-			return nil, err
-		}
-		for _, p := range prs {
+		for _, p := range answers[i].prs {
 			if key := prSeenKey(p); !seen[key] && prOnBranch(ctx, dir, p.HeadRefOid, branch, a.BaseCommit, atHead) {
 				seen[key] = true
 				own = append(own, p)
@@ -380,6 +398,7 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 	if timedOut && ferr == nil {
 		ferr = ghCtx.Err()
 	}
+	endedNow := map[string]bool{}
 	err = d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
 		old, err := tx.AgentPRs(a.Id)
 		if err != nil {
@@ -391,6 +410,9 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		}
 		for _, p := range found {
 			o := prev[prKey(p.Url)]
+			if (p.State == "merged" || p.State == "closed") && (o == nil || o.State != p.State) {
+				endedNow[prKey(p.Url)] = true // its reviewers end now, once (a resumed one is not retired again at each read)
+			}
 			delete(prev, prKey(p.Url))
 			if o != nil { // the watch's cursors are not GitHub's to say (prfeedback.go)
 				p.FeedbackCursor, p.FailingHead, p.FeedbackResumes = o.FeedbackCursor, o.FailingHead, o.FeedbackResumes
@@ -444,6 +466,16 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		return
 	}
 	complete = ferr == nil
+	for _, p := range found {
+		if (p.State == "merged" || p.State == "closed") && endedNow[prKey(p.Url)] {
+			// Off the reader's path: stopping a process waits for it, and a brief is waiting on this read.
+			d.goBG(func() {
+				bg, cancel := d.stopCtx()
+				defer cancel()
+				d.retireReviewersOfPR(bg, a.RunId, p.Url, p.State)
+			})
+		}
+	}
 }
 
 // refreshAll refreshes every change worker's PRs, prFetchers at a time.
@@ -468,6 +500,7 @@ func (d *Daemon) refreshAll(ctx, ghCtx context.Context, agents []*v1.Agent, forc
 // workEvidence is what an agent's branch and worktree show of its work: commits past its base, whether the tip is
 // on its upstream, whether the worktree has uncommitted changes. Each part is unset where it can't be told.
 func workEvidence(ctx context.Context, a *v1.Agent) *v1.WorkEvidence {
+	a = onItsBranch(ctx, a)
 	ev := &v1.WorkEvidence{}
 	if a.Repo != "" && a.Branch != "" {
 		if tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+a.Branch); err == nil {
