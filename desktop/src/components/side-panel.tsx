@@ -152,7 +152,6 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const run = useHostState(host, (s) => s.runs[agent.runId])
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
   const own = runLevelOf(run?.autonomy)
-  const reveal = useAppState((s) => s.modelShown)
   const rows: Array<[string, string, boolean?]> = [
     ['Project', repoName(agent.repo)],
     ['Host', host.info.name],
@@ -164,7 +163,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
     ['Run id', agent.runId, true],
   ]
   return (
-    <Fold title="Details" reveal={reveal} onRevealed={() => app.modelRevealed()}>
+    <Fold title="Details">
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs">
         {rows.filter(([, v]) => v).map(([k, v, mono]) => (
           <div key={k} className="contents">
@@ -185,7 +184,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
           </>
         )}
       </dl>
-      <ModelControl host={host} agent={agent} className="mt-1.5" />
+      <ModelControl agent={agent} className="mt-1.5" />
       <div className="mt-2 flex gap-1.5">
         {canTerminal && agent.terminalId && (
           <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>

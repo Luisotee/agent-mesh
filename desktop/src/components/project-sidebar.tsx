@@ -346,7 +346,6 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
   return [
     { label: 'Open chat', onSelect: () => app.selectAgent(hostId, a.id, 'chat') },
     { label: 'Open its terminal', onSelect: () => app.selectAgent(hostId, a.id, 'terminal'), disabled: !terminals },
-    { label: 'Model…', onSelect: () => { app.selectAgent(hostId, a.id); app.showModel() } },
     { label: 'Send a message…', onSelect: () => app.openMessage({ hostId, agentId: a.id }) },
     'separator',
     { label: 'Copy worktree path', onSelect: () => copy(a.worktree), disabled: !a.worktree },

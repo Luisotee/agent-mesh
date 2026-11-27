@@ -1,12 +1,13 @@
 import { ContextMenu } from '@base-ui/react/context-menu'
 import { Menu as Base } from '@base-ui/react/menu'
-import { MoreHorizontal } from 'lucide-react'
+import { Check, MoreHorizontal } from 'lucide-react'
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /** One entry of a menu: an action, or a line between groups. */
 export type MenuEntry =
-  | { label: string; onSelect: () => void; destructive?: boolean; disabled?: boolean; hint?: string }
+  | { label: string; onSelect: () => void; destructive?: boolean; disabled?: boolean; hint?: string; /** Marks the entry that is current (a radio in a picker). */ checked?: boolean }
+  | { heading: string }
   | 'separator'
 
 const POPUP =
@@ -18,10 +19,15 @@ function Items({ entries }: { entries: MenuEntry[] }) {
   return entries.map((e, i) =>
     e === 'separator' ? (
       <Base.Separator key={i} className="my-1 h-px bg-border" />
+    ) : 'heading' in e ? (
+      <Base.Group key={i}>
+        <Base.GroupLabel className="px-2 pt-1.5 pb-0.5 text-xs font-medium text-muted-foreground">{e.heading}</Base.GroupLabel>
+      </Base.Group>
     ) : (
-      <Base.Item key={e.label} disabled={e.disabled} onClick={e.onSelect} className={cn(ITEM, e.destructive && 'text-destructive')}>
+      <Base.Item key={i} disabled={e.disabled} onClick={e.onSelect} aria-current={e.checked ? 'true' : undefined} className={cn(ITEM, e.destructive && 'text-destructive')}>
         <span className="flex-1">{e.label}</span>
         {e.hint && <span className="text-xs text-muted-foreground">{e.hint}</span>}
+        {e.checked && <Check aria-hidden className="size-3.5" />}
       </Base.Item>
     ),
   )

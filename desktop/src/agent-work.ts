@@ -21,6 +21,22 @@ export function contextMeter(tokens: bigint | number, window: bigint | number): 
   return { pct, text: `${k(t)} of ${k(w)} tokens (${pct}%)` }
 }
 
+/** A size as the meter says it: 84k, 1.2M. */
+export const sizeText = k
+
+/** Where on the meter (0 to 100) a mark of the daemon falls: nothing for one past the window. */
+export const markPct = (tokens: number, window: number) => (window > 0 && tokens > 0 && tokens < window ? (tokens / window) * 100 : undefined)
+
+/**
+ * How the meter is coloured: amber once the conversation passes the first point where the mesh acts on it (the first
+ * mark), red from 90% of the window, where the CLI itself will compact soon. With no mark, amber from 70% as before.
+ */
+export function contextTone(tokens: number, window: number, marks: number[]): 'ok' | 'warn' | 'over' {
+  if (window > 0 && tokens / window >= 0.9) return 'over'
+  const first = marks.length > 0 ? Math.min(...marks) : window * 0.7
+  return tokens >= first ? 'warn' : 'ok'
+}
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
 /** One line for what the worktree holds: "2 files uncommitted · 1 commit not pushed", or that it is all on a remote. */

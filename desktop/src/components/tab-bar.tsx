@@ -20,7 +20,6 @@ import { stopAgent } from '@/actions'
 import { cliKinds, cliName } from '@/cli'
 import { rewindUnsupported } from '@/attachments'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
-import { VendorIcon } from './vendor-icon'
 import { ViewSwitch } from './view-switch'
 import { closedShells, isShellTab, shellIdOf, shellProject, shellTabId } from '@/shells'
 
@@ -232,18 +231,12 @@ export function TabBar() {
   )
 }
 
-/** The open agent's controls at the bar's end: its view switch, its model (until the composer has the picker) and its menu. */
+/** The open agent's controls at the bar's end: its view switch and its menu (its model is the composer's picker). */
 function OpenAgentControls({ host, agent, entries, chord }: { host: HostRuntime; agent: Agent; entries: MenuEntry[]; chord?: string }) {
   const app = useApp()
   const tab = useAppState((s) => s.tab)
   return (
     <div role="toolbar" aria-label="Open agent" className="mb-1 ml-1 flex min-w-0 shrink-0 items-center gap-1">
-      <Tip label="Change its model">
-        <button type="button" aria-label={`Model: ${agent.model || agent.kind}`} onClick={() => app.showModel()} className="flex min-w-0 max-w-40 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
-          <VendorIcon kind={agent.kind} model={agent.model} className="size-3.5" />
-          <span className="truncate">{[agent.model || agent.kind, agent.effort].filter(Boolean).join(' ')}</span>
-        </button>
-      </Tip>
       <ViewSwitch host={host} agentId={agent.id} tab={tab} setTab={(t) => app.setTab(t)} chord={chord} />
       <ActionMenu
         align="end"
