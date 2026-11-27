@@ -181,6 +181,7 @@ func TestSignalSessionReachesJobsOutsideTheLeadersGroup(t *testing.T) {
 	// A pid that leads no session, or no terminal, signals nothing.
 	SignalSession(1, tty, syscall.SIGKILL)
 	SignalSession(cmd.Process.Pid, 0, syscall.SIGKILL)
+	SignalSession(job, tty, syscall.SIGKILL) // the job leads no session: nothing has its session id
 	if f, err := stat(job); err != nil || f[0] == "Z" {
 		t.Fatalf("the job was signalled: %v, %v", f, err)
 	}

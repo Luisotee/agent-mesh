@@ -12,15 +12,12 @@ import type { Setting } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { ShortcutField } from './shortcut-field'
 import { cleanPath, knownRepos, repoName, sameRepo } from '@/derive'
-import { controlFor, fromText, labelOf, sectionsOf, toText, type Control, type Section } from '@/settings-form'
+import { PER_PROJECT, controlFor, fromText, labelOf, sectionsOf, toText, type Control, type Section } from '@/settings-form'
 import { cn } from '@/lib/utils'
 import { themeByName, themeNames, themes } from '@/theme'
 
 const json = (v: Setting['value']): unknown => (v ? toJson(ValueSchema, v) : undefined)
 const show = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v))
-
-/** The per-repo lists: the screen shows them as links to each project's settings, not as raw lists of folders. */
-const PER_PROJECT = new Set(['repos.user_merges', 'repos.user_approves_plans', 'repos.no_free_models'])
 
 /**
  * The host's settings, generated from the schema the host sends: the groups in a nav on the left, a row per setting

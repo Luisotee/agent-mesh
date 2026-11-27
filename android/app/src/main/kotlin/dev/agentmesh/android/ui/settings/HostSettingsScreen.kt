@@ -126,6 +126,8 @@ private fun SettingDialog(runtime: HostRuntime, s: Setting, onClose: () -> Unit)
         text = {
             Column {
                 Text(s.schema.summary, style = MaterialTheme.typography.bodySmall)
+                // The key is what `mesh settings` and an agent call it by.
+                if (labelOf(s) != s.key) Text(s.key, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (s.schema.restart) Text("Read when the host starts: a change applies at its next restart.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 when (control) {
                     Control.Bool -> Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {

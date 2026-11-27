@@ -121,16 +121,20 @@ export function groupOf(s: Listed): string {
   return (GROUPS as readonly string[]).includes(g) ? g : OTHER_GROUP
 }
 
-/** Whether a search matches a setting: any word of it in the label, the description or the key. */
+/** Whether a search matches a setting: every word of it is in the label, the description or the key. */
 export function matches(s: Listed, query: string): boolean {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   const hay = `${labelOf(s)}\n${s.schema?.summary ?? ''}\n${s.key}`.toLowerCase()
   return words.every((w) => hay.includes(w))
 }
 
-/** Settings by label; the shortcuts by key, which keeps "tab 1 … tab 8" in order. */
-const byLabel = (a: Listed, b: Listed): number =>
-  groupOf(a) === 'Shortcuts' && groupOf(b) === 'Shortcuts' ? a.key.localeCompare(b.key, undefined, { numeric: true }) : labelOf(a).localeCompare(labelOf(b), undefined, { numeric: true })
+const natural = { numeric: true } as const
+/** A group's order: by label, the shortcuts by key (which keeps "tab 1 … tab 8" in order). */
+const inGroup = (group: string) => (a: Listed, b: Listed): number =>
+  group === 'Shortcuts' ? a.key.localeCompare(b.key, undefined, natural) : labelOf(a).localeCompare(labelOf(b), undefined, natural)
+
+/** The per-repo lists: the screen shows them as one row of links to each project's settings, not as rows of their own. */
+export const PER_PROJECT = new Set(['repos.user_merges', 'repos.user_approves_plans', 'repos.no_free_models'])
 
 export interface Section<T extends Listed> {
   group: string
@@ -138,7 +142,7 @@ export interface Section<T extends Listed> {
   shown: T[]
   /** The advanced settings of the group, folded until asked for (listed with the rest while searching). */
   advanced: T[]
-  /** How many settings the group has under this search. */
+  /** How many rows the group has under this search (the per-repo lists count as the one row of links). */
   count: number
 }
 
@@ -149,7 +153,7 @@ export interface Section<T extends Listed> {
 export function sectionsOf<T extends Listed>(all: T[], query: string, changedOnly: boolean): Array<Section<T>> {
   const q = query.trim()
   const by = new Map<string, T[]>()
-  for (const s of [...all].sort(byLabel)) {
+  for (const s of all) {
     if (changedOnly && !s.isSet) continue
     if (q && !matches(s, q)) continue
     const g = groupOf(s)
@@ -159,8 +163,13 @@ export function sectionsOf<T extends Listed>(all: T[], query: string, changedOnl
   return order
     .filter((g) => by.has(g))
     .map((g) => {
-      const list = by.get(g)!
+      const list = by.get(g)!.sort(inGroup(g))
       const folded = !q && !changedOnly
-      return { group: g, shown: folded ? list.filter((s) => !s.schema?.advanced) : list, advanced: folded ? list.filter((s) => s.schema?.advanced) : [], count: list.length }
+      let shown = folded ? list.filter((s) => !s.schema?.advanced) : list
+      let advanced = folded ? list.filter((s) => s.schema?.advanced) : []
+      // A group with nothing but advanced settings opens with them listed, not to an empty list over a closed fold.
+      if (shown.length === 0) [shown, advanced] = [advanced, []]
+      const links = list.some((s) => PER_PROJECT.has(s.key))
+      return { group: g, shown, advanced, count: list.filter((s) => !PER_PROJECT.has(s.key)).length + (links ? 1 : 0) }
     })
 }

@@ -87,6 +87,18 @@ describe('the screen\'s sections', () => {
   it('keeps the shortcuts in key order and the rest by label', () => {
     expect(sectionsOf(all, '', false).find((x) => x.group === 'Shortcuts')!.shown.map((s) => s.key)).toEqual(['app.keys.palette', 'app.keys.tab_2', 'app.keys.tab_10'])
   })
+  it('orders a group the same whatever order the settings come in', () => {
+    const many = [...all, item('app.keys.dock', 'Live dock', 'Shortcuts'), item('x.find', 'Find in the window', 'Limits and quota'), item('x.hold', 'Hold a limited model for', 'Limits and quota')]
+    const keys = (list: Listed[]) => sectionsOf(list, '', false).map((x) => x.shown.map((s) => s.key))
+    expect(keys([...many].reverse())).toEqual(keys(many))
+    expect(keys(many)[1]).toEqual(['app.keys.dock', 'app.keys.palette', 'app.keys.tab_2', 'app.keys.tab_10'])
+  })
+  it('opens a group of only advanced settings with them listed, and counts the per-repo lists as one row', () => {
+    const d = [item('delivery.ring_tries', 'Doorbell tries', 'Delivery', { advanced: true })]
+    expect(sectionsOf(d, '', false)[0]).toMatchObject({ shown: [{ key: 'delivery.ring_tries' }], advanced: [], count: 1 })
+    const p = [item('repos.user_merges', 'Repos where I merge', 'Projects and autonomy'), item('repos.no_free_models', 'Kept', 'Projects and autonomy'), item('editor.command', 'Editor command', 'Projects and autonomy')]
+    expect(sectionsOf(p, '', false)[0]!.count).toBe(2)
+  })
   it('lists only what was set when asked', () => {
     const some = [...all, item('x', 'Retire', 'Agents and models', { isSet: true })]
     expect(sectionsOf(some, '', true).map((x) => x.group)).toEqual(['Agents and models'])
