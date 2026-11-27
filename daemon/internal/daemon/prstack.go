@@ -15,6 +15,10 @@ import (
 // stackBranchCap is the most branches of one agent's stack whose PRs are asked about: the newest.
 const stackBranchCap = 8
 
+// stackFetchers is how many of one agent's branches are asked about at once: prFetchers agents are read at a time, so
+// stacks of eight branches must not make sixty-four `gh` calls at once.
+const stackFetchers = 4
+
 var stackSuffixRE = regexp.MustCompile(`^(.+)-([0-9]+)$`)
 
 // stackBranches are the branches an agent's PRs may be on: the one recorded at its spawn, and the branches of its stack.
@@ -89,9 +93,9 @@ func stackBranches(ctx context.Context, r store.Reader, a *v1.Agent, dir string)
 	}
 	current := ""
 	if a.Worktree != "" && dir == a.Worktree {
-		if out, err := git(ctx, dir, "branch", "--show-current"); err == nil && strings.HasPrefix(strings.TrimSpace(out), "mesh/"+a.RunId+"/") {
+		if b := headBranch(dir); strings.HasPrefix(b, "mesh/"+a.RunId+"/") {
 			// Only a branch the filter let in is the one that is never cut.
-			if b := strings.TrimSpace(out); add(b) || seen[b] {
+			if add(b) || seen[b] {
 				current = b
 			}
 		}

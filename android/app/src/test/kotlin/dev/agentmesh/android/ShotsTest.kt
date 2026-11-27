@@ -82,6 +82,7 @@ class ShotsTest {
         val entries = listOf(
             e("1", TranscriptKind.TRANSCRIPT_KIND_USER, "Fix the flaky retry test in billing, then:\n1. run the suite\n2. open a PR"),
             e("2", TranscriptKind.TRANSCRIPT_KIND_ASSISTANT, "I'll look at the **retry** logic first.\n\n# Findings\n\n- `billing/retry.go` backs off with no jitter\n- the test sleeps a fixed 50 ms\n\n```go\nfunc backoff(n int) time.Duration {\n    return time.Duration(n) * 50 * time.Millisecond\n}\n```"),
+            e("2b", TranscriptKind.TRANSCRIPT_KIND_ASSISTANT, "Three ways to fix it:\n\n| Option | What it does | Cost | Notes |\n|---|---|---|---|\n| Jitter | Adds a random delay to every retry so that clients do not all retry together | low | Recommended |\n| Fixed sleep | Waits 50 ms | none | Flaky under load |\n| Circuit breaker | Stops calling a failing service for a while | medium | Needs shared state |\n\nAfter the table."),
             e("3", TranscriptKind.TRANSCRIPT_KIND_TOOL_CALL, "", "Bash", "go test ./billing/..."),
             e("4", TranscriptKind.TRANSCRIPT_KIND_TOOL_CALL, "", "Edit", "billing/retry.go"),
             e("5", TranscriptKind.TRANSCRIPT_KIND_ASSISTANT, "Done: the test passes 200 times in a row. PR #42 is open."),
