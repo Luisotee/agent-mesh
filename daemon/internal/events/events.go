@@ -152,11 +152,12 @@ func (b *Bus) SubscribeRun(runID string, deviceEvents bool) (<-chan *v1.Event, f
 // (DevicePaired, DeviceRevoked) are filtered out of both resumed backlogs and live streams.
 func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents bool, stopping <-chan struct{},
 	send func(*v1.SubscribeEventsResponse) error) error {
-	return b.ServeFor(ctx, req, deviceEvents, false, stopping, send)
+	return b.ServeFor(ctx, req, deviceEvents, false, "", stopping, send)
 }
 
-// ServeFor is Serve for a subscriber that may be a device (an app): it also gets the `OpenView` requests.
-func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents, device bool, stopping <-chan struct{},
+// ServeFor is Serve for a subscriber that may be a device (an app): it also gets the `OpenView` requests. A
+// non-empty viewer is a subscriber that sees only its own text-bearing events (VisibleTo).
+func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents, device bool, viewer string, stopping <-chan struct{},
 	send func(*v1.SubscribeEventsResponse) error) error {
 	// Live events first, so nothing committed while the backlog is read is missed; duplicates are skipped by seq.
 	live := b.subscribe(req.RunId, deviceEvents, req.Activity, device)
@@ -181,7 +182,7 @@ func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, devi
 			}
 			for _, ev := range evs {
 				sent = ev.Seq
-				if !inScope(req.RunId, deviceEvents, ev) {
+				if !inScope(req.RunId, deviceEvents, ev) || !VisibleTo(viewer, ev) {
 					continue
 				}
 				if err := send(eventFrame(ev)); err != nil {
@@ -249,10 +250,13 @@ func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, devi
 			if ev.Seq <= sent || !inScope(req.RunId, deviceEvents, ev) {
 				continue
 			}
+			sent = ev.Seq
+			if !VisibleTo(viewer, ev) {
+				continue
+			}
 			if err := send(eventFrame(ev)); err != nil {
 				return err
 			}
-			sent = ev.Seq
 		}
 	}
 }
@@ -267,6 +271,30 @@ func IsDeviceEvent(ev *v1.Event) bool {
 		return true
 	}
 	return false
+}
+
+// VisibleTo reports whether a viewer (an agent id; empty: no restriction) may see ev. The events that carry text
+// someone wrote to someone else (a message, a prompt the user typed, a draft held in the user's input box) are
+// the viewer's only when they are its own; every other event (a state, a spawn, a PR) is run-wide metadata. A run is
+// otherwise one trust domain: the host restricts only the agents that are read-only and short-lived, an asker or a
+// reviewer, which may run on a third-party model (`restrictedViewer` in the daemon).
+func VisibleTo(viewer string, ev *v1.Event) bool {
+	if viewer == "" || ev == nil {
+		return true
+	}
+	switch p := ev.Payload.(type) {
+	case *v1.Event_MessageSent:
+		m := p.MessageSent.GetMessage()
+		return m.GetFrom().GetId() == viewer || m.GetToId() == viewer
+	case *v1.Event_PromptQueued:
+		return p.PromptQueued.GetPrompt().GetAgentId() == viewer
+	case *v1.Event_DoorbellHeld, *v1.Event_RootResetRequested, *v1.Event_RootResetFinished, *v1.Event_AgentReopenRequested,
+		*v1.Event_AgentReopened, *v1.Event_AgentReopenDropped:
+		// A held draft; a root's own notes (what it does next, its focus, its transcript); the `--why` of an approve
+		// or a resume: all free text the agent's parent wrote, no one else's to read.
+		return ev.AgentId == viewer
+	}
+	return true
 }
 
 // inScope reports whether a subscriber of runID (empty: every run) gets ev. Device-management events are
