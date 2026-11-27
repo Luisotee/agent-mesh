@@ -799,20 +799,23 @@ func (a *Adapter) DecodeHook(_ context.Context, req *connect.Request[adapterv1.D
 	case "PostInvocation":
 		emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Activity{Activity: &adapterv1.Activity{Detail: "thinking"}}})
 	case "Stop":
-		if p.ContinuationActive {
+		failed := p.TerminationReason == "ERROR" || p.Error != ""
+		errText := p.Error
+		if errText == "" {
+			errText = "ERROR"
+		}
+		limit := failed && limitErrorRE.MatchString(errText)
+		if p.ContinuationActive && !limit {
 			// A Stop agy goes on from (a continuation, which ends in a Stop of its own): the turn is not over, so
 			// it is only activity, and no doorbell is typed into it. `fullyIdle: false` alone still ends the turn:
 			// nothing says another Stop follows it, and an agent left WORKING would never get a doorbell. Every
-			// captured Stop (1.5.17) has fullyIdle true and no continuation.
+			// captured Stop (1.5.17) has fullyIdle true and no continuation. A continuation that ends on a limit
+			// error (a 429) is the exception: agy does not go on from it, so the agent is LIMITED, not WORKING.
 			emit(&adapterv1.AgentEvent{Kind: &adapterv1.AgentEvent_Activity{Activity: &adapterv1.Activity{Detail: "continuing"}}})
 			break
 		}
-		if p.TerminationReason == "ERROR" || p.Error != "" {
-			errText := p.Error
-			if errText == "" {
-				errText = "ERROR"
-			}
-			if limitErrorRE.MatchString(errText) {
+		if failed {
+			if limit {
 				var reset string
 				if rm := resetInRE.FindStringSubmatch(errText); rm != nil {
 					reset = rm[1]

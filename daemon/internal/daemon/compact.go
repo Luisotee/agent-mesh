@@ -574,10 +574,14 @@ func (d *Daemon) compactHeadless(ctx context.Context, a *v1.Agent, pc *v1.Pendin
 		return true, err
 	}
 	snapshot := a
-	go func() {
+	// In bgWG and ended by the daemon's stop, so close() never closes the store under it; a compaction cut short by
+	// the stop records nothing, and the next start ends it ("meshd restarted while it was compacting").
+	if !d.goBG(func() {
 		defer d.deliverSoon(snapshot.Id)
 		defer d.rt.ctxwork.end(snapshot.Id)
-		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), orDuration(d.rt.cfg.CompactTimeout, compactTimeout))
+		sctx, stop := d.stopCtx()
+		defer stop()
+		rctx, cancel := context.WithTimeout(sctx, orDuration(d.rt.cfg.CompactTimeout, compactTimeout))
 		defer cancel()
 		run := d.rt.cfg.RunCLI
 		if run == nil {
@@ -590,10 +594,15 @@ func (d *Daemon) compactHeadless(ctx context.Context, a *v1.Agent, pc *v1.Pendin
 		} else {
 			after = tokensOf(d.measureContext(rctx, snapshot))
 		}
+		if sctx.Err() != nil {
+			return
+		}
 		if err := d.endCompaction(context.WithoutCancel(ctx), snapshot, pc, outcome, usage.Tokens, after); err != nil {
 			d.log.Warn("recording a compaction", "agent", snapshot.Id, "err", err)
 		}
-	}()
+	}) {
+		d.rt.ctxwork.end(snapshot.Id) // closing: nothing runs it, and the next start ends the request
+	}
 	return true, nil
 }
 

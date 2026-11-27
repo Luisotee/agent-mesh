@@ -134,17 +134,21 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	// Everything since the agent's last task or answer decides: a report, a declared wait, the nudge.
 	var task time.Time
 	var reported, nudged bool
-	var wait, nudgedAt time.Time
+	var wait, waitUntil, nudgedAt time.Time
 	for _, m := range msgs {
 		switch {
 		case m.ToId == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
-			task, reported, nudged, wait, nudgedAt = m.CreatedAt.AsTime(), false, false, time.Time{}, time.Time{}
+			task, reported, nudged, wait, waitUntil, nudgedAt = m.CreatedAt.AsTime(), false, false, time.Time{}, time.Time{}, time.Time{}
 		case m.From.GetId() == a.Id && m.ToId == a.ParentId && isReport(m.Type):
 			reported = true
 		case m.From.GetId() == a.Id && m.ToId == a.ParentId && m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
 			// A wait answers an earlier nudge: its next silent wake is a first one again, nudged, not alerted (an
 			// agent that waits on background jobs ends a turn at each job's notification, each time still waiting).
 			wait, nudged, nudgedAt = m.CreatedAt.AsTime(), false, time.Time{}
+			waitUntil = time.Time{}
+			if m.WaitUntil != nil {
+				waitUntil = m.WaitUntil.AsTime()
+			}
 		case m.ToId == a.Id && m.From.GetId() == meshActor.Id && strings.HasPrefix(m.Body, nudgeTag):
 			nudged, nudgedAt = true, m.CreatedAt.AsTime()
 		}
@@ -170,7 +174,12 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	}
 	// A declared wait: the agent said it is waiting on purpose, until it is over: its deadline, or the agent woke
 	// (was active again after the turn end that declared it) and ended a turn with no report (bin/mesh's wait_over).
-	if !wait.IsZero() && now.Sub(wait) < waitMax && !d.waits.woke(a, wait) {
+	// It holds until its own deadline (`until`) when it gave one, and never past wait_max from its start.
+	holdEnd := wait.Add(waitMax)
+	if !waitUntil.IsZero() && waitUntil.Before(holdEnd) {
+		holdEnd = waitUntil
+	}
+	if !wait.IsZero() && now.Before(holdEnd) && !d.waits.woke(a, wait) {
 		return owesNothing, task, nil
 	}
 	idleSince := task
@@ -234,7 +243,8 @@ func (t *waitTracker) woke(a *v1.Agent, wait time.Time) bool {
 // accountability is the periodic pass: for each agent that has a parent, its state says what to tell whom.
 func (d *Daemon) accountability(ctx context.Context) {
 	d.settleOverdueAsks(ctx)
-	r := d.store.Read(ctx)
+	// One read of each run's messages for the whole pass: every idle, quiet or limited agent judges from them.
+	r := d.store.Read(ctx).WithMessageCache()
 	nudgeAfter, err := d.Setting(r, "accountability.nudge_after")
 	if err != nil {
 		return
@@ -261,16 +271,16 @@ func (d *Daemon) accountability(ctx context.Context) {
 		var err error
 		switch {
 		case shown.State == v1.AgentState_AGENT_STATE_UNKNOWN:
-			err = d.alertOnce(ctx, a, "unknown", func(ctx context.Context) string {
+			err = d.alertOnce(ctx, r, a, "unknown", func(ctx context.Context) string {
 				return fmt.Sprintf("%s has gone quiet: nothing has been heard from it for %s (state %s). "+
 					"It may be hung or waiting at a prompt; look at its terminal.", a.Name, d.rt.cfg.UnknownAfter.Round(time.Minute),
 					strings.ToLower(strings.TrimPrefix(a.State.String(), "AGENT_STATE_"))) + d.afterwards(ctx, a)
 			})
 		case a.State == v1.AgentState_AGENT_STATE_LIMITED:
-			err = d.alertOnce(ctx, a, "limited", func(ctx context.Context) string { return d.limitedText(ctx, a) })
+			err = d.alertOnce(ctx, r, a, "limited", func(ctx context.Context) string { return d.limitedText(ctx, a) })
 		case a.State == v1.AgentState_AGENT_STATE_NEEDS_INPUT:
 			if inputAfter > 0 && a.LastActivity != nil && d.now().Sub(a.LastActivity.AsTime()) >= inputAfter {
-				err = d.alertOnce(ctx, a, "input", func(ctx context.Context) string {
+				err = d.alertOnce(ctx, r, a, "input", func(ctx context.Context) string {
 					return fmt.Sprintf("%s is waiting at a prompt for a person (%s). It can't go on until it is answered: "+
 						"tell the user, who answers it in its terminal (the app lists it as waiting).", a.Name, orDash(a.StateDetail))
 				})
@@ -281,11 +291,11 @@ func (d *Daemon) accountability(ctx context.Context) {
 				if rep, rerr := lastReport(r, a); rerr == nil && rep == nil {
 					login := authError(a.StateDetail)
 					skipNudge = login // a turn that fails on a dead login fails again on a nudge
-					err = d.alertOnce(ctx, a, "error", func(ctx context.Context) string { return errorText(a, login) + d.afterwards(ctx, a) })
+					err = d.alertOnce(ctx, r, a, "error", func(ctx context.Context) string { return errorText(a, login) + d.afterwards(ctx, a) })
 				}
 			}
 			if err == nil && !skipNudge && atPrompt(a.State) && nudge > 0 {
-				err = d.checkOwed(ctx, a, nudge, waitMax)
+				err = d.checkOwed(ctx, r, a, nudge, waitMax)
 			}
 		}
 		if err != nil && ctx.Err() == nil {
@@ -344,17 +354,34 @@ func (d *Daemon) limitedText(ctx context.Context, a *v1.Agent) string {
 
 // alertOnce tells the parent about an agent once per stretch of silence: the same alert is not repeated while
 // the agent's last activity is older than it.
-func (d *Daemon) alertOnce(ctx context.Context, a *v1.Agent, kind string, text func(context.Context) string) error {
+func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kind string, text func(context.Context) string) error {
+	_, err := d.alertOnceSince(ctx, r, a, kind, time.Time{}, text)
+	return err
+}
+
+// alertOnceSince is alertOnce where an alert already sent counts as told only when it is newer than `floor`, if
+// that is later than the agent's last activity: a stall that ends and starts again in one reply (no event moves the
+// agent's activity) is told again. It says whether the alert is in the store afterwards (written now, or found
+// already): false when the write's re-check found the agent moved on and left nothing, so a caller that remembers
+// "told" must not.
+func (d *Daemon) alertOnceSince(ctx context.Context, r store.Reader, a *v1.Agent, kind string, floor time.Time, text func(context.Context) string) (bool, error) {
+	if !owesParent(a) {
+		return false, nil // no parent to tell: nothing to read, build or write
+	}
 	since := time.Time{}
 	if a.LastActivity != nil {
 		since = a.LastActivity.AsTime()
 	}
+	if floor.After(since) {
+		since = floor
+	}
 	// Told already? Looked at before the text is built: it can read GitHub, git and the screen.
-	if told, err := toldParent(d.store.Read(ctx), a, a.ParentId, alertHead(kind, a.Id), since); told || err != nil {
-		return err
+	if told, err := toldParent(r, a, a.ParentId, alertHead(kind, a.Id), since); told || err != nil {
+		return told, err
 	}
 	body := text(ctx)
 	var ring *v1.Message
+	var inStore bool
 	err := d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
@@ -377,6 +404,11 @@ func (d *Daemon) alertOnce(ctx context.Context, a *v1.Agent, kind string, text f
 			if cur.State != v1.AgentState_AGENT_STATE_NEEDS_INPUT {
 				return nil
 			}
+		case "stalled":
+			// Not while the view says UNKNOWN: that hang is told by its own alert, and one hang is one alert.
+			if cur.State != v1.AgentState_AGENT_STATE_WORKING || d.view(cur).State == v1.AgentState_AGENT_STATE_UNKNOWN {
+				return nil
+			}
 		case "error":
 			if cur.State != v1.AgentState_AGENT_STATE_ERROR {
 				return nil
@@ -389,19 +421,26 @@ func (d *Daemon) alertOnce(ctx context.Context, a *v1.Agent, kind string, text f
 		if cur.LastActivity != nil {
 			since = cur.LastActivity.AsTime()
 		}
+		if floor.After(since) {
+			since = floor
+		}
 		ring, err = d.alertParentTx(tx, cur, kind, body, since)
+		inStore = err == nil // written, or found told inside the write
 		return err
 	})
-	if err == nil && ring != nil && d.notify != nil {
+	if err != nil {
+		return false, err
+	}
+	if ring != nil && d.notify != nil {
 		d.notify(ring.ToId)
 	}
-	return err
+	return inStore, nil
 }
 
 // checkOwed nudges or reports on an agent at its prompt that owes a report, re-checking inside the write that
 // a report or a message didn't arrive since the pass looked.
-func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time.Duration) error {
-	verdict, _, err := d.reportOwed(d.store.Read(ctx), a, d.now(), nudge, waitMax)
+func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nudge, waitMax time.Duration) error {
+	verdict, _, err := d.reportOwed(r, a, d.now(), nudge, waitMax)
 	if err != nil || verdict == owesNothing {
 		return err
 	}

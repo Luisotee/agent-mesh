@@ -548,6 +548,73 @@ public  final class Message extends
     bitField0_ = (bitField0_ & ~0x00000008);
   }
 
+  public static final int WAIT_UNTIL_FIELD_NUMBER = 11;
+  private com.google.protobuf.Timestamp waitUntil_;
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  @java.lang.Override
+  public boolean hasWaitUntil() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getWaitUntil() {
+    return waitUntil_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : waitUntil_;
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  private void setWaitUntil(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    waitUntil_ = value;
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeWaitUntil(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    if (waitUntil_ != null &&
+        waitUntil_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+      waitUntil_ =
+        com.google.protobuf.Timestamp.newBuilder(waitUntil_).mergeFrom(value).buildPartial();
+    } else {
+      waitUntil_ = value;
+    }
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  private void clearWaitUntil() {
+    waitUntil_ = null;
+    bitField0_ = (bitField0_ & ~0x00000010);
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Message parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1193,6 +1260,77 @@ public  final class Message extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    @java.lang.Override
+    public boolean hasWaitUntil() {
+      return instance.hasWaitUntil();
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.Timestamp getWaitUntil() {
+      return instance.getWaitUntil();
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder setWaitUntil(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.setWaitUntil(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder setWaitUntil(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      copyOnWrite();
+      instance.setWaitUntil(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder mergeWaitUntil(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.mergeWaitUntil(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder clearWaitUntil() {  copyOnWrite();
+      instance.clearWaitUntil();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Message)
   }
   @java.lang.Override
@@ -1220,11 +1358,12 @@ public  final class Message extends
             "createdAt_",
             "deliveredAt_",
             "readAt_",
+            "waitUntil_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u1009" +
-              "\u0000\u0004\u0208\u0005\u0208\u0006\f\u0007\u0208\b\u1009\u0001\t\u1009\u0002\n" +
-              "\u1009\u0003";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u1009\u0000\u0004\u0208\u0005\u0208\u0006\f\u0007\u0208\b\u1009\u0001\t\u1009" +
+              "\u0002\n\u1009\u0003\u000b\u1009\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
