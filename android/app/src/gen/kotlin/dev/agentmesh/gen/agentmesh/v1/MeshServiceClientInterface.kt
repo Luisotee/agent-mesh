@@ -192,6 +192,23 @@ public interface MeshServiceClientInterface {
   public suspend fun openTerminal(request: OpenTerminalRequest, headers: Headers = emptyMap()): ResponseMessage<OpenTerminalResponse>
 
   /**
+   *  Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
+   *  daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
+   *  host lists (`ListProjects`).
+   */
+  public suspend fun openShell(request: OpenShellRequest, headers: Headers = emptyMap()): ResponseMessage<OpenShellResponse>
+
+  /**
+   *  The shells that are running (or exited and not yet seen to), oldest first.
+   */
+  public suspend fun listShells(request: ListShellsRequest, headers: Headers = emptyMap()): ResponseMessage<ListShellsResponse>
+
+  /**
+   *  End a shell (SIGTERM, then SIGKILL) and forget it. A ticket already issued for it stops working.
+   */
+  public suspend fun closeShell(request: CloseShellRequest, headers: Headers = emptyMap()): ResponseMessage<CloseShellResponse>
+
+  /**
    *  An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
    *  a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
    */
