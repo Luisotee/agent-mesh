@@ -42,7 +42,7 @@ import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, Ag
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
-import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgyUsageRowSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
@@ -847,6 +847,21 @@ describe('Dock resting: helpers and scope', () => {
     expect(await screen.findByRole('button', { name: 'Show 2 resting' })).toBeInTheDocument()
   })
 
+  it('keeps the open agent when it is a helper folded into an idle worker, and a helper that waits on an answer', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({
+      agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, rv: agent('rv', { name: 'app-rev', role: AgentRole.REVIEWER, parentId: 'w1', state: AgentState.IDLE }) },
+    }))
+    model.selectAgent('h1', 'rv')
+    render(wrap(<Dock />))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument() // the open agent's tile, with it as a chip
+    act(() => model.selectAgent('h1', 'lead'))
+    expect(await screen.findByRole('button', { name: 'Show 2 resting' })).toBeInTheDocument()
+    // The reviewer asked a question that waits for an answer: its tile comes back.
+    act(() => host.store.setState({ waitingAll: [create(WaitingSchema, { kind: WaitingKind.QUESTION, runId: 'r1', agentId: 'rv' })] }))
+    await waitFor(() => expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument())
+  })
+
   it('folds the resting agents again in another run', async () => {
     const { host, wrap, model } = fixture()
     model.selectAgent('h1', 'lead')
@@ -1148,6 +1163,22 @@ describe('SidebarFooter', () => {
   it('keeps the way into Usage and cost when the host has no quota reading, and says an agy reset as it can be read', async () => {
     const { client, wrap, model } = fixture()
     Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90 })) })
+    render(wrap(<SidebarFooter />))
+    await userEvent.click(await screen.findByRole('button', { name: /Quota: open usage and cost/ }))
+    expect(model.store.getState().usageOpen).toBe(true)
+  })
+
+  it('says an agy reset as a span when it is one ("3h45m") and as given when it is a time, and keeps the way in when the read failed', async () => {
+    const { client, wrap, model } = fixture()
+    Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, agyRows: [create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 40, resets: '3h45m' }), create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 70, resets: '12:00' })], agyTiers: [{ tier: 'strong', model: 'neon', hasLeft: true, left: 40, notes: [] }] })) })
+    const { unmount } = render(wrap(<SidebarFooter />))
+    const meters = await screen.findAllByRole('meter')
+    // Two bars of one label name their group.
+    expect(meters.map((m) => m.getAttribute('aria-label'))).toEqual(['agy Gemini 4 Neon Neon', 'agy Gemini 4 Neon Neon'])
+    expect(meters[0]).toHaveAttribute('aria-valuetext', expect.stringContaining('resets in 3h45m'))
+    expect(meters[1]).toHaveAttribute('aria-valuetext', expect.stringContaining('resets 12:00'))
+    unmount()
+    Object.assign(client, { getUsage: vi.fn(async () => { throw new Error('[unimplemented] no such action') }) })
     render(wrap(<SidebarFooter />))
     await userEvent.click(await screen.findByRole('button', { name: /Quota: open usage and cost/ }))
     expect(model.store.getState().usageOpen).toBe(true)

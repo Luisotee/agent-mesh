@@ -20,6 +20,13 @@ describe('setWaiting', () => {
     expect(s.waiting?.map((w) => w.agentId)).toEqual(['w2'])
     expect(s.waitingAll?.map((w) => w.agentId)).toEqual(['w1', 'w2'])
   })
+
+  it('changes nothing when the host says the same again, so what reads the lists is not redrawn for each poll', () => {
+    const row = (agentId: string) => create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId, forUser: true })
+    const first = [row('w1'), row('w2')]
+    expect(setWaiting([row('w1'), row('w2')], first)).toEqual({})
+    expect(setWaiting([row('w1')], first).waitingAll).toHaveLength(1)
+  })
 })
 
 describe('applyFrame', () => {

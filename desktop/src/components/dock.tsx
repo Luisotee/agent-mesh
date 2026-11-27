@@ -42,7 +42,9 @@ export function Dock() {
   const scope = `${hostId ?? ''}/${runId ?? ''}`
   const [asked, setAsked] = useState({ scope: '', on: false })
   const showResting = asked.on && asked.scope === scope
-  const live = shown.filter(({ tile: t, helpers }) => isActive(t.agent, { waiting: t.waiting, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }) || helpers.some((h) => isActive(h, { waiting: false, keep: false })))
+  // A folded helper counts as it would on its own tile: working, or waiting on an answer, or the open agent.
+  const waits = new Set(all.filter((t) => t.waiting).map((t) => t.agent.id))
+  const live = shown.filter(({ tile: t, helpers }) => isActive(t.agent, { waiting: t.waiting, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }) || helpers.some((h) => isActive(h, { waiting: waits.has(h.id), keep: t.hostId === hostId && h.id === agentId })))
   const resting = shown.reduce((n, t) => n + (live.includes(t) ? 0 : 1 + t.helpers.length), 0)
   const listed = showResting ? shown : live
   const tiles = listed.map((t) => t.tile)
