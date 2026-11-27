@@ -2,8 +2,8 @@ import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
-import { AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
-import { ago, dockTiles, sentLabel, type HostView } from './dock'
+import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { ago, dockTiles, sentLabel, treeTiles, type HostView } from './dock'
 import { NEW_FOR_MS } from './workspace'
 
 const agent = (id: string, o: Parameters<typeof create<typeof AgentSchema>>[1] = {}) => create(AgentSchema, { id, name: id, runId: 'r1', state: AgentState.IDLE, ...o })
@@ -66,5 +66,29 @@ describe('ago', () => {
   it('is short', () => {
     expect([2, 12, 240, 7200, 200_000].map((s) => ago(0 + 1, 1 + s * 1000))).toEqual(['now', '12 s', '4 min', '2 h', '2 d'])
     expect(ago(0, 5000)).toBe('')
+  })
+})
+
+describe('treeTiles', () => {
+  const tiles = dockTiles(
+    [
+      host([
+        agent('lead', { role: AgentRole.ROOT }),
+        agent('w', { role: AgentRole.WORKER, parentId: 'lead' }),
+        agent('rv', { role: AgentRole.REVIEWER, parentId: 'w' }),
+        agent('ask', { role: AgentRole.ASKER, parentId: 'gone' }),
+        agent('other', { role: AgentRole.ROOT, runId: 'r2' }),
+      ], { runs: { r1: create(RunSchema, { id: 'r1', status: RunStatus.OPEN }), r2: create(RunSchema, { id: 'r2', status: RunStatus.OPEN }) } }),
+    ],
+    none,
+    0,
+  )
+  it('shows the open agent\'s run, a reviewer folded into its worker, and one whose agent is not there on its own', () => {
+    const t = treeTiles(tiles, { hostId: 'h', runId: 'r1' })
+    expect(t.map((x) => [x.tile.agent.id, x.helpers.map((a) => a.id)])).toEqual(expect.arrayContaining([['lead', []], ['w', ['rv']], ['ask', []]]))
+    expect(t).toHaveLength(3)
+  })
+  it('shows every live lead with no agent open', () => {
+    expect(treeTiles(tiles).map((x) => x.tile.agent.id).sort()).toEqual(['lead', 'other'])
   })
 })

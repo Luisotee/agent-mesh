@@ -1,13 +1,12 @@
-import { Gauge, PanelRight, QrCode, Search, Settings } from 'lucide-react'
 import { LazyMotion, MotionConfig, domAnimation } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tip, TooltipProvider } from '@/components/ui/tooltip'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
 import { createAppModel, type HostRuntime } from '@/model'
 import type { DesktopApi, OpenedLink } from '../shared/api'
-import { AgentPanel } from '@/components/agent-panel'
+import { AgentPanel, SendMessageDialog } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
@@ -16,18 +15,19 @@ import { SidePanel } from '@/components/side-panel'
 import { WatchAll } from '@/components/watch-all'
 import { TabBar } from '@/components/tab-bar'
 import { ViewToasts } from '@/components/view-toasts'
-import { AddHostDialog, AddHostForm, RemoveHostDialog } from '@/components/host-dialogs'
+import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { LocalSetup } from '@/components/local-setup'
 import { EmptyPane } from '@/components/empty-pane'
-import { RunSidebar } from '@/components/run-sidebar'
-import { PairPanel, canPair } from '@/components/pair-panel'
+import { ProjectSidebar } from '@/components/project-sidebar'
+import { FindBar } from '@/components/find-bar'
+import { ProjectSettingsDialog } from '@/components/project-settings'
+import { NewWorkspaceDialog } from '@/components/workspace-dialog'
+import { PairPanel } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
 import { UsagePanel } from '@/components/usage-panel'
-import { waitingCount } from '@/derive'
 import { useShortcuts } from '@/shortcuts'
 import { appPrefs } from '@/prefs'
 import { applyTheme, themeByName } from '@/theme'
-import { cn } from '@/lib/utils'
 
 export function App({ api }: { api: DesktopApi }) {
   const model = useMemo(() => createAppModel(api), [api])
@@ -69,50 +69,58 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
   const error = useAppState((s) => s.error)
   const hosts = useAppState((s) => s.hosts)
   const host = useSelectedHost()
+  const fixed = useApp().api.hosts.fixed
   useShortcuts()
   if (!loaded) return <ShellSkeleton />
   if (error) return <div role="alert" className="grid h-screen place-items-center text-destructive">{error}</div>
   if (hosts.length === 0) return <Welcome opened={opened} linkChecked={linkChecked} onDone={onOpenedDone} />
   return (
     <div className="flex h-screen">
-      <HostRail opened={opened} onOpenedDone={onOpenedDone} />
+      <ProjectSidebar />
       {host && (
         <>
           <ThemeSync host={host} />
-          <aside className="flex w-80 shrink-0 flex-col border-r bg-surface">
-            <HostHeader host={host} />
-            <RunSidebar host={host} />
-          </aside>
           <main className="flex min-w-0 flex-1 flex-col">
             <ConnectionBanner host={host} />
             <TabBar />
             <div className="relative flex min-h-0 flex-1 flex-col">
               <MainPane host={host} />
               <DropEdges />
+              <FindBar />
             </div>
             <Dock />
           </main>
           <PanelSlot host={host} />
           <CommandPalette />
           <ViewToasts />
+          <WorkspaceSlot host={host} />
+          <ProjectSettingsDialog />
+          <SendMessageDialog />
         </>
       )}
+      {/* A pairing link the operating system opened the app with: the add-a-host form, filled in. */}
+      {opened && !fixed && <AddHostDialog open={false} onOpenChange={() => {}} opened={opened} onClose={onOpenedDone} />}
     </div>
   )
 }
 
-/** The window's outline while the saved hosts are read: a rail, a sidebar of rows and an empty main area. */
+/** The window's outline while the saved hosts are read: a sidebar of rows and an empty main area. */
 function ShellSkeleton() {
   return (
     <div role="status" aria-label="Loading" className="flex h-screen"><span className="sr-only">Loading</span>
-      <div className="flex w-14 flex-col items-center gap-2 border-r py-3"><Skeleton className="size-9 rounded-lg" /></div>
-      <div className="flex w-80 flex-col gap-3 border-r bg-surface p-3">
+      <div className="flex w-72 flex-col gap-3 border-r bg-surface p-3">
         <Skeleton className="h-4 w-1/2" />
         {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-9" />)}
       </div>
       <div className="flex-1" />
     </div>
   )
+}
+
+/** The New workspace dialog, on the host it was opened for (a project's host), else the selected one. */
+function WorkspaceSlot({ host }: { host: HostRuntime }) {
+  const on = useAppState((s) => s.hosts.find((h) => h.info.id === s.workspaceHost)) ?? host
+  return <NewWorkspaceDialog key={on.info.id} host={on} />
 }
 
 /** The side panel beside the open agent, when it is shown. */
@@ -171,91 +179,6 @@ function Welcome({ opened, linkChecked, onDone }: { opened?: OpenedLink; linkChe
         )}
       </div>
     </div>
-  )
-}
-
-function HostRail({ opened, onOpenedDone }: { opened?: OpenedLink; onOpenedDone: () => void }) {
-  const app = useApp()
-  const hosts = useAppState((s) => s.hosts)
-  const selected = useAppState((s) => s.hostId)
-  return (
-    <nav aria-label="Hosts" className="flex w-14 shrink-0 flex-col items-center gap-2 border-r bg-background py-3">
-      {hosts.map((h) => (
-        <RailItem key={h.info.id} host={h} selected={h.info.id === selected} onSelect={() => app.selectHost(h.info.id)} />
-      ))}
-      {!app.api.hosts.fixed && <AddHostDialog opened={opened} onClose={onOpenedDone} />}
-    </nav>
-  )
-}
-
-const DOT: Record<string, string> = { ready: 'bg-state-done', connecting: 'bg-state-needs', reconnecting: 'bg-state-needs', stopped: 'bg-state-failed' }
-
-function RailItem({ host, selected, onSelect }: { host: HostRuntime; selected: boolean; onSelect: () => void }) {
-  const kind = useHostState(host, (s) => s.conn.kind)
-  const waiting = useHostState(host, (s) => waitingCount(s.waiting, s.permissions, s.runs, s.agents))
-  return (
-    <Tip side="right" label={`${host.info.name}: ${kind}`}>
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-label={`Host ${host.info.name}, ${kind}`}
-      aria-current={selected ? 'true' : undefined}
-      className={cn('relative grid size-9 place-items-center rounded-lg border bg-card text-sm font-semibold uppercase outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring', selected && 'border-primary')}
-    >
-      {host.info.name.slice(0, 2)}
-      <span className={cn('absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-background', DOT[kind])} />
-      {waiting > 0 && <span className="absolute -top-1 -right-1 grid min-w-4 place-items-center rounded-full bg-state-needs px-1 text-xs leading-4 font-bold text-primary-foreground tabular-nums">{waiting}</span>}
-    </button>
-    </Tip>
-  )
-}
-
-function HostHeader({ host }: { host: HostRuntime }) {
-  const app = useApp()
-  const conn = useHostState(host, (s) => s.conn)
-  const open = useAppState((s) => s.settingsOpen)
-  const pairOpen = useAppState((s) => s.pairOpen)
-  const panelOpen = useAppState((s) => s.panelOpen)
-  const usageOpen = useAppState((s) => s.usageOpen)
-  // Only the host's own device may pair devices, so only there is the screen offered.
-  const mayPair = useHostState(host, () => canPair(host.store))
-  return (
-    <header className="flex items-start gap-2 border-b px-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate text-[15px] font-semibold">{host.info.name}</h1>
-        <p className="truncate text-xs text-muted-foreground">
-          {conn.kind === 'ready' ? `Daemon ${conn.hello.version}, you are ${conn.hello.actor?.name || 'a device'}` : conn.kind}
-        </p>
-      </div>
-      <Tip label="Command palette">
-        <Button size="icon" variant="ghost" aria-label="Command palette" onClick={() => app.openPalette(true)}>
-          <Search />
-        </Button>
-      </Tip>
-      <RemoveHostDialog host={host} />
-      {mayPair && (
-        <Tip label="Pair a device">
-          <Button size="icon" variant={pairOpen ? 'secondary' : 'ghost'} aria-label="Pair a device" aria-pressed={pairOpen} onClick={() => app.openPairing(!pairOpen)}>
-            <QrCode />
-          </Button>
-        </Tip>
-      )}
-      <Tip label="Cost, pull requests and quota of the open agent's run">
-        <Button size="icon" variant={panelOpen ? 'secondary' : 'ghost'} aria-label="Side panel" aria-pressed={panelOpen} onClick={() => app.setPanel(!panelOpen)}>
-          <PanelRight />
-        </Button>
-      </Tip>
-      <Tip label="Usage and cost">
-        <Button size="icon" variant={usageOpen ? 'secondary' : 'ghost'} aria-label="Usage and cost" aria-pressed={usageOpen} onClick={() => app.openUsage(!usageOpen)}>
-          <Gauge />
-        </Button>
-      </Tip>
-      <Tip label="Settings">
-        <Button size="icon" variant={open ? 'secondary' : 'ghost'} aria-label="Settings" aria-pressed={open} onClick={() => app.openSettings(!open)}>
-          <Settings />
-        </Button>
-      </Tip>
-    </header>
   )
 }
 

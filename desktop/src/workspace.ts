@@ -55,7 +55,7 @@ const same = (a: TabRef, b: TabRef) => a.hostId === b.hostId && a.agentId === b.
 
 /**
  * Makes an agent the active tab, opening it if it isn't open. Its view is the one asked for, else the one it was
- * last on, else the overview; the view of the tab being left is kept. Clears the agent's new mark.
+ * last on, else the chat; the view of the tab being left is kept. Clears the agent's new mark.
  */
 export function activate(s: WorkspaceState & Selection, hostId: string, agentId: string, tab?: AgentTab): Partial<WorkspaceState & Selection> {
   const ref = { hostId, agentId }
@@ -63,7 +63,7 @@ export function activate(s: WorkspaceState & Selection, hostId: string, agentId:
   const views = { ...s.views }
   if (s.hostId && s.agentId) views[tabKey({ hostId: s.hostId, agentId: s.agentId })] = s.tab
   const { [key]: _new, ...newTiles } = s.newTiles
-  const shown = tab ?? views[key] ?? 'overview'
+  const shown = tab ?? views[key] ?? 'chat'
   views[key] = shown
   // An agent shown in a pane beside is the main pane's now, not both.
   return { hostId, agentId, tab: shown, tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: s.side.filter((p) => !same(p, ref)), views, newTiles }
@@ -75,7 +75,7 @@ export function openInBackground(s: WorkspaceState, ref: TabRef): Partial<Worksp
 }
 
 /** Closes a tab. When it was the active one the next tab to its right is (else the one to its left, else none). */
-export function closeTab(s: WorkspaceState & Selection, ref: TabRef): Partial<WorkspaceState & Selection> {
+export function closeTab(s: WorkspaceState & Selection, ref: TabRef, projectOf?: (t: TabRef) => string | undefined): Partial<WorkspaceState & Selection> {
   const i = s.tabs.findIndex((t) => same(t, ref))
   if (i < 0) return {}
   const tabs = s.tabs.filter((_, j) => j !== i)
@@ -88,17 +88,34 @@ export function closeTab(s: WorkspaceState & Selection, ref: TabRef): Partial<Wo
   // The agent closed was in the main pane: the pane beside it moves over if there is one, else the next tab shows.
   const beside = side[0]
   if (beside) return { tabs, views, newTiles, hostId: beside.hostId, agentId: beside.agentId, tab: beside.tab, side: side.slice(1) }
-  const next = tabs[i] ?? tabs[i - 1]
-  if (!next) return { tabs, views, newTiles, side, agentId: undefined, tab: 'overview' }
-  return { tabs, views, newTiles, side: side.filter((p) => !same(p, next)), hostId: next.hostId, agentId: next.agentId, tab: views[tabKey(next)] ?? 'overview' }
+  // The next tab of the same project (the tab bar shows only its tabs), the one after it first; else any next tab.
+  const here = projectOf?.(ref)
+  const mates = here ? tabs.map((t, j) => [t, j] as const).filter(([t]) => projectOf!(t) === here) : []
+  const next = (mates.find(([, j]) => j >= i) ?? mates[mates.length - 1])?.[0] ?? tabs[i] ?? tabs[i - 1]
+  if (!next) return { tabs, views, newTiles, side, agentId: undefined, tab: 'chat' }
+  return { tabs, views, newTiles, side: side.filter((p) => !same(p, next)), hostId: next.hostId, agentId: next.agentId, tab: views[tabKey(next)] ?? 'chat' }
 }
 
 /** The tab `by` places after the active one (wrapping); with none active, the first (or last, going back). */
-export function cycleTab(s: WorkspaceState & Selection, by: 1 | -1): TabRef | undefined {
-  if (s.tabs.length === 0) return undefined
-  const at = s.tabs.findIndex((t) => t.hostId === s.hostId && t.agentId === s.agentId)
-  if (at < 0) return by === 1 ? s.tabs[0] : s.tabs[s.tabs.length - 1]
-  return s.tabs[(at + by + s.tabs.length) % s.tabs.length]
+export function cycleTab(s: WorkspaceState & Selection, by: 1 | -1, tabs: TabRef[] = s.tabs): TabRef | undefined {
+  if (tabs.length === 0) return undefined
+  const at = tabs.findIndex((t) => t.hostId === s.hostId && t.agentId === s.agentId)
+  if (at < 0) return by === 1 ? tabs[0] : tabs[tabs.length - 1]
+  return tabs[(at + by + tabs.length) % tabs.length]
+}
+
+/**
+ * The tabs one project's tab bar shows: those whose agent's project (`projectOf`, the host and the repo its run is
+ * led from) is the open agent's, and those whose project isn't known yet (a host still connecting), so none is
+ * out of reach. With no agent open, or one whose project isn't known yet, every tab.
+ */
+export function projectTabs(tabs: TabRef[], projectOf: (t: TabRef) => string | undefined, open: TabRef | undefined): TabRef[] {
+  const here = open && projectOf(open)
+  if (!here) return tabs
+  return tabs.filter((t) => {
+    const p = projectOf(t)
+    return p === here || p === undefined || (t.hostId === open.hostId && t.agentId === open.agentId)
+  })
 }
 
 /** Drops what belongs to a host that was removed. */
@@ -142,7 +159,7 @@ export function pinSplit(s: WorkspaceState & Selection, ref: TabRef, tab?: Agent
   if (same(ref, { hostId: s.hostId ?? '', agentId: s.agentId ?? '' }) || s.side.some((p) => same(p, ref)) || s.side.length >= MAX_SIDE_PANES) return {}
   const key = tabKey(ref)
   const { [key]: _new, ...newTiles } = s.newTiles
-  return { tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: [...s.side, { ...ref, tab: tab ?? s.views[key] ?? 'overview' }], newTiles }
+  return { tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: [...s.side, { ...ref, tab: tab ?? s.views[key] ?? 'chat' }], newTiles }
 }
 
 /** Takes a pane away from beside the main one; its tab stays open. */

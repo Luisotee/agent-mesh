@@ -1,39 +1,47 @@
 import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
+import { MarkdownField } from '@/components/ui/markdown-field'
 import { useMemo, useState } from 'react'
-import { getAgent, getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
-import { ASK_KEY, LEVEL_LABEL, RUN_LEVEL_LABEL, askBeforeOf, askLines, hasLevels, levelOf, listOf, nameEntries, runLevelOf, withLevel, type Level } from '@/autonomy'
+import { getAgent, getCost, holdPullRequest, sendMessage } from '@/actions'
+import { RUN_LEVEL_LABEL, runLevelOf } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Select, Textarea } from '@/components/ui/input'
+import { Chip } from '@/components/ui/chip'
+import { Fold } from '@/components/ui/collapsible'
+import { SkeletonLines } from '@/components/ui/skeleton'
+import { Tip } from '@/components/ui/tooltip'
 import { ModelControl } from './model-control'
 import { Changes, Progress, WorktreeActions } from './agent-work'
-import { MessageType, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
+import { StateIcon } from './state-icon'
+import { MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
+import { leadRows, type WorkerRow } from '@/sidebar'
 import { costOf, costRows, dollars, historyRows, isLead, prRows, type PrRow } from '@/side-panel'
-import { quotaRows, resetText } from '@/usage'
 
 /**
- * Beside the open agent: for a run's lead the whole run (what it cost in total and per agent, what waits on the user,
- * the PRs, quota); for any other agent where it is (project, host, branch, with a terminal button), its model, its cost
- * and its PRs. What the host derives is read from the host (`GetCost`, `ListWaiting`, `ListPullRequests`, `GetUsage`).
+ * Beside the open agent: its whole tree first (the lead, its workers and their reviewers and askers; a click opens
+ * one), then the pull requests of the run (for a lead) or of the agent, what it is doing, the cost folded to one
+ * line, its model history and its details. What the host derives is read from the host (`GetCost`, `ListPullRequests`).
+ * Autonomy is in the project's settings, the quota in the sidebar's footer.
  */
 export function SidePanel({ host, agentId }: { host: HostRuntime; agentId?: string }) {
   const app = useApp()
   const agent = useHostState(host, (s) => (agentId ? s.agents[agentId] : undefined))
+  const run = useHostState(host, (s) => (agent ? s.runs[agent.runId] : undefined))
   return (
     <aside aria-label="Side panel" className="flex w-72 shrink-0 flex-col overflow-y-auto border-l bg-surface">
       <header className="flex items-center gap-2 border-b px-3 py-2">
-        <h2 className="min-w-0 flex-1 truncate text-xs font-semibold tracking-wide text-muted-foreground uppercase">{agent ? (isLead(agent) ? 'Run' : 'Agent') : 'Details'}</h2>
-        <Button size="icon" variant="ghost" className="size-6" aria-label="Hide the side panel" title="Hide the side panel" onClick={() => app.setPanel(false)}>
-          <PanelRightClose className="size-3.5" />
-        </Button>
+        <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{agent ? run?.title || agent.name : 'Details'}</h2>
+        <Tip label="Hide the side panel">
+          <Button size="icon" variant="ghost" className="size-6" aria-label="Hide the side panel" onClick={() => app.setPanel(false)}>
+            <PanelRightClose className="size-3.5" />
+          </Button>
+        </Tip>
       </header>
-      {agent ? <ForAgent host={host} agentId={agent.id} /> : <p className="p-3 text-xs text-muted-foreground">Open an agent to see its run, cost and pull requests here.</p>}
-      <Quota host={host} />
+      {agent ? <ForAgent host={host} agentId={agent.id} /> : <p className="p-3 text-xs text-muted-foreground">Open an agent to see its tree, pull requests and cost here.</p>}
     </aside>
   )
 }
@@ -41,9 +49,9 @@ export function SidePanel({ host, agentId }: { host: HostRuntime; agentId?: stri
 function Section({ title, children, count }: { title: string; children: React.ReactNode; count?: number }) {
   return (
     <section aria-label={title} className="border-b px-3 py-2.5">
-      <h3 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+      <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
         {title}
-        {count !== undefined && <span className="font-normal">{count}</span>}
+        {count !== undefined && <span className="font-normal tabular-nums">{count}</span>}
       </h3>
       {children}
     </section>
@@ -51,73 +59,40 @@ function Section({ title, children, count }: { title: string; children: React.Re
 }
 
 function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
-  const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])!
-  const run = useHostState(host, (s) => s.runs[agent.runId])
   const agents = useHostState(host, (s) => s.agents)
-  const runs = useHostState(host, (s) => s.runs)
-  const waiting = useHostState(host, (s) => s.waiting)
   const pullRequests = useHostState(host, (s) => s.pullRequests)
-  const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
   const lead = isLead(agent)
   const cost = usePolled(() => getCost(host.client, { runId: agent.runId }, true), `${host.info.id}/${agent.runId}`, 30_000)
-  const here = useMemo(() => joinWaiting(waiting, runs, agents).filter((w) => w.agent.runId === agent.runId), [waiting, runs, agents, agent.runId])
   const prs = useMemo(() => prRows(pullRequests, agents, lead ? (a) => a.runId === agent.runId : (a) => a.id === agent.id), [pullRequests, agents, lead, agent.runId, agent.id])
   const table = cost.value ? costRows(cost.value) : undefined
   const mine = lead ? undefined : costOf(cost.value, agent)
+  const total = table ? dollars(lead ? table.total : (mine ?? 0)) : undefined
   return (
     <>
-      <Section title={lead ? 'Run' : 'Where'}>
-        <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs">
-          {lead && run && (
-            <>
-              <dt className="text-muted-foreground">Run</dt>
-              <dd className="truncate" title={run.title}>{run.title || run.id}</dd>
-            </>
-          )}
-          <dt className="text-muted-foreground">Project</dt>
-          <dd className="truncate" title={agent.repo}>{repoName(agent.repo)}</dd>
-          <dt className="text-muted-foreground">Host</dt>
-          <dd className="truncate">{host.info.name}</dd>
-          {agent.branch && (
-            <>
-              <dt className="text-muted-foreground">Branch</dt>
-              <dd className="truncate font-mono" title={agent.branch}>{agent.branch}</dd>
-            </>
-          )}
-          <dt className="text-muted-foreground">Role</dt>
-          <dd>{ROLE_LABEL[agent.role]}</dd>
-        </dl>
-        <ModelControl host={host} agent={agent} className="mt-1.5" />
-        <WorktreeActions key={agent.id} host={host} agent={agent} />
-        <div className="mt-2 flex gap-1.5">
-          {canTerminal && agent.terminalId && (
-            <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>
-              <Terminal /> Terminal
-            </Button>
-          )}
-          {agent.worktree && (
-            <Button size="sm" variant="outline" title={agent.worktree} onClick={() => void navigator.clipboard?.writeText(agent.worktree)}>
-              <Copy /> Copy path
-            </Button>
-          )}
-        </div>
+      <AgentTree host={host} agent={agent} />
+      <Section title="Pull requests" count={prs.length}>
+        {prs.length === 0 ? <p className="text-xs text-muted-foreground">None yet.</p> : (
+          <ul className="space-y-1">
+            {prs.map((p) => (
+              <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
+            ))}
+          </ul>
+        )}
       </Section>
       <Progress host={host} agent={agent} />
       <Changes host={host} agent={agent} />
-      <ModelHistory host={host} agent={agent} />
-      <Autonomy host={host} repo={agent.repo} run={run} />
-      <AskBefore host={host} run={run} />
-      <Section title="Cost">
+      <div className="border-b px-3 pb-2.5 empty:hidden"><WorktreeActions key={agent.id} host={host} agent={agent} /></div>
+      <Fold title={lead ? 'Run total' : 'Cost'} summary={total ?? (cost.error ? 'unread' : undefined)}>
         {cost.error && !cost.value && <p className="text-xs text-destructive">Couldn't read the cost: {cost.error}</p>}
-        {cost.loading && !cost.value && <p className="text-xs text-muted-foreground">Loading…</p>}
+        {cost.loading && !cost.value && <SkeletonLines label="Reading the cost" lines={2} />}
         {table && (
           <>
             <p className="flex items-baseline justify-between text-xs">
               <span className="text-muted-foreground">{lead ? 'Run total' : 'This agent'}</span>
-              <span className="text-sm font-semibold tabular-nums" data-testid="cost-total">{dollars(lead ? table.total : (mine ?? 0))}</span>
+              <span className="text-sm font-semibold tabular-nums" data-testid="cost-total">{total}</span>
             </p>
-            {!lead && <p className="text-[11px] text-muted-foreground">of {dollars(table.total)} for the run</p>}
+            {!lead && <p className="text-xs text-muted-foreground">of {dollars(table.total)} for the run</p>}
             {lead && (
               <ul className="mt-1.5 space-y-0.5 text-xs" aria-label="Cost per agent">
                 {table.rows.map((r) => (
@@ -131,38 +106,107 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
             )}
           </>
         )}
-      </Section>
-      {lead && (
-        <Section title="Waiting in this run" count={here.length}>
-          {here.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nothing in this run.</p>
-          ) : (
-            <ul className="space-y-0.5">
-              {here.map((w) => (
-                <li key={`${w.kind}:${w.message?.id ?? w.agent.id}`}>
-                  <button
-                    type="button"
-                    onClick={() => app.selectAgent(host.info.id, w.agent.id, w.kind === 'input' ? 'terminal' : 'messages')}
-                    className="w-full truncate rounded px-1 py-0.5 text-left text-xs hover:bg-accent"
-                  >
-                    <span className="font-medium">{w.agent.name}</span> {w.kind === 'plan' ? 'sent a plan' : w.kind === 'question' ? 'asked a question' : 'is stopped at a prompt'}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
-      )}
-      <Section title="Pull requests" count={prs.length}>
-        {prs.length === 0 ? <p className="text-xs text-muted-foreground">None yet.</p> : (
-          <ul className="space-y-1">
-            {prs.map((p) => (
-              <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
-            ))}
-          </ul>
-        )}
-      </Section>
+      </Fold>
+      <ModelHistory host={host} agent={agent} />
+      <Details host={host} agent={agent} />
     </>
+  )
+}
+
+/** The open agent's tree: its run's lead, the workers, and the reviewers and askers of each, with their state. */
+function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
+  const app = useApp()
+  const runs = useHostState(host, (s) => s.runs)
+  const agents = useHostState(host, (s) => s.agents)
+  const waiting = useHostState(host, (s) => s.waiting)
+  const row = useMemo(() => {
+    const run = runs[agent.runId]
+    if (!run) return undefined
+    const ids = new Set(joinWaiting(waiting, runs, agents).map((w) => w.agent.id))
+    const mine = Object.fromEntries(Object.entries(agents).filter(([, a]) => a.runId === run.id))
+    return leadRows({ hostId: host.info.id, hostName: host.info.name, here: true, up: true, loading: false, runs: { [run.id]: run }, agents: mine, waiting: ids })[0]
+  }, [runs, agents, waiting, agent.runId, host.info.id, host.info.name])
+  if (!row) return null
+  const item = (a: Agent, depth: number) => (
+    <li key={a.id}>
+      <button
+        type="button"
+        aria-current={a.id === agent.id ? 'true' : undefined}
+        onClick={() => app.selectAgent(host.info.id, a.id)}
+        style={{ paddingLeft: `${0.25 + depth * 0.875}rem` }}
+        className={cn('flex w-full items-center gap-1.5 rounded py-1 pr-1 text-left text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring', a.id === agent.id && 'bg-accent font-medium', a.needsInput > 0 && 'text-glow')}
+      >
+        <StateIcon agent={a} className="size-3.5" />
+        <span className="min-w-0 flex-1 truncate">{a.name}</span>
+        <Chip>{ROLE_LABEL[a.role]}</Chip>
+      </button>
+    </li>
+  )
+  const worker = (w: WorkerRow, depth: number): React.ReactNode[] => [item(w.agent, depth), ...w.helpers.map((h) => item(h, depth + 1)), ...w.workers.flatMap((c) => worker(c, depth + 1))]
+  return (
+    <Section title="Agent tree">
+      <ul aria-label="Agent tree">
+        {row.lead && item(row.lead, 0)}
+        {row.helpers.map((h) => item(h, 1))}
+        {row.workers.flatMap((w) => worker(w, 1))}
+      </ul>
+    </Section>
+  )
+}
+
+/** Where the agent is and what it is, folded: project, host, branch, worktree, session and ids, its model, its terminal. */
+function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
+  const app = useApp()
+  const run = useHostState(host, (s) => s.runs[agent.runId])
+  const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
+  const own = runLevelOf(run?.autonomy)
+  const reveal = useAppState((s) => s.modelShown)
+  const rows: Array<[string, string, boolean?]> = [
+    ['Project', repoName(agent.repo)],
+    ['Host', host.info.name],
+    ['Role', ROLE_LABEL[agent.role]],
+    ['Branch', agent.branch, true],
+    ['Worktree', agent.worktree, true],
+    ['Session', agent.sessionId, true],
+    ['Agent id', agent.id, true],
+    ['Run id', agent.runId, true],
+  ]
+  return (
+    <Fold title="Details" reveal={reveal} onRevealed={() => app.modelRevealed()}>
+      <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs">
+        {rows.filter(([, v]) => v).map(([k, v, mono]) => (
+          <div key={k} className="contents">
+            <dt className="text-muted-foreground">{k}</dt>
+            <dd className={cn('truncate', mono && 'font-mono')} title={v}>{v}</dd>
+          </div>
+        ))}
+        {own && (
+          <>
+            <dt className="text-muted-foreground">Autonomy</dt>
+            <dd>{RUN_LEVEL_LABEL[own]} <span className="text-muted-foreground">(this run's own)</span></dd>
+          </>
+        )}
+        {run?.autonomy && run.autonomy.askBefore.length > 0 && (
+          <>
+            <dt className="text-muted-foreground">Asks before</dt>
+            <dd>{run.autonomy.askBefore.join('; ')}</dd>
+          </>
+        )}
+      </dl>
+      <ModelControl host={host} agent={agent} className="mt-1.5" />
+      <div className="mt-2 flex gap-1.5">
+        {canTerminal && agent.terminalId && (
+          <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>
+            <Terminal /> Terminal
+          </Button>
+        )}
+        {agent.worktree && (
+          <Button size="sm" variant="outline" onClick={() => void navigator.clipboard?.writeText(agent.worktree)}>
+            <Copy /> Copy path
+          </Button>
+        )}
+      </div>
+    </Fold>
   )
 }
 
@@ -193,8 +237,8 @@ function CommentBox({ host, pr, onDone }: { host: HostRuntime; pr: PrRow; onDone
         void send()
       }}
     >
-      <Textarea aria-label={`Comment on #${pr.number} for ${pr.agentName}`} rows={3} autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={`Tell ${pr.agentName} what to change`} />
-      {error && <p role="alert" className="text-[11px] text-destructive">{error}</p>}
+      <MarkdownField aria-label={`Comment on #${pr.number} for ${pr.agentName}`} className="min-h-16" autoFocus value={text} onValueChange={setText} placeholder={`Tell ${pr.agentName} what to change`} />
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end gap-1">
         <Button size="sm" variant="ghost" onClick={onDone}>Cancel</Button>
         <Button size="sm" type="submit" disabled={busy || !text.trim()}>Send to {pr.agentName}</Button>
@@ -229,58 +273,30 @@ function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: 
         <Badge className={cn(pr.state === 'open' && !pr.draft && 'border-primary text-primary')}>{pr.draft && pr.state === 'open' ? 'draft' : pr.state}</Badge>
         {pr.checks && <Badge className={CHECKS_TONE[pr.checks]}>{pr.checks === 'failing' ? 'checks failing' : `checks ${pr.checks}`}</Badge>}
         {pr.held && <Badge className="border-state-needs text-state-needs">held</Badge>}
-        {pr.stale && <span className="text-muted-foreground" title="GitHub couldn't be read the last time: this is what was seen before">stale</span>}
+        {pr.stale && <Tip label="GitHub couldn't be read the last time: this is what was seen before"><span className="text-muted-foreground">stale</span></Tip>}
         <ExternalLink className="ml-auto size-3 shrink-0 text-muted-foreground" />
       </button>
       <div className="flex items-center gap-1 px-1">
-        {showAgent && <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{pr.agentName}</p>}
+        {showAgent && <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{pr.agentName}</p>}
         {pr.state === 'open' && (
-          <Button size="sm" variant="ghost" className="h-5 gap-1 px-1 text-[11px]" aria-pressed={pr.held} aria-label={`${pr.held ? 'Release' : 'Hold'} the merge of #${pr.number}`} title={pr.held ? 'Let a root merge it again' : 'No root merges it until you release it'} onClick={() => void toggleHold()}>
+<Tip label={pr.held ? 'Let a root merge it again' : 'No root merges it until you release it'}>
+                    <Button size="sm" variant="ghost" className="h-5 gap-1 px-1 text-xs" aria-pressed={pr.held} aria-label={`${pr.held ? 'Release' : 'Hold'} the merge of #${pr.number}`} onClick={() => void toggleHold()}>
             <Hand className="size-3" /> {pr.held ? 'Release' : 'Hold merge'}
           </Button>
+          </Tip>
         )}
         {pr.state === 'open' && (
-          <Button size="sm" variant="ghost" className="ml-auto h-5 gap-1 px-1 text-[11px]" aria-expanded={commenting} aria-label={`Comment on #${pr.number}`} onClick={() => setCommenting(!commenting)}>
+          <Button size="sm" variant="ghost" className="ml-auto h-5 gap-1 px-1 text-xs" aria-expanded={commenting} aria-label={`Comment on #${pr.number}`} onClick={() => setCommenting(!commenting)}>
             <MessageSquarePlus className="size-3" /> Comment
           </Button>
         )}
       </div>
-      {holdError && <p role="alert" className="px-1 text-[11px] text-destructive">{holdError}</p>}
+      {holdError && <p role="alert" className="px-1 text-xs text-destructive">{holdError}</p>}
       {commenting && <CommentBox host={host} pr={pr} onDone={() => setCommenting(false)} />}
     </li>
   )
 }
 
-function Quota({ host }: { host: HostRuntime }) {
-  const usage = usePolled(() => getUsage(host.client), host.info.id, 60_000)
-  const q = useMemo(() => (usage.value ? quotaRows(usage.value) : undefined), [usage.value])
-  return (
-    <Section title="Quota">
-      {usage.loading && !q && !usage.error && <p className="text-xs text-muted-foreground">Loading…</p>}
-      {usage.error && !q && <p className="text-xs text-muted-foreground">No reading: {usage.error}</p>}
-      {q && q.rows.length === 0 && <p className="text-xs text-muted-foreground">The host has no quota reading.</p>}
-      {q && q.rows.length > 0 && (
-        <ul className="space-y-2" aria-label="Quota">
-          {q.rows.map((r) => (
-            <li key={r.label} className="text-xs">
-              <div className="flex justify-between gap-2">
-                <span className="truncate">{r.label}</span>
-                <span className={cn('tabular-nums', r.atReserve ? 'font-semibold text-state-needs' : 'text-muted-foreground')}>{Math.round(r.used)}%</span>
-              </div>
-              <div className="relative mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={r.label} aria-valuenow={Math.round(r.used)} aria-valuemin={0} aria-valuemax={100}>
-                <div className={cn('h-full rounded-full', r.atReserve ? 'bg-state-needs' : 'bg-primary')} style={{ width: `${Math.min(100, Math.max(0, r.used))}%` }} />
-                {q.reserve < 100 && <div className="absolute inset-y-0 w-px bg-foreground/60" style={{ left: `${q.reserve}%` }} title={`Reserve: nothing new starts at ${q.reserve}%`} />}
-              </div>
-              {r.resetsAt && <p className="text-[11px] text-muted-foreground">{resetText(r.resetsAt)}</p>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Section>
-  )
-}
-
-/** The user's level for the agent's project: which PRs a root may merge and whose plans it may approve (host settings). */
 /** The models the agent ran on, oldest first: read from the host (`GetAgent`) when the agent is shown and again when its model or effort changes. */
 function ModelHistory({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const got = usePolled(async () => getAgent(host.client, agent.id), `${host.info.id}/${agent.id}/${agent.model}/${agent.effort}`, 120_000)
@@ -288,7 +304,7 @@ function ModelHistory({ host, agent }: { host: HostRuntime; agent: Agent }) {
   // Older hosts keep none; one row is no history (the model is shown above).
   if (rows.length < 2) return null
   return (
-    <Section title="Model history" count={rows.length}>
+    <Fold title="Model history" summary={String(rows.length)}>
       <ol aria-label="Model history" className="space-y-0.5 text-xs">
         {rows.map((r, i) => (
           <li key={i} className="flex justify-between gap-2">
@@ -297,84 +313,6 @@ function ModelHistory({ host, agent }: { host: HostRuntime; agent: Agent }) {
           </li>
         ))}
       </ol>
-    </Section>
-  )
-}
-
-/** The host's "always ask me before" list, one thing to a line: the lead of every run asks first (`autonomy.ask_before`). */
-function AskBefore({ host, run }: { host: HostRuntime; run?: Run }) {
-  const settings = useHostState(host, (s) => s.settings)
-  const saved = askBeforeOf(settings)
-  const [text, setText] = useState<string | undefined>()
-  const [error, setError] = useState('')
-  if (!settings[ASK_KEY]) return null
-  const shown = text ?? saved.join('\n')
-  async function save() {
-    if (text === undefined) return
-    const next = askLines(text)
-    setText(undefined)
-    if (JSON.stringify(next) === JSON.stringify(saved)) return
-    setError('')
-    try {
-      await setSetting(host.client, ASK_KEY, next)
-    } catch (e) {
-      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
-    }
-  }
-  return (
-    <Section title="Ask me before">
-      <Textarea aria-label="Always ask me before" value={shown} onChange={(e) => setText(e.target.value)} onBlur={() => void save()} placeholder="deploys&#10;migrations" className="min-h-14 text-xs" />
-      <p className="mt-1 text-[11px] text-muted-foreground">One per line. Every lead asks you before doing these, in every run.</p>
-      {run?.autonomy && run.autonomy.askBefore.length > 0 && (
-        <p className="mt-1 text-[11px] text-muted-foreground">This run also asks before: {run.autonomy.askBefore.join('; ')} (set when it started).</p>
-      )}
-      {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
-    </Section>
-  )
-}
-
-function Autonomy({ host, repo, run }: { host: HostRuntime; repo: string; run?: Run }) {
-  const settings = useHostState(host, (s) => s.settings)
-  const [error, setError] = useState('')
-  // A run started with a level of its own replaced the repo lists for itself: what its lead was told is that level, not the project's.
-  const own = runLevelOf(run?.autonomy)
-  if (own) {
-    return (
-      <Section title="Autonomy">
-        <p className="text-xs">{RUN_LEVEL_LABEL[own]}</p>
-        <p className="mt-1 text-[11px] text-muted-foreground">Set when this run started: it replaces the project's level for this run, so the project's setting below changes nothing here. Hold a single PR below.</p>
-      </Section>
-    )
-  }
-  if (!repo || !hasLevels(settings)) return null
-  const level = levelOf(settings, repo)
-  const byName = nameEntries(settings, repo)
-  async function choose(next: Level) {
-    setError('')
-    // Two settings move together: when the second write fails the first is put back, so the repo is never left in neither list.
-    const done: Array<{ key: string; value: string[] }> = []
-    try {
-      for (const w of withLevel(settings, repo, next)) {
-        await setSetting(host.client, w.key, w.value)
-        done.push({ key: w.key, value: settings[w.key] ? listOf(settings, w.key) : [] })
-      }
-    } catch (e) {
-      for (const back of done.reverse()) await setSetting(host.client, back.key, back.value).catch(() => {})
-      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
-    }
-  }
-  return (
-    <Section title="Autonomy">
-      <Select aria-label={`Autonomy for ${repoName(repo)}`} value={level} onChange={(e) => void choose(e.target.value as Level)} className="text-xs">
-        {(Object.keys(LEVEL_LABEL) as Level[]).map((l) => <option key={l} value={l}>{LEVEL_LABEL[l]}</option>)}
-      </Select>
-      <p className="mt-1 text-[11px] text-muted-foreground">For {repoName(repo)}: a root never merges a PR you merge, and leaves a plan you approve to you. Hold a single PR below.</p>
-      {byName.length > 0 && (
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          {byName.map((e) => `"${e}"`).join(', ')} in the host's settings names every project of that folder name, so it holds this one too: edit it there to lower the level.
-        </p>
-      )}
-      {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
-    </Section>
+    </Fold>
   )
 }

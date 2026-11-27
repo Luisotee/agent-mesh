@@ -60,6 +60,11 @@ public interface AttachedOrBuilder extends
   long getOffset();
 
   /**
+   * <pre>
+   * The terminal's size in `epoch`. A repaint is of the size that counts this client; an exact attach that continues is in the
+   * epoch it left, and its own size counts after the replay: if that moves the terminal, a Resized follows ReplayDone.
+   * </pre>
+   *
    * <code>uint32 cols = 6 [json_name = "cols"];</code>
    * @return The cols.
    */

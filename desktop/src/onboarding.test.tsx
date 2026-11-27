@@ -95,7 +95,8 @@ describe('the first-run screen', () => {
   it('does not reconnect by itself after the user removed the host', async () => {
     const api = fakeApi({ hosts: [info], detect: [cand({ id: 'native' })] })
     render(<App api={api as unknown as DesktopApi} />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Remove host laptop' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Hosts' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove laptop…' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Remove host' }))
     await waitFor(() => expect(api.hosts.remove).toHaveBeenCalledWith('h1'))
     expect(await screen.findByRole('button', { name: 'Connect' })).toBeInTheDocument()
@@ -228,10 +229,9 @@ describe('removing a host and the banner', () => {
     model.store.setState({ loaded: true, hosts: [host], hostId: 'h1' })
     render(
       <AppContext.Provider value={model}>
-        <RemoveHostDialog host={host} />
+        <RemoveHostDialog host={host} open onOpenChange={() => {}} />
       </AppContext.Provider>,
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Remove host laptop' }))
     expect(await screen.findByText(/daemon, its runs and its agents are not touched/)).toBeInTheDocument()
     expect(api.hosts.remove).not.toHaveBeenCalled()
     await act(async () => userEvent.click(screen.getByRole('button', { name: 'Remove host' })))

@@ -56,7 +56,7 @@ export const startSetup = (c: MeshClient) => c.startSetup({ meta: meta() })
 
 export const stopAgent = (c: MeshClient, agent: string) => c.stopAgent({ meta: meta(), agent })
 
-/** Stops an agent's process on purpose and keeps its conversation: a message to it brings it back. */
+/** Stops an agent's process on purpose and keeps its conversation: a task or an answer to it brings it back. */
 export const retireAgent = (c: MeshClient, agent: string) => c.retireAgent({ meta: meta(), agent })
 
 /** Rings an agent that has unread messages again (the host says why when it can't). */

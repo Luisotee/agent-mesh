@@ -114,8 +114,40 @@ export const monoStack = (t: Theme) => stack(t.font.mono, "ui-monospace, 'Cascad
  */
 const DENSITY = { compact: { spacing: '0.25rem', text: '14px' }, comfortable: { spacing: '0.28rem', text: '15px' } }
 
+const lum = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+}
+/** WCAG's contrast ratio of two #rrggbb colours. */
+export function contrast(a: string, b: string): number {
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
+  return (hi! + 0.05) / (lo! + 0.05)
+}
+const mix = (a: string, b: string, t: number) =>
+  '#' + [1, 3, 5].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t).toString(16).padStart(2, '0')).join('')
+
+/**
+ * The colours of highlighted code in the chat (`code-theme.ts`): the terminal's six, so a reply's code matches its
+ * terminal, each moved toward the text colour just as far as it takes to read at 4.5:1 on a code block's surface
+ * (a light theme's terminal yellow is too pale for text on its page).
+ */
+export function codeColours(theme: Theme): Record<string, string> {
+  const out: Record<string, string> = {}
+  const bg = theme.tokens.surface!
+  const fg = theme.tokens.foreground!
+  for (const k of ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan']) {
+    const base = theme.terminal[k]
+    if (!base || !/^#[0-9a-f]{6}$/i.test(base)) continue
+    let t = 0
+    while (t < 1 && contrast(mix(base, fg, t), bg) < 4.5) t += 0.05
+    out[k] = mix(base, fg, Math.min(1, t))
+  }
+  return out
+}
+
 export function applyTheme(theme: Theme, root: HTMLElement = document.documentElement): void {
   for (const [k, v] of Object.entries(theme.tokens)) root.style.setProperty(`--${k}`, v)
+  for (const [k, v] of Object.entries(codeColours(theme))) root.style.setProperty(`--code-${k}`, v)
   root.style.setProperty('--font-ui', stack(theme.font.sans, 'ui-sans-serif, system-ui, sans-serif'))
   root.style.setProperty('--font-code', monoStack(theme))
   root.style.setProperty('--spacing', DENSITY[theme.density].spacing)

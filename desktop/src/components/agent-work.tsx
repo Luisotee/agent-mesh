@@ -4,6 +4,8 @@ import { archiveAgent, getAgentChanges, getAgentProgress, openInEditor, resumeAg
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 import { archiveAdvice, canArchive, changeSummary, contextMeter, ignoredLines, planSummary, STATUS_MARK } from '@/agent-work'
 import { Button } from '@/components/ui/button'
+import { SkeletonLines } from '@/components/ui/skeleton'
+import { Tip } from '@/components/ui/tooltip'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useHostState } from '@/context'
 import type { Agent } from '@/gen/agentmesh/v1/types_pb'
@@ -19,7 +21,7 @@ const say = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\
 function Section({ title, count, children }: { title: string; count?: string; children: React.ReactNode }) {
   return (
     <section aria-label={title} className="border-b px-3 py-2.5">
-      <h3 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+      <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
         {title}
         {count !== undefined && <span className="font-normal">{count}</span>}
       </h3>
@@ -28,37 +30,50 @@ function Section({ title, count, children }: { title: string; count?: string; ch
   )
 }
 
-/** The agent's plan (its todo list) and its context meter, from its CLI's record: for a CLI the host can't read, nothing. */
+/** The agent's plan (its todo list), from its CLI's record: for a CLI the host can't read, nothing. Its context is the composer's ring. */
 export function Progress({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const got = usePolled(async () => getAgentProgress(host.client, agent.id), `${host.info.id}/${agent.id}`, 20_000, !agent.archived, String(agent.state))
   const p = got.value
   if (!p?.supported) return null
   const plan = planSummary(p.plan)
-  const ctx = contextMeter(p.contextTokens, p.contextWindow)
-  if (plan.total === 0 && !ctx) return null
+  if (plan.total === 0) return null
   return (
-    <Section title="Progress" count={plan.total > 0 ? `${plan.done} of ${plan.total}` : undefined}>
-      {plan.total > 0 && (
-        <>
-          <progress aria-label="Plan progress" max={plan.total} value={plan.done} className="h-1.5 w-full overflow-hidden rounded bg-muted accent-primary" />
-          {plan.current && <p className="mt-1 truncate text-xs" title={plan.current}>Now: {plan.current}</p>}
-          <ol aria-label="Plan" className="mt-1.5 space-y-0.5 text-xs">
-            {p.plan.map((it, i) => (
-              <li key={i} className={cn('flex gap-1.5', it.status === 'completed' && 'text-muted-foreground line-through')}>
-                <span aria-hidden className="shrink-0">{it.status === 'completed' ? '✓' : it.status === 'in_progress' ? '›' : '·'}</span>
-                <span className="min-w-0 break-words">{it.content}</span>
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-      {ctx && (
-        <div className={cn(plan.total > 0 && 'mt-2')}>
-          <p className="flex justify-between text-[11px] text-muted-foreground"><span>Context</span><span data-testid="context-text">{ctx.text}</span></p>
-          <meter aria-label="Context used" min={0} max={100} low={70} high={90} optimum={0} value={ctx.pct} className="mt-0.5 h-1.5 w-full" />
-        </div>
-      )}
+    <Section title="Progress" count={`${plan.done} of ${plan.total}`}>
+      <progress aria-label="Plan progress" max={plan.total} value={plan.done} className="h-1.5 w-full overflow-hidden rounded bg-muted accent-primary" />
+      {plan.current && <p className="mt-1 truncate text-xs" title={plan.current}>Now: {plan.current}</p>}
+      <ol aria-label="Plan" className="mt-1.5 space-y-0.5 text-xs">
+        {p.plan.map((it, i) => (
+          <li key={i} className={cn('flex gap-1.5', it.status === 'completed' && 'text-muted-foreground line-through')}>
+            <span aria-hidden className="shrink-0">{it.status === 'completed' ? '✓' : it.status === 'in_progress' ? '›' : '·'}</span>
+            <span className="min-w-0 break-words">{it.content}</span>
+          </li>
+        ))}
+      </ol>
     </Section>
+  )
+}
+
+/**
+ * How much of its context window the agent's conversation fills, as a small ring by the composer (its CLI's record:
+ * for a CLI the host can't read, nothing). Amber from 70%, red from 90%: a long conversation the CLI will compact soon.
+ */
+export function ContextRing({ host, agent, active }: { host: HostRuntime; agent: Agent; active: boolean }) {
+  const got = usePolled(async () => getAgentProgress(host.client, agent.id), `${host.info.id}/${agent.id}/ring`, 30_000, active && !agent.archived, String(agent.state))
+  const p = got.value
+  const ctx = p?.supported ? contextMeter(p.contextTokens, p.contextWindow) : undefined
+  if (!ctx) return null
+  const r = 7
+  const c = 2 * Math.PI * r
+  const tone = ctx.pct >= 90 ? 'text-destructive' : ctx.pct >= 70 ? 'text-state-needs' : 'text-identity'
+  return (
+    <Tip label={`Context: ${ctx.text}`}>
+      <span role="meter" aria-label="Context used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={ctx.pct} aria-valuetext={ctx.text} data-testid="context-text" className="grid size-9 shrink-0 place-items-center">
+        <svg viewBox="0 0 18 18" className={cn('size-[18px] -rotate-90', tone)} aria-hidden>
+          <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2.5" />
+          <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - ctx.pct / 100)} />
+        </svg>
+      </span>
+    </Tip>
   )
 }
 
@@ -71,11 +86,11 @@ export function Changes({ host, agent }: { host: HostRuntime; agent: Agent }) {
   return (
     <Section title="Files changed" count={c?.available ? String(c.files.length) + (c.truncated ? '+' : '') : undefined}>
       {got.error && !c && <p className="text-xs text-destructive">Couldn't read the changes: {got.error}</p>}
-      {got.loading && !c && <p className="text-xs text-muted-foreground">Loading…</p>}
+      {got.loading && !c && <SkeletonLines label="Reading the worktree" lines={2} />}
       {c && (
         <>
           <p className="text-xs text-muted-foreground" data-testid="change-summary">{changeSummary(c)}</p>
-          {c.available && c.reason && <p className="text-[11px] text-muted-foreground">{c.reason}</p>}
+          {c.available && c.reason && <p className="text-xs text-muted-foreground">{c.reason}</p>}
           {shown.length > 0 && (
             <ul aria-label="Changed files" className="mt-1.5 space-y-0.5 text-xs">
               {shown.map((f) => (
@@ -126,9 +141,11 @@ export function WorktreeActions({ host, agent }: { host: HostRuntime; agent: Age
       )}
       <div className="flex flex-wrap gap-1.5">
         {local && !agent.archived && !agent.peer && (
-          <Button size="sm" variant="outline" disabled={busy} title="Open its worktree in the host's editor (the host's editor.command setting)" onClick={() => void run(() => openInEditor(host.client, agent.id), 'Opened in the editor.')}>
-            <FileCode2 /> Open in editor
-          </Button>
+          <Tip label="Open its worktree in the host's editor (the host's editor.command setting)">
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => openInEditor(host.client, agent.id), 'Opened in the editor.')}>
+              <FileCode2 /> Open in editor
+            </Button>
+          </Tip>
         )}
         {agent.archived ? (
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => resumeAgent(host.client, agent.id), 'Restoring: the worktree is made again from its branch.')}>
@@ -138,8 +155,8 @@ export function WorktreeActions({ host, agent }: { host: HostRuntime; agent: Age
           canArchive(agent) && <ArchiveButton host={host} agent={agent} disabled={busy} />
         )}
       </div>
-      {note && <p role="status" className="text-[11px] text-muted-foreground">{note}</p>}
-      {error && <p role="alert" className="text-[11px] text-destructive">{error}</p>}
+      {note && <p role="status" className="text-xs text-muted-foreground">{note}</p>}
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }
@@ -149,6 +166,18 @@ const LIVE: readonly AgentState[] = [AgentState.WORKING, AgentState.NEEDS_INPUT,
 /** Archive with the warning the host's own check gives: uncommitted work blocks it, commits on no remote ask to be confirmed. */
 function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Agent; disabled: boolean }) {
   const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Button size="sm" variant="outline" disabled={disabled} onClick={() => setOpen(true)}>
+        <Archive /> Archive
+      </Button>
+      <ArchiveDialog host={host} agent={agent} open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
+/** Archive's question: what the worktree holds that would be lost, and a tick to go on when something would be. */
+export function ArchiveDialog({ host, agent, open, onOpenChange: setOpen }: { host: HostRuntime; agent: Agent; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [sure, setSure] = useState(false)
@@ -179,10 +208,6 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
     }
   }
   return (
-    <>
-      <Button size="sm" variant="outline" disabled={disabled} onClick={() => setOpen(true)}>
-        <Archive /> Archive
-      </Button>
       <Dialog open={open} onOpenChange={close}>
         <DialogContent title={`Archive ${agent.name}?`} description="Stops it and removes its worktree from the disk; its branch is kept, and a message to it (or Restore) makes the worktree again.">
           <div className="flex flex-col gap-3 text-sm">
@@ -216,6 +241,5 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
           </div>
         </DialogContent>
       </Dialog>
-    </>
   )
 }

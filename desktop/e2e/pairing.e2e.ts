@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { Page } from 'playwright-core'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { AgentRole } from '../src/gen/agentmesh/v1/types_pb'
-import { launchApp, type App } from './electron'
+import { launchApp, type App, openFromSidebar } from './electron'
 import { buildBinaries, freePort, makeHost, startRelay, until, type Host, type Relay } from './harness'
 
 // Pair one app with a host over a pinned TLS address and then through a relay: the host's own app makes the
@@ -43,7 +43,10 @@ afterAll(async () => {
 /** The Pair a device screen of the host's own app: make a link (with this direct address) and read it. */
 async function makeLink(page: Page, directUrl: string, deviceName: string): Promise<string> {
   const screen = page.getByRole('region', { name: 'Pair a device' })
-  if (!(await screen.isVisible())) await page.getByRole('button', { name: 'Pair a device' }).click()
+  if (!(await screen.isVisible())) {
+    await page.getByRole('button', { name: 'New', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Pair a device' }).click()
+  }
   await screen.waitFor()
   // The real host runs without --tailscale: the host's own app asks TailnetStatus and says the node is off.
   await screen.getByRole('region', { name: 'Tailscale' }).getByText(/--tailscale/).waitFor()
@@ -73,10 +76,10 @@ async function pairedApp(link: string, name: string): Promise<App> {
 
 async function openLeadTerminal(app: App, status: string) {
   const { page } = app
-  await page.getByRole('button', { name: 'Host e2e-home, ready' }).waitFor({ timeout: 30_000 })
-  await page.getByRole('navigation', { name: 'Runs' }).getByRole('button', { name: /repo-lead/ }).click()
+  await page.getByRole('status', { name: 'Host e2e-home, ready' }).waitFor({ timeout: 30_000 })
+  await openFromSidebar(page, 'repo-lead')
   const panel = page.getByRole('article', { name: 'repo-lead' })
-  await panel.getByRole('tab', { name: 'terminal' }).click()
+  await panel.getByRole('button', { name: 'Terminal' }).click()
   const st = panel.getByTestId('terminal-status')
   await expect.poll(() => st.innerText(), { timeout: 30_000, message: status }).toBe('Live')
   await expect.poll(() => panel.locator('.xterm-rows').innerText(), { timeout: 20_000 }).toContain('fake claude')
@@ -94,7 +97,7 @@ test('a second app pairs by the link, over the direct address, and watches an ag
   expect(link).toContain('rtcp=') // the relay is in every link of a host that has one
 
   const second = await pairedApp(link, 'Second desktop')
-  await second.page.getByRole('region', { name: 'paired run' }).waitFor({ timeout: 30_000 })
+  await second.page.getByRole('listitem', { name: 'paired run' }).waitFor({ timeout: 30_000 })
   await openLeadTerminal(second, 'direct')
   await second.page.screenshot({ path: path.join(shots, 'paired-direct.png') })
 
@@ -107,7 +110,7 @@ test('a second app pairs by the link, over the direct address, and watches an ag
   await row.getByRole('button', { name: 'Revoke access of Second desktop' }).click()
   await row.getByRole('button', { name: 'Revoke Second desktop', exact: true }).click()
   await row.waitFor({ state: 'detached' })
-  await second.page.getByRole('button', { name: 'Host e2e-home, stopped' }).waitFor({ timeout: 30_000 })
+  await second.page.getByRole('status', { name: 'Host e2e-home, stopped' }).waitFor({ timeout: 30_000 })
   await second.page.getByRole('status').filter({ hasText: /didn't accept the app's token/ }).waitFor()
 })
 
@@ -126,7 +129,7 @@ test('a link whose direct address is dead falls back to the relay, and a used li
   await fourth.page.getByLabel('Pairing link').fill(link)
   await fourth.page.getByRole('button', { name: 'Add host' }).click()
   await fourth.page.getByRole('alert').filter({ hasText: /refused the pairing/ }).waitFor({ timeout: 30_000 })
-  await until('no host to have been saved', async () => (await fourth.page.getByRole('button', { name: /^Host / }).count()) === 0, 2000)
+  await until('no host to have been saved', async () => (await fourth.page.getByRole('status', { name: /^Host / }).count()) === 0, 2000)
 })
 
 test('a link naming a certificate the host doesn\'t have is refused before anything is sent', async () => {
@@ -158,7 +161,7 @@ test('an app opened by a pairing link shows it filled in, pairs only when told, 
 
   await page.getByLabel("This device's name").fill('Desktop opened by link')
   await page.getByRole('button', { name: 'Add host' }).click()
-  await page.getByRole('button', { name: /^Host e2e-home/ }).waitFor({ timeout: 30_000 })
+  await page.getByRole('status', { name: /^Host e2e-home/ }).waitFor({ timeout: 30_000 })
   await owner.page.getByRole('status').filter({ hasText: 'Paired: Desktop opened by link' }).waitFor({ timeout: 30_000 })
 
   // A link clicked while the app runs reaches it through the single-instance lock, and opens the dialog filled in.

@@ -69,7 +69,7 @@ export function noticeFor(e: Event, agents: Record<string, Agent>, now: number, 
       const from = agents[m.from?.id ?? '']
       // What reaches a run's lead is what the user is waiting for; talk among workers isn't.
       if (!to || to.role !== AgentRole.ROOT || !from) return undefined
-      const base = { tag: from.id, agentId: from.id, tab: 'messages' as const, body: brief(m.body) }
+      const base = { tag: from.id, agentId: from.id, tab: 'chat' as const, body: brief(m.body) }
       switch (m.type) {
         case MessageType.PLAN:
           return { ...base, kind: 'plan', title: `${from.name} sent a plan` }
@@ -93,7 +93,7 @@ export function noticeFor(e: Event, agents: Record<string, Agent>, now: number, 
         title: clean ? `${a.name} finished` : p.value.reason === 'lost' ? `${a.name} was lost` : `${a.name} exited with code ${p.value.exitCode}`,
         body: '',
         agentId: a.id,
-        tab: 'overview',
+        tab: 'chat',
       }
     }
   }

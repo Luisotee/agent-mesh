@@ -1,7 +1,7 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
+import { BrowserWindow, Menu, app, clipboard, ipcMain, session, shell, type MenuItemConstructorOptions } from 'electron'
 import type { BridgeEvent, BridgeRequest, LocalFix, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
 import { Hosts } from './hosts.js'
@@ -12,6 +12,7 @@ import { Shell } from './shell.js'
 import { validNotice } from './shell-rules.js'
 import { openSocket, type Socket } from './socket.js'
 import { NSIS_UNINSTALLER, startUpdates } from './updates.js'
+import { menuFor, nextZoom, zoomFrom, zoomOf } from './window-input.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
@@ -114,6 +115,10 @@ function wire(): void {
     sockets.delete(key)
   })
   ipcMain.handle('links:take', () => links.take())
+  ipcMain.on('find:start', (e, text: unknown, forward: unknown, again: unknown) => {
+    if (typeof text === 'string' && text) e.sender.findInPage(text.slice(0, 500), { forward: forward !== false, findNext: again !== true })
+  })
+  ipcMain.on('find:stop', (e) => e.sender.stopFindInPage('keepSelection'))
   ipcMain.on('shell:notify', (_e, n: unknown) => {
     const valid = validNotice(n)
     if (valid) appShell.notify(valid)
@@ -152,6 +157,7 @@ function createWindow(): BrowserWindow {
     },
   })
   win.setMenuBarVisibility(false)
+  wireInput(win)
   // The app is one page: no navigation, no new windows.
   win.webContents.on('will-navigate', (e) => e.preventDefault())
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -173,6 +179,59 @@ function createWindow(): BrowserWindow {
   })
   mainWindow = win
   return win
+}
+
+/** The window's zoom (kept in the user-data folder: it is this device's), the text menu and find in page. */
+function wireInput(win: BrowserWindow): void {
+  const wc = win.webContents
+  const file = path.join(app.getPath('userData'), 'zoom.json')
+  let level = 0
+  try {
+    level = zoomFrom(readFileSync(file, 'utf8'))
+  } catch {
+    // No saved zoom: the default.
+  }
+  wc.on('did-finish-load', () => wc.setZoomLevel(level))
+  // The renderer says when a terminal has the focus: its Ctrl keys are the shell's then.
+  let inTerminal = false
+  wc.ipc.on('input:terminal', (_e, on: unknown) => (inTerminal = on === true))
+  wc.on('did-start-navigation', () => (inTerminal = false))
+  wc.on('before-input-event', (e, input) => {
+    const z = zoomOf(input, process.platform === 'darwin', inTerminal)
+    if (!z) return
+    e.preventDefault()
+    level = nextZoom(level, z)
+    wc.setZoomLevel(level)
+    try {
+      writeFileSync(file, JSON.stringify({ level }))
+    } catch {
+      // Not kept: the zoom still applies now.
+    }
+  })
+  wc.on('context-menu', (_e, p) => {
+    const items = menuFor(p)
+    if (items.length === 0) return
+    const template = items.map((i): MenuItemConstructorOptions => {
+      switch (i.kind) {
+        case 'role':
+          return { role: i.role, label: i.label, enabled: i.enabled }
+        case 'replace':
+          return { label: i.word, click: () => wc.replaceMisspelling(i.word) }
+        case 'learn':
+          return { label: 'Add to dictionary', click: () => wc.session.addWordToSpellCheckerDictionary(i.word) }
+        case 'copyLink':
+          return { label: 'Copy link', click: () => clipboard.writeText(i.url) }
+        case 'separator':
+          return { type: 'separator' }
+      }
+    })
+    Menu.buildFromTemplate(template).popup({ window: win })
+  })
+  // Find in page: the renderer's find bar sends the text; main finds and tells it how many matched.
+  // Only the final result of a search: the ones before it (a large page) would flash "No match" or step twice.
+  wc.on('found-in-page', (_e, r) => {
+    if (r.finalUpdate) wc.send('find:result', { active: r.activeMatchOrdinal, total: r.matches })
+  })
 }
 
 if (!app.requestSingleInstanceLock()) {

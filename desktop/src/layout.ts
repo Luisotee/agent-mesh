@@ -1,11 +1,10 @@
-import type { SidebarGroup } from './model'
 import type { AgentTab } from './model'
 import { MAX_SIDE_PANES, tabKey, type PaneRef, type SplitDir, type TabRef } from './workspace'
 import type { Agent, AgentState } from './gen/agentmesh/v1/types_pb'
 
 /**
  * What the window restores after a restart: which agents were open as tabs, the view of each, the one that was open,
- * the panes beside it, and how the sidebar and dock were set. Device-local (it is the window, not the host), kept in
+ * the panes beside it, and how the sidebar and dock were set, the projects taken off the sidebar. Device-local (it is the window, not the host), kept in
  * the renderer's own storage under the app's user-data folder.
  */
 export interface Layout {
@@ -15,22 +14,25 @@ export interface Layout {
   active?: { hostId: string; agentId: string; tab: AgentTab }
   side: PaneRef[]
   splitDir: SplitDir
-  sidebarGroup: SidebarGroup
+  /** The sidebar folded to icons. Optional: a layout from before had none (and a grouping it no longer has, ignored). */
+  sidebarCollapsed?: boolean
   dockOpen: boolean
   panelOpen: boolean
+  /** Projects taken off the sidebar, by host id. */
+  hidden?: Record<string, string[]>
   /** Dock tiles the user dismissed, by tab key, with the agent state they were dismissed in. Optional: a layout from before had none. */
   dismissed?: Record<string, AgentState>
-  /** The projects the user pinned in the New workspace dialog, by host id (paths on that host). */
+  /** The projects the user pinned (sidebar and New workspace dialog), by host id (paths on that host). */
   pins?: Record<string, string[]>
 }
 
 export const LAYOUT_KEY = 'agent-mesh.layout.v1'
 
-const VIEWS: readonly string[] = ['overview', 'messages', 'chat', 'terminal']
-const GROUPS: readonly string[] = ['run', 'project', 'state']
+const VIEWS: readonly string[] = ['chat', 'terminal']
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0
-const view = (v: unknown): AgentTab => (VIEWS.includes(v as string) ? (v as AgentTab) : 'overview')
+// The overview and messages views of older versions open as the chat, which holds both now.
+const view = (v: unknown): AgentTab => (VIEWS.includes(v as string) ? (v as AgentTab) : 'chat')
 const ref = (v: unknown): TabRef | undefined => {
   const o = v as Partial<TabRef> | null
   return o && str(o.hostId) && str(o.agentId) ? { hostId: o.hostId, agentId: o.agentId } : undefined
@@ -64,11 +66,12 @@ export function parseLayout(text: string | null | undefined): Layout | undefined
     active,
     side,
     splitDir: raw.splitDir === 'column' ? 'column' : 'row',
-    sidebarGroup: GROUPS.includes(raw.sidebarGroup as string) ? (raw.sidebarGroup as SidebarGroup) : 'run',
+    sidebarCollapsed: raw.sidebarCollapsed === true,
     dockOpen: raw.dockOpen !== false,
     panelOpen: raw.panelOpen !== false,
     dismissed: dismissedOf(raw.dismissed),
     pins: pinsOf(raw.pins),
+    hidden: pinsOf(raw.hidden),
   }
 }
 
@@ -97,9 +100,10 @@ export interface LayoutSource {
   tab: AgentTab
   side: PaneRef[]
   splitDir: SplitDir
-  sidebarGroup: SidebarGroup
+  sidebarCollapsed?: boolean
   dockOpen: boolean
   panelOpen: boolean
+  hidden?: Record<string, string[]>
   dismissed?: Record<string, AgentState>
   pins?: Record<string, string[]>
 }
@@ -114,11 +118,12 @@ export function layoutOf(s: LayoutSource): Layout {
     active: s.hostId && s.agentId ? { hostId: s.hostId, agentId: s.agentId, tab: s.tab } : undefined,
     side: s.side,
     splitDir: s.splitDir,
-    sidebarGroup: s.sidebarGroup,
+    sidebarCollapsed: s.sidebarCollapsed ?? false,
     dockOpen: s.dockOpen,
     panelOpen: s.panelOpen,
     dismissed: s.dismissed ?? {},
     pins: s.pins ?? {},
+    hidden: s.hidden ?? {},
   }
 }
 
@@ -132,14 +137,15 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
     views: Object.fromEntries(Object.entries(l.views).filter(([k]) => tabs.some((t) => tabKey(t) === k))),
     hostId: active?.hostId,
     agentId: active?.agentId,
-    tab: active?.tab ?? 'overview',
+    tab: active?.tab ?? 'chat',
     side: l.side.filter(mine),
     splitDir: l.splitDir,
-    sidebarGroup: l.sidebarGroup,
+    sidebarCollapsed: l.sidebarCollapsed ?? false,
     dockOpen: l.dockOpen,
     panelOpen: l.panelOpen,
     dismissed: Object.fromEntries(Object.entries(l.dismissed ?? {}).filter(([k]) => hostIds.has(k.slice(0, k.indexOf('/'))))),
     pins: Object.fromEntries(Object.entries(l.pins ?? {}).filter(([h]) => hostIds.has(h))),
+    hidden: Object.fromEntries(Object.entries(l.hidden ?? {}).filter(([h]) => hostIds.has(h))),
   }
 }
 
@@ -159,7 +165,41 @@ export function pruneHost(s: LayoutSource, hostId: string, agents: Record<string
   if (s.agentId && gone({ hostId: s.hostId ?? '', agentId: s.agentId })) {
     // The open agent is gone: a pane beside it takes over, else nothing is open (the tabs stay for the user to pick).
     const next = side[0]
-    Object.assign(patch, next ? { hostId: next.hostId, agentId: next.agentId, tab: next.tab, side: side.slice(1) } : { agentId: undefined, tab: 'overview' as AgentTab })
+    Object.assign(patch, next ? { hostId: next.hostId, agentId: next.agentId, tab: next.tab, side: side.slice(1) } : { agentId: undefined, tab: 'chat' as AgentTab })
   }
   return patch
+}
+
+/** What the user was writing to each agent, kept on this device across navigation and restarts; cleared on send. */
+export const DRAFTS_KEY = 'agent-mesh.drafts.v1'
+/** The most drafts kept: the oldest go first. */
+const MAX_DRAFTS = 50
+
+const draftKey = (hostId: string, agentId: string) => `${hostId}/${agentId}`
+
+function readDrafts(store: Pick<Storage, 'getItem'>): Array<[string, string]> {
+  try {
+    const v: unknown = JSON.parse(store.getItem(DRAFTS_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((e): e is [string, string] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** The draft to an agent, or ''. */
+export function loadDraft(hostId: string, agentId: string, store: Pick<Storage, 'getItem'> = localStorage): string {
+  const k = draftKey(hostId, agentId)
+  return readDrafts(store).find(([key]) => key === k)?.[1] ?? ''
+}
+
+/** Keeps (or, empty, drops) the draft to an agent, as the newest. */
+export function saveDraft(hostId: string, agentId: string, text: string, store: Pick<Storage, 'getItem' | 'setItem'> = localStorage): void {
+  const k = draftKey(hostId, agentId)
+  const rest = readDrafts(store).filter(([key]) => key !== k)
+  const next = text.trim() ? [...rest, [k, text] as [string, string]].slice(-MAX_DRAFTS) : rest
+  try {
+    store.setItem(DRAFTS_KEY, JSON.stringify(next))
+  } catch {
+    // Storage full or refused: the draft lives only as long as the view.
+  }
 }

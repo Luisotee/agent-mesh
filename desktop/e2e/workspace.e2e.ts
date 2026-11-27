@@ -40,9 +40,9 @@ async function agentId(name: string): Promise<string> {
 
 test('the live dock: a tile per agent, a new worker pops in without taking focus, a click opens it as a tab', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Host local, ready' }).waitFor()
+  await page.getByRole('status', { name: 'Host local, ready' }).waitFor()
   const dock = page.getByRole('region', { name: 'Live dock' })
-  await dock.getByText('No live agents').waitFor()
+  await dock.getByText('No live leads').waitFor()
 
   const { run } = await host.client().startRun({ title: 'dock run' })
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
@@ -74,7 +74,7 @@ test('the live dock: a tile per agent, a new worker pops in without taking focus
 
   // What the worker runs shows live in its tile: /hold leaves a tool running (an ephemeral frame, no state event).
   const panel = page.getByRole('article', { name: 'repo-fix' })
-  await panel.getByRole('tab', { name: 'terminal' }).click()
+  await panel.getByRole('button', { name: 'Terminal' }).click()
   await expect.poll(() => panel.getByTestId('terminal-status').innerText(), { timeout: 20_000 }).toBe('Live')
   await panel.getByTestId('terminal').click()
   await page.keyboard.type('/hold')
@@ -171,8 +171,8 @@ test('the chat view: the conversation as blocks, a prompt typed from the compose
   const tabs = page.getByRole('tablist', { name: 'Open agents' })
   await tabs.getByRole('tab', { name: /repo-lead/ }).click()
   const panel = page.getByRole('article', { name: 'repo-lead' })
-  await panel.getByRole('tab', { name: 'chat' }).click()
-  await panel.getByRole('tabpanel', { name: 'chat' }).waitFor({ state: 'visible' })
+  if (await panel.getByRole('region', { name: 'Terminal' }).isVisible()) await panel.getByRole('button', { name: 'Terminal' }).click()
+  await panel.getByRole('region', { name: 'Chat' }).waitFor({ state: 'visible' })
   await panel.getByText('Nothing said yet.').waitFor()
 
   // A prompt from the composer reaches the agent's CLI, and its turn shows up in the conversation.
@@ -198,10 +198,10 @@ test('the chat view: the conversation as blocks, a prompt typed from the compose
 
   // It is the same process: the terminal, from the toggle shortcut, shows the same turn.
   await page.keyboard.press('Control+Shift+J')
-  await panel.getByRole('tabpanel', { name: 'terminal' }).waitFor({ state: 'visible' })
+  await panel.getByRole('region', { name: 'Terminal' }).waitFor({ state: 'visible' })
   await expect.poll(() => panel.locator('.xterm-rows').innerText(), { timeout: 20_000 }).toContain('done: fix the typo')
   await page.keyboard.press('Control+Shift+J')
-  await panel.getByRole('tabpanel', { name: 'chat' }).waitFor({ state: 'visible' })
+  await panel.getByRole('region', { name: 'Chat' }).waitFor({ state: 'visible' })
 
   // Several lines are one prompt; the host refuses to type into a draft someone left in the terminal.
   await box.fill('first line')

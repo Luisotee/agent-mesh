@@ -5,6 +5,7 @@ package termv1
 // FieldDocs is the leading comment of every commented field, by its full name.
 var FieldDocs = map[string]string{
 	"agentmesh.term.v1.Attach.redraw":                 "Make the program redraw (shrink the width by one, then restore it): Ink TUIs redraw only on a shrink.",
+	"agentmesh.term.v1.Attached.cols":                 "The terminal's size in `epoch`. A repaint is of the size that counts this client; an exact attach that continues is in the epoch it left, and its own size counts after the replay: if that moves the terminal, a Resized follows ReplayDone.",
 	"agentmesh.term.v1.Attached.input":                "Whether this client's input is accepted.",
 	"agentmesh.term.v1.Attached.offset":               "Where the output that follows starts.",
 	"agentmesh.term.v1.Attached.reanchored":           "EXACT was asked for but couldn't be served.",

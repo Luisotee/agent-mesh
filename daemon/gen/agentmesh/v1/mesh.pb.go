@@ -2292,7 +2292,11 @@ type SendMessageRequest struct {
 	// the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
 	// accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
 	// on another message type or a wait to anyone but your parent, is refused.
-	Until         string `protobuf:"bytes,5,opt,name=until,proto3" json:"until,omitempty"`
+	Until string `protobuf:"bytes,5,opt,name=until,proto3" json:"until,omitempty"`
+	// A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+	// a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+	// current task. Only a plan, question, done or failed to your parent takes it.
+	Re            string `protobuf:"bytes,6,opt,name=re,proto3" json:"re,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2358,6 +2362,13 @@ func (x *SendMessageRequest) GetBody() string {
 func (x *SendMessageRequest) GetUntil() string {
 	if x != nil {
 		return x.Until
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetRe() string {
+	if x != nil {
+		return x.Re
 	}
 	return ""
 }
@@ -7777,13 +7788,14 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\">\n" +
 	"\x11StopAgentResponse\x12)\n" +
-	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"\xac\x01\n" +
+	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"\xbc\x01\n" +
 	"\x12SendMessageRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12-\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x19.agentmesh.v1.MessageTypeR\x04type\x12\x12\n" +
 	"\x04body\x18\x04 \x01(\tR\x04body\x12\x14\n" +
-	"\x05until\x18\x05 \x01(\tR\x05until\"\x99\x01\n" +
+	"\x05until\x18\x05 \x01(\tR\x05until\x12\x0e\n" +
+	"\x02re\x18\x06 \x01(\tR\x02re\"\x99\x01\n" +
 	"\x13SendMessageResponse\x12/\n" +
 	"\amessage\x18\x01 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12.\n" +
 	"\aresumed\x18\x02 \x01(\v2\x14.agentmesh.v1.ReopenR\aresumed\x12!\n" +

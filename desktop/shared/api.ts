@@ -65,7 +65,7 @@ export interface SocketHandle {
   close(): void
 }
 
-export type AgentTabId = 'overview' | 'messages' | 'terminal'
+export type AgentTabId = 'chat' | 'terminal'
 
 /** A desktop notification the renderer asks main to show. A later one with the same tag replaces the earlier. */
 export interface NoticeWire {
@@ -132,6 +132,10 @@ export interface DesktopApi {
   }
   /** Open an http(s) link in the user's browser. */
   openExternal(url: string): void
+  /** Find in page (`webContents.findInPage`): `again` steps to the next match of the same text. */
+  find: FindApi
+  /** Whether the focus is in a terminal: main then leaves its Ctrl zoom keys to the shell (Ctrl+- and Ctrl+_ are the shell's). */
+  terminalFocus(on: boolean): void
   shell: ShellApi
 }
 
@@ -139,4 +143,11 @@ declare global {
   interface Window {
     desktop: DesktopApi
   }
+}
+
+export interface FindApi {
+  start(text: string, forward: boolean, again: boolean): void
+  stop(): void
+  /** Which match is selected and how many there are, after each `start`. */
+  onResult(cb: (r: { active: number; total: number }) => void): () => void
 }

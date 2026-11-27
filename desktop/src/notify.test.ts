@@ -39,7 +39,7 @@ describe('noticeFor', () => {
   })
 
   it('notifies for a plan, question, report or failure sent to the lead', () => {
-    expect(noticeFor(sent(MessageType.PLAN, 'w1', 'lead', '# Plan\n\n- fix **the** typo'), agents, NOW)).toMatchObject({ kind: 'plan', title: 'app-w1 sent a plan', body: 'Plan fix the typo', tab: 'messages', agentId: 'w1' })
+    expect(noticeFor(sent(MessageType.PLAN, 'w1', 'lead', '# Plan\n\n- fix **the** typo'), agents, NOW)).toMatchObject({ kind: 'plan', title: 'app-w1 sent a plan', body: 'Plan fix the typo', tab: 'chat', agentId: 'w1' })
     expect(noticeFor(sent(MessageType.QUESTION, 'w1', 'lead', 'Which branch?'), agents, NOW)).toMatchObject({ kind: 'question' })
     expect(noticeFor(sent(MessageType.DONE, 'w1', 'lead', 'all done'), agents, NOW)).toMatchObject({ kind: 'report', title: 'app-w1 reported done' })
     expect(noticeFor(sent(MessageType.FAILED, 'w1', 'lead', 'broke'), agents, NOW)).toMatchObject({ kind: 'failed' })

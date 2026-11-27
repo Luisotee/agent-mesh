@@ -210,6 +210,22 @@ func TestGetAgentListsTheModelsItRanOn(t *testing.T) {
 	}
 }
 
+// awaitLiveApp waits until an app's subscription is past its snapshot: what the host queued while it sent the snapshot is dropped
+// as older than the snapshot (a view included), so a view asked before that is lost. A setting change is an event every
+// subscriber gets after that point, so seeing one means the stream is live.
+func awaitLiveApp(t *testing.T, w *prWorld, app *connect.ServerStreamForClient[v1.SubscribeEventsResponse]) {
+	t.Helper()
+	if _, err := w.device.Mesh.SetSetting(context.Background(), connect.NewRequest(&v1.SetSettingRequest{Key: "claude.lean", Value: val(t, false)})); err != nil {
+		t.Fatal(err)
+	}
+	for app.Receive() {
+		if app.Msg().GetEvent() != nil {
+			return
+		}
+	}
+	t.Fatalf("the app's stream ended before it was live: %v", app.Err())
+}
+
 func TestOpenViewReachesOnlyTheAppsOfADevice(t *testing.T) {
 	w := startPR(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -226,6 +242,7 @@ func TestOpenViewReachesOnlyTheAppsOfADevice(t *testing.T) {
 			t.Fatalf("no snapshot: %v", s.Err())
 		}
 	}
+	awaitLiveApp(t, w, app)
 	root := w.as(w.rootTok)
 	open := func(c interface {
 		OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
@@ -352,6 +369,7 @@ func TestOpenViewLooksForTheTargetInsideTheRunNamed(t *testing.T) {
 	if err != nil || !app.Receive() {
 		t.Fatalf("subscribe: %v", err)
 	}
+	awaitLiveApp(t, w, app)
 	// Without a run the name is ambiguous; with one it names that run's agent.
 	if _, err := open("agent", "demo-fix", ""); connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Errorf("an ambiguous name: %v", err)
@@ -376,6 +394,7 @@ func TestOpenViewNamesMessagesAPlanAndAPullRequest(t *testing.T) {
 	if err != nil || !app.Receive() {
 		t.Fatalf("subscribe: %v", err)
 	}
+	awaitLiveApp(t, w, app)
 	open := func(c interface {
 		OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
 	}, view, target, run string) (*v1.ViewRequest, error) {
