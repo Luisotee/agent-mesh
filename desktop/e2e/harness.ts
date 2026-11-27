@@ -40,7 +40,9 @@ export function buildBinaries(dir: string): void {
     agy: './internal/testutil/fakeagy',
   }
   for (const [out, pkg] of Object.entries(targets)) {
-    execFileSync('go', ['build', '-o', path.join(dir, out), pkg], { cwd: daemonDir, env: { ...baseEnv(), CGO_ENABLED: '0' }, stdio: 'pipe' })
+    // meshd is built as install.sh builds it: the Tailscale tags SetTailnet checks for before it turns the node on.
+    const tags = out === 'meshd' ? ['-tags', 'ts_omit_logtail,ts_omit_peerapiserver'] : []
+    execFileSync('go', ['build', ...tags, '-o', path.join(dir, out), pkg], { cwd: daemonDir, env: { ...baseEnv(), CGO_ENABLED: '0' }, stdio: 'pipe' })
   }
 }
 
