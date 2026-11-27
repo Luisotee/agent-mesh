@@ -179,8 +179,28 @@ type ghPRState struct {
 // failedOutcomes are the conclusions and states of a check that count as failing.
 var failedOutcomes = map[string]bool{"FAILURE": true, "ERROR": true, "TIMED_OUT": true, "CANCELLED": true, "ACTION_REQUIRED": true, "STARTUP_FAILURE": true}
 
+// neverRanWithin: a check run that finished this soon after it started ran no job (GitHub refusing to start Actions
+// for billing, 2 s from start to finish): a job that ran takes longer than its set-up. Its failure says nothing of the
+// PR's code.
+const neverRanWithin = 5 * time.Second
+
+// neverRan tells whether a check run is a failure that ran nothing, by its start and finish times.
+func neverRan(c map[string]any) bool {
+	at := func(k string) (time.Time, bool) {
+		s, _ := c[k].(string)
+		t, err := time.Parse(time.RFC3339, s)
+		return t, err == nil
+	}
+	if conclusion, _ := c["conclusion"].(string); !strings.EqualFold(conclusion, "FAILURE") {
+		return false // a STARTUP_FAILURE (an invalid workflow) or a timeout is news whatever it took
+	}
+	start, ok1 := at("startedAt")
+	end, ok2 := at("completedAt")
+	return ok1 && ok2 && !end.Before(start) && end.Sub(start) < neverRanWithin
+}
+
 // checksWord folds `gh`'s statusCheckRollup to one word: failing, pending or pass ("" with no checks). A check run
-// has a status and a conclusion; a commit status only a state.
+// has a status and a conclusion; a commit status only a state. A failed run that ran no job (neverRan) is no check.
 func checksWord(rollup []map[string]any) string {
 	str := func(c map[string]any, k string) string { s, _ := c[k].(string); return strings.ToUpper(s) }
 	seen := map[string]bool{}
@@ -196,6 +216,8 @@ func checksWord(rollup []map[string]any) string {
 		switch {
 		case !done:
 			seen["pending"] = true
+		case failedOutcomes[outcome] && neverRan(c):
+			// no job ran: not a result (all of them: no checks)
 		case failedOutcomes[outcome]:
 			seen["failing"] = true
 		default:
@@ -212,7 +234,7 @@ func checksWord(rollup []map[string]any) string {
 
 func (g ghPRState) record(agentID, source string, at time.Time) *v1.PullRequest {
 	return &v1.PullRequest{AgentId: agentID, Url: g.URL, Number: g.Number, State: strings.ToLower(g.State), Draft: g.IsDraft,
-		Checks: checksWord(g.Rollup), Source: source, CheckedAt: timestamppb.New(at), HeadRef: g.HeadRef}
+		Checks: checksWord(g.Rollup), Source: source, CheckedAt: timestamppb.New(at), HeadRef: g.HeadRef, Head: g.HeadRefOid}
 }
 
 // ghDir is where gh runs for an agent: its worktree while that exists, else its repo.
@@ -574,10 +596,16 @@ func (d *Daemon) pullRequests(ctx, ghCtx context.Context, r store.Reader, runID 
 				}
 			}
 		}
-		if rep, err := lastReport(r, a); err != nil {
+		rep, err := lastReport(r, a)
+		if err != nil {
 			return nil, err
-		} else if rep != nil && rep.Type == v1.MessageType_MESSAGE_TYPE_DONE || len(prs) == 0 {
+		}
+		done := rep != nil && rep.Type == v1.MessageType_MESSAGE_TYPE_DONE
+		if done || len(prs) == 0 {
 			row.Evidence = workEvidence(ctx, a)
+		}
+		if done { // before it, an open PR with no round yet is no news (reviewWord)
+			row.Reviews = d.reviewWord(r, a)
 		}
 		out = append(out, row)
 	}

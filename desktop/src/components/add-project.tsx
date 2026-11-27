@@ -35,7 +35,8 @@ export function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose
     const typed = query.trim()
     const exact = (list.value ?? []).find((p) => p.path === typed)
     if (exact) return add(exact)
-    if (typed.startsWith('/') || typed.startsWith('~')) {
+    // An absolute path only: the host does not expand a `~` it is sent, and a relative one means its own working directory.
+    if (typed.startsWith('/')) {
       setBusy(true)
       setError('')
       try {
@@ -51,6 +52,9 @@ export function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose
       return
     }
     if (shown[0]) return add(shown[0])
+    // A name already pinned matches nothing new: say so rather than "no match".
+    const pinnedMatch = rankProjects(list.value ?? [], query, pinned)[0]
+    if (pinnedMatch) return setError(`${pinnedMatch.name} is in the sidebar already`)
     setError(typed ? `No project of ${host.info.name} matches "${typed}": type its path, starting with /` : 'Type a name or a path')
   }
   return (

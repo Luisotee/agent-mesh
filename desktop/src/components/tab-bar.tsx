@@ -18,6 +18,8 @@ import { ActionMenu, RowContextMenu, type MenuEntry } from '@/components/ui/menu
 import { ConfirmDialog } from '@/components/ui/confirm'
 import { stopAgent } from '@/actions'
 import { cliKinds, cliName } from '@/cli'
+import { rewindUnsupported } from '@/attachments'
+import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 import { VendorIcon } from './vendor-icon'
 import { ViewSwitch } from './view-switch'
 import { closedShells, isShellTab, shellIdOf, shellProject, shellTabId } from '@/shells'
@@ -68,7 +70,8 @@ export function TabBar() {
   // A new lead goes in the open project (its host and the repo its run is led from).
   const openShellRow = open && shellOf(open)
   const project = open && openAgent ? { hostId: open.hostId, repo: leadRepo(runs, openAgent) } : open && openShellRow ? { hostId: open.hostId, repo: openShellRow.repo } : undefined
-  const [stopping, setStopping] = useState<Agent>()
+  // The agent to stop with the host of its tab, which is not always the open one's.
+  const [stopping, setStopping] = useState<{ hostId: string; agent: Agent }>()
   const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true, undefined, project)
 
   /** A tab's menu: the same list for the right-click and the ⋯ of the open one. */
@@ -78,6 +81,8 @@ export function TabBar() {
     const closeAll = (ts: TabRef[]) => ts.filter((x) => !isShellTab(x.agentId)).forEach((x) => app.closeTab(x))
     const active = t.hostId === hostId && t.agentId === agentId
     const beside = side.some((p) => p.hostId === t.hostId && p.agentId === t.agentId)
+    const host = hosts.find((h) => h.info.id === t.hostId)?.store.getState()
+    const readOnly = host?.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE
     return [
       ...(agent ? ([{ label: 'Send a message…', onSelect: () => app.openMessage(t) }] as MenuEntry[]) : []),
       { label: 'Show beside', onSelect: () => app.pinSplit(t.hostId, t.agentId), disabled: active || beside || side.length >= MAX_SIDE_PANES },
@@ -87,7 +92,21 @@ export function TabBar() {
       { label: 'Close to the right', onSelect: () => closeAll(tabs.slice(at + 1)), disabled: at < 0 || at === tabs.length - 1 },
       { label: 'Reopen closed tab', onSelect: () => app.reopenTab(), disabled: closed === 0 },
       { label: 'Copy name', onSelect: () => void navigator.clipboard?.writeText(label) },
-      ...(agent ? (['separator', { label: 'Stop…', onSelect: () => setStopping(agent), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
+      ...(agent
+        ? ([
+            {
+              label: 'Rewind…',
+              // Back to before one of its prompts: Claude Code only, the conversation only.
+              onSelect: () => {
+                app.selectAgent(t.hostId, t.agentId, 'chat')
+                app.openRewind(t)
+              },
+              disabled: !!rewindUnsupported(agent.kind) || !host?.synced || readOnly,
+              hint: 'Esc Esc',
+            },
+          ] as MenuEntry[])
+        : []),
+      ...(agent ? (['separator', { label: 'Stop…', onSelect: () => setStopping({ hostId: t.hostId, agent }), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
     ]
   }
 
@@ -200,10 +219,14 @@ export function TabBar() {
       <ConfirmDialog
         open={!!stopping}
         onOpenChange={(o) => !o && setStopping(undefined)}
-        title={`Stop ${stopping?.name ?? ''}?`}
-        description="Its CLI exits. A task or an answer to it later brings it back in the same conversation."
-        action={`Stop ${stopping?.name ?? ''}`}
-        run={() => stopAgent(runs!.client, stopping!.id)}
+        title={`Stop ${stopping?.agent.name ?? ''}?`}
+        description={stopping?.agent.plain ? 'Its CLI exits. Its conversation is kept.' : 'Its CLI exits. A task or an answer to it later brings it back in the same conversation.'}
+        action={`Stop ${stopping?.agent.name ?? ''}`}
+        run={async () => {
+          const h = hosts.find((x) => x.info.id === stopping?.hostId)
+          if (!h || !stopping) throw new Error('That host is gone')
+          await stopAgent(h.client, stopping.agent.id)
+        }}
       />
     </div>
   )
