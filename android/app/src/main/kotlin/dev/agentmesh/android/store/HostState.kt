@@ -7,6 +7,7 @@ import dev.agentmesh.gen.agentmesh.v1.Cursor
 import dev.agentmesh.gen.agentmesh.v1.Event
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
 import dev.agentmesh.gen.agentmesh.v1.Message
+import dev.agentmesh.gen.agentmesh.v1.QueuedPrompt
 import dev.agentmesh.gen.agentmesh.v1.Run
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import dev.agentmesh.gen.agentmesh.v1.Setting
@@ -57,6 +58,17 @@ data class HostState(
     val pullRequests: Map<String, AgentPullRequests> = emptyMap(),
     /** The host's settings with their schemas, by key. */
     val settings: Map<String, Setting> = emptyMap(),
+    /**
+     * The prompts sent to an agent's chat that wait to be typed, by agent id, oldest first: read with `ListPrompts` when
+     * its chat is shown (and again after a snapshot), then kept by the `Prompt*` events.
+     */
+    val prompts: Map<String, List<QueuedPrompt>> = emptyMap(),
+    /** Ids of prompts the host said were typed or taken back: a listing or an answer older than that event never brings one back. */
+    val promptsDone: Set<String> = emptySet(),
+    /** How many times each agent's queue changed here: a listing asked before a change is older than what we hold. */
+    val promptTouch: Map<String, Int> = emptyMap(),
+    /** How many snapshots arrived: what an event carries can have been missed across one, so a screen reads again. */
+    val snapshots: Int = 0,
     val cursor: Cursor? = null,
     val log: List<LogLine> = emptyList(),
 )
@@ -78,7 +90,7 @@ fun applyFrame(s: HostState, frame: Frame): HostState = when (frame.frameCase) {
         s.copy(
             synced = true, runs = runs, agents = agents, messages = s.messages.filterValues { it.runId in runs },
             messagesLoaded = s.messagesLoaded.filterTo(HashSet()) { it in runs }, messagesFailed = s.messagesFailed.filterTo(HashSet()) { it in runs },
-            earlyDeliveries = emptyMap(), cursor = snap.cursor,
+            earlyDeliveries = emptyMap(), cursor = snap.cursor, prompts = s.prompts.filterKeys { it in agents }, snapshots = s.snapshots + 1,
         )
     }
     SubscribeEventsResponse.FrameCase.RESUMED -> s.copy(synced = true)
@@ -171,12 +183,49 @@ private fun applyEvent(s: HostState, e: Event): HostState {
         Event.PayloadCase.RUN_RENAMED -> s.runs[e.runId]?.let { r ->
             next.copy(runs = s.runs + (r.id to r.toBuilder().setTitle(e.runRenamed.title).build()))
         } ?: next
+        // The chat's queue: a prompt joins it, and leaves it once typed or taken back.
+        Event.PayloadCase.PROMPT_QUEUED -> if (e.promptQueued.hasPrompt()) {
+            val q = e.promptQueued.prompt
+            // A requeue (its typing never reached the terminal) is queued again, so it is no longer done.
+            val list = (s.prompts[q.agentId].orEmpty().filter { it.id != q.id } + q).sortedBy { it.createdMillis() }
+            next.copy(promptsDone = s.promptsDone - q.id, prompts = s.prompts + (q.agentId to list), promptTouch = s.touched(q.agentId))
+        } else next
+        Event.PayloadCase.PROMPT_TYPED -> next.promptGone(e.agentId, e.promptTyped.promptId)
+        Event.PayloadCase.PROMPT_WITHDRAWN -> next.promptGone(e.agentId, e.promptWithdrawn.promptId)
         Event.PayloadCase.AGENT_PHASE_CHANGED -> next.withAgent(e.agentId) { it.setPhase(e.agentPhaseChanged.to) }
         // An asker or reviewer given a change task is a worker from now on (daemon takeChange).
         Event.PayloadCase.AGENT_ROLE_CHANGED -> next.withAgent(e.agentId) { it.setRole(e.agentRoleChanged.to) }
         else -> next
     }
 }
+
+private fun QueuedPrompt.createdMillis(): Long = if (hasCreatedAt()) createdAt.seconds * 1000 + createdAt.nanos / 1_000_000 else 0L
+
+private fun HostState.touched(agentId: String): Map<String, Int> = promptTouch + (agentId to ((promptTouch[agentId] ?: 0) + 1))
+
+private fun HostState.promptGone(agentId: String, id: String): HostState {
+    val list = prompts[agentId]
+    return copy(
+        prompts = if (list?.any { it.id == id } == true) prompts + (agentId to list.filter { it.id != id }) else prompts,
+        promptsDone = promptsDone + id, promptTouch = touched(agentId),
+    )
+}
+
+/**
+ * An agent's queue as the host listed it, which replaces what we hold for it, unless the queue changed here since the
+ * listing was asked for ([touchedAt], the agent's `promptTouch` then): what we hold is newer than the answer.
+ */
+fun withPrompts(s: HostState, agentId: String, list: List<QueuedPrompt>, touchedAt: Int): HostState =
+    if ((s.promptTouch[agentId] ?: 0) != touchedAt) s else s.copy(prompts = s.prompts + (agentId to list.filter { it.id !in s.promptsDone }))
+
+/** A prompt the host answered as queued, added before its event arrives (the event replaces it). */
+fun withQueued(s: HostState, q: QueuedPrompt): HostState {
+    val list = s.prompts[q.agentId].orEmpty()
+    return if (list.any { it.id == q.id } || q.id in s.promptsDone) s else s.copy(prompts = s.prompts + (q.agentId to list + q), promptTouch = s.touched(q.agentId))
+}
+
+/** A prompt taken back, removed at once and for good (its event follows; an older listing does not bring it back). */
+fun withoutPrompt(s: HostState, agentId: String, id: String): HostState = s.promptGone(agentId, id)
 
 private fun HostState.withAgent(id: String, change: (Agent.Builder) -> Unit): HostState {
     val a = agents[id] ?: return this

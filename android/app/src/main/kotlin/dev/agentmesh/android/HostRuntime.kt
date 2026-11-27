@@ -5,9 +5,14 @@ import dev.agentmesh.android.notify.Notice
 import dev.agentmesh.android.notify.noticeFor
 import dev.agentmesh.android.store.MessageLoader
 import dev.agentmesh.android.store.mergeMessages
+import dev.agentmesh.android.store.withPrompts
+import dev.agentmesh.android.store.withQueued
+import dev.agentmesh.android.store.withoutPrompt
+import dev.agentmesh.gen.agentmesh.v1.QueuedPrompt
 import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.AgentPhase
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import dev.agentmesh.gen.agentmesh.v1.Message
 import dev.agentmesh.gen.agentmesh.v1.MessageType
@@ -146,6 +151,24 @@ class HostRuntime(
 
     /** Try again the runs whose load gave up; the others are left as they are. */
     fun reloadMessages() = loader.load(_state.value.runs.values.filter { it.id in _state.value.messagesFailed })
+
+    /**
+     * Reads an agent's queued prompts ([MeshApi.listPrompts]) into the state. A listing asked before the queue changed here
+     * is stale: it asks again (a few times at most) until one isn't. A failure leaves what is held (the events keep it).
+     */
+    suspend fun refreshPrompts(agentId: String) {
+        repeat(5) {
+            val asked = _state.value.promptTouch[agentId] ?: 0
+            val list = try { awaitApi().listPrompts(agentId) } catch (e: CancellationException) { throw e } catch (e: Exception) { return }
+            if ((_state.value.promptTouch[agentId] ?: 0) == asked) { _state.update { withPrompts(it, agentId, list, asked) }; return }
+        }
+    }
+
+    /** A prompt the host answered as queued, shown before its event arrives. */
+    fun noteQueued(q: QueuedPrompt) { _state.update { withQueued(it, q) } }
+
+    /** A prompt taken back, gone at once and for good. */
+    fun noteWithdrawn(agentId: String, id: String) { _state.update { withoutPrompt(it, agentId, id) } }
 
     /** Reconnect now, on the host's current routes and token (they were edited). */
     fun reconnect() = connection.restart()

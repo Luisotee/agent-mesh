@@ -28,6 +28,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.debounce
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -71,8 +76,14 @@ fun AgentScreen(
     var terminal by rememberSaveable { mutableStateOf(initialTab == Tab.Terminal) }
     var details by rememberSaveable { mutableStateOf(false) }
     var send by rememberSaveable { mutableStateOf(false) }
-    // The draft lives here, so switching to the terminal and back keeps it (the chat leaves composition).
-    val draft = rememberSaveable(agentId) { mutableStateOf("") }
+    // The draft lives here, so switching to the terminal and back keeps it (the chat leaves composition), and in the
+    // device's prefs, so leaving the screen or the app does too: a moment after typing stops, and cleared when it is sent.
+    val prefs = LocalContainer.current.prefs
+    val draft = rememberTextFieldState(remember(runtime.hostId, agentId) { prefs.draft(runtime.hostId, agentId) })
+    LaunchedEffect(draft, runtime.hostId, agentId) {
+        snapshotFlow { draft.text.toString() }.drop(1).debounce(400).collect { prefs.setDraft(runtime.hostId, agentId, it) }
+    }
+    DisposableEffect(draft, runtime.hostId, agentId) { onDispose { prefs.setDraft(runtime.hostId, agentId, draft.text.toString()) } }
     // Looking at an agent answers its notification.
     LaunchedEffect(agentId) { container.notifier.cancel(runtime.hostId, agentId) }
     // While it is on screen and the app resumed, nothing new is posted for it (see AppContainer.viewing).

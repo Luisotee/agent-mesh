@@ -232,6 +232,115 @@ class AgentChatScreenTest {
         compose.onAllNodesWithTag("msg-quote").assertCountEquals(0)
     }
 
+    @Test fun `while the agent works an empty box offers Stop, typing turns it into Send, and Stop interrupts`() {
+        fresh()
+        val rt = host(lead, worker)
+        show(rt)
+        compose.onNodeWithTag("stop").assertIsDisplayed()
+        compose.onAllNodesWithTag("send").assertCountEquals(0)
+        compose.onNodeWithTag("stop").performClick()
+        compose.waitUntil(5_000) { api.interrupts.isNotEmpty() }
+        assertEquals(listOf("w1"), api.interrupts.toList())
+        compose.onNodeWithTag("prompt").performTextInput("and the readme")
+        compose.onNodeWithTag("send").assertIsDisplayed()
+        compose.onAllNodesWithTag("stop").assertCountEquals(0)
+    }
+
+    @Test fun `an agent that is not Claude has no Stop`() {
+        fresh()
+        val rt = host(lead, worker.toBuilder().setKind("opencode").build())
+        show(rt)
+        compose.onAllNodesWithTag("stop").assertCountEquals(0)
+        compose.onNodeWithTag("send").assertIsNotEnabled()
+    }
+
+    @Test fun `a prompt the host queues shows under the conversation, can be taken back to edit or dropped`() {
+        fresh()
+        api.queueNext = "working"
+        val rt = host(lead, worker)
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("also fix the readme")
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-q1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Sent when it finishes its turn").assertIsDisplayed()
+        // Sent: the box is empty.
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("stop").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("queued-edit-q1").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-q1").fetchSemanticsNodes().isEmpty() }
+        assertEquals(listOf("q1"), api.withdrawn.toList())
+        compose.onNodeWithTag("prompt").assertTextContains("also fix the readme", substring = true)
+    }
+
+    @Test fun `a queued prompt the host listed is dropped with the cross`() {
+        fresh()
+        api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later", held = "draft"))
+        val rt = host(lead, worker)
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Held: its input box holds a draft. Clear it in the terminal to send this").assertIsDisplayed()
+        compose.onNodeWithTag("queued-drop-p1").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isEmpty() }
+        assertEquals(listOf("p1"), api.withdrawn.toList())
+        // Dropped, not edited: nothing is put in the box.
+        compose.onNodeWithTag("prompt").assertTextContains("", substring = true)
+    }
+
+    @Test fun `a queue that arrives under a long conversation is brought into view`() {
+        fresh((1..40).map { entry("$it", if (it % 2 == 1) TranscriptKind.TRANSCRIPT_KIND_USER else TranscriptKind.TRANSCRIPT_KIND_ASSISTANT, "Line $it of a long conversation that fills the screen.\n\nWith a second paragraph.") })
+        api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later", held = "working"))
+        val rt = host(lead, worker)
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("queued-p1").assertIsDisplayed()
+    }
+
+    @Test fun `a read-only device sees the queue but not the buttons to change it`() {
+        fresh()
+        api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later"))
+        val rt = host(lead, worker, actor = ActorClass.ACTOR_CLASS_READ_ONLY_DEVICE)
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithTag("queued-edit-p1").assertCountEquals(0)
+        compose.onAllNodesWithTag("queued-drop-p1").assertCountEquals(0)
+    }
+
+    @Test fun `what is typed is kept on the device as the agent's draft, and forgotten once sent`() {
+        fresh()
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("half a thought")
+        compose.waitUntil(5_000) { container.prefs.draft(rt.hostId, "w1") == "half a thought" }
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { api.prompts.isNotEmpty() }
+        compose.waitUntil(5_000) { container.prefs.draft(rt.hostId, "w1").isEmpty() }
+    }
+
+    @Test fun `a draft kept on the device opens in the box`() {
+        fresh()
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        container.prefs.setDraft(rt.hostId, "w1", "from last time")
+        show(rt)
+        compose.onNodeWithTag("prompt").assertTextContains("from last time", substring = true)
+    }
+
+    @Test fun `Enter on a list item continues the list, and the format row wraps what is typed`() {
+        fresh()
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        // The row of buttons is there only while the box is focused.
+        compose.onAllNodesWithTag("format-row").assertCountEquals(0)
+        compose.onNodeWithTag("prompt").performClick()
+        compose.onNodeWithTag("format-row").assertIsDisplayed()
+        compose.onNodeWithTag("prompt").performTextInput("- one")
+        compose.onNodeWithTag("prompt").performTextInput("\n")
+        compose.onNodeWithTag("prompt").assertTextContains("- one\n- ", substring = true)
+        // An empty item ends the list.
+        compose.onNodeWithTag("prompt").performTextInput("\n")
+        compose.onNodeWithTag("prompt").assertTextContains("- one\n", substring = true)
+        compose.onNodeWithTag("format-bold").performClick()
+        compose.onNodeWithTag("prompt").assertTextContains("****", substring = true)
+    }
+
     @Test fun `the user's own words are a bubble and a pause starts a new time label`() {
         val at = { ms: Long -> com.google.protobuf.Timestamp.newBuilder().setSeconds(ms / 1000).build() }
         val now = System.currentTimeMillis()

@@ -1,0 +1,31 @@
+{
+  "about": "The Markdown keys of a multi-line field, as cases both apps' tests read (the desktop's composer-keys.ts, Android's MarkdownEdit.kt). `input` marks the cursor with | or the selection with « and »; `expected` is the field after the edit in the same marks, or null when the key is left to the field (Enter then sends on the desktop and adds a line on a phone; Tab moves the focus). `action` is one of: enter, tab, shift-tab, bold, italic, code, link.",
+  "cases": [
+    { "name": "Enter on plain text is the field's own", "action": "enter", "input": "hello|", "expected": null },
+    { "name": "Enter continues a dash list", "action": "enter", "input": "- one|", "expected": "- one\n- |" },
+    { "name": "Enter continues an indented star list", "action": "enter", "input": "  * one|", "expected": "  * one\n  * |" },
+    { "name": "Enter takes the next number", "action": "enter", "input": "1. one|", "expected": "1. one\n2. |" },
+    { "name": "Enter keeps a numbered list's parenthesis and carries to two digits", "action": "enter", "input": "9) nine|", "expected": "9) nine\n10) |" },
+    { "name": "Enter on a done task opens an empty task box", "action": "enter", "input": "- [x] done|", "expected": "- [x] done\n- [ ] |" },
+    { "name": "Enter on an empty item ends the list", "action": "enter", "input": "- one\n- |", "expected": "- one\n|" },
+    { "name": "Enter on an empty item of another kind ends the list too", "action": "enter", "input": "- one\n2. |", "expected": "- one\n|" },
+    { "name": "Enter with the cursor inside the marker is not a new item", "action": "enter", "input": "-| one", "expected": null },
+    { "name": "Enter with a selection is not a new item", "action": "enter", "input": "- «on»e", "expected": null },
+    { "name": "Tab indents a list item", "action": "tab", "input": "- a|", "expected": "  - a|" },
+    { "name": "Shift+Tab outdents a list item", "action": "shift-tab", "input": "  - a|", "expected": "- a|" },
+    { "name": "Tab indents every line of a selection", "action": "tab", "input": "«a\nb»", "expected": "  «a\n  b»" },
+    { "name": "Shift+Tab outdents every line of a selection, by what each has", "action": "shift-tab", "input": "  «a\n b»", "expected": "«a\nb»" },
+    { "name": "Shift+Tab with nothing to outdent is left alone", "action": "shift-tab", "input": "a|", "expected": null },
+    { "name": "Tab on plain text with no selection is left alone", "action": "tab", "input": "a message|", "expected": null },
+    { "name": "Shift+Tab on an indented plain line is left alone", "action": "shift-tab", "input": "  code|", "expected": null },
+    { "name": "Bold wraps the selection", "action": "bold", "input": "a «word» b", "expected": "a **«word»** b" },
+    { "name": "Bold unwraps a selection that is wrapped around", "action": "bold", "input": "a **«word»** b", "expected": "a «word» b" },
+    { "name": "Bold unwraps a selection that holds its own markers", "action": "bold", "input": "a «**word**» b", "expected": "a «word» b" },
+    { "name": "Bold wraps two spans rather than breaking them", "action": "bold", "input": "«**a** and **b**»", "expected": "**«**a** and **b**»**" },
+    { "name": "Italic wraps a name with underscores rather than unwrapping it", "action": "italic", "input": "«__init__»", "expected": "_«__init__»_" },
+    { "name": "Italic with no selection puts the cursor between", "action": "italic", "input": "|", "expected": "_|_" },
+    { "name": "Code wraps the selection", "action": "code", "input": "run «ls»", "expected": "run `«ls»`" },
+    { "name": "A link takes the selection as its text and the cursor in the address", "action": "link", "input": "see «docs»", "expected": "see [docs](|)" },
+    { "name": "A link with no selection puts the cursor in its text", "action": "link", "input": "|", "expected": "[|]()" }
+  ]
+}
