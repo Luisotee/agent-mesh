@@ -172,7 +172,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
     ['Run id', agent.runId, true],
   ]
   return (
-    <Fold title="Details" reveal={reveal}>
+    <Fold title="Details" reveal={reveal} onRevealed={() => app.modelRevealed()}>
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs">
         {rows.filter(([, v]) => v).map(([k, v, mono]) => (
           <div key={k} className="contents">

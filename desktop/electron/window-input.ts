@@ -6,9 +6,14 @@
 
 export type Zoom = 'in' | 'out' | 'reset'
 
-/** The zoom a key is: Mod with = or + (with or without Shift, either key), with -, or with 0. */
-export function zoomOf(input: { type: string; key: string; code?: string; control: boolean; meta: boolean; alt: boolean }, mac: boolean): Zoom | undefined {
+/**
+ * The zoom a key is: Mod with = or + (with or without Shift, either key), with -, or with 0. In a focused terminal
+ * (`inTerminal`) the Ctrl keys are the shell's (Ctrl+_ is readline's undo), as the renderer's shortcuts leave them;
+ * a Mac's Cmd zoom still applies there, since a shell never gets Cmd.
+ */
+export function zoomOf(input: { type: string; key: string; code?: string; control: boolean; meta: boolean; alt: boolean }, mac: boolean, inTerminal = false): Zoom | undefined {
   if (input.type !== 'keyDown' || input.alt || !(mac ? input.meta : input.control)) return undefined
+  if (inTerminal && !mac) return undefined
   if (input.key === '=' || input.key === '+' || input.code === 'Equal' || input.code === 'NumpadAdd') return 'in'
   if (input.key === '-' || input.key === '_' || input.code === 'Minus' || input.code === 'NumpadSubtract') return 'out'
   if (input.key === '0' || input.code === 'Digit0' || input.code === 'Numpad0') return 'reset'

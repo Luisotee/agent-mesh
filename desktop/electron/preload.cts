@@ -52,6 +52,7 @@ const api: DesktopApi = {
     fix: (id, fix) => ipcRenderer.invoke('local:fix', id, fix),
   },
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
+  terminalFocus: (on) => ipcRenderer.send('input:terminal', on === true),
   find: {
     start: (text, forward, again) => ipcRenderer.send('find:start', text, forward, again),
     stop: () => ipcRenderer.send('find:stop'),

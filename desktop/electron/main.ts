@@ -192,8 +192,12 @@ function wireInput(win: BrowserWindow): void {
     // No saved zoom: the default.
   }
   wc.on('did-finish-load', () => wc.setZoomLevel(level))
+  // The renderer says when a terminal has the focus: its Ctrl keys are the shell's then.
+  let inTerminal = false
+  wc.ipc.on('input:terminal', (_e, on: unknown) => (inTerminal = on === true))
+  wc.on('did-start-navigation', () => (inTerminal = false))
   wc.on('before-input-event', (e, input) => {
-    const z = zoomOf(input, process.platform === 'darwin')
+    const z = zoomOf(input, process.platform === 'darwin', inTerminal)
     if (!z) return
     e.preventDefault()
     level = nextZoom(level, z)
@@ -224,7 +228,10 @@ function wireInput(win: BrowserWindow): void {
     Menu.buildFromTemplate(template).popup({ window: win })
   })
   // Find in page: the renderer's find bar sends the text; main finds and tells it how many matched.
-  wc.on('found-in-page', (_e, r) => wc.send('find:result', { active: r.activeMatchOrdinal, total: r.matches }))
+  // Only the final result of a search: the ones before it (a large page) would flash "No match" or step twice.
+  wc.on('found-in-page', (_e, r) => {
+    if (r.finalUpdate) wc.send('find:result', { active: r.activeMatchOrdinal, total: r.matches })
+  })
 }
 
 if (!app.requestSingleInstanceLock()) {

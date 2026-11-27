@@ -1,5 +1,6 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
+import { TERMINAL_SEARCH } from '@/keys'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
@@ -44,6 +45,13 @@ export function TerminalView({ host, agentId, active }: { host: HostRuntime; age
   const [state, setState] = useState<TermState>({ kind: 'connecting' })
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = root.current
+    const open = () => setSearching(true)
+    el?.addEventListener(TERMINAL_SEARCH, open)
+    return () => el?.removeEventListener(TERMINAL_SEARCH, open)
+  }, [])
 
   useEffect(() => {
     const el = box.current
@@ -128,7 +136,7 @@ export function TerminalView({ host, agentId, active }: { host: HostRuntime; age
   }
 
   return (
-    <section aria-label="Terminal" className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
+    <section ref={root} aria-label="Terminal" className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div className="flex items-center gap-2 text-xs">
         <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}</span>
         <span className="flex-1" />

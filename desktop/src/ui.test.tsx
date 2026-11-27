@@ -22,7 +22,7 @@ import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
 import { MessageCard } from './components/messages-panel'
-import { ProjectSidebar } from './components/project-sidebar'
+import { ProjectSidebar, stepSidebar } from './components/project-sidebar'
 import { ProjectSettingsDialog } from './components/project-settings'
 import { SidebarFooter } from './components/sidebar-footer'
 import { FindBar } from './components/find-bar'
@@ -172,6 +172,63 @@ describe('ProjectSidebar', () => {
     expect(client.stopAgent).not.toHaveBeenCalled()
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop' }))
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledTimes(1))
+  })
+
+  it('offers Archive only for an agent the host would archive: a worker with a worktree, not the lead', async () => {
+    const { host, wrap } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, worktree: '/w/fix' } } }))
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of ship it' }))
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).not.toContain('Archive…')
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: 'Show the workers of ship it' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toContain('Archive…')
+  })
+
+  it('unfolds Earlier to rename a closed run, and drops a rename that has no row to edit on', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({
+      runs: { ...s.runs, r2: create(RunSchema, { id: 'r2', title: 'old work', status: RunStatus.CLOSED }), r3: create(RunSchema, { id: 'r3', title: 'elsewhere', status: RunStatus.OPEN }) },
+      agents: { ...s.agents, o: agent('o', { role: AgentRole.ROOT, name: 'old-lead', runId: 'r2' }), x: agent('x', { role: AgentRole.ROOT, name: 'web-lead', runId: 'r3', repo: '/p/web' }) },
+    }))
+    render(wrap(<ProjectSidebar />))
+    act(() => model.renameRun({ hostId: 'h1', runId: 'r2' }))
+    expect(await screen.findByRole('textbox', { name: 'Run title' })).toHaveValue('old work')
+    await userEvent.keyboard('{Escape}')
+    // A project taken off the sidebar has no row for its run: the rename is dropped, not left to pop up later.
+    act(() => model.toggleHidden('h1', '/p/web', true))
+    act(() => model.renameRun({ hostId: 'h1', runId: 'r3' }))
+    await waitFor(() => expect(model.store.getState().renaming).toBeUndefined())
+  })
+
+  it('keeps a hidden project that came back hidden when its menu says so, and shows it again by Keep', async () => {
+    const { wrap, model } = fixture()
+    model.toggleHidden('h1', '/p/app', true)
+    model.toggleHidden('h1', '/p/app', true)
+    expect(model.store.getState().hidden).toEqual({ h1: ['/p/app'] })
+    render(wrap(<ProjectSidebar />))
+    // Back while app-fix waits on the user; its menu puts it back for good rather than flipping the mark.
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Keep in the sidebar' }))
+    expect(model.store.getState().hidden).toEqual({})
+  })
+
+  it('steps the agent rows with Alt+Down past the copies under "Also working here"', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, w2: agent('w2', { role: AgentRole.WORKER, name: 'web-docs', repo: '/p/web', parentId: 'lead' }) } }))
+    // Pinned, web comes first: its copy of the open lead's row is above the lead's own.
+    model.togglePin('h1', '/p/web')
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(within(screen.getByRole('listitem', { name: 'web' })).getByRole('button', { name: /Also working here/ }))
+    await userEvent.click(within(screen.getByRole('listitem', { name: 'app' })).getByRole('button', { name: 'Show the workers of ship it' }))
+    act(() => model.selectAgent('h1', 'lead'))
+    act(() => stepSidebar(1))
+    expect(model.store.getState().agentId).toBe('w1')
+    act(() => stepSidebar(1))
+    expect(model.store.getState().agentId).toBe('w2')
+    act(() => stepSidebar(-1))
+    expect(model.store.getState().agentId).toBe('w1')
   })
 
   it('opens a project\'s dialogs on its host without moving the open agent to another host', () => {
@@ -899,6 +956,17 @@ describe('SidebarFooter', () => {
     expect(screen.getByRole('meter', { name: 'Claude 5h' })).toHaveAttribute('aria-valuenow', '42')
     await userEvent.click(screen.getByRole('button', { name: /Quota: open usage and cost/ }))
     expect(model.store.getState().usageOpen).toBe(true)
+  })
+
+  it('adds a project by Enter on the path typed, and keeps one already pinned pinned', async () => {
+    const { wrap, model, client } = fixture()
+    client.listProjects.mockResolvedValue(create(ListProjectsResponseSchema, { projects: [create(ProjectSchema, { path: '/p/apple', name: 'apple' }), create(ProjectSchema, { path: '/p/app', name: 'app' })] }))
+    model.togglePin('h1', '/p/app')
+    render(wrap(<SidebarFooter />))
+    await userEvent.click(screen.getByRole('button', { name: 'New' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Add a project…' }))
+    await userEvent.type(await screen.findByRole('textbox'), '  /p/app {Enter}')
+    expect(model.store.getState().pins).toEqual({ h1: ['/p/app'] })
   })
 
   it('offers New lead, a project, a host and pairing from +, and the host\'s settings from Hosts', async () => {

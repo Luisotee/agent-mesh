@@ -19,7 +19,8 @@ const inMarkdown = (t: EventTarget | null) => t instanceof Element && !!t.closes
 
 /**
  * The command a key press runs, if any. In a focused terminal a Mod+letter chord (Ctrl+W, Ctrl+C, Ctrl+K) goes to the
- * shell, and the same chord with Shift added runs the command (Ctrl+Shift+W closes the tab), as Windows Terminal does.
+ * shell, and the same chord with Shift added runs the command (Ctrl+Shift+W closes the tab), as Windows Terminal does,
+ * ahead of a command bound to that Shift form (Ctrl+Shift+T there is Ctrl+T's new lead, not Ctrl+Shift+T's reopen).
  * Only Ctrl is the shell's: a macOS terminal never sends Cmd keys to it, so a Cmd chord always runs its command.
  * A markdown field keeps Ctrl+B, I, E and K (bold, italic, code, a link) the same way, Cmd included.
  * A chord without Ctrl or Meta (F2, Alt+ArrowDown) does nothing while the user types in a field or a terminal.
@@ -27,14 +28,9 @@ const inMarkdown = (t: EventTarget | null) => t instanceof Element && !!t.closes
 export function commandFor(e: KeyboardEvent, keys: Record<KeyedCommand, string>): KeyedCommand | undefined {
   const term = inTerminal(e.target)
   const ids = Object.keys(keys) as KeyedCommand[]
-  for (const id of ids) {
-    const chord = parseChord(keys[id])
-    if (!chord || !matches(e, chord)) continue
-    if (term && letter(chord) && chord.ctrl && !chord.shift) continue
-    if (inMarkdown(e.target) && (chord.ctrl || chord.meta) && !chord.shift && !chord.alt && FIELD_LETTERS.has(chord.key)) continue
-    if (!chord.ctrl && !chord.meta && typing(e.target)) continue
-    return id
-  }
+  // In a terminal (or a markdown field) the Shift form stands for the command whose key it took, first, so each of
+  // those keeps a key there even when another command is bound to the Shift form itself: Ctrl+Shift+T in a terminal
+  // is a new lead (Ctrl+T), not reopen the tab.
   const md = inMarkdown(e.target)
   if ((term || md) && e.shiftKey) {
     for (const id of ids) {
@@ -43,6 +39,14 @@ export function commandFor(e: KeyboardEvent, keys: Record<KeyedCommand, string>)
       const taken = term ? chord.ctrl : (chord.ctrl || chord.meta) && FIELD_LETTERS.has(chord.key)
       if (taken && matches(e, { ...chord, shift: true })) return id
     }
+  }
+  for (const id of ids) {
+    const chord = parseChord(keys[id])
+    if (!chord || !matches(e, chord)) continue
+    if (term && letter(chord) && chord.ctrl && !chord.shift) continue
+    if (inMarkdown(e.target) && (chord.ctrl || chord.meta) && !chord.shift && !chord.alt && FIELD_LETTERS.has(chord.key)) continue
+    if (!chord.ctrl && !chord.meta && typing(e.target)) continue
+    return id
   }
   return undefined
 }
@@ -73,7 +77,21 @@ export function useShortcuts(): void {
         app.openPalette(true)
       }
     }
+    // Main zooms on Ctrl+-/=/0 before the page sees the key: it is told when a terminal has the focus, to leave them.
+    let term = false
+    const tell = (t: EventTarget | null) => {
+      const now = inTerminal(t)
+      if (now !== term) app.api.terminalFocus?.((term = now))
+    }
+    const onIn = (e: FocusEvent) => tell(e.target)
+    const onOut = (e: FocusEvent) => tell(e.relatedTarget)
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    window.addEventListener('focusin', onIn)
+    window.addEventListener('focusout', onOut)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('focusin', onIn)
+      window.removeEventListener('focusout', onOut)
+    }
   }, [app])
 }

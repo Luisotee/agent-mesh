@@ -13,7 +13,14 @@ describe('zoom keys', () => {
     expect(zoomOf(key('=', { control: false, meta: true }), true)).toBe('in')
     expect(zoomOf(key('=', { control: false, meta: true }), false)).toBeUndefined()
   })
-  it('leaves other keys, Alt chords and key-ups alone', () => {
+  it('leaves Ctrl zoom keys to a focused terminal, but not a Mac\'s Cmd ones', () => {
+    expect(zoomOf(key('-'), false, true)).toBeUndefined()
+    expect(zoomOf(key('_', { code: 'Minus' }), false, true)).toBeUndefined()
+    expect(zoomOf(key('='), false, true)).toBeUndefined()
+    expect(zoomOf(key('_', { code: 'Minus' }), false, false)).toBe('out')
+    expect(zoomOf(key('=', { control: false, meta: true }), true, true)).toBe('in')
+  })
+    it('leaves other keys, Alt chords and key-ups alone', () => {
     expect(zoomOf(key('w'), false)).toBeUndefined()
     expect(zoomOf(key('=', { alt: true }), false)).toBeUndefined()
     expect(zoomOf(key('=', { type: 'keyUp' }), false)).toBeUndefined()
