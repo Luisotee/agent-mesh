@@ -22,6 +22,8 @@ import dev.agentmesh.android.chat.Entry
 import dev.agentmesh.android.chat.ago
 import dev.agentmesh.android.chat.entryTime
 import dev.agentmesh.android.chat.indexOfEntry
+import dev.agentmesh.android.chat.reanchor
+import dev.agentmesh.android.chat.unseenCount
 import dev.agentmesh.android.chat.mergeTimeline
 import dev.agentmesh.android.chat.quoteReply
 import dev.agentmesh.android.chat.stamped
@@ -251,8 +253,9 @@ fun ChatTab(
 
     // What came in below while the reader was up in the history: the entries after the last one they were at the end for.
     var seenLast by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(stick, last?.id) { if (stick) seenLast = last?.id }
-    val unseen = if (stick) 0 else seenLast?.let { id -> indexOfEntry(entries, id).let { i -> if (i < 0) 0 else entries.size - 1 - i } } ?: 0
+    // (And again when a reload took that entry away: the pill counts from the new tail, not from something that is not there.)
+    LaunchedEffect(stick, last?.id) { if (stick || reanchor(entries, seenLast)) seenLast = last?.id }
+    val unseen = unseenCount(entries, seenLast, stick)
     val reduced = LocalReducedMotion.current
     Column(modifier.fillMaxSize().imePadding()) {
         Box(Modifier.weight(1f).fillMaxWidth()) {

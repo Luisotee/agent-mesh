@@ -8,8 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.toArgb
 import dev.agentmesh.android.notify.ConnectionService
 import dev.agentmesh.android.notify.DeepLink
 import dev.agentmesh.android.notify.EXTRA_AGENT
@@ -31,7 +31,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val container = container
         // Before the first frame the window is the system theme's (dark): the chosen theme's background is there from the start, so a light theme does not flash dark.
-        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(container.themes.resolve(container.themes.choice.value, (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES, container.themes.host.value).scheme.background.toArgb()))
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(container.themes.current((resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES).scheme.background.toArgb()))
         setContent {
             CompositionLocalProvider(LocalContainer provides container) {
                 AgentMeshTheme(rememberTheme(container)) { AppNav() }

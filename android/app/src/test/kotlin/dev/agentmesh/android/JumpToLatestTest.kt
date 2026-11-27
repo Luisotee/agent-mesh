@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -74,8 +75,7 @@ class JumpToLatestTest {
         compose.onNodeWithTag("jump-to-latest").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("jump-to-latest").fetchSemanticsNodes().isEmpty() }
         // At the end again, following it.
-        val last = compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().maxOf { it.boundsInRoot.bottom }
-        assertTrue("the last reply is on screen ($last)", last > 0f)
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Reply number 43", substring = true)).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun `a reader at the end has no pill`() {
@@ -90,6 +90,21 @@ class JumpToLatestTest {
         compose.setContent { CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { AgentScreen(rt, "a1", {}, Tab.Chat) } } }
         compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithTag("jump-to-latest").assertCountEquals(0)
-        assertEquals(0, compose.onAllNodesWithTag("jump-to-latest").fetchSemanticsNodes().size)
+    }
+
+    private fun entries(vararg ids: String) = ids.map { id -> dev.agentmesh.android.chat.Entry.Chat(dev.agentmesh.android.chat.Block.Assistant(e(id.removePrefix("e").toInt()))) }
+
+    @Test fun `what is new is counted after the entry the reader was at the end for, and from the new tail when a reload took it away`() {
+        val list = entries("e1", "e2", "e3", "e4")
+        assertEquals(2, dev.agentmesh.android.chat.unseenCount(list, "e2", stick = false))
+        assertEquals(0, dev.agentmesh.android.chat.unseenCount(list, "e2", stick = true))
+        assertEquals(0, dev.agentmesh.android.chat.unseenCount(list, null, stick = false))
+        // The conversation was reloaded under a reader who is up in the history: the old place is gone.
+        val reloaded = entries("e11", "e12")
+        assertEquals(0, dev.agentmesh.android.chat.unseenCount(reloaded, "e2", stick = false))
+        assertTrue(dev.agentmesh.android.chat.reanchor(reloaded, "e2"))
+        assertTrue(!dev.agentmesh.android.chat.reanchor(list, "e2")); assertTrue(!dev.agentmesh.android.chat.reanchor(list, null))
+        // After the reload the pill counts again, from the new tail.
+        assertEquals(1, dev.agentmesh.android.chat.unseenCount(entries("e11", "e12", "e13"), "e12", stick = false))
     }
 }
