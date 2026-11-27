@@ -1,6 +1,5 @@
 package dev.agentmesh.android.ui.settings
 
-import dev.agentmesh.android.ui.inScaffoldWithKeyboard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +40,7 @@ import dev.agentmesh.android.net.toJson
 import dev.agentmesh.android.net.toValue
 import dev.agentmesh.android.ui.SectionHeader
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
+import dev.agentmesh.android.ui.inScaffold
 import dev.agentmesh.gen.agentmesh.v1.Setting
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -62,7 +62,7 @@ fun HostSettingsScreen(runtime: HostRuntime, onBack: () -> Unit) {
         if (groups.isEmpty()) {
             Text("The host's settings load once it is connected.", Modifier.padding(pad).padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            LazyColumn(Modifier.inScaffoldWithKeyboard(pad).fillMaxSize()) {
+            LazyColumn(Modifier.inScaffold(pad).fillMaxSize()) {
                 groups.forEach { (group, list) ->
                     item(key = "g:$group") { SectionHeader(group) }
                     items(list, key = { it.key }) { s -> SettingRow(s) { editing = s.key } }

@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -111,7 +109,7 @@ private fun ChangeModelSheet(runtime: HostRuntime, agent: Agent, onDismiss: () -
     val connected = state.conn is dev.agentmesh.android.store.ConnState.Ready
     val ready = connected && when (by) { By.Tier -> tier.isNotEmpty(); By.Model -> model.isNotBlank(); By.Effort -> effort.isNotEmpty() }
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp).testTag("model-sheet"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp).navigationBarsPadding().testTag("model-sheet"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Change ${agent.name}'s model", style = MaterialTheme.typography.titleMedium)
             Text("The host reopens the same conversation on the new model: nothing is briefed again. Now: ${runsOn(agent).ifEmpty { agent.kind }}${if (agent.tier.isNotEmpty()) " (tier ${agent.tier})" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

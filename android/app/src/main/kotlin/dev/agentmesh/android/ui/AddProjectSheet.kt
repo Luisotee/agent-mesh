@@ -3,7 +3,6 @@ package dev.agentmesh.android.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,7 +48,7 @@ fun AddProjectSheet(runtime: HostRuntime, onDismiss: () -> Unit) {
     val typed = normalPath(query.trim()).takeIf { it.startsWith("/") || Regex("^[A-Za-z]:[\\\\/].*").matches(it) }
     fun add(path: String) { prefs.pin(runtime.hostId, path); prefs.unhide(dev.agentmesh.android.derive.projectKey(runtime.hostId, path)); onDismiss() }
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp).testTag("add-project")) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().testTag("add-project")) {
             Text("Add a project on ${runtime.host?.name ?: "the host"}", style = MaterialTheme.typography.titleMedium)
             Text("It stays in the drawer, pinned, before any run works in it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().testTag("project-query"), singleLine = true, label = { Text("A name, or an absolute path on the host") })
