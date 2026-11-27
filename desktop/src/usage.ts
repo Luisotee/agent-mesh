@@ -106,7 +106,7 @@ function rowIsUsed(r: AgyRow, tiers: AgyTier[]): boolean {
 
 /**
  * What the sidebar's footer shows of the quota, a section per provider: Claude's windows (the short ones, "5h" and "7d")
- * and the agy rows a tier of the chain starts on. The minor ones (Claude's Opus and Sonnet windows, an agy pool no tier
+ * and the agy rows a tier of the chain starts on (the names are matched here, which the host's own rule (`agy.QuotaApplies`) does better: when none matches, the fullest row stands for agy, as before). The minor ones (Claude's Opus and Sonnet windows, an agy pool no tier
  * uses) are left out until one is at the reserve; Usage and cost has them all. With no reading, no sections.
  */
 export function quotaSections(u: GetUsageResponse): { reserve: number; sections: QuotaSection[] } {
@@ -117,7 +117,8 @@ export function quotaSections(u: GetUsageResponse): { reserve: number; sections:
     .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, resetsAt: w.resetsAt }))
   if (claude.length > 0) sections.push({ vendor: 'claude', name: 'Claude', lines: claude })
   // With no tier to say what is used, the fullest row stands for agy; with tiers, the rows they start on.
-  const used = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || rowIsUsed(r, v.tiers)) : [...v.agy].sort((x, y) => x.left - y.left).slice(0, 1)
+  const named = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || rowIsUsed(r, v.tiers)) : []
+  const used = named.length > 0 ? named : [...v.agy].sort((x, y) => x.left - y.left).slice(0, 1)
   const agy: QuotaLine[] = used.sort((x, y) => x.left - y.left).slice(0, 3).map((r) => ({ label: r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, resetsIn: r.resets }))
   if (agy.length > 0) sections.push({ vendor: 'gemini', name: 'agy', lines: agy })
   return { reserve: v.reserve, sections }

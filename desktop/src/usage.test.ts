@@ -168,6 +168,16 @@ describe("the footer's quota sections", () => {
     expect(quotaSections(spent).sections[1]!.lines.map((l) => [l.label, l.atReserve])).toEqual([['Shared', true], ['Neon', false]])
   })
 
+  it('shows the fullest agy row when no tier names one (the real rows are "Gemini Models", the tiers\' models "flash")', () => {
+    const real = base({
+      claude: undefined,
+      agyRows: [create(AgyUsageRowSchema, { group: 'Gemini Models', label: 'Weekly Limit Remaining', left: 70, resets: '2026-12-03T07:11:12Z' }), create(AgyUsageRowSchema, { group: 'Claude and GPT models', label: 'Five Hour Limit Remaining', left: 40 })],
+      agyTiers: [{ tier: 'light', model: 'flash', hasLeft: true, left: 70, notes: [] }],
+    })
+    const q = quotaSections(real)
+    expect(q.sections.map((s) => [s.name, s.lines.map((l) => [l.label, l.used])])).toEqual([['agy', [['Five Hour Limit Remaining', 60]]]])
+  })
+
   it('has no sections when the host has no reading', () => {
     expect(quotaSections(create(GetUsageResponseSchema)).sections).toEqual([])
   })

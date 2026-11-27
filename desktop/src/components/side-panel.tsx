@@ -113,7 +113,10 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const agents = useHostState(host, (s) => s.agents)
   const waiting = useHostState(host, (s) => s.waiting)
   const waitingAll = useHostState(host, (s) => s.waitingAll)
-  const [showResting, setShowResting] = useState(false)
+  // Asking for the resting ones holds for this run only: another run or host starts folded again.
+  const scope = `${host.info.id}/${agent.runId}`
+  const [asked, setAsked] = useState({ scope: '', on: false })
+  const showResting = asked.on && asked.scope === scope
   const row = useMemo(() => {
     const run = runs[agent.runId]
     if (!run) return undefined
@@ -158,7 +161,7 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
     <Section title="Agent tree">
       <ul aria-label="Agent tree">{rendered.map(([a, depth]) => item(a, depth))}</ul>
       {(hidden > 0 || showResting) && (
-        <button type="button" aria-pressed={showResting} onClick={() => setShowResting(!showResting)} className="mt-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
+        <button type="button" aria-pressed={showResting} onClick={() => setAsked({ scope, on: !showResting })} className="mt-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
           <ChevronRight className={cn('size-3 transition-transform', showResting && 'rotate-90')} />
           {showResting ? 'Hide resting' : `${hidden} resting`}
         </button>

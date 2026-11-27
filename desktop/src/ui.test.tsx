@@ -829,8 +829,37 @@ describe('Dock resting agents', () => {
     expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Show 1 resting' }))
     expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Hide 1 resting' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Hide resting' }))
     expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+  })
+})
+
+describe('Dock resting: helpers and scope', () => {
+  it('keeps the tile of an idle worker while a reviewer folded into it works, and counts the agents it hides', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, rv: agent('rv', { name: 'app-rev', role: AgentRole.REVIEWER, parentId: 'w1', state: AgentState.WORKING }) } }))
+    render(wrap(<Dock />))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /resting/ })).toBeNull()
+    // The reviewer is done: the worker, idle again, rests with it, two agents behind the count.
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, rv: { ...s.agents.rv!, state: AgentState.IDLE } } })))
+    expect(await screen.findByRole('button', { name: 'Show 2 resting' })).toBeInTheDocument()
+  })
+
+  it('folds the resting agents again in another run', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({
+      runs: { ...s.runs, r2: create(RunSchema, { id: 'r2', title: 'web', status: RunStatus.OPEN }) },
+      agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, o1: agent('o1', { runId: 'r2', role: AgentRole.ROOT, name: 'web-lead' }), o2: agent('o2', { runId: 'r2', role: AgentRole.WORKER, parentId: 'o1', name: 'web-fix', state: AgentState.IDLE }) },
+    }))
+    render(wrap(<Dock />))
+    await userEvent.click(screen.getByRole('button', { name: 'Show 1 resting' }))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
+    act(() => model.selectAgent('h1', 'o1'))
+    expect(screen.queryByRole('listitem', { name: 'web-fix in the dock' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Show 1 resting' })).toBeInTheDocument()
   })
 })
 
@@ -1114,6 +1143,22 @@ describe('SidebarFooter', () => {
     expect(screen.getAllByTestId('meter-mark').map((m) => m.style.left)).toEqual(['90%', '90%'])
     await userEvent.click(screen.getByRole('button', { name: /Quota: open usage and cost/ }))
     expect(model.store.getState().usageOpen).toBe(true)
+  })
+
+  it('keeps the way into Usage and cost when the host has no quota reading, and says an agy reset as it can be read', async () => {
+    const { client, wrap, model } = fixture()
+    Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90 })) })
+    render(wrap(<SidebarFooter />))
+    await userEvent.click(await screen.findByRole('button', { name: /Quota: open usage and cost/ }))
+    expect(model.store.getState().usageOpen).toBe(true)
+  })
+
+  it('the quota bar tells a screen reader its window, reset and reserve', async () => {
+    const { client, wrap } = fixture()
+    Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: '5h', key: 'five_hour', used: 42, resetsAt: timestampFromMs(Date.now() + 2 * 3600_000 + 60_000) })] }) })) })
+    render(wrap(<SidebarFooter />))
+    const meter = await screen.findByRole('meter', { name: 'Claude 5h' })
+    expect(meter).toHaveAttribute('aria-valuetext', expect.stringMatching(/42% used, resets in 2 h .*the host starts nothing new from 90%/))
   })
 
   it('adds a project by Enter on the path typed, and keeps one already pinned pinned', async () => {
