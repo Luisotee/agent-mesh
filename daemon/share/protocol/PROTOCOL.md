@@ -29,9 +29,30 @@ mesh send parent --type question --body "…"
 mesh send parent --type done     --body @"$(mesh dir)/reports/<your-name>.md"
 ```
 
+Name the task you report on: `--re <id>`, the id in your task's header line in `mesh inbox` (`── task from … (m3r6…) ──`). The daemon stamps every report with your current task either way; with `--re` it refuses a report for an older task, or a second `done` or `failed` for a task already reported, so a late or repeated report can't stand for the wrong task.
+
 `@file` reads the text from a file (`@-` from stdin, `@@` for a literal `@`). Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`, `wait`. A `plan` asks your parent to review it; the reply is an `answer`. While you plan, only a plan sent since your last task or answer can be approved, so after any answer that isn't `approved`, send the plan again, even unchanged. A message longer than a few lines goes through a file under `$(mesh dir)/reports/` (or `plans/`). **Never write mesh files inside the repo.**
 
 The message is stored when `mesh send` returns, and your parent's doorbell rings at its next idle: there is nothing more to do to deliver it. Never send a message by typing into another agent's terminal: that text reaches no mailbox, log or alert, and can land in the middle of what the user is typing there.
+
+## How do I …
+
+A map from what someone wants to the command. `mesh help <command>` has the flags. **Tell the user** means you can't run it (a person's terminal or the app can): say the command, never "there is no way".
+
+| I want to … | Command |
+|---|---|
+| Watch an agent's terminal or type to it | **Tell the user**: `mesh open <agent>` attaches their terminal (`Ctrl-]` detaches); a retired agent's conversation reopens in it. Or the app. Never type into it yourself. |
+| Send an agent a message | `mesh send <agent> --type task\|answer\|info --body …` (`parent` for your parent) |
+| Read my mail | `mesh inbox`; a root also `mesh brief` |
+| See the run's agents and their states | `mesh agents`; one: `mesh agent <agent>`; the timeline: `mesh log` (`--follow`) |
+| See what waits on me or the user | `mesh waiting`; permission prompts: `mesh permissions`, answered with `mesh permission --id <id> --decision allow\|deny` |
+| Approve a worker's plan | `mesh approve <worker> --tier <tier>` (root) |
+| See a worker's branch, diff and PR | `mesh check <worker>`; all PRs and their checks: `mesh prs` |
+| Ask a question or have a PR reviewed | `mesh ask` (`ORCHESTRATE.md`, "Questions and reviews") |
+| Bring back or stop an agent | `mesh resume <agent>`, `mesh retire <agent>` |
+| Check quota or what a run cost | `mesh usage`, `mesh cost` |
+| Pair a phone or another machine | **Tell the user**: `mesh pair` |
+| Anything else | `mesh help`; a part of the protocol: `mesh protocol` (lists them) |
 
 ## What the daemon does for you
 
