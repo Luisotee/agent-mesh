@@ -289,6 +289,10 @@ func TestAWorkerWithNoPRShowsItsWorkEvidence(t *testing.T) {
 }
 
 func TestChecksFoldToOneWord(t *testing.T) {
+	timed := func(conclusion, start, end string) map[string]any {
+		return map[string]any{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": conclusion,
+			"startedAt": "2026-11-27T" + start, "completedAt": "2026-11-27T" + end}
+	}
 	status := func(state string) map[string]any {
 		return map[string]any{"__typename": "StatusContext", "state": state}
 	}
@@ -304,6 +308,13 @@ func TestChecksFoldToOneWord(t *testing.T) {
 		{"failing beats pending", []map[string]any{run("QUEUED", ""), run("COMPLETED", "TIMED_OUT")}, "failing"},
 		{"a failed status", []map[string]any{status("ERROR")}, "failing"},
 		{"cancelled fails", []map[string]any{run("COMPLETED", "CANCELLED")}, "failing"},
+		// GitHub refusing to start Actions (billing) fails a job in 2 s with nothing run: no result, not a failing PR.
+		{"a failure that ran nothing", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z")}, ""},
+		{"a failure that ran nothing beside a pass", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z"), run("COMPLETED", "SUCCESS")}, "pass"},
+		{"a failure that ran nothing beside a real one", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z"), timed("FAILURE", "09:17:19Z", "09:19:21Z")}, "failing"},
+		{"a failure after minutes", []map[string]any{timed("FAILURE", "09:17:19Z", "09:19:21Z")}, "failing"},
+		{"a startup failure is news however fast", []map[string]any{timed("STARTUP_FAILURE", "09:17:19Z", "09:17:21Z")}, "failing"},
+		{"a failure with no times", []map[string]any{run("COMPLETED", "FAILURE")}, "failing"},
 	} {
 		if got := daemon.ChecksWord(c.rollup); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)
@@ -580,5 +591,17 @@ func TestMeshLogShowsAPRChange(t *testing.T) {
 		!strings.Contains(details[1], "#12 open → merged, checks pending → failing") ||
 		!strings.Contains(details[2], "#12 merged, checks failing → none") {
 		t.Errorf("log entries: %q", details)
+	}
+}
+
+// A failed check run that ran no job is not named among the failing checks a worker is told (as checksWord).
+func TestFailingChecksLeaveOutARunThatRanNoJob(t *testing.T) {
+	timed := func(name, start, end string) map[string]any {
+		return map[string]any{"__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": "FAILURE",
+			"startedAt": "2026-11-27T" + start, "completedAt": "2026-11-27T" + end}
+	}
+	got := daemon.FailingChecks([]map[string]any{timed("billing", "09:17:19Z", "09:17:21Z"), timed("tests", "09:17:19Z", "09:19:21Z")})
+	if len(got) != 1 || !strings.HasPrefix(got[0], "tests failure") {
+		t.Errorf("%v", got)
 	}
 }
