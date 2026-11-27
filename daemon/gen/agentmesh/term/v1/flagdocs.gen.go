@@ -13,6 +13,8 @@ var FieldDocs = map[string]string{
 	"agentmesh.term.v1.KillTerminalRequest.signal":    "A signal number; 0 means SIGTERM, then SIGKILL after a grace period.",
 	"agentmesh.term.v1.Output.offset":                 "The offset of data's first byte.",
 	"agentmesh.term.v1.Output.replay":                 "Part of the replay that precedes ReplayDone.",
+	"agentmesh.term.v1.Resized.epoch":                 "The epoch the output from `offset` on is in.",
+	"agentmesh.term.v1.Resized.offset":                "The output offset where that epoch starts.",
 	"agentmesh.term.v1.Screen.offset":                 "The output offset the screen reflects; live output continues from here.",
 	"agentmesh.term.v1.TermFrame.attach":              "Client to host.",
 	"agentmesh.term.v1.TermFrame.attached":            "Host to client.",
