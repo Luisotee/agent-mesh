@@ -147,8 +147,9 @@ public interface HelloResponseOrBuilder extends
   /**
    * <pre>
    * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
-   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
-   * none: a client then offers every CLI the host has tiers for.
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
    * </pre>
    *
    * <code>repeated string clis = 9 [json_name = "clis"];</code>
@@ -159,8 +160,9 @@ public interface HelloResponseOrBuilder extends
   /**
    * <pre>
    * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
-   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
-   * none: a client then offers every CLI the host has tiers for.
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
    * </pre>
    *
    * <code>repeated string clis = 9 [json_name = "clis"];</code>
@@ -170,8 +172,9 @@ public interface HelloResponseOrBuilder extends
   /**
    * <pre>
    * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
-   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
-   * none: a client then offers every CLI the host has tiers for.
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
    * </pre>
    *
    * <code>repeated string clis = 9 [json_name = "clis"];</code>
@@ -182,8 +185,9 @@ public interface HelloResponseOrBuilder extends
   /**
    * <pre>
    * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
-   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
-   * none: a client then offers every CLI the host has tiers for.
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
    * </pre>
    *
    * <code>repeated string clis = 9 [json_name = "clis"];</code>

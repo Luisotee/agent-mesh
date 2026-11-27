@@ -2232,7 +2232,7 @@ describe('Project shells', () => {
 
   it('offers a New agent only for the CLIs the host says it has installed', async () => {
     const { wrap, host } = shells()
-    host.store.setState({ daemon: { capabilities: [], clis: ['claude'] } as never })
+    host.store.setState({ daemon: { capabilities: ['clis'], clis: ['claude'] } as never })
     render(wrap(<TabBar />))
     await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
     expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New Claude agent', 'New lead…', 'New terminal'])

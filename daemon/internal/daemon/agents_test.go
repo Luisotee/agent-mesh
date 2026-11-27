@@ -766,4 +766,7 @@ func TestHelloNamesTheCLIsTheHostCanLaunch(t *testing.T) {
 	if want := []string{"claude", "opencode", "copilot"}; err != nil || !slices.Equal(res.Msg.Clis, want) {
 		t.Errorf("clis %v, %v: want %v", res.Msg.GetClis(), err, want)
 	}
+	if !slices.Contains(res.Msg.GetCapabilities(), "clis") {
+		t.Errorf("capabilities %v lack clis: an empty list would read as an older daemon's", res.Msg.GetCapabilities())
+	}
 }

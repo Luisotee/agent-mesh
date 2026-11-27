@@ -212,8 +212,9 @@ type HelloResponse struct {
 	// judge whether an event's time is recent (the host's clock may be minutes off, WSL's often is).
 	ServerTime *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`
 	// The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
-	// that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
-	// none: a client then offers every CLI the host has tiers for.
+	// that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+	// empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+	// offers every CLI the host has tiers for.
 	Clis          []string `protobuf:"bytes,9,rep,name=clis,proto3" json:"clis,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -8335,6 +8336,7 @@ type ListProjectsRequest struct {
 	Repo string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
 	// With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
 	// its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+	// Ignored without `repo` (the full list asks git only).
 	Quick         bool `protobuf:"varint,2,opt,name=quick,proto3" json:"quick,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
