@@ -78,4 +78,4 @@ AGENT_MESH_DESKTOP_STATE=$state AGENT_MESH_DESKTOP_USERDATA=$(mktemp -d) pnpm st
 
 ## Icons and their licence
 
-The vendor marks (`src/vendor-marks.ts`: Claude, Google Gemini, GitHub Copilot, OpenCode, DeepSeek) are the paths of [simple-icons](https://github.com/simple-icons/simple-icons) 16.38.1, released under CC0 1.0; the marks themselves remain their owners' trademarks. simple-icons has no OpenAI mark, so OpenAI and any kind the app doesn't know get a letter badge. To add one, copy its `path` from `icons/<name>.svg` into `vendor-marks.ts` and map the CLI kind or model name in `vendor.ts`.  NL 
+The vendor marks (`src/vendor-marks.ts`: Claude, Google Gemini, GitHub Copilot, OpenCode, DeepSeek) are the paths of [simple-icons](https://github.com/simple-icons/simple-icons) 16.38.1, released under CC0 1.0; the marks themselves remain their owners' trademarks. simple-icons has no OpenAI mark, so OpenAI and any kind the app doesn't know get a letter badge. To add one, copy its `path` from `icons/<name>.svg` into `vendor-marks.ts` and map the CLI kind or model name in `vendor.ts`.
