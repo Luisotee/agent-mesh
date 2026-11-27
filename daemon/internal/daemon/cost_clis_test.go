@@ -109,7 +109,8 @@ func TestCostCountsCopilotAndNamesAnAgyModel(t *testing.T) {
 	for _, m := range res.Msg.ByModel {
 		models[m.Model] += m.Calls
 	}
-	if models["gemini-4-neon"] != 1 || models["gemini-4-hydrogen"] != 1 || models["?"] != 0 || models["agy"] != 0 {
+	if models["neon"] != 1 || models["hydrogen"] != 1 || models["?"] != 0 || models["agy"] != 0 {
 		t.Fatalf("by_model = %+v", res.Msg.ByModel)
 	}
+	// A conversation file names the model without an effort; the family is what the rows are keyed by.
 }

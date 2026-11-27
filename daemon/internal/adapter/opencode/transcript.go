@@ -21,7 +21,7 @@ import (
 // only grows at its end), so a page's `start_offset` is the first message it shows and `end_offset` the rowid after the
 // last. An assistant message is shown once it is finished, because its parts change in place while the model works
 // (a tool call goes from pending to completed): the last message of a session that has no `time.completed` yet is the
-// one being written, and is left for a later read, unless it was last touched more than `quiet` ago (an aborted
+// one being written, and is left for a later read, unless neither it nor its parts were touched for `quiet` (an aborted
 // reply never gets a `time.completed`).
 
 const (
@@ -29,7 +29,7 @@ const (
 	// maxMessages is how many messages one forward read, or one batch of a backward read, covers.
 	maxMessages = 100
 	// quiet is how long a reply must be untouched before it is taken as ended without a `time.completed`.
-	quiet = 2 * time.Minute
+	quiet = 10 * time.Minute
 	// maxBackMessages bounds a backward read that goes on looking for entries.
 	maxBackMessages = 1000
 )
@@ -93,7 +93,8 @@ func readTranscript(db *sql.DB, session string, offset int64, backward bool) ([]
 	limit := maxRow.Int64 + 1
 	var lastData string
 	var touched int64
-	if err := db.QueryRow(`SELECT data, time_updated FROM message WHERE rowid = ?`, maxRow.Int64).Scan(&lastData, &touched); err == nil {
+	// The message row is updated when it finishes; while it is written, its parts are.
+	if err := db.QueryRow(`SELECT m.data, MAX(m.time_updated, COALESCE((SELECT MAX(p.time_updated) FROM part p WHERE p.message_id = m.id), 0)) FROM message m WHERE m.rowid = ?`, maxRow.Int64).Scan(&lastData, &touched); err == nil {
 		var last chatMessage
 		if json.Unmarshal([]byte(lastData), &last) == nil && last.Role == "assistant" && last.Time.Completed == 0 &&
 			time.Since(time.UnixMilli(touched)) < quiet {
@@ -134,7 +135,8 @@ func readBack(db *sql.DB, session string, offset, limit int64) ([]*agentmeshv1.T
 	}
 	var out []*agentmeshv1.TranscriptEntry
 	first, scanned := end, 0
-	for first > firstRow(db, session) && len(out) < transcript.WantEntries && scanned < maxBackMessages {
+	oldest := firstRow(db, session)
+	for first > oldest && len(out) < transcript.WantEntries && scanned < maxBackMessages {
 		msgs, err := messagesFrom(db, session, `rowid < ? ORDER BY rowid DESC LIMIT ?`, first, maxMessages)
 		if err != nil {
 			return nil, 0, 0, false, err
@@ -156,7 +158,7 @@ func readBack(db *sql.DB, session string, offset, limit int64) ([]*agentmeshv1.T
 			}
 		}
 	}
-	return out, first, end, first <= firstRow(db, session), nil
+	return out, first, end, first <= oldest, nil
 }
 
 func firstRow(db *sql.DB, session string) int64 {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -23,23 +24,32 @@ import (
 // read, and a step that doesn't decode is skipped. A position in the record is a step's `idx`. Shown are: step type 14,
 // what the user typed (field 19, text in 2); type 15, a model turn (field 20: the reply in 1, its thinking in 3, which
 // is left out); and type 132, a tool run (field 5.4 names the call and holds its JSON arguments, field 140.2.1 the
-// output). Types 17, 23 and 101 (compaction bookkeeping, system notices) are left out. A step with status 1 or 2 is
-// still running (its output changes in place): when it is the last step and the file was written in the last
-// minutes it is left for a later read (a turn that was interrupted leaves its step so, and is shown once the file
-// has been quiet that long).
+// output). Types 17, 23 and 101 (compaction bookkeeping, system notices) are left out. A step is finished at status 3
+// (done), 4 (refused), 6 or 7 (failed); any other status (1, 2, 8: pending, running, the model generating) is a step
+// whose content changes in place, and a read stops before the earliest of those among the last few steps (parallel
+// tool calls finish out of order), so it is read whole later. A turn that was interrupted leaves its step so: once
+// the file (`.db` and its `-wal`, where a live conversation writes) has been quiet for `quiet`, it is shown as it is.
 
 const (
 	capTranscript = transcript.Cap
 
 	stepUser, stepModel, stepTool = 14, 15, 132
-	statusPending, statusRunning  = 1, 2
-	// statusFailed and statusDenied are the statuses of a step that ended without its result.
-	statusDenied, statusFailed = 4, 6
-	// quiet is how long a file must be unwritten before its last running step is taken as ended.
-	quiet        = 2 * time.Minute
+	// quiet is how long a file must be unwritten before its running steps are taken as ended (a tool may run for
+	// minutes without a write).
+	quiet = 10 * time.Minute
+	// tailSteps is how far back from the newest step a running one holds a read back.
+	tailSteps    = 30
 	maxSteps     = 200
 	maxBackSteps = 2000
 )
+
+// statusDone is a step that ended with its result; 4, 6 and 7 are ones that ended without it (refused by a hook, failed).
+const statusDone = 3
+
+// finished reports whether a step's content is settled: anything but done and the failures is still changing.
+func finished(status int) bool {
+	return status == statusDone || status == 4 || status == 6 || status == 7
+}
 
 // toolSummaryKeys are agy's tools' arguments that say what a call is about, in the order they are tried.
 var toolSummaryKeys = []string{"CommandLine", "Path", "TargetFile", "AbsolutePath", "query", "Url", "ToolName", "toolSummary", "Action"}
@@ -58,8 +68,10 @@ func (a *Adapter) ReadTranscript(_ context.Context, req *connect.Request[adapter
 	}
 	defer db.Close()
 	live := false
-	if st, err := os.Stat(filepath.Join(dir, m.SessionId+".db")); err == nil {
-		live = time.Since(st.ModTime()) < quiet
+	for _, name := range []string{m.SessionId + ".db", m.SessionId + ".db-wal"} {
+		if st, err := os.Stat(filepath.Join(dir, name)); err == nil && time.Since(st.ModTime()) < quiet {
+			live = true
+		}
 	}
 	entries, start, end, atStart, err := readSteps(db, m.Offset, m.Backward, live)
 	if err != nil {
@@ -85,17 +97,22 @@ type chatStep struct {
 
 func readSteps(db *sql.DB, offset int64, backward, live bool) ([]*agentmeshv1.TranscriptEntry, int64, int64, bool, error) {
 	var last sql.NullInt64
-	var lastStatus sql.NullInt64
-	if err := db.QueryRow(`SELECT idx, status FROM steps ORDER BY idx DESC LIMIT 1`).Scan(&last, &lastStatus); err != nil && err != sql.ErrNoRows {
+	if err := db.QueryRow(`SELECT MAX(idx) FROM steps`).Scan(&last); err != nil {
 		return nil, 0, 0, false, err
 	}
 	if !last.Valid {
 		return nil, 0, 0, true, nil
 	}
-	// limit is where a read stops: past the last step, or before it while it runs.
+	// limit is where a read stops: past the last step, or before the earliest recent step still changing.
 	limit := last.Int64 + 1
-	if live && (lastStatus.Int64 == statusPending || lastStatus.Int64 == statusRunning) {
-		limit = last.Int64
+	if live {
+		var running sql.NullInt64
+		if err := db.QueryRow(`SELECT MIN(idx) FROM steps WHERE status NOT IN (3, 4, 6, 7) AND idx > ?`, last.Int64-tailSteps).Scan(&running); err != nil {
+			return nil, 0, 0, false, err
+		}
+		if running.Valid {
+			limit = running.Int64
+		}
 	}
 	var first int64
 	_ = db.QueryRow(`SELECT MIN(idx) FROM steps`).Scan(&first)
@@ -202,9 +219,18 @@ func stepEntries(s chatStep) []*agentmeshv1.TranscriptEntry {
 			id = fmt.Sprintf("step-%d", s.idx)
 		}
 		add(0, &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_TOOL_CALL, Tool: name, ToolInput: transcript.SummarizeKeys(args, toolSummaryKeys...), ToolUseId: id})
-		if s.status != statusPending && s.status != statusRunning {
-			add(1, &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_TOOL_RESULT, Text: string(bytesAt(s.payload, 140, 2, 1)), ToolUseId: id,
-				IsError: s.status == statusFailed || s.status == statusDenied})
+		if finished(s.status) {
+			text := string(bytesAt(s.payload, 140, 2, 1))
+			failed := s.status != statusDone
+			if text == "" && failed {
+				// A refused or failed call has no output: its error is in field 31 (3, or 2 when that is the text).
+				if text = string(bytesAt(s.payload, 31, 3)); text == "" {
+					if t := bytesAt(s.payload, 31, 2); utf8.Valid(t) && !strings.ContainsAny(string(t), "\x00\x01\x02\x03\x04\x05\x06\x07\x08") {
+						text = string(t)
+					}
+				}
+			}
+			add(1, &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_TOOL_RESULT, Text: text, ToolUseId: id, IsError: failed})
 		}
 	}
 	return out

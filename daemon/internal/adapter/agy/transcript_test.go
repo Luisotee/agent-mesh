@@ -45,6 +45,12 @@ func toolStep(typ int, sec uint64, id, name, args, output string) []byte {
 		pbBytes(140, cat(str(1, "args"), pbBytes(2, str(1, output)))))
 }
 
+// failedToolStep is a refused call: no output (140), the error text in field 31.3.
+func failedToolStep(sec uint64, id, name, args, why string) []byte {
+	call := cat(str(1, id), str(2, name), str(3, args))
+	return cat(pbInt(1, 132), pbBytes(5, cat(pbBytes(1, pbInt(1, sec)), pbBytes(4, call))), pbBytes(31, cat(str(2, "x"), str(3, why))))
+}
+
 func chatSteps() []chatStepSeed {
 	return []chatStepSeed{
 		{14, 3, userStep(1792820600, "Plan the change")},
@@ -125,6 +131,58 @@ func TestTranscriptShowsTheConversation(t *testing.T) {
 	writeChat(t, dir, "c1", seeds)
 	if more := readChat(t, dir, "c1", res.EndOffset, false); shown(more.Entries) != "TOOL_CALL:run_commandsleep 100 | TOOL_RESULT:" {
 		t.Errorf("after the step finished: %s", shown(more.Entries))
+	}
+}
+
+func TestFailedAndRefusedToolCallsShowTheirError(t *testing.T) {
+	dir := t.TempDir()
+	writeChat(t, dir, "c1", []chatStepSeed{
+		{132, 7, failedToolStep(1792820600, "t1", "read_file", `{"Path":"/work/none"}`, "file does not exist")},
+		{132, 4, failedToolStep(1792820601, "t2", "nope", `{}`, `unknown tool: "nope"`)},
+	})
+	res := readChat(t, dir, "c1", 0, false)
+	if got := shown(res.Entries); got != "TOOL_CALL:read_file/work/none | TOOL_RESULT:file does not exist | TOOL_CALL:nope{} | TOOL_RESULT:unknown tool: \"nope\"" {
+		t.Fatalf("entries: %s", got)
+	}
+	if !res.Entries[1].IsError || !res.Entries[3].IsError {
+		t.Errorf("a failed call is not marked as an error: %+v", res.Entries)
+	}
+}
+
+func TestAParallelBatchHoldsTheReadBackUntilItsEarliestStepFinishes(t *testing.T) {
+	dir := t.TempDir()
+	seeds := []chatStepSeed{
+		{14, 3, userStep(1792820600, "Check two things")},
+		{132, 2, toolStep(132, 1792820601, "p1", "run_command", `{"CommandLine":"slow"}`, "")}, // still running
+		{132, 3, toolStep(132, 1792820602, "p2", "read_file", `{"Path":"/a"}`, "fast result")}, // finished first
+		{15, 8, modelStep(1792820603, "", "")},                                                 // the model generating
+	}
+	writeChat(t, dir, "c1", seeds)
+	res := readChat(t, dir, "c1", 0, false)
+	if got := shown(res.Entries); got != "USER:Check two things" || res.EndOffset != 1 {
+		t.Fatalf("while step 1 runs: %s (end %d)", got, res.EndOffset)
+	}
+	seeds[1].status, seeds[3].status = 3, 3
+	writeChat(t, dir, "c1", seeds)
+	more := readChat(t, dir, "c1", res.EndOffset, false)
+	if got := shown(more.Entries); !strings.HasPrefix(got, "TOOL_CALL:run_commandslow | TOOL_RESULT:") || !strings.Contains(got, "TOOL_RESULT:fast result") {
+		t.Errorf("after it finished: %s", got)
+	}
+}
+
+func TestAConversationWrittenOnlyInItsWALIsStillLive(t *testing.T) {
+	dir := t.TempDir()
+	writeChat(t, dir, "c1", chatSteps())
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "c1.db"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	// agy writes into the WAL and checkpoints the .db much later: a fresh -wal keeps the running step held back.
+	if err := os.WriteFile(filepath.Join(dir, "c1.db-wal"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res := readChat(t, dir, "c1", 0, false); res.EndOffset != 8 {
+		t.Errorf("end = %d, want 8 (before the running step)", res.EndOffset)
 	}
 }
 

@@ -116,9 +116,27 @@ func TestTranscriptReadsOnWhenTheReplyFinishes(t *testing.T) {
 	}
 }
 
+func TestAReplyWhoseRowIsOldButWhosePartsAreBeingWrittenIsStillHeldBack(t *testing.T) {
+	db := seedChat(t)
+	conn := openForTest(t, db)
+	// The message row is only updated when it finishes: its parts are what changes while the model works.
+	if _, err := conn.Exec(`UPDATE message SET time_updated = ? WHERE id = 'msg_4'`, time.Now().Add(-time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(`UPDATE part SET time_updated = ? WHERE id = 'prt_4'`, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if res := readChat(t, db, 0, false); res.EndOffset != 5 || strings.Contains(kinds(res.Entries), "half an ans") {
+		t.Errorf("a reply with a part written just now was read: end %d", res.EndOffset)
+	}
+}
+
 func TestAnAbortedReplyIsShownOnceItIsLongQuiet(t *testing.T) {
 	db := seedChat(t)
 	if _, err := openForTest(t, db).Exec(`UPDATE message SET time_updated = ? WHERE id = 'msg_4'`, time.Now().Add(-time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openForTest(t, db).Exec(`UPDATE part SET time_updated = ? WHERE id = 'prt_4'`, time.Now().Add(-time.Hour).UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
 	res := readChat(t, db, 0, false)
