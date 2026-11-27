@@ -152,9 +152,7 @@ func (t *Terminal) detach(c *client) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.dropLocked(c, "detached")
-	if len(t.clients) > 0 {
-		t.resizeLocked(nil)
-	}
+	t.growAfterLeaveLocked()
 }
 
 func (t *Terminal) ready(c *client) {
