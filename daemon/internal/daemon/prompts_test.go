@@ -12,6 +12,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
@@ -222,4 +223,146 @@ func TestInterruptStopsAClaudeTurnAndTheQueueGoesOn(t *testing.T) {
 	}
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 
+}
+
+func (h *agentsHarness) sendAnyway(agent, id, draft, mid string) (*v1.SendPromptAnywayResponse, error) {
+	res, err := h.device.Mesh.SendPromptAnyway(context.Background(), connect.NewRequest(&v1.SendPromptAnywayRequest{Meta: meta(mid), Agent: agent, PromptId: id, Draft: draft}))
+	if err != nil {
+		return nil, err
+	}
+	return res.Msg, nil
+}
+
+// heldByDraft waits for the agent's queue to say it waits for a draft, and returns the prompt with the draft it read.
+func (h *agentsHarness) heldByDraft(agent string) *v1.QueuedPrompt {
+	h.t.Helper()
+	var p *v1.QueuedPrompt
+	waitFor(h.t, "the queue to say it waits for the draft", func() bool {
+		q := h.prompts(agent)
+		if len(q) == 1 && q[0].Held == "draft" {
+			p = q[0]
+		}
+		return p != nil
+	})
+	return p
+}
+
+func TestASendOverAConfirmedDraftClearsItAndTypesThePrompt(t *testing.T) {
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_BOX": "1"})
+	h.typeInto(a, "half a   thou")
+	res, err := h.device.Mesh.PromptAgent(context.Background(), connect.NewRequest(&v1.PromptAgentRequest{Meta: meta("p-over"), Agent: a.Id, Text: "hello there"}))
+	if err != nil || res.Msg.Queued == nil || res.Msg.Queued.Held != "draft" || res.Msg.Queued.HeldText != "half a thou" {
+		t.Fatalf("a prompt at a draft: %v, %v", res, err)
+	}
+	p := h.heldByDraft(a.Id)
+	if p.HeldText != "half a thou" {
+		t.Fatalf("the draft the queue shows: %q", p.HeldText)
+	}
+	out, err := h.sendAnyway(a.Id, p.Id, p.HeldText, "over-1")
+	if err != nil || out.Discarded != "half a thou" {
+		t.Fatalf("send anyway: %v, %v", out, err)
+	}
+	if q := h.prompts(a.Id); len(q) != 0 {
+		t.Errorf("the prompt is still queued: %v", q)
+	}
+	h.waitTranscript(a.Id, "hello there")
+	// Only the prompt reached the agent: not the draft in front of it.
+	tr, err := h.device.Mesh.ReadTranscript(context.Background(), connect.NewRequest(&v1.ReadTranscriptRequest{Agent: a.Id, Offset: -1, Backward: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range tr.Msg.Entries {
+		if e.Kind == v1.TranscriptKind_TRANSCRIPT_KIND_USER && strings.Contains(e.Text, "half") {
+			t.Errorf("the draft was sent with it: %q", e.Text)
+		}
+	}
+	// A retry with the same mutation id is the first answer, not a second send.
+	again, err := h.sendAnyway(a.Id, p.Id, p.HeldText, "over-1")
+	if err != nil || again.Discarded != "" { // the stored answer does not keep the draft
+		t.Errorf("the retry: %v, %v", again, err)
+	}
+}
+
+func TestASendOverADraftThatChangedIsRefusedAndTheDraftKept(t *testing.T) {
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_BOX": "1"})
+	h.typeInto(a, "half a thou")
+	if err := h.prompt(a.Id, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	p := h.heldByDraft(a.Id)
+	// The user confirmed an older draft; the box holds something else now.
+	_, err := h.sendAnyway(a.Id, p.Id, "something that was there before", "over-3")
+	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "changed") || !strings.Contains(err.Error(), "half a thou") {
+		t.Fatalf("a draft that changed: %v", err)
+	}
+	if q := h.prompts(a.Id); len(q) != 1 || q[0].Held != "draft" || q[0].HeldText != "half a thou" {
+		t.Errorf("the prompt and the draft should be untouched: %v", q)
+	}
+}
+
+func TestASendOverADraftWhileSomeoneTypesAndOtherRefusals(t *testing.T) {
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_BOX": "1"})
+	ctx := context.Background()
+	h.typeInto(a, "half a thou")
+	if err := h.prompt(a.Id, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	p := h.heldByDraft(a.Id)
+
+	// A prompt that is not waiting (never was, or taken back) is refused.
+	if _, err := h.sendAnyway(a.Id, "half a thou", "qnope", "over-4"); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("an unknown prompt: %v", err)
+	}
+	// A device without input rights, and an agent, may not.
+	tok, err := fsutil.ReadSecret(statedir.Paths{Dir: h.state}.AgentToken(a.Id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.as(tok).SendPromptAnyway(ctx, connect.NewRequest(&v1.SendPromptAnywayRequest{Meta: meta("over-5"), Agent: a.Id, PromptId: p.Id, Draft: "half a thou"}))
+	if connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("an agent: %v", err)
+	}
+
+	// Someone with the terminal open who typed a moment ago: not now, and the draft stays.
+	user := h.openTerminal(ctx, a, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL})
+	defer user.Close()
+	user.Ready(ctx)
+	user.Input(ctx, []byte("x\x7f"))
+	waitFor(t, "the keystroke counted", func() bool {
+		_, err := h.sendAnyway(a.Id, p.Id, "half a thou", "over-6-"+time.Now().String())
+		return err != nil && strings.Contains(err.Error(), "someone is typing")
+	})
+	if q := h.prompts(a.Id); len(q) != 1 || q[0].Id != p.Id {
+		t.Errorf("the prompt should still wait: %v", q)
+	}
+	user.Close()
+	// With nobody typing any more, the confirmed draft goes.
+	waitFor(t, "sent once nobody types", func() bool {
+		_, err := h.sendAnyway(a.Id, p.Id, "half a thou", "over-7-"+time.Now().String())
+		return err == nil
+	})
+	h.waitTranscript(a.Id, "hello")
+}
+
+func TestASendOverADraftIsForTheOldestPromptAndNotForALongDraft(t *testing.T) {
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_BOX": "1"})
+	h.typeInto(a, "half a thou")
+	for _, text := range []string{"first", "second"} {
+		if err := h.prompt(a.Id, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, "both queued behind the draft", func() bool {
+		q := h.prompts(a.Id)
+		return len(q) == 2 && q[0].Held == "draft" && q[1].HeldText == "half a thou"
+	})
+	q := h.prompts(a.Id)
+	// The second would be typed before the first: refused, nothing is cleared.
+	if _, err := h.sendAnyway(a.Id, q[1].Id, "half a thou", "over-8"); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "older prompt") {
+		t.Errorf("the second prompt: %v", err)
+	}
+	if _, err := h.sendAnyway(a.Id, q[0].Id, "half a thou", "over-9"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitTranscript(a.Id, "first")
 }

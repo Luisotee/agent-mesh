@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'rewindAgent', 'addAttachment', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'sendPromptAnyway', 'interruptAgent', 'rewindAgent', 'addAttachment', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -114,6 +114,13 @@ export const listPrompts = (c: MeshClient, agent: string) => c.listPrompts({ age
 
 /** Takes back a queued prompt before it is typed (the newest when `promptId` is empty); refused once it is being typed. */
 export const withdrawPrompt = (c: MeshClient, agent: string, promptId = '') => c.withdrawPrompt({ meta: meta(), agent, promptId })
+
+/**
+ * Types a held queued prompt now over the draft in the agent's input box: `draft` is the text the user was shown
+ * (`QueuedPrompt.heldText`) and confirmed; the host refuses when the box holds anything else by now, when someone is typing in
+ * the terminal, or when the agent is not at its prompt.
+ */
+export const sendPromptAnyway = (c: MeshClient, agent: string, promptId: string, draft: string) => c.sendPromptAnyway({ meta: meta(), agent, promptId, draft })
 
 /** Interrupts an agent's turn, as Esc does in its terminal. */
 export const interruptAgent = (c: MeshClient, agent: string) => c.interruptAgent({ meta: meta(), agent })
