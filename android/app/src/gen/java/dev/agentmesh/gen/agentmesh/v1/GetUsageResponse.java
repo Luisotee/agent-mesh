@@ -538,6 +538,47 @@ public  final class GetUsageResponse extends
     reviewsOnlyAgy_ = 0;
   }
 
+  public static final int SPLIT_RESERVES_FIELD_NUMBER = 10;
+  private boolean splitReserves_;
+  /**
+   * <pre>
+   * Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+   * a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+   * </pre>
+   *
+   * <code>bool split_reserves = 10 [json_name = "splitReserves"];</code>
+   * @return The splitReserves.
+   */
+  @java.lang.Override
+  public boolean getSplitReserves() {
+    return splitReserves_;
+  }
+  /**
+   * <pre>
+   * Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+   * a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+   * </pre>
+   *
+   * <code>bool split_reserves = 10 [json_name = "splitReserves"];</code>
+   * @param value The splitReserves to set.
+   */
+  private void setSplitReserves(boolean value) {
+    
+    splitReserves_ = value;
+  }
+  /**
+   * <pre>
+   * Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+   * a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+   * </pre>
+   *
+   * <code>bool split_reserves = 10 [json_name = "splitReserves"];</code>
+   */
+  private void clearSplitReserves() {
+
+    splitReserves_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.GetUsageResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1178,6 +1219,49 @@ public  final class GetUsageResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+     * a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+     * </pre>
+     *
+     * <code>bool split_reserves = 10 [json_name = "splitReserves"];</code>
+     * @return The splitReserves.
+     */
+    @java.lang.Override
+    public boolean getSplitReserves() {
+      return instance.getSplitReserves();
+    }
+    /**
+     * <pre>
+     * Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+     * a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+     * </pre>
+     *
+     * <code>bool split_reserves = 10 [json_name = "splitReserves"];</code>
+     * @param value The splitReserves to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSplitReserves(boolean value) {
+      copyOnWrite();
+      instance.setSplitReserves(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+     * a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+     * </pre>
+     *
+     * <code>bool split_reserves = 10 [json_name = "splitReserves"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSplitReserves() {
+      copyOnWrite();
+      instance.clearSplitReserves();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetUsageResponse)
   }
   @java.lang.Override
@@ -1206,10 +1290,11 @@ public  final class GetUsageResponse extends
             "quotaStopWeekly_",
             "reviewsOnlyClaude_",
             "reviewsOnlyAgy_",
+            "splitReserves_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0003\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
-              "\u001b\u0004\u0004\u0005\u0004\u0006\u021a\u0007\u0004\b\u0004\t\u0004";
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0003\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
+              "\u001b\u0004\u0004\u0005\u0004\u0006\u021a\u0007\u0004\b\u0004\t\u0004\n\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

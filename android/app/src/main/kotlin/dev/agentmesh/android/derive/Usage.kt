@@ -48,19 +48,20 @@ class UsageView(
 fun usageView(u: GetUsageResponse): UsageView {
     val reserve = u.quotaStop
     // A host that predates the weekly reserve says 0 for it: its one reserve held every window.
-    val reserveWeekly = if (u.quotaStopWeekly != 0) u.quotaStopWeekly else reserve
+    val split = u.splitReserves
+    val reserveWeekly = if (split) u.quotaStopWeekly else reserve
     val claude = u.claude.windowsList.map { w ->
         // The host says which windows are at the reserve (a window whose reset has passed isn't, whatever it last read).
         QuotaBar(w.key, w.label, w.used, w.label in u.claude.atReserveList, if (w.hasResetsAt()) w.resetsAt.toMillis() else null, w.label in u.claude.reviewsOnlyList)
     }
     // agy reports what is left; the host says which rows are at their line (a weekly row has the weekly reserve). A host that
     // predates the weekly reserve sends no flags: its one reserve, from `min_quota`, is read as before.
-    val agy = u.agyRowsList.map { AgyRow(it.group, it.label, it.left, it.resets, if (u.quotaStopWeekly == 0) reserve < 100 && it.left <= u.minQuota else it.atReserve, it.reviewsOnly) }
+    val agy = u.agyRowsList.map { AgyRow(it.group, it.label, it.left, it.resets, if (split) it.atReserve else reserve < 100 && it.left <= u.minQuota, it.reviewsOnly) }
     val tiers = u.agyTiersList.map { AgyTier(it.tier, it.model, if (it.hasLeft) it.left else null, it.notesList) }
     val warnings = claude.filter { it.atReserve }.map { "Claude ${it.label}" } + agy.filter { it.atReserve }.map { "agy ${it.group} ${it.label}" }
     val reviewsOnlyWarnings = claude.filter { it.reviewsOnly }.map { "Claude ${it.label}" } + agy.filter { it.reviewsOnly }.map { "agy ${it.group} ${it.label}" }
     return UsageView(
-        reserve, reserveWeekly, u.reviewsOnlyClaude.takeIf { it != 0 } ?: 100, u.reviewsOnlyAgy.takeIf { it != 0 } ?: 100,
+        reserve, reserveWeekly, if (split) u.reviewsOnlyClaude else 100, if (split) u.reviewsOnlyAgy else 100,
         claude, u.claude.source, if (u.claude.hasFetchedAt()) u.claude.fetchedAt.toMillis() else null, agy, tiers, warnings, reviewsOnlyWarnings,
     )
 }

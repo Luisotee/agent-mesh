@@ -7644,8 +7644,11 @@ type GetUsageResponse struct {
 	// quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
 	ReviewsOnlyClaude int32 `protobuf:"varint,8,opt,name=reviews_only_claude,json=reviewsOnlyClaude,proto3" json:"reviews_only_claude,omitempty"`
 	ReviewsOnlyAgy    int32 `protobuf:"varint,9,opt,name=reviews_only_agy,json=reviewsOnlyAgy,proto3" json:"reviews_only_agy,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+	// a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+	SplitReserves bool `protobuf:"varint,10,opt,name=split_reserves,json=splitReserves,proto3" json:"split_reserves,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetUsageResponse) Reset() {
@@ -7739,6 +7742,13 @@ func (x *GetUsageResponse) GetReviewsOnlyAgy() int32 {
 		return x.ReviewsOnlyAgy
 	}
 	return 0
+}
+
+func (x *GetUsageResponse) GetSplitReserves() bool {
+	if x != nil {
+		return x.SplitReserves
+	}
+	return false
 }
 
 type SetReserveRequest struct {
@@ -9194,7 +9204,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x12\n" +
 	"\x04left\x18\x03 \x01(\x05R\x04left\x12\x19\n" +
 	"\bhas_left\x18\x04 \x01(\bR\ahasLeft\x12\x14\n" +
-	"\x05notes\x18\x05 \x03(\tR\x05notes\"\x8b\x03\n" +
+	"\x05notes\x18\x05 \x03(\tR\x05notes\"\xb2\x03\n" +
 	"\x10GetUsageResponse\x121\n" +
 	"\x06claude\x18\x01 \x01(\v2\x19.agentmesh.v1.ClaudeUsageR\x06claude\x124\n" +
 	"\bagy_rows\x18\x02 \x03(\v2\x19.agentmesh.v1.AgyUsageRowR\aagyRows\x126\n" +
@@ -9205,7 +9215,9 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x05notes\x18\x06 \x03(\tR\x05notes\x12*\n" +
 	"\x11quota_stop_weekly\x18\a \x01(\x05R\x0fquotaStopWeekly\x12.\n" +
 	"\x13reviews_only_claude\x18\b \x01(\x05R\x11reviewsOnlyClaude\x12(\n" +
-	"\x10reviews_only_agy\x18\t \x01(\x05R\x0ereviewsOnlyAgy\"m\n" +
+	"\x10reviews_only_agy\x18\t \x01(\x05R\x0ereviewsOnlyAgy\x12%\n" +
+	"\x0esplit_reserves\x18\n" +
+	" \x01(\bR\rsplitReserves\"m\n" +
 	"\x11SetReserveRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x15\n" +

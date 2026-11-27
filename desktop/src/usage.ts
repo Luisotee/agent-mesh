@@ -60,15 +60,17 @@ const date = (t?: { seconds: bigint }) => (t ? new Date(Number(t.seconds) * 1000
 
 export function usageView(u: GetUsageResponse): UsageView {
   const reserve = u.quotaStop
-  // A host that predates the weekly reserve says 0 for it: its one reserve held every window.
-  const reserveWeekly = u.quotaStopWeekly || u.quotaStop
+  // A host that predates the weekly reserve sends no `splitReserves`: its one reserve held every window, and the new
+  // fields are unset (0 is then not a setting).
+  const split = u.splitReserves
+  const reserveWeekly = split ? u.quotaStopWeekly : u.quotaStop
   const claude = (u.claude?.windows ?? []).map((w) => ({
     key: w.key,
     label: w.label,
     used: w.used,
     // The host says which windows are at the reserve (a window whose reset has passed isn't, whatever it last read).
     atReserve: (u.claude?.atReserve ?? []).includes(w.label),
-    reserve: w.reserve || (w.key === 'five_hour' ? reserve : reserveWeekly),
+    reserve: split ? w.reserve : w.key === 'five_hour' ? reserve : reserveWeekly,
     reviewsOnly: (u.claude?.reviewsOnly ?? []).includes(w.label),
     resetsAt: date(w.resetsAt),
   }))
@@ -79,7 +81,7 @@ export function usageView(u: GetUsageResponse): UsageView {
     left: r.left,
     resets: r.resets,
     // A host that predates the weekly reserve sends no flags: its one reserve, from `min_quota`, is read as before.
-    atReserve: u.quotaStopWeekly === 0 ? reserve < 100 && r.left <= u.minQuota : r.atReserve,
+    atReserve: split ? r.atReserve : reserve < 100 && r.left <= u.minQuota,
     reserve: /week/i.test(r.label) ? reserveWeekly : reserve,
     reviewsOnly: r.reviewsOnly,
   }))
@@ -89,7 +91,7 @@ export function usageView(u: GetUsageResponse): UsageView {
   return {
     reserve,
     reserveWeekly,
-    reviewsOnly: { claude: u.reviewsOnlyClaude || 100, agy: u.reviewsOnlyAgy || 100 },
+    reviewsOnly: split ? { claude: u.reviewsOnlyClaude, agy: u.reviewsOnlyAgy } : { claude: 100, agy: 100 },
     claude,
     claudeSource: u.claude?.source ?? '',
     claudeFetchedAt: date(u.claude?.fetchedAt),
@@ -158,7 +160,7 @@ export function quotaSections(u: GetUsageResponse): { reserve: number; sections:
     .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, reserve: w.reserve, reviewsOnly: w.reviewsOnly, resetsAt: w.resetsAt }))
   if (claude.length > 0) sections.push({ vendor: 'claude', name: 'Claude', lines: claude })
   // With no tier to say what is used, the fullest row stands for agy; with tiers, the rows they start on.
-  const named = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || rowIsUsed(r, v.tiers)) : []
+  const named = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || r.reviewsOnly || rowIsUsed(r, v.tiers)) : []
   const used = named.length > 0 ? named : [...v.agy].sort((x, y) => x.left - y.left).slice(0, 1)
   const chosen = used.sort((x, y) => x.left - y.left).slice(0, 3)
   // Two pools can share a label ("Weekly Limit Remaining"): the group then says which.

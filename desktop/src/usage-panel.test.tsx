@@ -68,6 +68,7 @@ describe('UsagePanel', () => {
     const { ui } = fixture({
       usage: async () =>
         create(GetUsageResponseSchema, {
+          splitReserves: true,
           quotaStop: 85,
           quotaStopWeekly: 95,
           reviewsOnlyClaude: 70,

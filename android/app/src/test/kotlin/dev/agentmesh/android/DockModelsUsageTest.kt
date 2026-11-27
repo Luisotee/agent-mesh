@@ -98,12 +98,15 @@ class DockModelsUsageTest {
         assertEquals(60, v.tiers[0].left)
         // The weekly reserve is the host's own; a host that predates it has the one reserve for every window.
         assertEquals(90, v.reserveWeekly)
-        assertEquals(95, usageView(u.toBuilder().setQuotaStopWeekly(95).build()).reserveWeekly)
+        assertEquals(95, usageView(u.toBuilder().setSplitReserves(true).setQuotaStopWeekly(95).build()).reserveWeekly)
+        // 0 is a setting once the host says it has the split reserves.
+        val zero = usageView(u.toBuilder().setSplitReserves(true).setQuotaStopWeekly(0).setReviewsOnlyClaude(0).build())
+        assertEquals(listOf(0, 0, 100), listOf(zero.reserveWeekly, zero.reviewsOnlyClaude, zero.reviewsOnlyAgy))
         assertEquals(listOf(100, 100), listOf(v.reviewsOnlyClaude, v.reviewsOnlyAgy))
     }
 
     @Test fun `what is kept for PR reviews`() {
-        val u = GetUsageResponse.newBuilder().setQuotaStop(85).setQuotaStopWeekly(95).setReviewsOnlyClaude(70)
+        val u = GetUsageResponse.newBuilder().setSplitReserves(true).setQuotaStop(85).setQuotaStopWeekly(95).setReviewsOnlyClaude(70)
             .setClaude(
                 ClaudeUsage.newBuilder().addReviewsOnly("five-hour window")
                     .addWindows(ClaudeUsageWindow.newBuilder().setKey("five_hour").setLabel("five-hour window").setUsed(75.0)),

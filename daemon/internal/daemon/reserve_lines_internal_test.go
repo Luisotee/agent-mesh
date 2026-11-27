@@ -13,30 +13,60 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
-func TestTheLineOfAWindowIsItsReserveOrForAnyButAReviewerTheReviewsOnlyLine(t *testing.T) {
+func TestAWindowIsHeldAtItsReserveForEveryoneAndAtTheReviewsOnlyLineForAllButAReviewer(t *testing.T) {
+	type res struct {
+		line float64
+		ro   bool
+		ok   bool
+	}
+	held := func(l reserveLimits, used float64, weekly, reviewer bool) res {
+		line, ro, ok := l.held(used, weekly, reviewer)
+		return res{line, ro, ok}
+	}
 	l := reserveLimits{short: 85, weekly: 95, reviews: 100}
 	for _, tc := range []struct {
+		used             float64
 		weekly, reviewer bool
-		want             float64
-		ro               bool
+		want             res
 	}{
-		{false, false, 85, false}, {true, false, 95, false}, {false, true, 85, false}, {true, true, 95, false},
+		{84, false, false, res{}}, {85, false, false, res{85, false, true}}, {85, false, true, res{85, false, true}},
+		{90, true, false, res{}}, {95, true, true, res{95, false, true}},
 	} {
-		if got, ro := l.line(tc.weekly, tc.reviewer); got != tc.want || ro != tc.ro {
-			t.Errorf("line(weekly=%v, reviewer=%v) = %v, %v; want %v, %v", tc.weekly, tc.reviewer, got, ro, tc.want, tc.ro)
+		if got := held(l, tc.used, tc.weekly, tc.reviewer); got != tc.want {
+			t.Errorf("no reviews-only line, used %v weekly=%v reviewer=%v: %+v, want %+v", tc.used, tc.weekly, tc.reviewer, got, tc.want)
 		}
 	}
 	l.reviews = 70
-	if got, ro := l.line(false, false); got != 70 || !ro {
-		t.Errorf("a task's line = %v, %v; want the reviews-only 70", got, ro)
-	}
-	if got, ro := l.line(true, true); got != 95 || ro {
-		t.Errorf("a reviewer's weekly line = %v, %v; want its reserve 95", got, ro)
+	for _, tc := range []struct {
+		used             float64
+		weekly, reviewer bool
+		want             res
+	}{
+		{69, false, false, res{}},
+		{70, false, false, res{70, true, true}},  // a task: kept for reviews
+		{70, false, true, res{}},                 // a reviewer still starts
+		{85, false, false, res{85, false, true}}, // at the reserve a task is held at the reserve, not "reviews only"
+		{85, false, true, res{85, false, true}},  // and so is a reviewer
+		{90, true, false, res{70, true, true}},
+		{95, true, true, res{95, false, true}},
+	} {
+		if got := held(l, tc.used, tc.weekly, tc.reviewer); got != tc.want {
+			t.Errorf("reviews-only 70, used %v weekly=%v reviewer=%v: %+v, want %+v", tc.used, tc.weekly, tc.reviewer, got, tc.want)
+		}
 	}
 	// A reviews-only line above the reserve changes nothing.
 	l.reviews = 90
-	if got, ro := l.line(false, false); got != 85 || ro {
-		t.Errorf("reviews-only above the reserve: line = %v, %v; want 85", got, ro)
+	if got := held(l, 85, false, false); got != (res{85, false, true}) {
+		t.Errorf("reviews-only above the reserve: %+v", got)
+	}
+	// A row at its reserve is reported as that, not as reviews-only, whatever the line (a task and a reviewer alike).
+	rows := []agy.UsageRow{{Group: "g", Label: "Five Hour Limit Remaining", Left: 5}, {Group: "g", Label: "Weekly Limit Remaining", Left: 25}}
+	lim := reserveLimits{short: 90, weekly: 95, reviews: 70}
+	for _, reviewer := range []bool{false, true} {
+		row, line, ro, ok := agyRowHit(rows, lim, reviewer)
+		if !ok || ro || line != 90 || row.Left != 5 {
+			t.Errorf("agyRowHit(reviewer=%v) = %+v, %v, %v, %v; want the five-hour row at its reserve 90", reviewer, row, line, ro, ok)
+		}
 	}
 	if (reserveLimits{short: 100, weekly: 100, reviews: 100}).off() == false || (reserveLimits{short: 100, weekly: 90, reviews: 100}).off() {
 		t.Error("off() is true only when no window has a reserve and the reviews-only line is off")

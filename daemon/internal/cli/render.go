@@ -208,7 +208,7 @@ func renderUsage(m proto.Message, w io.Writer) {
 		}
 	}
 	weekly := u.QuotaStopWeekly
-	if weekly == 0 {
+	if !u.SplitReserves {
 		weekly = u.QuotaStop // a host that predates the weekly line
 	}
 	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota window once %d%% of a five-hour one (quota_stop) or %d%% of a weekly one (quota_stop_weekly) is used\n", u.QuotaStop, weekly)
@@ -216,7 +216,7 @@ func renderUsage(m proto.Message, w io.Writer) {
 		kind string
 		at   int32
 	}{{"claude", u.ReviewsOnlyClaude}, {"agy", u.ReviewsOnlyAgy}} {
-		if o.at > 0 && o.at < 100 {
+		if u.SplitReserves && o.at < 100 {
 			fmt.Fprintf(w, "reviews only: %s starts only PR reviews once %d%% of a window is used (quota_reviews_only.%s)\n", o.kind, o.at, o.kind)
 		}
 	}

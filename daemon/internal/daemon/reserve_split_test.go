@@ -275,3 +275,35 @@ func TestNoReviewsOnlyAlertForAModelOnlyReviewersUse(t *testing.T) {
 		}
 	}
 }
+
+// A change task to an idle reviewer is held to the reviews-only line as the task it is (it turns the reviewer into a
+// worker); a read-only one, a review's own kind of work, still goes through. At the reserve a task is told the
+// reserve, not the reviews-only line.
+func TestAChangeTaskToAReviewerIsHeldToTheReviewsOnlyLine(t *testing.T) {
+	ctx := context.Background()
+	w, run := startClaudeUsageWorld(t)
+	_, root := w.root(t, run.Id)
+	res, err := root.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "rev", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_REVIEWER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.set(t, "quota_reviews_only.claude", 75)
+	claudeWindows(t, w, map[string]float64{"five_hour": 80})
+	send := func(body string) error {
+		_, err := root.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: rev.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: body}))
+		return err
+	}
+	if err := send("Direct task (no plan): fix the thing"); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "only PR reviews") {
+		t.Errorf("a change task to a reviewer past the line: %v", err)
+	}
+	if got, _ := w.d.Store().Read(ctx).GetAgent(rev.Id); got.Role != v1.AgentRole_AGENT_ROLE_REVIEWER {
+		t.Errorf("the refused task still made the reviewer a %v", got.Role)
+	}
+	claudeWindows(t, w, map[string]float64{"five_hour": 92})
+	if err := guard(w, run.Id, "claude", "sonnet", false); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "quota_stop 90%") || strings.Contains(err.Error(), "only PR reviews") {
+		t.Errorf("a task at the reserve with a reviews-only line set: %v, want the reserve refusal", err)
+	}
+}

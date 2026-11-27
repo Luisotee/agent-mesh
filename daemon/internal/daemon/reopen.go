@@ -933,7 +933,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		if err != nil {
 			return nil, err
 		}
-		if err := d.reserveCheck(r1, targetRunID, a0.Kind, pm, pe, "resuming "+a0.Name, isReviewer(a0)); err != nil {
+		if err := d.reserveCheck(r1, targetRunID, a0.Kind, pm, pe, "resuming "+a0.Name, d.reviewWork(r1, a0, task)); err != nil {
 			return nil, err
 		}
 	}

@@ -150,17 +150,25 @@ func (d *Daemon) reserveLimits(r store.Reader, kind string) reserveLimits {
 // off reports there is nothing to enforce: no reserve on any window and no reviews-only line.
 func (l reserveLimits) off() bool { return l.short >= 100 && l.weekly >= 100 && l.reviews >= 100 }
 
-// line is the percent used at which a window takes no new work of this sort, and whether that line is the
-// reviews-only one: a reviewer runs up to the window's reserve, anything else only up to the reviews-only line.
-func (l reserveLimits) line(weekly, reviewer bool) (pct float64, reviewsOnly bool) {
-	stop := l.short
+// stopLine is the percent used at which a window takes no new work of any sort: its reserve.
+func (l reserveLimits) stopLine(weekly bool) float64 {
 	if weekly {
-		stop = l.weekly
+		return l.weekly
 	}
-	if !reviewer && l.reviews < stop {
-		return l.reviews, true
+	return l.short
+}
+
+// held says how a window at `used` percent is held for this sort of work: at its reserve (nothing starts), past the
+// reviews-only line but under the reserve (a reviewer still starts; `reviewer` false), or not at all. `line` is the
+// percent it was held at.
+func (l reserveLimits) held(used float64, weekly, reviewer bool) (line float64, reviewsOnly, ok bool) {
+	if stop := l.stopLine(weekly); stop < 100 && used >= stop {
+		return stop, false, true
 	}
-	return stop, false
+	if !reviewer && l.reviews < 100 && used >= l.reviews {
+		return l.reviews, true, true
+	}
+	return 0, false, false
 }
 
 func (d *Daemon) usageEnv(key string) string {
@@ -638,19 +646,19 @@ func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, ext
 	}
 }
 
-// agyRowHit is the row of a model's that is at its line for this sort of work: a row at its reserve outranks one
-// only at the reviews-only line, and then the one with the least left.
-func agyRowHit(rows []agy.UsageRow, lim reserveLimits, reviewer bool) (row agy.UsageRow, reviewsOnly, ok bool) {
+// agyRowHit is the row of a model's that is held for this sort of work: a row at its reserve outranks one only
+// at the reviews-only line, and then the one with the least left.
+func agyRowHit(rows []agy.UsageRow, lim reserveLimits, reviewer bool) (row agy.UsageRow, line float64, reviewsOnly, ok bool) {
 	for _, r := range rows {
-		line, ro := lim.line(r.Weekly(), reviewer)
-		if line >= 100 || r.Left > int(math.Round(100-line)) {
+		ln, ro, held := lim.held(100-float64(r.Left), r.Weekly(), reviewer)
+		if !held {
 			continue
 		}
 		if !ok || (reviewsOnly && !ro) || (ro == reviewsOnly && r.Left < row.Left) {
-			row, reviewsOnly, ok = r, ro, true
+			row, line, reviewsOnly, ok = r, ln, ro, true
 		}
 	}
-	return row, reviewsOnly, ok
+	return row, line, reviewsOnly, ok
 }
 
 func (d *Daemon) agyModelAtReserveCached(model, effort string, lim reserveLimits, reviewer bool) *agyReserveHit {
@@ -678,11 +686,10 @@ func (d *Daemon) agyModelAtReserve(ctx context.Context, model, effort string, li
 }
 
 func agyHitOf(rows []agy.UsageRow, fetchedAt time.Time, id, disp string, lim reserveLimits, reviewer bool) *agyReserveHit {
-	q, ro, ok := agyRowHit(agy.ModelRows(id, disp, rows), lim, reviewer)
+	q, line, ro, ok := agyRowHit(agy.ModelRows(id, disp, rows), lim, reviewer)
 	if !ok {
 		return nil
 	}
-	line, _ := lim.line(q.Weekly(), reviewer)
 	return &agyReserveHit{
 		left:        q.Left,
 		resets:      q.Resets,
@@ -739,8 +746,8 @@ func (d *Daemon) claudeAtReserve(ctx context.Context, model string, lim reserveL
 		if !ok || claudeWindowStale(w, now) {
 			continue
 		}
-		line, ro := lim.line(meta.key != "five_hour", reviewer)
-		if w.Used < line {
+		line, ro, held := lim.held(w.Used, meta.key != "five_hour", reviewer)
+		if !held {
 			continue
 		}
 		h := claudeHit{key: meta.key, label: meta.label, used: w.Used, line: line, resets: w.Resets, reviewsOnly: ro}
@@ -855,6 +862,7 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		QuotaStopWeekly:   int32(math.Round(alimits.weekly)),
 		ReviewsOnlyClaude: int32(math.Round(climits.reviews)),
 		ReviewsOnlyAgy:    int32(math.Round(alimits.reviews)),
+		SplitReserves:     true,
 	}
 
 	if snap := d.claudeUsage(ctx, true, refresh); snap != nil {
@@ -870,7 +878,7 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 			if !ok {
 				continue
 			}
-			line, _ := climits.line(meta.key != "five_hour", true)
+			line := climits.stopLine(meta.key != "five_hour")
 			cw := &v1.ClaudeUsageWindow{
 				Key:     meta.key,
 				Label:   meta.label,
@@ -897,7 +905,7 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		out.Notes = append(out.Notes, agyLoginNote)
 	}
 	for _, row := range rows {
-		line, _ := alimits.line(row.Weekly(), true)
+		line := alimits.stopLine(row.Weekly())
 		atReserve := line < 100 && row.Left <= int(math.Round(100-line))
 		out.AgyRows = append(out.AgyRows, &v1.AgyUsageRow{
 			Group:       row.Group,
@@ -968,7 +976,13 @@ func (d *Daemon) SetReserve(ctx context.Context, req *connect.Request[v1.SetRese
 		if over {
 			return fmt.Sprintf("reserve off: new tasks allowed past %.0f%% quota_stop (5h) and %.0f%% quota_stop_weekly, and past any reviews-only line", stop, weekly)
 		}
-		return fmt.Sprintf("reserve on: new tasks stop at %.0f%% quota_stop (5h) and %.0f%% quota_stop_weekly (weekly)", stop, weekly)
+		s := fmt.Sprintf("reserve on: new tasks stop at %.0f%% quota_stop (5h) and %.0f%% quota_stop_weekly (weekly)", stop, weekly)
+		for _, kind := range []string{"claude", "agy"} {
+			if at := d.reserveLimits(r, kind).reviews; at < 100 {
+				s += fmt.Sprintf("; %s takes only PR reviews from %.0f%% (quota_reviews_only.%s)", kind, at, kind)
+			}
+		}
+		return s
 	}
 
 	if mode == "" {
@@ -1106,7 +1120,7 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 					continue
 				}
 				weekly := meta.key != "five_hour"
-				stopLine, _ := climits.line(weekly, true)
+				stopLine := climits.stopLine(weekly)
 				atStop := stopLine < 100 && w.Used >= stopLine
 				reviewsOnly := !atStop && climits.reviews < 100 && w.Used >= climits.reviews
 				if !atStop && !reviewsOnly {

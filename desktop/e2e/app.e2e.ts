@@ -229,7 +229,7 @@ test('settings are generated from the host, set from the app, and change live wh
 
   // The host refuses a value outside the schema, and the app says why.
   await panel.getByLabel('Filter settings').fill('quota_stop')
-  const quota = panel.getByRole('spinbutton', { name: 'Value of quota_stop' })
+  const quota = panel.getByRole('spinbutton', { name: 'Value of quota_stop', exact: true })
   await quota.fill('150')
   await quota.blur()
   await expect.poll(() => panel.getByRole('alert').innerText()).toContain('whole number 0 to 100')
@@ -237,9 +237,9 @@ test('settings are generated from the host, set from the app, and change live wh
   // Someone else (an agent, another device) sets it: the open screen follows, no reload.
   await host.client().setSetting({ key: 'quota_stop', value: { kind: { case: 'numberValue', value: 80 } } })
   await expect.poll(() => quota.inputValue()).toBe('80')
-  await panel.getByRole('button', { name: 'Reset quota_stop' }).click()
+  await panel.getByRole('button', { name: 'Reset quota_stop', exact: true }).click()
   await expect.poll(() => quota.inputValue()).toBe('90')
-  await expect.poll(async () => (await host.client().listSettings({ prefix: 'quota_stop' })).settings[0]?.isSet).toBe(false)
+  await expect.poll(async () => (await host.client().listSettings({ prefix: 'quota_stop' })).settings.find((s) => s.key === 'quota_stop')?.isSet).toBe(false)
 
   // And back: the sound is on again, as the default.
   await panel.getByLabel('Filter settings').fill('app.notify.sound')
@@ -349,7 +349,7 @@ test('the usage and cost screen asks the host for what mesh usage and mesh cost 
   const panel = page.getByRole('region', { name: 'Usage' })
   await panel.getByRole('heading', { name: /Usage and cost of local/ }).waitFor()
   // A throwaway host has no Claude account (the screen says so), and the fake agy reports two quota rows, one nearly spent.
-  await panel.getByText(/Reserve: the host starts nothing new on a quota once 90% of it is used/).waitFor({ timeout: 30_000 })
+  await panel.getByText(/Reserve: the host starts nothing new on a quota window once 90% of a five-hour one/).waitFor({ timeout: 30_000 })
   await panel.getByText(/No reading/).waitFor()
   await expect.poll(() => panel.getByRole('row', { name: /Neon/ }).innerText()).toContain('5% left')
   await expect.poll(() => panel.getByRole('alert').innerText()).toContain('agy Gemini 4 Neon Neon')

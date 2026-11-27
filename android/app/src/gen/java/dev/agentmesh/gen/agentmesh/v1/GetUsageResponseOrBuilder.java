@@ -127,4 +127,15 @@ public interface GetUsageResponseOrBuilder extends
    * @return The reviewsOnlyAgy.
    */
   int getReviewsOnlyAgy();
+
+  /**
+   * <pre>
+   * Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+   * a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+   * </pre>
+   *
+   * <code>bool split_reserves = 10 [json_name = "splitReserves"];</code>
+   * @return The splitReserves.
+   */
+  boolean getSplitReserves();
 }

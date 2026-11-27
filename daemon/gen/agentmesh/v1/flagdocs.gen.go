@@ -203,6 +203,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.GetUsageResponse.notes":                   "What the readings can't say: a CLI whose usage can't be read until the user logs in to it.",
 	"agentmesh.v1.GetUsageResponse.quota_stop_weekly":       "quota_stop_weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).",
 	"agentmesh.v1.GetUsageResponse.reviews_only_claude":     "quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.",
+	"agentmesh.v1.GetUsageResponse.split_reserves":          "Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).",
 	"agentmesh.v1.HeldTask.after":                           "The task it waits for: a message id.",
 	"agentmesh.v1.HeldTask.body":                            "The held task's text.",
 	"agentmesh.v1.HeldTask.from":                            "Who asked for it.",

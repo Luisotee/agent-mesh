@@ -394,3 +394,10 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 // isReviewer reports whether an agent is a PR reviewer: the one sort of work a model at its reviews-only line
 // (`quota_reviews_only.<kind>`) still starts.
 func isReviewer(a *v1.Agent) bool { return a != nil && a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER }
+
+// reviewWork reports whether a task with this body, sent to this agent, is still review work once it has arrived:
+// the agent is a reviewer and the task does not make it a worker (a change task does, `takeChange`), so a change
+// task to an idle reviewer is held to the reviews-only line as the task it is.
+func (d *Daemon) reviewWork(r store.Reader, a *v1.Agent, body string) bool {
+	return isReviewer(a) && !d.becomesWorker(r, a, body)
+}

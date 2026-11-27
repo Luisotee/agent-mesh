@@ -40,10 +40,11 @@ describe('usageView', () => {
   it('takes the lines from the host: a weekly row and a window each have their own reserve, and the reviews-only mark follows', () => {
     const v = usageView(
       create(GetUsageResponseSchema, {
+        splitReserves: true,
         quotaStop: 85,
         quotaStopWeekly: 95,
         reviewsOnlyClaude: 70,
-        reviewsOnlyAgy: 0,
+        reviewsOnlyAgy: 100,
         claude: {
           windows: [
             { key: 'five_hour', label: 'five-hour window', used: 80, reserve: 85 },
@@ -74,6 +75,11 @@ describe('usageView', () => {
     const v = usageView(create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, agyRows: [{ group: 'g', label: 'a', left: 5 }, { group: 'g', label: 'b', left: 60 }] }))
     expect(v.agy.map((r) => r.atReserve)).toEqual([true, false])
     expect(usageView(create(GetUsageResponseSchema, { quotaStop: 100, minQuota: 0, agyRows: [{ group: 'g', label: 'a', left: 0 }] })).agy.map((r) => r.atReserve)).toEqual([false])
+  })
+
+  it('reads 0 as a setting once the host has the split reserves', () => {
+    const v = usageView(create(GetUsageResponseSchema, { splitReserves: true, quotaStop: 90, quotaStopWeekly: 0, reviewsOnlyClaude: 0, reviewsOnlyAgy: 100 }))
+    expect([v.reserveWeekly, v.reviewsOnly]).toEqual([0, { claude: 0, agy: 100 }])
   })
 
   it('keeps what a tier would start on, and a missing "left"', () => {
