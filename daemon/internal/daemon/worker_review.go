@@ -147,7 +147,7 @@ func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Acto
 			"your PR's reviews are a relay (it is risky): no round and no single reviewer, only `mesh ask --repo <repo> --review <PR> --relay` (one step, then fix, then the next)"))
 	}
 	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr)) {
-		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
+		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest (a PR from another branch of your run, `mesh/%s/…`, is yours when no other agent owns it and the branch is checked out in a worktree of the repo you made, or your `done` names the PR)", self.Branch, pr.Number, pr.HeadRef, self.RunId)
 	}
 	return nil
 }
@@ -155,16 +155,18 @@ func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Acto
 // movedBranchIsItsOwn reports whether the PR is the worker's own though its head is not the branch it was
 // registered on: the head is the branch checked out in the worker's own worktree, with commits of its own past its
 // base, or the next branch of its own series (`mesh/<run>/<slug>` and `mesh/<run>/<slug>-N`, as a worker that
-// stacks PRs names them: registered on `-2`, it opens `-3`); and nothing says it is anyone else's: it is not the
-// repo's default branch, no other agent of the repo is registered on it or has it checked out, and no other worker
-// owns or asked a round on the PR. `git switch` onto another worker's branch (or `main`) does not make that PR the
-// worker's own.
+// stacks PRs names them: registered on `-2`, it opens `-3`), or another branch of its own run (`mesh/<run>/…`) that
+// its worker has a hold on (`runBranchIsItsOwn`: a worktree it made itself, or its report naming the PR); and nothing
+// says it is anyone else's: it is not the repo's default branch, no other agent of the repo is registered on it or
+// has it checked out, and no other worker owns or asked a round on the PR. `git switch` onto another worker's
+// branch (or `main`) does not make that PR the worker's own.
 func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, pr *prInfo) bool {
 	head := pr.HeadRef
 	if head == "" || head == "main" || head == "master" || head == strings.TrimPrefix(defaultBaseRO(ctx, self.Repo), "origin/") {
 		return false
 	}
-	if !(worktreeBranch(ctx, self) == head && hasBranchWork(ctx, self)) && !inSeriesOf(self.Branch, head) {
+	if !(worktreeBranch(ctx, self) == head && hasBranchWork(ctx, self)) && !inSeriesOf(self.Branch, head) &&
+		!d.runBranchIsItsOwn(ctx, r, self, pr) {
 		return false
 	}
 	agents, err := r.ListAgents("")
@@ -204,6 +206,46 @@ func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *
 		}
 	}
 	return true
+}
+
+// runBranchIsItsOwn reports whether a PR on another branch of the worker's own run is the worker's: a worker that
+// opens a PR from a worktree it made itself (`git worktree add -b mesh/<run>/<other>`, a separate change, a fix for a
+// reviewer) has the branch checked out in a linked worktree of the repo, or has reported the PR (its `done` names it,
+// so the PR is recorded as its). The branch must be of its run, and the callers' checks that no other agent owns it
+// still apply. The repo's main checkout is the user's, not the worker's, and does not count.
+func (d *Daemon) runBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, pr *prInfo) bool {
+	if !strings.HasPrefix(pr.HeadRef, "mesh/"+self.RunId+"/") {
+		return false
+	}
+	if prs, err := r.AgentPRs(self.Id); err == nil {
+		for _, p := range prs {
+			if prKey(p.Url) == prKey(pr.URL) {
+				return true
+			}
+		}
+	}
+	return linkedWorktreeBranches(ctx, self.Repo)[pr.HeadRef]
+}
+
+// linkedWorktreeBranches are the branches checked out in the linked worktrees of a repo (`git worktree list`, the
+// repo's main checkout left out: it is the first one listed).
+func linkedWorktreeBranches(ctx context.Context, repo string) map[string]bool {
+	out, err := gitRO(ctx, repo, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil
+	}
+	branches := map[string]bool{}
+	for i, block := range strings.Split(out, "\n\n") {
+		if i == 0 {
+			continue
+		}
+		for _, line := range strings.Split(block, "\n") {
+			if b, ok := strings.CutPrefix(strings.TrimSpace(line), "branch refs/heads/"); ok {
+				branches[b] = true
+			}
+		}
+	}
+	return branches
 }
 
 // seriesRE is a branch name `mesh/<run>/<slug>` whose slug may end in `-N`.
