@@ -329,7 +329,7 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
     <section aria-label="Queued prompts" className="flex flex-col items-end gap-1.5">
       {prompts.map((p) => (
         <div key={p.id} data-kind="queued" className="group flex max-w-[85%] flex-col items-end gap-0.5">
-          <div className="w-fit rounded-lg border border-dashed bg-accent/50 px-3 py-2 text-[13px] break-words whitespace-pre-wrap opacity-80">{p.text}</div>
+          <div className="w-fit min-w-0 max-w-full rounded-lg border border-dashed bg-accent/50 px-3 py-2 opacity-80"><Markdown className="text-[13px] break-words">{p.text}</Markdown></div>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
