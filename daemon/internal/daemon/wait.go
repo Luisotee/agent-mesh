@@ -87,7 +87,10 @@ func (d *Daemon) ListAgentWaits(ctx context.Context, req *connect.Request[v1.Lis
 			if msgs == nil {
 				// A run whose messages cannot be read words its agents as waiting for a message (as `agentWait` does),
 				// and does not fail the list for the other runs. An empty read stays non-nil: not read again per agent.
-				if msgs, err = r.RunMessages(id, "", -1); err != nil || msgs == nil {
+				if msgs, err = r.RunMessages(id, "", -1); err != nil {
+					d.log.Debug("reading a run's messages for the agent waits", "run", id, "err", err)
+				}
+				if msgs == nil {
 					msgs = []*v1.Message{}
 				}
 			}

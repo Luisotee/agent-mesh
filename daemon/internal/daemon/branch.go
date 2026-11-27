@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
@@ -77,21 +78,22 @@ func onItsBranch(ctx context.Context, a *v1.Agent) *v1.Agent {
 
 // followBranch records the branch a change worker's worktree is on now, with the base derived for it (where it left the
 // default branch), on its row when the worker moved on itself (`git checkout -b fix-2`): the apps, the PR stack, the
-// finished-PR move and a worktree recreated from the branch read the recorded one. Only a branch of the worker's own
-// series is taken (`inSeriesOf`: `fix`, `fix-2`, `fix-3`), never `main` or another worker's branch it merely switched to
-// (`worker_review.go`: that does not make a PR the worker's own), and only when the base can be derived (else the next idle
+// finished-PR move and a worktree recreated from the branch read the recorded one. Only a later branch of the worker's own
+// series is taken (`inSeriesOf` and a higher `-N`: `fix`, then `fix-2`, `fix-3`), never `main`, an earlier branch it went
+// back to look at, nor one another agent of the repo records or has checked out (`worker_review.go`: a switch onto another
+// worker's branch does not make that PR the worker's own); and only when the base can be derived (else the next idle
 // tries again). It runs after the idle's hook has replied, under the worktree's lock (a daemon move that failed and rolled
 // its branch back is not recorded half-way), outside any write: the base is read with git. The row is read again in the
 // write, so a move the daemon made meanwhile is not undone.
 func (d *Daemon) followBranch(ctx context.Context, a *v1.Agent) {
-	if a.Worktree == "" {
-		return
+	if a.Worktree == "" || !laterInSeries(a.Branch, movedBranch(a)) {
+		return // most idles: nothing moved, no lock taken
 	}
 	mu := d.worktreeLock(a.Worktree)
 	mu.Lock()
 	defer mu.Unlock()
-	cur := movedBranch(a)
-	if cur == "" || !inSeriesOf(a.Branch, cur) {
+	cur := movedBranch(a) // read again under the lock
+	if !laterInSeries(a.Branch, cur) || d.otherAgentHasBranch(ctx, a, cur) {
 		return
 	}
 	tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+cur)
@@ -113,4 +115,36 @@ func (d *Daemon) followBranch(ctx context.Context, a *v1.Agent) {
 	if err != nil {
 		d.log.Warn("recording the branch a worker moved to", "agent", a.Name, "branch", cur, "err", err)
 	}
+}
+
+// seriesNumber is the `-N` a branch's slug ends in (`fix-3` is 3), 0 for the bare slug.
+func seriesNumber(branch string) int {
+	i := strings.LastIndex(branch, "-")
+	if i < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(branch[i+1:])
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// laterInSeries reports whether `cur` is a branch of `recorded`'s series (same `mesh/<run>/<slug>`) made after it.
+func laterInSeries(recorded, cur string) bool {
+	return cur != "" && recorded != "" && inSeriesOf(recorded, cur) && seriesNumber(cur) > seriesNumber(recorded)
+}
+
+// otherAgentHasBranch reports whether another agent of the same repo records the branch or has it checked out.
+func (d *Daemon) otherAgentHasBranch(ctx context.Context, a *v1.Agent, branch string) bool {
+	others, err := d.store.Read(ctx).ListAgents(a.RunId)
+	if err != nil {
+		return true // cannot tell: record nothing
+	}
+	for _, o := range others {
+		if o.Id != a.Id && o.Repo == a.Repo && (o.Branch == branch || headBranch(o.Worktree) == branch) {
+			return true
+		}
+	}
+	return false
 }

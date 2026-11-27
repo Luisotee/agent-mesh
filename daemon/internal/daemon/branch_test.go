@@ -118,4 +118,19 @@ func TestTheRecordedBranchFollowsAWorkerThatMovedItself(t *testing.T) {
 	if want := gitIn(t, repo, "merge-base", "origin/main", next); got.BaseCommit != want {
 		t.Errorf("recorded base %q, want %q (where the new branch left main)", got.BaseCommit, want)
 	}
+	// Going back to an earlier branch of its series (to look at the merged PR) is not moving on.
+	gitIn(t, spawned.Worktree, "checkout", "-q", spawned.Branch)
+	w.d.FollowBranch(ctx, worker.Id)
+	if got := stored(); got.Branch != next {
+		t.Errorf("a worker back on its first branch: recorded %q, want %q kept", got.Branch, next)
+	}
+	// A later branch of the series that another agent has is that agent's, not the worker's.
+	other := w.spawn(run.Id, repo, "fix-3", "")
+	w.waitState(other.Id, v1.AgentState_AGENT_STATE_IDLE)
+	owned := "mesh/" + run.Id + "/fix-3"
+	gitIn(t, spawned.Worktree, "checkout", "-q", "--ignore-other-worktrees", owned)
+	w.d.FollowBranch(ctx, worker.Id)
+	if got := stored(); got.Branch != next {
+		t.Errorf("a worker that switched to another agent's branch: recorded %q, want %q kept", got.Branch, next)
+	}
 }
