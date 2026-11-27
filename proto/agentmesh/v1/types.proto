@@ -290,6 +290,7 @@ message Event {
     PermissionChanged permission_changed = 40;
     AgentArchived agent_archived = 41;
     UserNotice user_notice = 42;
+    RunDeleted run_deleted = 43;
   }
 }
 
@@ -476,6 +477,10 @@ message AgentRetired {
 
 // A run was stopped: its agents retired and the run closed.
 message RunStopped {}
+
+// A run was deleted (`DeleteRun`): the run, its agents and messages are gone from the host. The event has the run's id and
+// is the only one of the run left; a client that was away reads it when it resumes, and drops what it holds of the run.
+message RunDeleted {}
 
 // A run's quota reserve override changed (`mesh reserve on|off`).
 message ReserveChanged {
