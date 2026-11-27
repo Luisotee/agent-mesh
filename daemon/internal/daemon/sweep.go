@@ -105,9 +105,11 @@ func pathInside(path, top string) bool {
 }
 
 // sweepable returns the worker worktree path safe to sweep: inside worktreesRoot at least `<run>/<slug>` deep,
-// never a repo's main checkout, never a root agent, and never holding any root agent's cwd/worktree.
+// never a repo's main checkout, never a lead, and never holding a lead's cwd/worktree. A plain agent is a root with a
+// run and a worktree of its own and no workers, so its worktree is swept like a worker's (and is no lead's cwd: `rootByRun`
+// leaves it out).
 func sweepable(worktreesRoot string, a *v1.Agent, rootCwds []string) (string, bool) {
-	if a == nil || a.Role == v1.AgentRole_AGENT_ROLE_ROOT || a.Worktree == "" {
+	if a == nil || isLead(a) || a.Worktree == "" {
 		return "", false
 	}
 	top := resolvePath(a.Worktree)
@@ -129,6 +131,9 @@ func sweepable(worktreesRoot string, a *v1.Agent, rootCwds []string) (string, bo
 	}
 	return top, true
 }
+
+// isLead says whether an agent is a run's lead: a root that is not a plain agent.
+func isLead(a *v1.Agent) bool { return a.Role == v1.AgentRole_AGENT_ROLE_ROOT && !a.Plain }
 
 func ownAgent(p proc.Info, a *v1.Agent) bool {
 	if a.SessionId == "" {
@@ -232,7 +237,7 @@ func (d *Daemon) sweepWorktrees(ctx context.Context, agents []*v1.Agent) {
 	r := d.store.Read(context.WithoutCancel(ctx))
 	rootByRun := make(map[string][]string)
 	for _, a := range agents {
-		if a == nil || a.Role == v1.AgentRole_AGENT_ROLE_ROOT || a.Worktree == "" {
+		if a == nil || isLead(a) || a.Worktree == "" {
 			continue
 		}
 		if _, ok := rootByRun[a.RunId]; ok {
@@ -245,7 +250,7 @@ func (d *Daemon) sweepWorktrees(ctx context.Context, agents []*v1.Agent) {
 		}
 		var cwds []string
 		for _, ra := range runAgents {
-			if ra.Role == v1.AgentRole_AGENT_ROLE_ROOT && ra.Worktree != "" {
+			if isLead(ra) && ra.Worktree != "" {
 				cwds = append(cwds, ra.Worktree)
 			}
 		}

@@ -248,7 +248,8 @@ func ghDir(a *v1.Agent) string {
 }
 
 // branchPRs reads the PRs from an agent's branches: all states, those whose head is on one of its stack's branches
-// (`stackBranches`: the recorded one and the `-2`, `-3` … it moved on to).
+// (`stackBranches`: the recorded one and the `-2`, `-3` … it moved on to). The branches are asked about at once, so one
+// slow `gh` does not hold up the rest inside the brief's wait (`briefGitHubWait`); the answers are read in branch order.
 func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error) {
 	remotes := githubRepos(ctx, a.Repo)
 	if len(remotes) == 0 {
@@ -256,20 +257,34 @@ func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error
 	}
 	dir := ghDir(a)
 	atHead := a.Worktree != "" && dir == a.Worktree // else dir is the main checkout, whose HEAD is not the branch
+	branches := stackBranches(ctx, d.store.Read(ctx), a, dir)
+	type answer struct {
+		prs []ghPRState
+		err error
+	}
+	answers := make([]answer, len(branches))
+	var wg sync.WaitGroup
+	for i, branch := range branches {
+		wg.Add(1)
+		go func() { // joined below, within this call
+			defer wg.Done()
+			remote := prRemote(ctx, a.Repo, branch, remotes)
+			args := []string{"pr", "list", "--repo", remotes[remote], "--head", branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
+			out, err := d.runGH(ctx, dir, args...)
+			if err == nil {
+				err = json.Unmarshal(out, &answers[i].prs)
+			}
+			answers[i].err = err
+		}()
+	}
+	wg.Wait()
 	var own []ghPRState
 	seen := map[string]bool{} // by URL: two repos' PRs may share a number
-	for _, branch := range stackBranches(ctx, d.store.Read(ctx), a, dir) {
-		remote := prRemote(ctx, a.Repo, branch, remotes)
-		args := []string{"pr", "list", "--repo", remotes[remote], "--head", branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
-		out, err := d.runGH(ctx, dir, args...)
-		if err != nil {
-			return nil, err
+	for i, branch := range branches {
+		if answers[i].err != nil {
+			return nil, answers[i].err
 		}
-		var prs []ghPRState
-		if err := json.Unmarshal(out, &prs); err != nil {
-			return nil, err
-		}
-		for _, p := range prs {
+		for _, p := range answers[i].prs {
 			if key := prSeenKey(p); !seen[key] && prOnBranch(ctx, dir, p.HeadRefOid, branch, a.BaseCommit, atHead) {
 				seen[key] = true
 				own = append(own, p)

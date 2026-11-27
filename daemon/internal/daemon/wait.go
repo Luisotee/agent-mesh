@@ -12,9 +12,10 @@ import (
 
 // agentWait is what an agent waits on now, for the apps to word an idle state truthfully: "waiting for a message" is only
 // one of five things. First match wins: a background command it started (Claude only), a wait it declared, an answer to
-// its newest question or plan, a report it sent for its current task, else a message.
+// its newest question or plan, a report it sent for its current task, else a message. The apps poll it, so the read of
+// the process table is shared (`shownBackgroundCommand`).
 func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
-	if cmd, ok := d.backgroundCommandOf(ctx, a); ok {
+	if cmd, ok := d.shownBackgroundCommand(ctx, a); ok {
 		return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_BACKGROUND, Detail: cmd}
 	}
 	r := d.store.Read(ctx)
@@ -29,12 +30,18 @@ func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
 	if err != nil {
 		return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 	}
-	return waitFrom(a, parent, msgs, d.now())
+	waitMax := time.Duration(0)
+	if v, err := d.Setting(r, "accountability.wait_max"); err == nil {
+		waitMax = time.Duration(v.(float64) * float64(time.Second))
+	}
+	return waitFrom(a, parent, msgs, d.now(), waitMax, func(wait time.Time) bool { return d.waits.peek(a, wait) })
 }
 
 // waitFrom reads the wait off the run's messages: the newest one that settles it, scanning from the end. A task or an
-// answer to the agent ends every wait before it; a message of the agent to its parent starts the one it names.
-func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time) *v1.AgentWait {
+// answer to the agent ends every wait before it; a message of the agent to its parent starts the one it names. A
+// declared wait ends as the accountability check ends it (`reportOwed`): at its own deadline, never later than waitMax
+// (`accountability.wait_max`, 0 is unknown) from its start, and when the agent woke from it (`woke`, told the wait's start).
+func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time, waitMax time.Duration, woke func(wait time.Time) bool) *v1.AgentWait {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		switch {
@@ -43,8 +50,7 @@ func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time) *v1
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 		case m.From.GetId() != a.Id || m.ToId != a.ParentId:
 			continue
-		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT && m.WaitUntil != nil && !m.WaitUntil.AsTime().After(now):
-			// Its deadline has passed: the wait is over, as the accountability check reads it.
+		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT && waitOver(m, now, waitMax, woke):
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED, Detail: statusLine(m.Body), From: parent, Until: m.WaitUntil}
@@ -55,6 +61,18 @@ func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time) *v1
 		}
 	}
 	return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
+}
+
+// waitOver says whether a declared wait has ended: its deadline passed, or waitMax since it was declared, or the agent woke.
+func waitOver(m *v1.Message, now time.Time, waitMax time.Duration, woke func(wait time.Time) bool) bool {
+	start := m.CreatedAt.AsTime()
+	if m.WaitUntil != nil && !m.WaitUntil.AsTime().After(now) {
+		return true
+	}
+	if waitMax > 0 && !now.Before(start.Add(waitMax)) {
+		return true
+	}
+	return woke != nil && woke(start)
 }
 
 // statusLine is a message body's first non-empty line, cut at 140 characters: what a status sentence can hold.
@@ -71,8 +89,9 @@ func statusLine(body string) string {
 }
 
 // contextMarks are the points of the context meter where the daemon acts on this agent, lowest first and below the window
-// only: a lead's reset (when it resets by itself), a planner's compaction when approved, a worker's compactions. A plain
-// agent is the user's own conversation: nothing is done to it, so it has none.
+// only: a lead's reset (when it resets by itself) and its compaction when it is resumed, a planner's compaction when
+// approved, a worker's compactions (twice as late for a read-only task). A plain agent is the user's own conversation:
+// nothing is done to it, so it has none.
 func (d *Daemon) contextMarks(r store.Reader, a *v1.Agent, window int64) []*v1.ContextMark {
 	if a.Plain || !d.rt.adapters.HasCapability(a.Kind, capContext) {
 		return nil
@@ -88,9 +107,14 @@ func (d *Daemon) contextMarks(r store.Reader, a *v1.Agent, window int64) []*v1.C
 		if auto, _ := d.Setting(r, "root_reset.auto"); auto == true {
 			add("root_reset.at", "The mesh resets this lead")
 		}
+		add("compact.claude", "The mesh compacts this conversation when it is resumed")
 	case a.Role == v1.AgentRole_AGENT_ROLE_WORKER && !a.Peer:
 		add("compact.followup", "The mesh compacts before a follow-up task")
 		add("compact.claude", "The mesh compacts this conversation when it is resumed")
+		// A read-only task resumes it at twice the size (`requestResumeCompaction`), as an asker is.
+		if at, err := d.settingInt(r, "compact.claude"); err == nil && at > 0 && int64(at)*2 < window {
+			marks = append(marks, &v1.ContextMark{Tokens: int64(at) * 2, Label: "The mesh compacts this conversation when it is resumed for a read-only task", Setting: "compact.claude"})
+		}
 	case (a.Role == v1.AgentRole_AGENT_ROLE_ASKER || a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER) && !a.Peer:
 		// Read-only agents are compacted at twice the size, on resume (`requestResumeCompaction`).
 		if at, err := d.settingInt(r, "compact.claude"); err == nil && at > 0 && int64(at)*2 < window {

@@ -250,6 +250,15 @@ type waitSeen struct {
 	woke           bool
 }
 
+// peek says whether the agent was seen waking from this wait, without taking a first reading of it (the pass that judges
+// the agent does): what an app shows must not move the baseline the nudges are judged from.
+func (t *waitTracker) peek(a *v1.Agent, wait time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	w, ok := t.seen[a.Id]
+	return ok && w.wait.Equal(wait) && w.woke
+}
+
 func (t *waitTracker) woke(a *v1.Agent, wait time.Time) bool {
 	var active time.Time
 	if a.LastActivity != nil {

@@ -46,8 +46,22 @@ func TestAgentProgressNamesTheWaitAndWhereTheDaemonActsOnTheContext(t *testing.T
 	if got.Wait.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.Wait.From != lead.Name {
 		t.Errorf("a worker's wait: %v", got.Wait)
 	}
+	// A lead is compacted when it is resumed too, and a worker's read-only task at twice that (`compact.claude`, whose
+	// default is past the window).
+	w.setSetting(t, "compact.claude", 80000.0)
+	if m := marks(progress(lead.Id)); len(m) != 2 || m[0] != 80000 || m[1] != 150000 {
+		t.Errorf("a lead's marks with compact.claude at 80000: %v, want its resume compaction and its reset", m)
+	}
+	got = progress(worker.Id)
+	if m := marks(got); len(m) != 3 || m[0] != 80000 || m[1] != 100000 || m[2] != 160000 || got.Marks[2].Setting != "compact.claude" {
+		t.Errorf("a worker's marks with compact.claude at 80000: %v, want the resume, the follow-up and the read-only resume at twice", got.Marks)
+	}
 	// With the reset turned off the lead has no mark.
 	w.setSetting(t, "root_reset.auto", false)
+	if m := marks(progress(lead.Id)); len(m) != 1 || m[0] != 80000 {
+		t.Errorf("a lead the mesh does not reset has only its resume compaction: %v", m)
+	}
+	w.setSetting(t, "compact.claude", 300000.0)
 	if m := marks(progress(lead.Id)); len(m) != 0 {
 		t.Errorf("a lead the mesh does not reset still has marks: %v", m)
 	}

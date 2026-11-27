@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -121,28 +122,88 @@ func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
 }
 
 // backgroundCommandOf is the command line of the background command a Claude agent has running, and whether it has one.
+// It reads the terminals and the process table now: the accountability pass asks it.
 func (d *Daemon) backgroundCommandOf(ctx context.Context, a *v1.Agent) (string, bool) {
 	if a.Kind != claude.Kind || a.TerminalId == "" || d.rt.term == nil {
 		return "", false
 	}
-	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
-	if err != nil {
+	snap, ok := d.readProcs(ctx)
+	if !ok {
 		return "", false
 	}
-	pid := 0
-	for _, t := range res.Msg.Terminals {
-		if t.Id == a.TerminalId && !t.Exited {
-			pid = int(t.Pid)
-		}
+	return snap.backgroundCommand(a)
+}
+
+// shownBackgroundCommand is backgroundCommandOf for what an app shows (GetAgentProgress): the apps poll it for every
+// open chat, so it reuses a read of the terminals and the process table up to waitReadTTL old.
+func (d *Daemon) shownBackgroundCommand(ctx context.Context, a *v1.Agent) (string, bool) {
+	if a.Kind != claude.Kind || a.TerminalId == "" || d.rt.term == nil {
+		return "", false
 	}
+	snap, ok := d.recentProcs(ctx)
+	if !ok {
+		return "", false
+	}
+	return snap.backgroundCommand(a)
+}
+
+// waitReadTTL is how old a read of the terminals and the process table may be when an app asks what an agent waits on.
+const waitReadTTL = 5 * time.Second
+
+// procSnapshot is what the terminal host and the process table said at one moment: the pid of each live terminal.
+type procSnapshot struct {
+	pids  map[string]int
+	table []proc.Info
+}
+
+func (s procSnapshot) backgroundCommand(a *v1.Agent) (string, bool) {
+	pid := s.pids[a.TerminalId]
 	if pid <= 0 {
 		return "", false
 	}
+	return backgroundCommand(s.table, pid)
+}
+
+// readProcs reads the live terminals' pids and the process table now.
+func (d *Daemon) readProcs(ctx context.Context) (procSnapshot, bool) {
+	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+	if err != nil {
+		return procSnapshot{}, false
+	}
+	pids := map[string]int{}
+	for _, t := range res.Msg.Terminals {
+		if !t.Exited {
+			pids[t.Id] = int(t.Pid)
+		}
+	}
 	table, err := d.rt.sys.ProcTable()
 	if err != nil {
-		return "", false
+		return procSnapshot{}, false
 	}
-	return backgroundCommand(table, pid)
+	return procSnapshot{pids: pids, table: table}, true
+}
+
+// procReads is the read recentProcs keeps: one for the whole daemon, shared by every agent asked about.
+type procReads struct {
+	mu   sync.Mutex
+	at   time.Time
+	snap procSnapshot
+}
+
+// recentProcs is readProcs, or the last read when it is less than waitReadTTL old. Callers at once make one read.
+func (d *Daemon) recentProcs(ctx context.Context) (procSnapshot, bool) {
+	d.procs.mu.Lock()
+	defer d.procs.mu.Unlock()
+	now := d.now()
+	if age := now.Sub(d.procs.at); !d.procs.at.IsZero() && age >= 0 && age < waitReadTTL {
+		return d.procs.snap, true
+	}
+	snap, ok := d.readProcs(ctx)
+	if !ok {
+		return procSnapshot{}, false
+	}
+	d.procs.at, d.procs.snap = now, snap
+	return snap, true
 }
 
 // withinBackgroundGrace reports whether a running background command is still let run: the agent's last activity
