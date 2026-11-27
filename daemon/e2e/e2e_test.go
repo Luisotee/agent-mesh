@@ -929,6 +929,10 @@ func TestMeshOpenReattachesAfterMeshdRestarts(t *testing.T) {
 	master.Write([]byte{0x1d}) // Ctrl-]
 	select {
 	case err := <-exited:
+		if err == nil {
+			// The process is gone, but the copy of its last output into `seen` runs on its own goroutine.
+			waitSeen("the detach notice", "[detached]")
+		}
 		if err != nil || !strings.Contains(seen.String(), "[detached]") {
 			t.Errorf("detach: %v\n%s", err, seen.String())
 		}
