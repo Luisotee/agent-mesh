@@ -446,9 +446,9 @@ func TestTheKillGuardRefusesAKillByPattern(t *testing.T) {
 	}
 	refused := []string{`pkill -f "sleep 30"`, `killall node`, `echo x; pkill sleep`, `sudo pkill x`, `timeout 5 pkill x`,
 		`bash -c "pkill x"`, `/usr/bin/killall5 -9`, `kill $(pgrep -f sleep)`, "kill `pidof node`", `pgrep -f x | xargs kill`,
-		`ps aux | grep sleep | awk '{print $2}' | xargs kill`, `(pkill x)`}
+		`ps aux | grep sleep | awk '{print $2}' | xargs kill`, `(pkill x)`, `kill $(ps aux | grep sleep | awk '{print $2}')`}
 	passed := []string{`kill 1234`, `kill -9 $!`, `kill $(cat pidfile)`, `kill $(pgrep -P $$)`, `pgrep -P 5 | xargs kill`,
-		`pgrep -f sleep`, `grep pkill notes.md`, `echo "no pkill"`, `man killall`, `ls -la`, `go test ./...`}
+		`pgrep -f sleep`, `kill $(cat pidfile) && pgrep -f sleep`, `grep pkill notes.md`, `echo "no pkill"`, `man killall`, `ls -la`, `go test ./...`}
 	script := `import(process.argv[1]).then(async (m) => {
   const hook = (await m.KillGuard())["tool.execute.before"]
   const refused = async (tool, args) => { try { await hook({ tool }, { args }); return false } catch { return true } }

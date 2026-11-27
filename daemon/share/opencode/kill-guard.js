@@ -11,13 +11,14 @@ const killers = new RegExp(
 const lookup = "(?:pidof\\b|pgrep\\b(?![^;&|)`\\n]*(?:\\s-[a-zA-Z]*[PsgG]\\b|--(?:parent|session|pgroup)\\b)))"
 const substituted = new RegExp("\\bkill\\b[^;&|\\n]*?(?:\\$\\(|`)\\s*" + lookup)
 const piped = new RegExp(lookup + "[^;&\\n]*\\|\\s*(?:\\S+\\s+)*?xargs\\b[^;&|\\n]*\\bkill\\b")
+const psSubstituted = /\bkill\b[^;&|\n]*?(?:\$\(|`)\s*ps\b[^)`]*\|\s*grep\b/
 const psGrep = /\bps\b[^;&\n]*\|\s*grep\b[^;&\n]*\|[^;&\n]*xargs\b[^;&|\n]*\bkill\b/
 
 export const KillGuard = async () => ({
   "tool.execute.before": async (input, output) => {
     if (input.tool !== "bash") return
     const command = String(output.args?.command ?? "")
-    if (killers.test(command) || substituted.test(command) || piped.test(command) || psGrep.test(command)) {
+    if (killers.test(command) || substituted.test(command) || psSubstituted.test(command) || piped.test(command) || psGrep.test(command)) {
       throw new Error(
         "agent-mesh: refused, a kill by pattern (pkill, killall, kill of a pgrep/pidof result) signals every process on " +
           "this machine that matches, other agents' sessions included. Kill only a process you started and recorded: keep " +

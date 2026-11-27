@@ -135,7 +135,7 @@ func TestMatchPatternKillLeavesAnAgentsOwnPidsAlone(t *testing.T) {
 	for _, line := range []string{
 		`kill 1234`, `kill -9 $!`, `kill "$pid"`, `kill $(cat pidfile)`, `kill -- -$pgid`, `kill $(pgrep -P $$)`,
 		`pgrep -P 1234 | xargs kill`, `pgrep -s $sid | xargs kill`, `kill $(pgrep -g $pgid)`, `pgrep -f sleep`,
-		`pgrep -f sleep; kill 123`, `cat pidfile | xargs kill`, `ps -o pid= --ppid $$`, `ps aux | grep sleep`,
+		`pgrep -f sleep; kill 123`, `kill $(cat pidfile) && pgrep -f sleep`, `kill $(cat pidfile); pidof node`, `cat pidfile | xargs kill`, `ps -o pid= --ppid $$`, `ps aux | grep sleep`,
 		`grep pkill notes.md`, `echo "do not pkill"`, `git commit -m "no killall"`, `man pkill`, `which killall`,
 		`go test ./... 2>&1 | tail`, `ls`, ``,
 	} {

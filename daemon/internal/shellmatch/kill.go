@@ -18,7 +18,7 @@ var patternKillers = map[string]bool{"pkill": true, "killall": true, "killall5":
 func MatchPatternKill(cmdline string) string {
 	switch got := matchLine(cmdline, 0, killFinal); got {
 	case "kill":
-		if killSubstRE.MatchString(cmdline) && unscopedLookup(cmdline) {
+		if killedByLookup(cmdline) {
 			return "kill of a pgrep/pidof/ps result"
 		}
 	case "xargs kill":
@@ -45,14 +45,24 @@ func killFinal(tokens []string, piped bool) string {
 }
 
 var (
-	// a kill whose arguments hold a command substitution: `kill -9 $(…`, "kill `…"
-	killSubstRE = regexp.MustCompile("\\bkill\\b[^;&|\\n]*?(?:\\$\\(|`)")
+	// a kill whose arguments hold a command substitution that starts with a lookup: `kill -9 $(pgrep …`, "kill `pidof …"
+	killSubstRE = regexp.MustCompile("\\bkill\\b[^;&|\\n]*?(?:\\$\\(|`)\\s*(?:(pgrep|pidof)\\b([^)`]*)|ps\\b[^)`]*\\|\\s*grep\\b)")
 	// a lookup by name or pattern, up to the end of its command
 	lookupRE = regexp.MustCompile(`\b(pgrep|pidof)\b([^;&|)` + "`" + `\n]*)`)
 	psGrepRE = regexp.MustCompile(`\bps\b[^;&\n]*\|\s*grep\b`)
 	// pgrep's own flags that bound a lookup to what the caller holds: parent, session, process group
 	scopeFlagRE = regexp.MustCompile(`(?:^|\s)(?:-[a-zA-Z]*[PsgG]\b|--(?:parent|session|pgroup)\b)`)
 )
+
+// killedByLookup says whether a `kill` takes the PIDs a lookup by name or pattern gives it, in a substitution.
+func killedByLookup(line string) bool {
+	for _, m := range killSubstRE.FindAllStringSubmatch(line, -1) {
+		if m[1] == "" || m[1] == "pidof" || !scopeFlagRE.MatchString(" "+strings.TrimSpace(m[2])) {
+			return true
+		}
+	}
+	return false
+}
 
 // unscopedLookup says whether the line looks a PID up by name or pattern.
 func unscopedLookup(line string) bool {
