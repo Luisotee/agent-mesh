@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,6 +66,48 @@ func TestAgentChangesListsFilesUncommittedWorkAndUnpushedCommits(t *testing.T) {
 	gitIn(t, a.Worktree, "push", "-q", "origin", a.Branch)
 	if ch := w.changes(t, a.Id); ch.Unpushed != 0 || ch.Uncommitted != 0 || ch.Commits != 2 {
 		t.Errorf("after the push: %v", ch)
+	}
+}
+
+// A tracked file a commit added and the working tree lost is uncommitted and deleted, not untracked; and when git can't count the
+// commits the answer is unavailable, not "nothing".
+func TestAgentChangesNamesADeletedTrackedFileAndAnUnreadableBranch(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	writeFile(t, filepath.Join(a.Worktree, "x.txt"), "x\n", 0o644)
+	gitIn(t, a.Worktree, "add", "x.txt")
+	gitIn(t, a.Worktree, "commit", "-q", "-m", "add x")
+	if err := os.Remove(filepath.Join(a.Worktree, "x.txt")); err != nil { // the working tree is as the base had it again, uncommitted
+		t.Fatal(err)
+	}
+	ch := w.changes(t, a.Id)
+	var f *v1.ChangedFile
+	for _, x := range ch.Files {
+		if x.Path == "x.txt" {
+			f = x
+		}
+	}
+	if f == nil || f.Status != "deleted" || !f.Uncommitted || ch.Uncommitted != 1 {
+		t.Errorf("x.txt = %v (changes %v)", f, ch)
+	}
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		cur, err := tx.GetAgent(a.Id)
+		if err != nil {
+			return err
+		}
+		cur.BaseCommit = "0123456789012345678901234567890123456789"
+		return tx.PutAgent(cur)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ch := w.changes(t, a.Id); ch.Available || ch.Reason == "" {
+		t.Errorf("a base git can't find: %v", ch)
+	}
+	if _, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(""), Agent: a.Id, Force: true})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "guess") {
+		t.Errorf("archiving what can't be read: %v", err)
 	}
 }
 
@@ -140,6 +183,138 @@ func TestArchiveRemovesTheWorktreeKeepsTheBranchAndResumeBringsItBack(t *testing
 	})
 	if b, err := os.ReadFile(filepath.Join(a.Worktree, "wip.txt")); err != nil || string(b) != "half" {
 		t.Errorf("the worktree after the restore: %q, %v", b, err)
+	}
+}
+
+// Only a worker's worktree is archived (a root's, asker's or reviewer's is not made again when it is resumed).
+func TestArchiveIsForWorkersOnly(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	for name, role := range map[string]v1.AgentRole{"root": v1.AgentRole_AGENT_ROLE_ROOT, "asker": v1.AgentRole_AGENT_ROLE_ASKER, "reviewer": v1.AgentRole_AGENT_ROLE_REVIEWER} {
+		if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+			cur, err := tx.GetAgent(a.Id)
+			if err != nil {
+				return err
+			}
+			cur.Role = role
+			return tx.PutAgent(cur)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(""), Agent: a.Id, Force: true})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "not a worker") {
+			t.Errorf("archiving a %s: %v", name, err)
+		}
+	}
+	if _, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(""), Agent: lead.Id, Force: true})); code(err) != connect.CodeFailedPrecondition {
+		t.Errorf("archiving the lead: %v", err)
+	}
+	if got := w.agent(a.Id); got.Archived || got.State == v1.AgentState_AGENT_STATE_RETIRED {
+		t.Errorf("a refused archive changed the agent: %v", got)
+	}
+}
+
+// A worktree another agent shares (a follow-up run resumed the agent in it) stays while that agent is alive or its run is open.
+func TestArchiveKeepsAWorktreeAnotherAgentShares(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	b := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{})
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		cur, err := tx.GetAgent(b.Id)
+		if err != nil {
+			return err
+		}
+		cur.Worktree = a.Worktree
+		return tx.PutAgent(cur)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(""), Agent: a.Id, Force: true})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "shares its worktree") {
+		t.Errorf("archiving a shared worktree: %v", err)
+	}
+	if _, err := os.Stat(a.Worktree); err != nil {
+		t.Errorf("the shared worktree was touched: %v", err)
+	}
+	if got := w.agent(a.Id); got.State == v1.AgentState_AGENT_STATE_RETIRED {
+		t.Errorf("a refused archive retired the agent")
+	}
+}
+
+// A retry of a call that finished gets its first answer; one that failed half way is not recorded, and its retry carries on;
+// two calls at once archive once.
+func TestArchiveRetriesAndRacesRecordOneArchive(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	call := func(mid string) (*v1.ArchiveAgentResponse, error) {
+		res, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(mid), Agent: a.Id}))
+		if err != nil {
+			return nil, err
+		}
+		return res.Msg, nil
+	}
+	writeFile(t, filepath.Join(a.Worktree, "wip.txt"), "half", 0o644)
+	if _, err := call("again"); code(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("uncommitted work: %v", err)
+	}
+	if err := os.Remove(filepath.Join(a.Worktree, "wip.txt")); err != nil {
+		t.Fatal(err)
+	}
+	// The same id after the failure runs again (the failure was not recorded as an answer).
+	first, err := call("again")
+	if err != nil || !first.Agent.Archived {
+		t.Fatalf("the retry of a failed call: %v, %v", first, err)
+	}
+	replay, err := call("again")
+	if err != nil || !replay.Agent.Archived {
+		t.Errorf("the retry of a finished call: %v, %v", replay, err)
+	}
+	var n int
+	evs, _ := w.d.Store().Read(ctx).ListEvents(run.Id)
+	for _, ev := range evs {
+		if ev.GetAgentArchived() != nil {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d archive events", n)
+	}
+
+	b := w.spawnUnder(t, asLead, "racer", &v1.SpawnAgentRequest{})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func(i int) {
+			_, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(fmt.Sprintf("race-%d", i)), Agent: b.Id}))
+			results <- err
+		}(i)
+	}
+	ok := 0
+	for i := 0; i < 2; i++ {
+		if err := <-results; err == nil {
+			ok++
+		} else if code(err) != connect.CodeFailedPrecondition {
+			t.Errorf("the other call: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Errorf("%d of two concurrent archives succeeded", ok)
+	}
+	n = 0
+	evs, _ = w.d.Store().Read(ctx).ListEvents(run.Id)
+	for _, ev := range evs {
+		if p := ev.GetAgentArchived(); p != nil && p.Branch == b.Branch {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d archive events for the raced agent", n)
 	}
 }
 
@@ -306,6 +481,55 @@ func TestSetTailnetCannotTurnOffANodeStartedWithTheFlag(t *testing.T) {
 	case <-restarts:
 		t.Error("restarted for nothing")
 	case <-time.After(1200 * time.Millisecond):
+	}
+}
+
+// A node the marker started goes off when asked: the answer says it is off, and the marker is gone.
+func TestSetTailnetOffReportsOffForANodeTheMarkerStarted(t *testing.T) {
+	tn := &fakeTailnet{closed: make(chan struct{}), status: &v1.TailnetStatusResponse{State: "Running"}}
+	restarts := make(chan struct{}, 1)
+	h := startWithConfig(t, daemon.Config{Tailnet: tn, Restart: func() { restarts <- struct{}{} }})
+	marker := daemon.TailnetMarker(h.state)
+	writeFile(t, marker, "", 0o600)
+	res, err := h.device.Mesh.SetTailnet(context.Background(), connect.NewRequest(&v1.SetTailnetRequest{Meta: meta(""), Enabled: false}))
+	if err != nil || res.Msg.Enabled || !res.Msg.Restarting {
+		t.Errorf("off: %v, %v", res, err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("marker: %v", err)
+	}
+	<-restarts
+}
+
+// A binary that can't run the node is told so before the marker is written: it would exit at every start.
+func TestSetTailnetOnRefusesABinaryThatCannotRunTheNode(t *testing.T) {
+	restarts := make(chan struct{}, 1)
+	h := startWithConfig(t, daemon.Config{Restart: func() { restarts <- struct{}{} }, TailnetCheck: func() error { return fmt.Errorf("built without the tags") }})
+	_, err := h.device.Mesh.SetTailnet(context.Background(), connect.NewRequest(&v1.SetTailnetRequest{Meta: meta(""), Enabled: true}))
+	if code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "built without the tags") {
+		t.Errorf("on: %v", err)
+	}
+	if _, err := os.Stat(daemon.TailnetMarker(h.state)); !os.IsNotExist(err) {
+		t.Errorf("a marker was written: %v", err)
+	}
+	select {
+	case <-restarts:
+		t.Error("restarted for nothing")
+	case <-time.After(1200 * time.Millisecond):
+	}
+}
+
+// A marker left from before the flag would keep the node on once the flag is removed: turning off clears it.
+func TestSetTailnetOffClearsAMarkerLeftBesideTheFlag(t *testing.T) {
+	tn := &fakeTailnet{closed: make(chan struct{}), status: &v1.TailnetStatusResponse{State: "Running"}}
+	h := startWithConfig(t, daemon.Config{Tailnet: tn, TailnetFromFlag: true})
+	marker := daemon.TailnetMarker(h.state)
+	writeFile(t, marker, "", 0o600)
+	if _, err := h.device.Mesh.SetTailnet(context.Background(), connect.NewRequest(&v1.SetTailnetRequest{Meta: meta(""), Enabled: false})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Errorf("the stale marker stays: %v", err)
 	}
 }
 

@@ -79,8 +79,10 @@ type Config struct {
 	// status so its service manager starts it again. Set only by a meshd that runs under one; without it a change
 	// that needs a restart says so.
 	Restart func()
-	Now     func() time.Time
-	Logger  *slog.Logger
+	// TailnetCheck, when set, says whether this binary can run a Tailscale node (SetTailnet asks before it turns one on).
+	TailnetCheck func() error
+	Now          func() time.Time
+	Logger       *slog.Logger
 
 	// Settings is the table of settings the host knows; nil is settings.Default().
 	Settings *settings.Schema

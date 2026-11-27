@@ -42,6 +42,9 @@ describe('changeSummary and archiveAdvice', () => {
     expect(archiveAdvice(changes({}))).toEqual({})
     expect(archiveAdvice(undefined)).toEqual({})
   })
+  it('blocks the archive when the host could not read the work', () => {
+    expect(archiveAdvice(changes({ available: false, reason: 'git could not count its commits' })).blocked).toMatch(/can't be read \(git could not count its commits\)/)
+  })
 })
 
 describe('the store keeps an archived agent', () => {

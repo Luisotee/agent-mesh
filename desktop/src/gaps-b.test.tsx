@@ -10,6 +10,7 @@ import { LOCAL_DEVICE } from './components/pair-panel'
 import { TailnetPanel } from './components/tailnet-panel'
 import { AppContext } from './context'
 import { ChangedFileSchema, GetAgentChangesResponseSchema, GetAgentProgressResponseSchema, PlanItemSchema, SetTailnetResponseSchema, TailnetStatusResponseSchema } from './gen/agentmesh/v1/mesh_pb'
+import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { AgentRole, AgentSchema, AgentState, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from './model'
 import { createHostStore } from './store'
@@ -80,6 +81,18 @@ describe('Changes', () => {
     expect(within(files).getByLabelText('untracked')).toHaveTextContent('?')
   })
 
+  it('keeps what it shows while it reads again after the agent changed state', async () => {
+    const { host, client, wrap, agent: a } = fixture()
+    client.getAgentChanges.mockResolvedValue(create(GetAgentChangesResponseSchema, { available: true, uncommitted: 1 }))
+    const { rerender } = render(wrap(<Changes host={host} agent={a} />))
+    expect(await screen.findByTestId('change-summary')).toHaveTextContent('1 file uncommitted')
+    const calls = client.getAgentChanges.mock.calls.length
+    rerender(wrap(<Changes host={host} agent={agent({ state: AgentState.WORKING })} />))
+    expect(screen.getByTestId('change-summary')).toHaveTextContent('1 file uncommitted')
+    expect(screen.queryByText('Loading…')).toBeNull()
+    await waitFor(() => expect(client.getAgentChanges.mock.calls.length).toBeGreaterThan(calls))
+  })
+
   it('says why when the host could not read the worktree', async () => {
     const { host, client, wrap, agent: a } = fixture()
     client.getAgentChanges.mockResolvedValue(create(GetAgentChangesResponseSchema, { reason: 'its worktree and its branch are gone' }))
@@ -142,6 +155,44 @@ describe('worktree actions', () => {
     await userEvent.click(go)
     await waitFor(() => expect(client.archiveAgent).toHaveBeenCalledTimes(1))
     expect(last(client.archiveAgent)).toMatchObject({ agent: 'w1', force: true })
+  })
+
+  it('offers Archive only for a worker, and Open in editor not for a peer; a read-only device gets neither', () => {
+    for (const [label, o] of [['a root', { role: AgentRole.ROOT }], ['an asker', { role: AgentRole.ASKER }], ['a reviewer', { role: AgentRole.REVIEWER }], ['an adopted session', { adoptedPid: 42 }], ['a peer', { peer: true }]] as const) {
+      const f = fixture(LOCAL_DEVICE, agent(o))
+      const { unmount } = render(f.wrap(<WorktreeActions host={f.host} agent={f.agent} />))
+      expect(screen.queryByRole('button', { name: 'Archive' }), label).toBeNull()
+      unmount()
+    }
+    const peer = fixture(LOCAL_DEVICE, agent({ peer: true }))
+    const { unmount } = render(peer.wrap(<WorktreeActions host={peer.host} agent={peer.agent} />))
+    expect(screen.queryByRole('button', { name: 'Open in editor' })).toBeNull()
+    unmount()
+    const ro = fixture(LOCAL_DEVICE)
+    ro.host.store.setState({ conn: { kind: 'ready', hello: { capabilities: [], actor: { id: 'viewer', class: ActorClass.READ_ONLY_DEVICE } } as never }, daemon: { actor: { class: ActorClass.READ_ONLY_DEVICE } } as never })
+    render(ro.wrap(<WorktreeActions host={ro.host} agent={ro.agent} />))
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open in editor' })).toBeNull()
+  })
+
+  it('keeps Archive off until what the worktree holds is read, and forgets a tick when the dialog closes', async () => {
+    const { host, client, wrap, agent: a } = fixture()
+    let release!: (r: ReturnType<typeof create<typeof GetAgentChangesResponseSchema>>) => void
+    client.getAgentChanges.mockImplementationOnce(() => new Promise((res) => (release = res)))
+    render(wrap(<WorktreeActions host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Archive app-fix?' })
+    expect(within(dialog).getByRole('button', { name: 'Archive' })).toBeDisabled()
+    release(create(GetAgentChangesResponseSchema, { available: true, unpushed: 1 }))
+    await userEvent.click(await within(dialog).findByRole('checkbox'))
+    expect(within(dialog).getByRole('button', { name: 'Archive' })).toBeEnabled()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    client.getAgentChanges.mockResolvedValue(create(GetAgentChangesResponseSchema, { available: true, unpushed: 1 }))
+    await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    const again = await screen.findByRole('dialog', { name: 'Archive app-fix?' })
+    expect(await within(again).findByRole('checkbox')).not.toBeChecked()
+    expect(within(again).getByRole('button', { name: 'Archive' })).toBeDisabled()
   })
 
   it('says it is archived and offers Restore, which resumes the agent', async () => {

@@ -1,4 +1,6 @@
 import type { GetAgentChangesResponse, PlanItem } from './gen/agentmesh/v1/mesh_pb'
+import type { Agent } from './gen/agentmesh/v1/types_pb'
+import { AgentRole } from './gen/agentmesh/v1/types_pb'
 
 /** What the side panel says of an agent's work: its plan, its context, and what its worktree holds. Nothing here asks the host for anything. */
 
@@ -39,8 +41,14 @@ export const STATUS_MARK: Record<string, string> = { added: 'A', modified: 'M', 
  * branch, but a branch that was never pushed is nowhere else).
  */
 export function archiveAdvice(c: GetAgentChangesResponse | undefined): { blocked?: string; warn?: string } {
-  if (!c || !c.available) return {}
+  if (!c) return {}
+  if (!c.available) return { blocked: `Its work can't be read (${c.reason || 'git would not say'}), so nothing is archived on a guess.` }
   if (c.uncommitted > 0) return { blocked: `${plural(c.uncommitted, 'file')} ${c.uncommitted === 1 ? 'has' : 'have'} uncommitted changes. Commit or discard ${c.uncommitted === 1 ? 'it' : 'them'} first: archiving never deletes uncommitted work.` }
   if (c.unpushed > 0) return { warn: `${plural(c.unpushed, 'commit')} on its branch ${c.unpushed === 1 ? 'is' : 'are'} on no remote. The branch is kept, on this machine only: push it first if it matters.` }
   return {}
+}
+
+/** Whether the host would archive this agent at all: a worker of the daemon's own (not a root, asker or reviewer, a peer or an adopted session). */
+export function canArchive(a: Agent): boolean {
+  return a.role === AgentRole.WORKER && !a.peer && a.adoptedPid === 0 && !!a.worktree
 }

@@ -146,7 +146,7 @@ const restartDelay = 700 * time.Millisecond
 // terminal host is a process of its own), and otherwise the answer says a restart is needed. Only the host's own device may ask:
 // a paired device turning the host's network exposure on or off is the host's owner's call.
 func (d *Daemon) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error) {
-	if err := requireHostDevice(ctx); err != nil {
+	if err := requireHostDevice(ctx, "turn the host's Tailscale node on or off"); err != nil {
 		return nil, err
 	}
 	want := req.Msg.Enabled
@@ -157,6 +157,12 @@ func (d *Daemon) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTail
 	out := &v1.SetTailnetResponse{Enabled: running}
 	restart := false
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSetTailnetProcedure, out, func(*store.Tx) error {
+		if want && !running && d.cfg.TailnetCheck != nil {
+			// Before the marker: a binary that can't run the node would exit at every start, and a service manager would keep restarting it.
+			if err := d.cfg.TailnetCheck(); err != nil {
+				return failedPrecondition("this meshd can't run a Tailscale node: %v", err)
+			}
+		}
 		switch {
 		case want && running && d.cfg.TailnetFromFlag:
 			out.Enabled, out.Note = true, "already on: meshd was started with --tailscale"
@@ -170,6 +176,10 @@ func (d *Daemon) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTail
 			}
 			out.Enabled, out.RestartNeeded = true, true
 		case !want && running && d.cfg.TailnetFromFlag:
+			// A marker left from before the flag would keep the node on once the flag is removed.
+			if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
+				return failedPrecondition("couldn't remove %s: %v", marker, err)
+			}
 			out.Enabled, out.Note = true, "meshd was started with --tailscale (in its service unit or environment): remove it there to turn the node off"
 		case !want && !running && !marked:
 			out.Note = "already off"
@@ -177,7 +187,7 @@ func (d *Daemon) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTail
 			if err := os.Remove(marker); err != nil && !os.IsNotExist(err) {
 				return failedPrecondition("couldn't remove %s: %v", marker, err)
 			}
-			out.RestartNeeded = running
+			out.Enabled, out.RestartNeeded = false, running
 		}
 		if out.RestartNeeded && d.cfg.Restart != nil {
 			out.RestartNeeded, out.Restarting = false, true

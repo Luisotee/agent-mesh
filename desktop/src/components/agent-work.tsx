@@ -1,7 +1,8 @@
 import { Archive, ArchiveRestore, FileCode2 } from 'lucide-react'
 import { useState } from 'react'
 import { archiveAgent, getAgentChanges, getAgentProgress, openInEditor, resumeAgent } from '@/actions'
-import { archiveAdvice, changeSummary, contextMeter, planSummary, STATUS_MARK } from '@/agent-work'
+import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
+import { archiveAdvice, canArchive, changeSummary, contextMeter, planSummary, STATUS_MARK } from '@/agent-work'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useHostState } from '@/context'
@@ -29,7 +30,7 @@ function Section({ title, count, children }: { title: string; count?: string; ch
 
 /** The agent's plan (its todo list) and its context meter, from its CLI's record: for a CLI the host can't read, nothing. */
 export function Progress({ host, agent }: { host: HostRuntime; agent: Agent }) {
-  const got = usePolled(async () => getAgentProgress(host.client, agent.id), `${host.info.id}/${agent.id}/${agent.state}`, 20_000, !agent.archived)
+  const got = usePolled(async () => getAgentProgress(host.client, agent.id), `${host.info.id}/${agent.id}`, 20_000, !agent.archived, String(agent.state))
   const p = got.value
   if (!p?.supported) return null
   const plan = planSummary(p.plan)
@@ -63,7 +64,7 @@ export function Progress({ host, agent }: { host: HostRuntime; agent: Agent }) {
 
 /** The files the agent changed since its branch started, and what is uncommitted or on no remote: read from its worktree (`GetAgentChanges`). */
 export function Changes({ host, agent }: { host: HostRuntime; agent: Agent }) {
-  const got = usePolled(async () => getAgentChanges(host.client, agent.id), `${host.info.id}/${agent.id}/${agent.state}/${agent.archived}`, 20_000, !!agent.worktree)
+  const got = usePolled(async () => getAgentChanges(host.client, agent.id), `${host.info.id}/${agent.id}/${agent.archived}`, 20_000, !!agent.worktree, String(agent.state))
   const c = got.value
   if (!agent.worktree) return null
   const shown = c?.files.slice(0, 8) ?? []
@@ -99,10 +100,11 @@ export function Changes({ host, agent }: { host: HostRuntime; agent: Agent }) {
  */
 export function WorktreeActions({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const local = useHostState(host, (s) => s.conn.kind === 'ready' && canPair(host.store))
+  const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
-  if (!agent.worktree) return null
+  if (!agent.worktree || readOnly) return null
   async function run(what: () => Promise<unknown>, done = '') {
     if (busy) return
     setBusy(true)
@@ -123,7 +125,7 @@ export function WorktreeActions({ host, agent }: { host: HostRuntime; agent: Age
         <p role="status" className="text-xs text-muted-foreground">Archived: its worktree was removed and its branch <code className="font-mono">{agent.branch}</code> kept.</p>
       )}
       <div className="flex flex-wrap gap-1.5">
-        {local && !agent.archived && (
+        {local && !agent.archived && !agent.peer && (
           <Button size="sm" variant="outline" disabled={busy} title="Open its worktree in the host's editor (the host's editor.command setting)" onClick={() => void run(() => openInEditor(host.client, agent.id), 'Opened in the editor.')}>
             <FileCode2 /> Open in editor
           </Button>
@@ -133,7 +135,7 @@ export function WorktreeActions({ host, agent }: { host: HostRuntime; agent: Age
             <ArchiveRestore /> Restore
           </Button>
         ) : (
-          <ArchiveButton host={host} agent={agent} disabled={busy} />
+          canArchive(agent) && <ArchiveButton host={host} agent={agent} disabled={busy} />
         )}
       </div>
       {note && <p role="status" className="text-[11px] text-muted-foreground">{note}</p>}
@@ -152,14 +154,21 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
   const [sure, setSure] = useState(false)
   const read = usePolled(async () => getAgentChanges(host.client, agent.id), `archive/${host.info.id}/${agent.id}`, 5_000, open)
   const advice = archiveAdvice(read.value)
+  /** Closing forgets what was ticked and said: the next opening starts as a new question. */
+  function close(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      setSure(false)
+      setError('')
+    }
+  }
   async function confirm() {
     if (busy) return
     setBusy(true)
     setError('')
     try {
       await archiveAgent(host.client, agent.id, !!advice.warn)
-      setOpen(false)
-      setSure(false)
+      close(false)
     } catch (e) {
       setError(say(e))
     } finally {
@@ -171,7 +180,7 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
       <Button size="sm" variant="outline" disabled={disabled} onClick={() => setOpen(true)}>
         <Archive /> Archive
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={close}>
         <DialogContent title={`Archive ${agent.name}?`} description="Stops it and removes its worktree from the disk; its branch is kept, and a message to it (or Restore) makes the worktree again.">
           <div className="flex flex-col gap-3 text-sm">
             {LIVE.includes(agent.state) && <p className="text-xs text-state-needs">It is {agent.state === AgentState.WORKING ? 'working' : 'busy'} now: archiving stops it.</p>}
@@ -186,8 +195,8 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
             <p className="text-xs text-muted-foreground">Ignored files in the worktree (such as <code className="font-mono">node_modules</code>) go with it; the ones listed in the repo's <code className="font-mono">.worktreeinclude</code> are copied back on restore.</p>
             {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
             <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button variant="destructive" disabled={busy || !!advice.blocked || (!!advice.warn && !sure)} onClick={() => void confirm()}>Archive</Button>
+              <Button variant="ghost" onClick={() => close(false)}>Cancel</Button>
+              <Button variant="destructive" disabled={busy || !read.value || !!advice.blocked || (!!advice.warn && !sure)} onClick={() => void confirm()}>Archive</Button>
             </div>
           </div>
         </DialogContent>

@@ -187,6 +187,7 @@ func main() {
 		},
 		Tailnet:         tn,
 		TailnetFromFlag: fromFlag,
+		TailnetCheck:    tailnet.CheckBuild,
 		Restart:         restart,
 		Logger:          log,
 		Now:             time.Now,

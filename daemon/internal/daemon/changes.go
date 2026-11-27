@@ -36,7 +36,9 @@ func agentChanges(ctx context.Context, a *v1.Agent) *v1.GetAgentChangesResponse 
 	}
 	base := a.BaseCommit
 	dir, tip := a.Worktree, "HEAD"
+	onDisk := true
 	if st, err := os.Stat(a.Worktree); err != nil || !st.IsDir() {
+		onDisk = false
 		// Archived, or removed by hand: the branch is still in the repo.
 		if _, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "-q", "refs/heads/"+a.Branch+"^{commit}"); err != nil {
 			out.Reason = "its worktree and its branch are gone"
@@ -48,15 +50,21 @@ func agentChanges(ctx context.Context, a *v1.Agent) *v1.GetAgentChangesResponse 
 	if base == "" {
 		base = defaultBaseRO(ctx, a.Repo)
 	}
+	// What git can't read is not "nothing": a count that fails makes the answer unavailable, so nothing is archived on a guess.
+	var err1, err2 error
+	out.Commits, err1 = countCommits(ctx, dir, base+".."+tip)
+	out.Unpushed, err2 = countCommits(ctx, dir, tip, "--not", base, "--remotes")
+	if err1 != nil || err2 != nil {
+		return &v1.GetAgentChangesResponse{Reason: "git could not count its commits (is its base commit gone?)"}
+	}
 	out.Available = true
-	out.Commits = countCommits(ctx, dir, base+".."+tip)
-	out.Unpushed = countCommits(ctx, dir, tip, "--not", base, "--remotes")
 	files := map[string]*v1.ChangedFile{}
 	// Against the commit the branch started at: what the branch changed, and what is uncommitted on top of it.
 	diffTarget := []string{base}
-	if dir == a.Repo {
+	if !onDisk {
 		diffTarget = []string{base, tip}
 	}
+	diffTarget = append(diffTarget, "--")
 	if raw, _, _, err := gitRORaw(ctx, dir, append([]string{"diff", "--numstat", "-z", "-M"}, diffTarget...)...); err == nil {
 		for _, f := range parseNumstat(string(raw)) {
 			files[f.Path] = f
@@ -69,18 +77,21 @@ func agentChanges(ctx context.Context, a *v1.Agent) *v1.GetAgentChangesResponse 
 			}
 		}
 	}
-	if dir == a.Worktree {
-		if raw, _, _, err := gitRORaw(ctx, dir, "status", "--porcelain=v1", "-z", "--untracked-files=all"); err == nil {
-			for path, untracked := range parseStatus(string(raw)) {
-				out.Uncommitted++
-				f := files[path]
-				if f == nil {
-					f = &v1.ChangedFile{Path: path, Status: "untracked"}
-					files[path] = f
-				}
-				f.Uncommitted = true
-				_ = untracked
+	if onDisk {
+		raw, _, _, err := gitRORaw(ctx, dir, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+		if err != nil {
+			return &v1.GetAgentChangesResponse{Reason: "git could not read its worktree's status"}
+		}
+		for path, xy := range parseStatus(string(raw)) {
+			out.Uncommitted++
+			f := files[path]
+			if f == nil {
+				// Not in the diff against the base: a new file git doesn't know, or one a commit changed and the working tree put
+				// back (still uncommitted, and tracked).
+				f = &v1.ChangedFile{Path: path, Status: statusWord(xy)}
+				files[path] = f
 			}
+			f.Uncommitted = true
 		}
 	}
 	for _, f := range files {
@@ -102,13 +113,13 @@ func agentChanges(ctx context.Context, a *v1.Agent) *v1.GetAgentChangesResponse 
 	return out
 }
 
-func countCommits(ctx context.Context, dir string, args ...string) int32 {
+func countCommits(ctx context.Context, dir string, args ...string) (int32, error) {
 	s, err := gitRO(ctx, dir, append([]string{"rev-list", "--count"}, args...)...)
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	n, _ := strconv.Atoi(s)
-	return int32(n)
+	n, err := strconv.Atoi(s)
+	return int32(n), err
 }
 
 // parseNumstat reads `git diff --numstat -z`: `<added>\t<deleted>\t<path>\0`, and for a rename `<a>\t<d>\t\0<old>\0<new>\0`.
@@ -164,9 +175,27 @@ func parseNameStatus(raw string) map[string]string {
 	return out
 }
 
-// parseStatus reads `git status --porcelain=v1 -z`: the paths with uncommitted changes, and whether each is untracked.
-func parseStatus(raw string) map[string]bool {
-	out := map[string]bool{}
+// statusWord is the word for a porcelain status pair: "??" untracked, else by its first letter that is set.
+func statusWord(xy string) string {
+	if xy == "??" {
+		return "untracked"
+	}
+	for _, c := range []byte{xy[1], xy[0]} {
+		switch c {
+		case 'D':
+			return "deleted"
+		case 'A':
+			return "added"
+		case 'R':
+			return "renamed"
+		}
+	}
+	return "modified"
+}
+
+// parseStatus reads `git status --porcelain=v1 -z`: the paths with uncommitted changes, and each one's status pair.
+func parseStatus(raw string) map[string]string {
+	out := map[string]string{}
 	parts := strings.Split(raw, "\x00")
 	for i := 0; i < len(parts); i++ {
 		rec := parts[i]
@@ -174,7 +203,7 @@ func parseStatus(raw string) map[string]bool {
 			continue
 		}
 		xy, path := rec[:2], rec[3:]
-		out[path] = xy == "??"
+		out[path] = xy
 		if xy[0] == 'R' || xy[0] == 'C' {
 			i++ // the rename's source follows
 		}

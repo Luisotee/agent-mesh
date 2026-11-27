@@ -89,7 +89,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           <dd>{ROLE_LABEL[agent.role]}</dd>
         </dl>
         <ModelControl host={host} agent={agent} className="mt-1.5" />
-        <WorktreeActions host={host} agent={agent} />
+        <WorktreeActions key={agent.id} host={host} agent={agent} />
         <div className="mt-2 flex gap-1.5">
           {canTerminal && agent.terminalId && (
             <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>

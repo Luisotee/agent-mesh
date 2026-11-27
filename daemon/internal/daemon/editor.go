@@ -20,7 +20,7 @@ import (
 // The command is split on spaces and run with no shell, the path as its one extra argument, which is absolute (so it can't be
 // read as an option) and is resolved through symlinks: it must be the worktree or something inside it.
 func (d *Daemon) OpenInEditor(ctx context.Context, req *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error) {
-	if err := requireHostDevice(ctx); err != nil {
+	if err := requireHostDevice(ctx, "open the host's editor"); err != nil {
 		return nil, err
 	}
 	a, err := d.findAgentCrossRun(d.store.Read(ctx), auth.ActorFrom(ctx), req.Msg.Agent)

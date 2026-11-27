@@ -69,11 +69,11 @@ func (d *Daemon) disconnectActor(actorID string) {
 	}
 }
 
-// requireHostDevice allows only the host's own device (RevokeDevice).
-func requireHostDevice(ctx context.Context) error {
+// requireHostDevice allows only the host's own device; `what` completes the refusal ("only the host's own device may <what>").
+func requireHostDevice(ctx context.Context, what string) error {
 	actor := auth.ActorFrom(ctx)
 	if actor == nil || actor.Id != localDeviceID {
-		return denied("only the host's own device may manage paired devices")
+		return denied("only the host's own device may %s", what)
 	}
 	return nil
 }
@@ -339,7 +339,7 @@ func (d *Daemon) ListDevices(ctx context.Context, req *connect.Request[v1.ListDe
 
 // RevokeDevice revokes a paired device's token and immediately closes its active streams.
 func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
-	if err := requireHostDevice(ctx); err != nil {
+	if err := requireHostDevice(ctx, "manage paired devices"); err != nil {
 		return nil, err
 	}
 	id := strings.TrimSpace(req.Msg.DeviceId)

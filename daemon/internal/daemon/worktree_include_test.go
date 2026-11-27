@@ -98,11 +98,12 @@ func TestWorktreeIncludeStopsAtTheByteCapAndNeverOverwrites(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(wt, "data", "b.txt")); err != nil || res.Copied != 1 || res.Bytes != 600 {
 		t.Errorf("copied %d files, %d bytes (b.txt: %v)", res.Copied, res.Bytes, err)
 	}
-	over := daemon.CopyWorktreeInclude(context.Background(), repo, filepath.Join(t.TempDir(), "other"), 700)
+	other := t.TempDir()
+	over := daemon.CopyWorktreeInclude(context.Background(), repo, other, 700)
 	if over.Copied != 1 || len(over.Skipped) != 1 || !strings.Contains(over.Skipped[0], "over the") {
 		t.Errorf("over the cap: copied %d, skipped %v", over.Copied, over.Skipped)
 	}
-	if none := daemon.CopyWorktreeInclude(context.Background(), repo, filepath.Join(t.TempDir(), "none"), 0); none.Copied != 0 {
+	if none := daemon.CopyWorktreeInclude(context.Background(), repo, t.TempDir(), 0); none.Copied != 0 {
 		t.Errorf("a cap of 0 copied %d files", none.Copied)
 	}
 }
@@ -121,5 +122,66 @@ func TestWorktreeIncludeIsNothingWithoutTheListOrWithAnUnusableOne(t *testing.T)
 	}
 	if res := daemon.CopyWorktreeInclude(context.Background(), repo, wt, 1<<20); res.Copied != 0 || len(res.Skipped) != 1 {
 		t.Errorf("a list that is a symlink: %+v", res)
+	}
+}
+
+// A checked-out branch may hold a symlink where the repo has a directory: the copy never writes through it.
+func TestWorktreeIncludeNeverWritesThroughASymlinkOfTheWorktree(t *testing.T) {
+	repo := gitRepo(t)
+	writeFile(t, filepath.Join(repo, ".gitignore"), "secrets/\n", 0o644)
+	writeFile(t, filepath.Join(repo, ".worktreeinclude"), "secrets/\n", 0o644)
+	gitIn(t, repo, "add", ".gitignore", ".worktreeinclude")
+	gitIn(t, repo, "commit", "-q", "-m", "files")
+	writeFile(t, filepath.Join(repo, "secrets", "key.pem"), "key", 0o600)
+	wt := filepath.Join(t.TempDir(), "wt")
+	gitIn(t, repo, "worktree", "add", "-q", "-b", "feature", wt)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(wt, "secrets")); err != nil {
+		t.Fatal(err)
+	}
+	res := daemon.CopyWorktreeInclude(context.Background(), repo, wt, 1<<20)
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Errorf("a file was written outside the worktree: %v", entries)
+	}
+	if res.Copied != 0 || len(res.Skipped) == 0 {
+		t.Errorf("copied %d, skipped %v", res.Copied, res.Skipped)
+	}
+}
+
+// A cap of 0 copies nothing, not even an empty file.
+func TestWorktreeIncludeWithACapOfZeroCopiesNothing(t *testing.T) {
+	repo := gitRepo(t)
+	writeFile(t, filepath.Join(repo, ".gitignore"), ".env\n", 0o644)
+	writeFile(t, filepath.Join(repo, ".worktreeinclude"), ".env\n", 0o644)
+	gitIn(t, repo, "add", ".gitignore", ".worktreeinclude")
+	gitIn(t, repo, "commit", "-q", "-m", "files")
+	writeFile(t, filepath.Join(repo, ".env"), "", 0o600)
+	wt := filepath.Join(t.TempDir(), "wt")
+	gitIn(t, repo, "worktree", "add", "-q", "-b", "feature", wt)
+	if res := daemon.CopyWorktreeInclude(context.Background(), repo, wt, 0); res.Copied != 0 {
+		t.Errorf("copied %d", res.Copied)
+	}
+	if _, err := os.Lstat(filepath.Join(wt, ".env")); err == nil {
+		t.Error("an empty file was copied under a cap of 0")
+	}
+}
+
+// A directory the list names whole, of which the repo ignores only a file, gives that file and no other.
+func TestWorktreeIncludeTakesTheIgnoredFilesOfAPartlyIgnoredDirectory(t *testing.T) {
+	repo := gitRepo(t)
+	writeFile(t, filepath.Join(repo, ".gitignore"), "config/.env\n", 0o644)
+	writeFile(t, filepath.Join(repo, ".worktreeinclude"), "config/\n", 0o644)
+	gitIn(t, repo, "add", ".gitignore", ".worktreeinclude")
+	gitIn(t, repo, "commit", "-q", "-m", "files")
+	writeFile(t, filepath.Join(repo, "config", ".env"), "TOKEN=1", 0o600)
+	writeFile(t, filepath.Join(repo, "config", "draft.txt"), "work in progress", 0o644)
+	wt := filepath.Join(t.TempDir(), "wt")
+	gitIn(t, repo, "worktree", "add", "-q", "-b", "feature", wt)
+	daemon.CopyWorktreeInclude(context.Background(), repo, wt, 1<<20)
+	if b, err := os.ReadFile(filepath.Join(wt, "config", ".env")); err != nil || string(b) != "TOKEN=1" {
+		t.Errorf("config/.env: %q, %v", b, err)
+	}
+	if _, err := os.Lstat(filepath.Join(wt, "config", "draft.txt")); err == nil {
+		t.Error("an unignored file was copied")
 	}
 }

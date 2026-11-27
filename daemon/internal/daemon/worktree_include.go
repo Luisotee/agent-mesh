@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -40,6 +41,9 @@ type WorktreeInclude struct {
 func copyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes int64) WorktreeInclude {
 	var out WorktreeInclude
 	skip := func(format string, a ...any) { out.Skipped = append(out.Skipped, fmt.Sprintf(format, a...)) }
+	if maxBytes <= 0 {
+		return out // a cap of 0 copies nothing, not even an empty file
+	}
 	list := filepath.Join(repo, worktreeIncludeFile)
 	st, err := os.Lstat(list)
 	if err != nil {
@@ -72,9 +76,45 @@ func copyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes in
 		skip("git check-ignore: %v", err)
 		return out
 	}
+	// A directory the list names whole but the repo ignores only in part (`config/.env` is ignored, `config/` is not): its files
+	// are looked at one by one.
+	isIgnored := map[string]bool{}
+	for _, p := range ignored {
+		isIgnored[p] = true
+	}
+	for _, c := range candidates {
+		if !strings.HasSuffix(c, "/") || isIgnored[c] {
+			continue
+		}
+		inside, _, _, err := gitRORaw(ctx, repo, "ls-files", "-z", "--others", "--ignored", "--exclude-from="+list, "--", c)
+		if err != nil {
+			skip("git ls-files %s: %v", c, err)
+			continue
+		}
+		var files []string
+		for _, p := range strings.Split(string(inside), "\x00") {
+			if p != "" && unsafeRel(p) == "" && len(files) < worktreeIncludeMaxFiles {
+				files = append(files, p)
+			}
+		}
+		more, err := gitIgnored(ctx, repo, files)
+		if err != nil {
+			skip("git check-ignore %s: %v", c, err)
+			continue
+		}
+		ignored = append(ignored, more...)
+	}
 	sort.Strings(ignored)
+	// Everything is written through a handle on the worktree that refuses a path leaving it: the checked-out branch may hold a
+	// symlink where the repo has a directory, and a write through it would land wherever it points.
+	dest, err := os.OpenRoot(worktree)
+	if err != nil {
+		skip("%s: %v", worktree, err)
+		return out
+	}
+	defer dest.Close()
 	for _, rel := range ignored {
-		walkInclude(root, worktree, strings.TrimSuffix(rel, "/"), maxBytes, &out, skip)
+		walkInclude(root, dest, strings.TrimSuffix(rel, "/"), maxBytes, &out, skip)
 	}
 	return out
 }
@@ -124,7 +164,7 @@ func asExit(err error, ee **exec.ExitError) bool {
 
 // walkInclude copies one listed path: a file, or every regular file under a directory. A symlink is never followed or copied,
 // and a file whose real path leaves the repo is left out.
-func walkInclude(root, worktree, rel string, maxBytes int64, out *WorktreeInclude, skip func(string, ...any)) {
+func walkInclude(root string, dest *os.Root, rel string, maxBytes int64, out *WorktreeInclude, skip func(string, ...any)) {
 	src := filepath.Join(root, filepath.FromSlash(rel))
 	_ = filepath.WalkDir(src, func(path string, de fs.DirEntry, err error) error {
 		if err != nil {
@@ -162,16 +202,20 @@ func walkInclude(root, worktree, rel string, maxBytes int64, out *WorktreeInclud
 			skip("%s: over the %d MB cap", r, maxBytes>>20)
 			return nil
 		}
-		to := filepath.Join(worktree, filepath.FromSlash(r))
-		if _, err := os.Lstat(to); err == nil {
+		to := filepath.FromSlash(r)
+		if _, err := dest.Lstat(to); err == nil {
 			return nil // the checkout has it already (a tracked file): never overwritten
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			skip("%s: %v", r, err) // a path through a symlink or the like
+			return nil
 		}
-		if err := copyOne(path, to, info.Mode().Perm()); err != nil {
+		n, err := copyOne(path, dest, to, info.Mode().Perm(), maxBytes-out.Bytes)
+		if err != nil {
 			skip("%s: %v", r, err)
 			return nil
 		}
 		out.Copied++
-		out.Bytes += info.Size()
+		out.Bytes += n
 		return nil
 	})
 }
@@ -189,25 +233,33 @@ func insideDir(root, p string) bool {
 	return err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator))
 }
 
-func copyOne(from, to string, mode fs.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
-		return err
+// copyOne copies a file to `to`, inside dest only, creating nothing that exists, and at most `room` bytes: a file that grew since
+// it was measured is left out, not truncated.
+func copyOne(from string, dest *os.Root, to string, mode fs.FileMode, room int64) (int64, error) {
+	if dir := filepath.Dir(to); dir != "." {
+		if err := dest.MkdirAll(dir, 0o700); err != nil {
+			return 0, err
+		}
 	}
 	in, err := os.Open(from)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer in.Close()
-	f, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	f, err := dest.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if _, err := io.Copy(f, in); err != nil {
+	n, err := io.Copy(f, io.LimitReader(in, room+1))
+	if err == nil && n > room {
+		err = fmt.Errorf("grew past the cap while it was copied")
+	}
+	if err != nil {
 		f.Close()
-		os.Remove(to)
-		return err
+		_ = dest.Remove(to)
+		return 0, err
 	}
-	return f.Close()
+	return n, f.Close()
 }
 
 // includeInto copies the repo's .worktreeinclude files into a worktree just made, with the cap of `worktree.include_max_mb`, and logs
