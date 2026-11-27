@@ -674,6 +674,123 @@ func (x *WithdrawPromptResponse) GetPrompt() *QueuedPrompt {
 	return nil
 }
 
+type SendPromptAnywayRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	// Agent id or name.
+	Agent string `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
+	// The queued prompt to type now.
+	PromptId string `protobuf:"bytes,3,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	// The draft the caller was shown (`QueuedPrompt.held_text`) and confirmed to discard. The daemon types only if the box still
+	// holds exactly this text (whitespace aside).
+	Draft         string `protobuf:"bytes,4,opt,name=draft,proto3" json:"draft,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendPromptAnywayRequest) Reset() {
+	*x = SendPromptAnywayRequest{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendPromptAnywayRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendPromptAnywayRequest) ProtoMessage() {}
+
+func (x *SendPromptAnywayRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendPromptAnywayRequest.ProtoReflect.Descriptor instead.
+func (*SendPromptAnywayRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *SendPromptAnywayRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *SendPromptAnywayRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *SendPromptAnywayRequest) GetPromptId() string {
+	if x != nil {
+		return x.PromptId
+	}
+	return ""
+}
+
+func (x *SendPromptAnywayRequest) GetDraft() string {
+	if x != nil {
+		return x.Draft
+	}
+	return ""
+}
+
+type SendPromptAnywayResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The draft that was cleared out of the box, as it read just before.
+	Discarded     string `protobuf:"bytes,1,opt,name=discarded,proto3" json:"discarded,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendPromptAnywayResponse) Reset() {
+	*x = SendPromptAnywayResponse{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendPromptAnywayResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendPromptAnywayResponse) ProtoMessage() {}
+
+func (x *SendPromptAnywayResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendPromptAnywayResponse.ProtoReflect.Descriptor instead.
+func (*SendPromptAnywayResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SendPromptAnywayResponse) GetDiscarded() string {
+	if x != nil {
+		return x.Discarded
+	}
+	return ""
+}
+
 type InterruptAgentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
@@ -685,7 +802,7 @@ type InterruptAgentRequest struct {
 
 func (x *InterruptAgentRequest) Reset() {
 	*x = InterruptAgentRequest{}
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[9]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -697,7 +814,7 @@ func (x *InterruptAgentRequest) String() string {
 func (*InterruptAgentRequest) ProtoMessage() {}
 
 func (x *InterruptAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[9]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -710,7 +827,7 @@ func (x *InterruptAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterruptAgentRequest.ProtoReflect.Descriptor instead.
 func (*InterruptAgentRequest) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{9}
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *InterruptAgentRequest) GetMeta() *RequestMeta {
@@ -738,7 +855,7 @@ type InterruptAgentResponse struct {
 
 func (x *InterruptAgentResponse) Reset() {
 	*x = InterruptAgentResponse{}
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[10]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -750,7 +867,7 @@ func (x *InterruptAgentResponse) String() string {
 func (*InterruptAgentResponse) ProtoMessage() {}
 
 func (x *InterruptAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[10]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -763,7 +880,7 @@ func (x *InterruptAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterruptAgentResponse.ProtoReflect.Descriptor instead.
 func (*InterruptAgentResponse) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{10}
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *InterruptAgentResponse) GetStopped() bool {
@@ -820,7 +937,14 @@ const file_agentmesh_v1_chat_proto_rawDesc = "" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1b\n" +
 	"\tprompt_id\x18\x03 \x01(\tR\bpromptId\"L\n" +
 	"\x16WithdrawPromptResponse\x122\n" +
-	"\x06prompt\x18\x01 \x01(\v2\x1a.agentmesh.v1.QueuedPromptR\x06prompt\"\\\n" +
+	"\x06prompt\x18\x01 \x01(\v2\x1a.agentmesh.v1.QueuedPromptR\x06prompt\"\x91\x01\n" +
+	"\x17SendPromptAnywayRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
+	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1b\n" +
+	"\tprompt_id\x18\x03 \x01(\tR\bpromptId\x12\x14\n" +
+	"\x05draft\x18\x04 \x01(\tR\x05draft\"8\n" +
+	"\x18SendPromptAnywayResponse\x12\x1c\n" +
+	"\tdiscarded\x18\x01 \x01(\tR\tdiscarded\"\\\n" +
 	"\x15InterruptAgentRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\"2\n" +
@@ -848,39 +972,42 @@ func file_agentmesh_v1_chat_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_v1_chat_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agentmesh_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_agentmesh_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_agentmesh_v1_chat_proto_goTypes = []any{
-	(TranscriptKind)(0),            // 0: agentmesh.v1.TranscriptKind
-	(*TranscriptEntry)(nil),        // 1: agentmesh.v1.TranscriptEntry
-	(*ReadTranscriptRequest)(nil),  // 2: agentmesh.v1.ReadTranscriptRequest
-	(*ReadTranscriptResponse)(nil), // 3: agentmesh.v1.ReadTranscriptResponse
-	(*PromptAgentRequest)(nil),     // 4: agentmesh.v1.PromptAgentRequest
-	(*PromptAgentResponse)(nil),    // 5: agentmesh.v1.PromptAgentResponse
-	(*ListPromptsRequest)(nil),     // 6: agentmesh.v1.ListPromptsRequest
-	(*ListPromptsResponse)(nil),    // 7: agentmesh.v1.ListPromptsResponse
-	(*WithdrawPromptRequest)(nil),  // 8: agentmesh.v1.WithdrawPromptRequest
-	(*WithdrawPromptResponse)(nil), // 9: agentmesh.v1.WithdrawPromptResponse
-	(*InterruptAgentRequest)(nil),  // 10: agentmesh.v1.InterruptAgentRequest
-	(*InterruptAgentResponse)(nil), // 11: agentmesh.v1.InterruptAgentResponse
-	(*timestamppb.Timestamp)(nil),  // 12: google.protobuf.Timestamp
-	(*RequestMeta)(nil),            // 13: agentmesh.v1.RequestMeta
-	(*QueuedPrompt)(nil),           // 14: agentmesh.v1.QueuedPrompt
+	(TranscriptKind)(0),              // 0: agentmesh.v1.TranscriptKind
+	(*TranscriptEntry)(nil),          // 1: agentmesh.v1.TranscriptEntry
+	(*ReadTranscriptRequest)(nil),    // 2: agentmesh.v1.ReadTranscriptRequest
+	(*ReadTranscriptResponse)(nil),   // 3: agentmesh.v1.ReadTranscriptResponse
+	(*PromptAgentRequest)(nil),       // 4: agentmesh.v1.PromptAgentRequest
+	(*PromptAgentResponse)(nil),      // 5: agentmesh.v1.PromptAgentResponse
+	(*ListPromptsRequest)(nil),       // 6: agentmesh.v1.ListPromptsRequest
+	(*ListPromptsResponse)(nil),      // 7: agentmesh.v1.ListPromptsResponse
+	(*WithdrawPromptRequest)(nil),    // 8: agentmesh.v1.WithdrawPromptRequest
+	(*WithdrawPromptResponse)(nil),   // 9: agentmesh.v1.WithdrawPromptResponse
+	(*SendPromptAnywayRequest)(nil),  // 10: agentmesh.v1.SendPromptAnywayRequest
+	(*SendPromptAnywayResponse)(nil), // 11: agentmesh.v1.SendPromptAnywayResponse
+	(*InterruptAgentRequest)(nil),    // 12: agentmesh.v1.InterruptAgentRequest
+	(*InterruptAgentResponse)(nil),   // 13: agentmesh.v1.InterruptAgentResponse
+	(*timestamppb.Timestamp)(nil),    // 14: google.protobuf.Timestamp
+	(*RequestMeta)(nil),              // 15: agentmesh.v1.RequestMeta
+	(*QueuedPrompt)(nil),             // 16: agentmesh.v1.QueuedPrompt
 }
 var file_agentmesh_v1_chat_proto_depIdxs = []int32{
-	12, // 0: agentmesh.v1.TranscriptEntry.time:type_name -> google.protobuf.Timestamp
+	14, // 0: agentmesh.v1.TranscriptEntry.time:type_name -> google.protobuf.Timestamp
 	0,  // 1: agentmesh.v1.TranscriptEntry.kind:type_name -> agentmesh.v1.TranscriptKind
 	1,  // 2: agentmesh.v1.ReadTranscriptResponse.entries:type_name -> agentmesh.v1.TranscriptEntry
-	13, // 3: agentmesh.v1.PromptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	14, // 4: agentmesh.v1.PromptAgentResponse.queued:type_name -> agentmesh.v1.QueuedPrompt
-	14, // 5: agentmesh.v1.ListPromptsResponse.prompts:type_name -> agentmesh.v1.QueuedPrompt
-	13, // 6: agentmesh.v1.WithdrawPromptRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	14, // 7: agentmesh.v1.WithdrawPromptResponse.prompt:type_name -> agentmesh.v1.QueuedPrompt
-	13, // 8: agentmesh.v1.InterruptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	9,  // [9:9] is the sub-list for method output_type
-	9,  // [9:9] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	15, // 3: agentmesh.v1.PromptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	16, // 4: agentmesh.v1.PromptAgentResponse.queued:type_name -> agentmesh.v1.QueuedPrompt
+	16, // 5: agentmesh.v1.ListPromptsResponse.prompts:type_name -> agentmesh.v1.QueuedPrompt
+	15, // 6: agentmesh.v1.WithdrawPromptRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	16, // 7: agentmesh.v1.WithdrawPromptResponse.prompt:type_name -> agentmesh.v1.QueuedPrompt
+	15, // 8: agentmesh.v1.SendPromptAnywayRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	15, // 9: agentmesh.v1.InterruptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_chat_proto_init() }
@@ -895,7 +1022,7 @@ func file_agentmesh_v1_chat_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_chat_proto_rawDesc), len(file_agentmesh_v1_chat_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -195,6 +195,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/RevokeSelf
   /agentmesh.v1.MeshService/RingAgent
   /agentmesh.v1.MeshService/SendMessage
+  /agentmesh.v1.MeshService/SendPromptAnyway
   /agentmesh.v1.MeshService/SetReserve
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SetTailnet

@@ -124,6 +124,9 @@ const (
 	// MeshServiceWithdrawPromptProcedure is the fully-qualified name of the MeshService's
 	// WithdrawPrompt RPC.
 	MeshServiceWithdrawPromptProcedure = "/agentmesh.v1.MeshService/WithdrawPrompt"
+	// MeshServiceSendPromptAnywayProcedure is the fully-qualified name of the MeshService's
+	// SendPromptAnyway RPC.
+	MeshServiceSendPromptAnywayProcedure = "/agentmesh.v1.MeshService/SendPromptAnyway"
 	// MeshServiceInterruptAgentProcedure is the fully-qualified name of the MeshService's
 	// InterruptAgent RPC.
 	MeshServiceInterruptAgentProcedure = "/agentmesh.v1.MeshService/InterruptAgent"
@@ -336,6 +339,10 @@ type MeshServiceClient interface {
 	// Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
 	// once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
 	WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error)
+	// Type a queued prompt now although the agent's input box holds a draft (its `held` is "draft"): clears the box, as Ctrl-U
+	// does, and types the prompt. For a draft the caller was shown (`QueuedPrompt.held_text`) and confirmed to discard: refused
+	// when the box holds anything else by now, when someone is typing in the terminal, or when the agent is not at its prompt.
+	SendPromptAnyway(context.Context, *connect.Request[v1.SendPromptAnywayRequest]) (*connect.Response[v1.SendPromptAnywayResponse], error)
 	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
 	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
 	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
@@ -687,6 +694,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("WithdrawPrompt")),
 			connect.WithClientOptions(opts...),
 		),
+		sendPromptAnyway: connect.NewClient[v1.SendPromptAnywayRequest, v1.SendPromptAnywayResponse](
+			httpClient,
+			baseURL+MeshServiceSendPromptAnywayProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SendPromptAnyway")),
+			connect.WithClientOptions(opts...),
+		),
 		interruptAgent: connect.NewClient[v1.InterruptAgentRequest, v1.InterruptAgentResponse](
 			httpClient,
 			baseURL+MeshServiceInterruptAgentProcedure,
@@ -965,6 +978,7 @@ type meshServiceClient struct {
 	promptAgent       *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
 	listPrompts       *connect.Client[v1.ListPromptsRequest, v1.ListPromptsResponse]
 	withdrawPrompt    *connect.Client[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse]
+	sendPromptAnyway  *connect.Client[v1.SendPromptAnywayRequest, v1.SendPromptAnywayResponse]
 	interruptAgent    *connect.Client[v1.InterruptAgentRequest, v1.InterruptAgentResponse]
 	createPairing     *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices       *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
@@ -1199,6 +1213,11 @@ func (c *meshServiceClient) ListPrompts(ctx context.Context, req *connect.Reques
 // WithdrawPrompt calls agentmesh.v1.MeshService.WithdrawPrompt.
 func (c *meshServiceClient) WithdrawPrompt(ctx context.Context, req *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error) {
 	return c.withdrawPrompt.CallUnary(ctx, req)
+}
+
+// SendPromptAnyway calls agentmesh.v1.MeshService.SendPromptAnyway.
+func (c *meshServiceClient) SendPromptAnyway(ctx context.Context, req *connect.Request[v1.SendPromptAnywayRequest]) (*connect.Response[v1.SendPromptAnywayResponse], error) {
+	return c.sendPromptAnyway.CallUnary(ctx, req)
 }
 
 // InterruptAgent calls agentmesh.v1.MeshService.InterruptAgent.
@@ -1510,6 +1529,10 @@ type MeshServiceHandler interface {
 	// Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
 	// once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
 	WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error)
+	// Type a queued prompt now although the agent's input box holds a draft (its `held` is "draft"): clears the box, as Ctrl-U
+	// does, and types the prompt. For a draft the caller was shown (`QueuedPrompt.held_text`) and confirmed to discard: refused
+	// when the box holds anything else by now, when someone is typing in the terminal, or when the agent is not at its prompt.
+	SendPromptAnyway(context.Context, *connect.Request[v1.SendPromptAnywayRequest]) (*connect.Response[v1.SendPromptAnywayResponse], error)
 	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
 	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
 	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
@@ -1857,6 +1880,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("WithdrawPrompt")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceSendPromptAnywayHandler := connect.NewUnaryHandler(
+		MeshServiceSendPromptAnywayProcedure,
+		svc.SendPromptAnyway,
+		connect.WithSchema(meshServiceMethods.ByName("SendPromptAnyway")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceInterruptAgentHandler := connect.NewUnaryHandler(
 		MeshServiceInterruptAgentProcedure,
 		svc.InterruptAgent,
@@ -2171,6 +2200,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListPromptsHandler.ServeHTTP(w, r)
 		case MeshServiceWithdrawPromptProcedure:
 			meshServiceWithdrawPromptHandler.ServeHTTP(w, r)
+		case MeshServiceSendPromptAnywayProcedure:
+			meshServiceSendPromptAnywayHandler.ServeHTTP(w, r)
 		case MeshServiceInterruptAgentProcedure:
 			meshServiceInterruptAgentHandler.ServeHTTP(w, r)
 		case MeshServiceCreatePairingProcedure:
@@ -2412,6 +2443,10 @@ func (UnimplementedMeshServiceHandler) ListPrompts(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.WithdrawPrompt is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SendPromptAnyway(context.Context, *connect.Request[v1.SendPromptAnywayRequest]) (*connect.Response[v1.SendPromptAnywayResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SendPromptAnyway is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error) {

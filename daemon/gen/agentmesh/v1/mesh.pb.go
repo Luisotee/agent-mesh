@@ -8538,7 +8538,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x18WAITING_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11WAITING_KIND_PLAN\x10\x01\x12\x19\n" +
 	"\x15WAITING_KIND_QUESTION\x10\x02\x12\x16\n" +
-	"\x12WAITING_KIND_INPUT\x10\x032\xd3a\n" +
+	"\x12WAITING_KIND_INPUT\x10\x032\x9bc\n" +
 	"\vMeshService\x12\x95\x01\n" +
 	"\x05Hello\x12\x1a.agentmesh.v1.HelloRequest\x1a\x1b.agentmesh.v1.HelloResponse\"S\x8a\xb5\x18O\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\"EShow the daemon's id, version and capabilities, and who you are to it\x12a\n" +
@@ -8627,7 +8627,9 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\vListPrompts\x12 .agentmesh.v1.ListPromptsRequest\x1a!.agentmesh.v1.ListPromptsResponse\"E\x8a\xb5\x18A\n" +
 	"\x02\x05\x06\x1a\aprompts\"2List the prompts waiting to be typed into an agent\x12\xb0\x01\n" +
 	"\x0eWithdrawPrompt\x12#.agentmesh.v1.WithdrawPromptRequest\x1a$.agentmesh.v1.WithdrawPromptResponse\"S\x8a\xb5\x18O\n" +
-	"\x01\x05\x10\x01\x1a\x0fwithdraw-prompt\"7Take back a prompt that waits to be typed into an agent\x12\xaa\x01\n" +
+	"\x01\x05\x10\x01\x1a\x0fwithdraw-prompt\"7Take back a prompt that waits to be typed into an agent\x12\xc5\x01\n" +
+	"\x10SendPromptAnyway\x12%.agentmesh.v1.SendPromptAnywayRequest\x1a&.agentmesh.v1.SendPromptAnywayResponse\"b\x8a\xb5\x18^\n" +
+	"\x01\x05\x10\x01\x1a\x12send-prompt-anyway\"CType a held prompt now, clearing the draft in the agent's input box\x12\xaa\x01\n" +
 	"\x0eInterruptAgent\x12#.agentmesh.v1.InterruptAgentRequest\x1a$.agentmesh.v1.InterruptAgentResponse\"M\x8a\xb5\x18I\n" +
 	"\x02\x01\x05\x10\x01\x1a\tinterrupt\"6Interrupt an agent's turn, as Esc does in its terminal\x12\xac\x01\n" +
 	"\rCreatePairing\x12\".agentmesh.v1.CreatePairingRequest\x1a#.agentmesh.v1.CreatePairingResponse\"R\x8a\xb5\x18N\n" +
@@ -8881,51 +8883,53 @@ var file_agentmesh_v1_mesh_proto_goTypes = []any{
 	(*PromptAgentRequest)(nil),        // 148: agentmesh.v1.PromptAgentRequest
 	(*ListPromptsRequest)(nil),        // 149: agentmesh.v1.ListPromptsRequest
 	(*WithdrawPromptRequest)(nil),     // 150: agentmesh.v1.WithdrawPromptRequest
-	(*InterruptAgentRequest)(nil),     // 151: agentmesh.v1.InterruptAgentRequest
-	(*AskRequest)(nil),                // 152: agentmesh.v1.AskRequest
-	(*RecordVerdictRequest)(nil),      // 153: agentmesh.v1.RecordVerdictRequest
-	(*ListAsksRequest)(nil),           // 154: agentmesh.v1.ListAsksRequest
-	(*ListPeersRequest)(nil),          // 155: agentmesh.v1.ListPeersRequest
-	(*AddPeerRequest)(nil),            // 156: agentmesh.v1.AddPeerRequest
-	(*EditPeerRequest)(nil),           // 157: agentmesh.v1.EditPeerRequest
-	(*RemovePeerRequest)(nil),         // 158: agentmesh.v1.RemovePeerRequest
-	(*ImportPeersRequest)(nil),        // 159: agentmesh.v1.ImportPeersRequest
-	(*GetCostRequest)(nil),            // 160: agentmesh.v1.GetCostRequest
-	(*CheckModelsRequest)(nil),        // 161: agentmesh.v1.CheckModelsRequest
-	(*ResolveModelRequest)(nil),       // 162: agentmesh.v1.ResolveModelRequest
-	(*CheckConflictsRequest)(nil),     // 163: agentmesh.v1.CheckConflictsRequest
-	(*ListToolsRequest)(nil),          // 164: agentmesh.v1.ListToolsRequest
-	(*AddToolsRequest)(nil),           // 165: agentmesh.v1.AddToolsRequest
-	(*ListMCPServersRequest)(nil),     // 166: agentmesh.v1.ListMCPServersRequest
-	(*CreateWorktreeRequest)(nil),     // 167: agentmesh.v1.CreateWorktreeRequest
-	(*StreamLogRequest)(nil),          // 168: agentmesh.v1.StreamLogRequest
-	(*RingAgentRequest)(nil),          // 169: agentmesh.v1.RingAgentRequest
-	(*OpenAgentRequest)(nil),          // 170: agentmesh.v1.OpenAgentRequest
-	(*ListPullRequestsResponse)(nil),  // 171: agentmesh.v1.ListPullRequestsResponse
-	(*ReadTranscriptResponse)(nil),    // 172: agentmesh.v1.ReadTranscriptResponse
-	(*PromptAgentResponse)(nil),       // 173: agentmesh.v1.PromptAgentResponse
-	(*ListPromptsResponse)(nil),       // 174: agentmesh.v1.ListPromptsResponse
-	(*WithdrawPromptResponse)(nil),    // 175: agentmesh.v1.WithdrawPromptResponse
-	(*InterruptAgentResponse)(nil),    // 176: agentmesh.v1.InterruptAgentResponse
-	(*AskResponse)(nil),               // 177: agentmesh.v1.AskResponse
-	(*RecordVerdictResponse)(nil),     // 178: agentmesh.v1.RecordVerdictResponse
-	(*ListAsksResponse)(nil),          // 179: agentmesh.v1.ListAsksResponse
-	(*ListPeersResponse)(nil),         // 180: agentmesh.v1.ListPeersResponse
-	(*AddPeerResponse)(nil),           // 181: agentmesh.v1.AddPeerResponse
-	(*EditPeerResponse)(nil),          // 182: agentmesh.v1.EditPeerResponse
-	(*RemovePeerResponse)(nil),        // 183: agentmesh.v1.RemovePeerResponse
-	(*ImportPeersResponse)(nil),       // 184: agentmesh.v1.ImportPeersResponse
-	(*GetCostResponse)(nil),           // 185: agentmesh.v1.GetCostResponse
-	(*CheckModelsResponse)(nil),       // 186: agentmesh.v1.CheckModelsResponse
-	(*ResolveModelResponse)(nil),      // 187: agentmesh.v1.ResolveModelResponse
-	(*CheckConflictsResponse)(nil),    // 188: agentmesh.v1.CheckConflictsResponse
-	(*ListToolsResponse)(nil),         // 189: agentmesh.v1.ListToolsResponse
-	(*AddToolsResponse)(nil),          // 190: agentmesh.v1.AddToolsResponse
-	(*ListMCPServersResponse)(nil),    // 191: agentmesh.v1.ListMCPServersResponse
-	(*CreateWorktreeResponse)(nil),    // 192: agentmesh.v1.CreateWorktreeResponse
-	(*StreamLogResponse)(nil),         // 193: agentmesh.v1.StreamLogResponse
-	(*RingAgentResponse)(nil),         // 194: agentmesh.v1.RingAgentResponse
-	(*OpenAgentResponse)(nil),         // 195: agentmesh.v1.OpenAgentResponse
+	(*SendPromptAnywayRequest)(nil),   // 151: agentmesh.v1.SendPromptAnywayRequest
+	(*InterruptAgentRequest)(nil),     // 152: agentmesh.v1.InterruptAgentRequest
+	(*AskRequest)(nil),                // 153: agentmesh.v1.AskRequest
+	(*RecordVerdictRequest)(nil),      // 154: agentmesh.v1.RecordVerdictRequest
+	(*ListAsksRequest)(nil),           // 155: agentmesh.v1.ListAsksRequest
+	(*ListPeersRequest)(nil),          // 156: agentmesh.v1.ListPeersRequest
+	(*AddPeerRequest)(nil),            // 157: agentmesh.v1.AddPeerRequest
+	(*EditPeerRequest)(nil),           // 158: agentmesh.v1.EditPeerRequest
+	(*RemovePeerRequest)(nil),         // 159: agentmesh.v1.RemovePeerRequest
+	(*ImportPeersRequest)(nil),        // 160: agentmesh.v1.ImportPeersRequest
+	(*GetCostRequest)(nil),            // 161: agentmesh.v1.GetCostRequest
+	(*CheckModelsRequest)(nil),        // 162: agentmesh.v1.CheckModelsRequest
+	(*ResolveModelRequest)(nil),       // 163: agentmesh.v1.ResolveModelRequest
+	(*CheckConflictsRequest)(nil),     // 164: agentmesh.v1.CheckConflictsRequest
+	(*ListToolsRequest)(nil),          // 165: agentmesh.v1.ListToolsRequest
+	(*AddToolsRequest)(nil),           // 166: agentmesh.v1.AddToolsRequest
+	(*ListMCPServersRequest)(nil),     // 167: agentmesh.v1.ListMCPServersRequest
+	(*CreateWorktreeRequest)(nil),     // 168: agentmesh.v1.CreateWorktreeRequest
+	(*StreamLogRequest)(nil),          // 169: agentmesh.v1.StreamLogRequest
+	(*RingAgentRequest)(nil),          // 170: agentmesh.v1.RingAgentRequest
+	(*OpenAgentRequest)(nil),          // 171: agentmesh.v1.OpenAgentRequest
+	(*ListPullRequestsResponse)(nil),  // 172: agentmesh.v1.ListPullRequestsResponse
+	(*ReadTranscriptResponse)(nil),    // 173: agentmesh.v1.ReadTranscriptResponse
+	(*PromptAgentResponse)(nil),       // 174: agentmesh.v1.PromptAgentResponse
+	(*ListPromptsResponse)(nil),       // 175: agentmesh.v1.ListPromptsResponse
+	(*WithdrawPromptResponse)(nil),    // 176: agentmesh.v1.WithdrawPromptResponse
+	(*SendPromptAnywayResponse)(nil),  // 177: agentmesh.v1.SendPromptAnywayResponse
+	(*InterruptAgentResponse)(nil),    // 178: agentmesh.v1.InterruptAgentResponse
+	(*AskResponse)(nil),               // 179: agentmesh.v1.AskResponse
+	(*RecordVerdictResponse)(nil),     // 180: agentmesh.v1.RecordVerdictResponse
+	(*ListAsksResponse)(nil),          // 181: agentmesh.v1.ListAsksResponse
+	(*ListPeersResponse)(nil),         // 182: agentmesh.v1.ListPeersResponse
+	(*AddPeerResponse)(nil),           // 183: agentmesh.v1.AddPeerResponse
+	(*EditPeerResponse)(nil),          // 184: agentmesh.v1.EditPeerResponse
+	(*RemovePeerResponse)(nil),        // 185: agentmesh.v1.RemovePeerResponse
+	(*ImportPeersResponse)(nil),       // 186: agentmesh.v1.ImportPeersResponse
+	(*GetCostResponse)(nil),           // 187: agentmesh.v1.GetCostResponse
+	(*CheckModelsResponse)(nil),       // 188: agentmesh.v1.CheckModelsResponse
+	(*ResolveModelResponse)(nil),      // 189: agentmesh.v1.ResolveModelResponse
+	(*CheckConflictsResponse)(nil),    // 190: agentmesh.v1.CheckConflictsResponse
+	(*ListToolsResponse)(nil),         // 191: agentmesh.v1.ListToolsResponse
+	(*AddToolsResponse)(nil),          // 192: agentmesh.v1.AddToolsResponse
+	(*ListMCPServersResponse)(nil),    // 193: agentmesh.v1.ListMCPServersResponse
+	(*CreateWorktreeResponse)(nil),    // 194: agentmesh.v1.CreateWorktreeResponse
+	(*StreamLogResponse)(nil),         // 195: agentmesh.v1.StreamLogResponse
+	(*RingAgentResponse)(nil),         // 196: agentmesh.v1.RingAgentResponse
+	(*OpenAgentResponse)(nil),         // 197: agentmesh.v1.OpenAgentResponse
 }
 var file_agentmesh_v1_mesh_proto_depIdxs = []int32{
 	127, // 0: agentmesh.v1.HelloResponse.started_at:type_name -> google.protobuf.Timestamp
@@ -9086,125 +9090,127 @@ var file_agentmesh_v1_mesh_proto_depIdxs = []int32{
 	148, // 155: agentmesh.v1.MeshService.PromptAgent:input_type -> agentmesh.v1.PromptAgentRequest
 	149, // 156: agentmesh.v1.MeshService.ListPrompts:input_type -> agentmesh.v1.ListPromptsRequest
 	150, // 157: agentmesh.v1.MeshService.WithdrawPrompt:input_type -> agentmesh.v1.WithdrawPromptRequest
-	151, // 158: agentmesh.v1.MeshService.InterruptAgent:input_type -> agentmesh.v1.InterruptAgentRequest
-	85,  // 159: agentmesh.v1.MeshService.CreatePairing:input_type -> agentmesh.v1.CreatePairingRequest
-	87,  // 160: agentmesh.v1.MeshService.ListDevices:input_type -> agentmesh.v1.ListDevicesRequest
-	89,  // 161: agentmesh.v1.MeshService.RevokeDevice:input_type -> agentmesh.v1.RevokeDeviceRequest
-	91,  // 162: agentmesh.v1.MeshService.RevokeSelf:input_type -> agentmesh.v1.RevokeSelfRequest
-	93,  // 163: agentmesh.v1.MeshService.RegisterPush:input_type -> agentmesh.v1.RegisterPushRequest
-	95,  // 164: agentmesh.v1.MeshService.UnregisterPush:input_type -> agentmesh.v1.UnregisterPushRequest
-	97,  // 165: agentmesh.v1.MeshService.TestPush:input_type -> agentmesh.v1.TestPushRequest
-	10,  // 166: agentmesh.v1.MeshService.StartSetup:input_type -> agentmesh.v1.StartSetupRequest
-	99,  // 167: agentmesh.v1.MeshService.TailnetStatus:input_type -> agentmesh.v1.TailnetStatusRequest
-	106, // 168: agentmesh.v1.MeshService.GetUsage:input_type -> agentmesh.v1.GetUsageRequest
-	112, // 169: agentmesh.v1.MeshService.SetReserve:input_type -> agentmesh.v1.SetReserveRequest
-	152, // 170: agentmesh.v1.MeshService.Ask:input_type -> agentmesh.v1.AskRequest
-	153, // 171: agentmesh.v1.MeshService.RecordVerdict:input_type -> agentmesh.v1.RecordVerdictRequest
-	154, // 172: agentmesh.v1.MeshService.ListAsks:input_type -> agentmesh.v1.ListAsksRequest
-	155, // 173: agentmesh.v1.MeshService.ListPeers:input_type -> agentmesh.v1.ListPeersRequest
-	156, // 174: agentmesh.v1.MeshService.AddPeer:input_type -> agentmesh.v1.AddPeerRequest
-	157, // 175: agentmesh.v1.MeshService.EditPeer:input_type -> agentmesh.v1.EditPeerRequest
-	158, // 176: agentmesh.v1.MeshService.RemovePeer:input_type -> agentmesh.v1.RemovePeerRequest
-	159, // 177: agentmesh.v1.MeshService.ImportPeers:input_type -> agentmesh.v1.ImportPeersRequest
-	160, // 178: agentmesh.v1.MeshService.GetCost:input_type -> agentmesh.v1.GetCostRequest
-	161, // 179: agentmesh.v1.MeshService.CheckModels:input_type -> agentmesh.v1.CheckModelsRequest
-	162, // 180: agentmesh.v1.MeshService.ResolveModel:input_type -> agentmesh.v1.ResolveModelRequest
-	163, // 181: agentmesh.v1.MeshService.CheckConflicts:input_type -> agentmesh.v1.CheckConflictsRequest
-	164, // 182: agentmesh.v1.MeshService.ListTools:input_type -> agentmesh.v1.ListToolsRequest
-	165, // 183: agentmesh.v1.MeshService.AddTools:input_type -> agentmesh.v1.AddToolsRequest
-	114, // 184: agentmesh.v1.MeshService.RequestPermission:input_type -> agentmesh.v1.RequestPermissionRequest
-	116, // 185: agentmesh.v1.MeshService.DecidePermission:input_type -> agentmesh.v1.DecidePermissionRequest
-	118, // 186: agentmesh.v1.MeshService.ListPermissions:input_type -> agentmesh.v1.ListPermissionsRequest
-	166, // 187: agentmesh.v1.MeshService.ListMCPServers:input_type -> agentmesh.v1.ListMCPServersRequest
-	167, // 188: agentmesh.v1.MeshService.CreateWorktree:input_type -> agentmesh.v1.CreateWorktreeRequest
-	168, // 189: agentmesh.v1.MeshService.StreamLog:input_type -> agentmesh.v1.StreamLogRequest
-	21,  // 190: agentmesh.v1.MeshService.GetAgentChanges:input_type -> agentmesh.v1.GetAgentChangesRequest
-	25,  // 191: agentmesh.v1.MeshService.GetAgentProgress:input_type -> agentmesh.v1.GetAgentProgressRequest
-	27,  // 192: agentmesh.v1.MeshService.ArchiveAgent:input_type -> agentmesh.v1.ArchiveAgentRequest
-	29,  // 193: agentmesh.v1.MeshService.OpenInEditor:input_type -> agentmesh.v1.OpenInEditorRequest
-	31,  // 194: agentmesh.v1.MeshService.SetTailnet:input_type -> agentmesh.v1.SetTailnetRequest
-	169, // 195: agentmesh.v1.MeshService.RingAgent:input_type -> agentmesh.v1.RingAgentRequest
-	170, // 196: agentmesh.v1.MeshService.OpenAgent:input_type -> agentmesh.v1.OpenAgentRequest
-	2,   // 197: agentmesh.v1.MeshService.Hello:output_type -> agentmesh.v1.HelloResponse
-	9,   // 198: agentmesh.v1.MeshService.StartRun:output_type -> agentmesh.v1.StartRunResponse
-	13,  // 199: agentmesh.v1.MeshService.ListRuns:output_type -> agentmesh.v1.ListRunsResponse
-	15,  // 200: agentmesh.v1.MeshService.SpawnAgent:output_type -> agentmesh.v1.SpawnAgentResponse
-	17,  // 201: agentmesh.v1.MeshService.ListAgents:output_type -> agentmesh.v1.ListAgentsResponse
-	19,  // 202: agentmesh.v1.MeshService.GetAgent:output_type -> agentmesh.v1.GetAgentResponse
-	35,  // 203: agentmesh.v1.MeshService.StopAgent:output_type -> agentmesh.v1.StopAgentResponse
-	80,  // 204: agentmesh.v1.MeshService.ApproveAgent:output_type -> agentmesh.v1.ApproveAgentResponse
-	82,  // 205: agentmesh.v1.MeshService.SwitchAgent:output_type -> agentmesh.v1.SwitchAgentResponse
-	84,  // 206: agentmesh.v1.MeshService.ResumeAgent:output_type -> agentmesh.v1.ResumeAgentResponse
-	102, // 207: agentmesh.v1.MeshService.RetireAgent:output_type -> agentmesh.v1.RetireAgentResponse
-	5,   // 208: agentmesh.v1.MeshService.RenameRun:output_type -> agentmesh.v1.RenameRunResponse
-	7,   // 209: agentmesh.v1.MeshService.OpenView:output_type -> agentmesh.v1.OpenViewResponse
-	104, // 210: agentmesh.v1.MeshService.StopRun:output_type -> agentmesh.v1.StopRunResponse
-	37,  // 211: agentmesh.v1.MeshService.SendMessage:output_type -> agentmesh.v1.SendMessageResponse
-	39,  // 212: agentmesh.v1.MeshService.ReadInbox:output_type -> agentmesh.v1.ReadInboxResponse
-	41,  // 213: agentmesh.v1.MeshService.AdoptSession:output_type -> agentmesh.v1.AdoptSessionResponse
-	43,  // 214: agentmesh.v1.MeshService.CheckAgent:output_type -> agentmesh.v1.CheckAgentResponse
-	45,  // 215: agentmesh.v1.MeshService.ListMessages:output_type -> agentmesh.v1.ListMessagesResponse
-	47,  // 216: agentmesh.v1.MeshService.ListWaiting:output_type -> agentmesh.v1.ListWaitingResponse
-	50,  // 217: agentmesh.v1.MeshService.SubscribeEvents:output_type -> agentmesh.v1.SubscribeEventsResponse
-	71,  // 218: agentmesh.v1.MeshService.ListSettings:output_type -> agentmesh.v1.ListSettingsResponse
-	73,  // 219: agentmesh.v1.MeshService.SetSetting:output_type -> agentmesh.v1.SetSettingResponse
-	78,  // 220: agentmesh.v1.MeshService.ImportSettings:output_type -> agentmesh.v1.ImportSettingsResponse
-	75,  // 221: agentmesh.v1.MeshService.ResetSetting:output_type -> agentmesh.v1.ResetSettingResponse
-	58,  // 222: agentmesh.v1.MeshService.ResetRoot:output_type -> agentmesh.v1.ResetRootResponse
-	171, // 223: agentmesh.v1.MeshService.ListPullRequests:output_type -> agentmesh.v1.ListPullRequestsResponse
-	122, // 224: agentmesh.v1.MeshService.HoldPullRequest:output_type -> agentmesh.v1.HoldPullRequestResponse
-	126, // 225: agentmesh.v1.MeshService.ListProjects:output_type -> agentmesh.v1.ListProjectsResponse
-	60,  // 226: agentmesh.v1.MeshService.GetBrief:output_type -> agentmesh.v1.GetBriefResponse
-	56,  // 227: agentmesh.v1.MeshService.ReportHook:output_type -> agentmesh.v1.ReportHookResponse
-	69,  // 228: agentmesh.v1.MeshService.OpenTerminal:output_type -> agentmesh.v1.OpenTerminalResponse
-	63,  // 229: agentmesh.v1.MeshService.OpenShell:output_type -> agentmesh.v1.OpenShellResponse
-	65,  // 230: agentmesh.v1.MeshService.ListShells:output_type -> agentmesh.v1.ListShellsResponse
-	67,  // 231: agentmesh.v1.MeshService.CloseShell:output_type -> agentmesh.v1.CloseShellResponse
-	172, // 232: agentmesh.v1.MeshService.ReadTranscript:output_type -> agentmesh.v1.ReadTranscriptResponse
-	173, // 233: agentmesh.v1.MeshService.PromptAgent:output_type -> agentmesh.v1.PromptAgentResponse
-	174, // 234: agentmesh.v1.MeshService.ListPrompts:output_type -> agentmesh.v1.ListPromptsResponse
-	175, // 235: agentmesh.v1.MeshService.WithdrawPrompt:output_type -> agentmesh.v1.WithdrawPromptResponse
-	176, // 236: agentmesh.v1.MeshService.InterruptAgent:output_type -> agentmesh.v1.InterruptAgentResponse
-	86,  // 237: agentmesh.v1.MeshService.CreatePairing:output_type -> agentmesh.v1.CreatePairingResponse
-	88,  // 238: agentmesh.v1.MeshService.ListDevices:output_type -> agentmesh.v1.ListDevicesResponse
-	90,  // 239: agentmesh.v1.MeshService.RevokeDevice:output_type -> agentmesh.v1.RevokeDeviceResponse
-	92,  // 240: agentmesh.v1.MeshService.RevokeSelf:output_type -> agentmesh.v1.RevokeSelfResponse
-	94,  // 241: agentmesh.v1.MeshService.RegisterPush:output_type -> agentmesh.v1.RegisterPushResponse
-	96,  // 242: agentmesh.v1.MeshService.UnregisterPush:output_type -> agentmesh.v1.UnregisterPushResponse
-	98,  // 243: agentmesh.v1.MeshService.TestPush:output_type -> agentmesh.v1.TestPushResponse
-	11,  // 244: agentmesh.v1.MeshService.StartSetup:output_type -> agentmesh.v1.StartSetupResponse
-	100, // 245: agentmesh.v1.MeshService.TailnetStatus:output_type -> agentmesh.v1.TailnetStatusResponse
-	111, // 246: agentmesh.v1.MeshService.GetUsage:output_type -> agentmesh.v1.GetUsageResponse
-	113, // 247: agentmesh.v1.MeshService.SetReserve:output_type -> agentmesh.v1.SetReserveResponse
-	177, // 248: agentmesh.v1.MeshService.Ask:output_type -> agentmesh.v1.AskResponse
-	178, // 249: agentmesh.v1.MeshService.RecordVerdict:output_type -> agentmesh.v1.RecordVerdictResponse
-	179, // 250: agentmesh.v1.MeshService.ListAsks:output_type -> agentmesh.v1.ListAsksResponse
-	180, // 251: agentmesh.v1.MeshService.ListPeers:output_type -> agentmesh.v1.ListPeersResponse
-	181, // 252: agentmesh.v1.MeshService.AddPeer:output_type -> agentmesh.v1.AddPeerResponse
-	182, // 253: agentmesh.v1.MeshService.EditPeer:output_type -> agentmesh.v1.EditPeerResponse
-	183, // 254: agentmesh.v1.MeshService.RemovePeer:output_type -> agentmesh.v1.RemovePeerResponse
-	184, // 255: agentmesh.v1.MeshService.ImportPeers:output_type -> agentmesh.v1.ImportPeersResponse
-	185, // 256: agentmesh.v1.MeshService.GetCost:output_type -> agentmesh.v1.GetCostResponse
-	186, // 257: agentmesh.v1.MeshService.CheckModels:output_type -> agentmesh.v1.CheckModelsResponse
-	187, // 258: agentmesh.v1.MeshService.ResolveModel:output_type -> agentmesh.v1.ResolveModelResponse
-	188, // 259: agentmesh.v1.MeshService.CheckConflicts:output_type -> agentmesh.v1.CheckConflictsResponse
-	189, // 260: agentmesh.v1.MeshService.ListTools:output_type -> agentmesh.v1.ListToolsResponse
-	190, // 261: agentmesh.v1.MeshService.AddTools:output_type -> agentmesh.v1.AddToolsResponse
-	115, // 262: agentmesh.v1.MeshService.RequestPermission:output_type -> agentmesh.v1.RequestPermissionResponse
-	117, // 263: agentmesh.v1.MeshService.DecidePermission:output_type -> agentmesh.v1.DecidePermissionResponse
-	119, // 264: agentmesh.v1.MeshService.ListPermissions:output_type -> agentmesh.v1.ListPermissionsResponse
-	191, // 265: agentmesh.v1.MeshService.ListMCPServers:output_type -> agentmesh.v1.ListMCPServersResponse
-	192, // 266: agentmesh.v1.MeshService.CreateWorktree:output_type -> agentmesh.v1.CreateWorktreeResponse
-	193, // 267: agentmesh.v1.MeshService.StreamLog:output_type -> agentmesh.v1.StreamLogResponse
-	23,  // 268: agentmesh.v1.MeshService.GetAgentChanges:output_type -> agentmesh.v1.GetAgentChangesResponse
-	26,  // 269: agentmesh.v1.MeshService.GetAgentProgress:output_type -> agentmesh.v1.GetAgentProgressResponse
-	28,  // 270: agentmesh.v1.MeshService.ArchiveAgent:output_type -> agentmesh.v1.ArchiveAgentResponse
-	30,  // 271: agentmesh.v1.MeshService.OpenInEditor:output_type -> agentmesh.v1.OpenInEditorResponse
-	32,  // 272: agentmesh.v1.MeshService.SetTailnet:output_type -> agentmesh.v1.SetTailnetResponse
-	194, // 273: agentmesh.v1.MeshService.RingAgent:output_type -> agentmesh.v1.RingAgentResponse
-	195, // 274: agentmesh.v1.MeshService.OpenAgent:output_type -> agentmesh.v1.OpenAgentResponse
-	197, // [197:275] is the sub-list for method output_type
-	119, // [119:197] is the sub-list for method input_type
+	151, // 158: agentmesh.v1.MeshService.SendPromptAnyway:input_type -> agentmesh.v1.SendPromptAnywayRequest
+	152, // 159: agentmesh.v1.MeshService.InterruptAgent:input_type -> agentmesh.v1.InterruptAgentRequest
+	85,  // 160: agentmesh.v1.MeshService.CreatePairing:input_type -> agentmesh.v1.CreatePairingRequest
+	87,  // 161: agentmesh.v1.MeshService.ListDevices:input_type -> agentmesh.v1.ListDevicesRequest
+	89,  // 162: agentmesh.v1.MeshService.RevokeDevice:input_type -> agentmesh.v1.RevokeDeviceRequest
+	91,  // 163: agentmesh.v1.MeshService.RevokeSelf:input_type -> agentmesh.v1.RevokeSelfRequest
+	93,  // 164: agentmesh.v1.MeshService.RegisterPush:input_type -> agentmesh.v1.RegisterPushRequest
+	95,  // 165: agentmesh.v1.MeshService.UnregisterPush:input_type -> agentmesh.v1.UnregisterPushRequest
+	97,  // 166: agentmesh.v1.MeshService.TestPush:input_type -> agentmesh.v1.TestPushRequest
+	10,  // 167: agentmesh.v1.MeshService.StartSetup:input_type -> agentmesh.v1.StartSetupRequest
+	99,  // 168: agentmesh.v1.MeshService.TailnetStatus:input_type -> agentmesh.v1.TailnetStatusRequest
+	106, // 169: agentmesh.v1.MeshService.GetUsage:input_type -> agentmesh.v1.GetUsageRequest
+	112, // 170: agentmesh.v1.MeshService.SetReserve:input_type -> agentmesh.v1.SetReserveRequest
+	153, // 171: agentmesh.v1.MeshService.Ask:input_type -> agentmesh.v1.AskRequest
+	154, // 172: agentmesh.v1.MeshService.RecordVerdict:input_type -> agentmesh.v1.RecordVerdictRequest
+	155, // 173: agentmesh.v1.MeshService.ListAsks:input_type -> agentmesh.v1.ListAsksRequest
+	156, // 174: agentmesh.v1.MeshService.ListPeers:input_type -> agentmesh.v1.ListPeersRequest
+	157, // 175: agentmesh.v1.MeshService.AddPeer:input_type -> agentmesh.v1.AddPeerRequest
+	158, // 176: agentmesh.v1.MeshService.EditPeer:input_type -> agentmesh.v1.EditPeerRequest
+	159, // 177: agentmesh.v1.MeshService.RemovePeer:input_type -> agentmesh.v1.RemovePeerRequest
+	160, // 178: agentmesh.v1.MeshService.ImportPeers:input_type -> agentmesh.v1.ImportPeersRequest
+	161, // 179: agentmesh.v1.MeshService.GetCost:input_type -> agentmesh.v1.GetCostRequest
+	162, // 180: agentmesh.v1.MeshService.CheckModels:input_type -> agentmesh.v1.CheckModelsRequest
+	163, // 181: agentmesh.v1.MeshService.ResolveModel:input_type -> agentmesh.v1.ResolveModelRequest
+	164, // 182: agentmesh.v1.MeshService.CheckConflicts:input_type -> agentmesh.v1.CheckConflictsRequest
+	165, // 183: agentmesh.v1.MeshService.ListTools:input_type -> agentmesh.v1.ListToolsRequest
+	166, // 184: agentmesh.v1.MeshService.AddTools:input_type -> agentmesh.v1.AddToolsRequest
+	114, // 185: agentmesh.v1.MeshService.RequestPermission:input_type -> agentmesh.v1.RequestPermissionRequest
+	116, // 186: agentmesh.v1.MeshService.DecidePermission:input_type -> agentmesh.v1.DecidePermissionRequest
+	118, // 187: agentmesh.v1.MeshService.ListPermissions:input_type -> agentmesh.v1.ListPermissionsRequest
+	167, // 188: agentmesh.v1.MeshService.ListMCPServers:input_type -> agentmesh.v1.ListMCPServersRequest
+	168, // 189: agentmesh.v1.MeshService.CreateWorktree:input_type -> agentmesh.v1.CreateWorktreeRequest
+	169, // 190: agentmesh.v1.MeshService.StreamLog:input_type -> agentmesh.v1.StreamLogRequest
+	21,  // 191: agentmesh.v1.MeshService.GetAgentChanges:input_type -> agentmesh.v1.GetAgentChangesRequest
+	25,  // 192: agentmesh.v1.MeshService.GetAgentProgress:input_type -> agentmesh.v1.GetAgentProgressRequest
+	27,  // 193: agentmesh.v1.MeshService.ArchiveAgent:input_type -> agentmesh.v1.ArchiveAgentRequest
+	29,  // 194: agentmesh.v1.MeshService.OpenInEditor:input_type -> agentmesh.v1.OpenInEditorRequest
+	31,  // 195: agentmesh.v1.MeshService.SetTailnet:input_type -> agentmesh.v1.SetTailnetRequest
+	170, // 196: agentmesh.v1.MeshService.RingAgent:input_type -> agentmesh.v1.RingAgentRequest
+	171, // 197: agentmesh.v1.MeshService.OpenAgent:input_type -> agentmesh.v1.OpenAgentRequest
+	2,   // 198: agentmesh.v1.MeshService.Hello:output_type -> agentmesh.v1.HelloResponse
+	9,   // 199: agentmesh.v1.MeshService.StartRun:output_type -> agentmesh.v1.StartRunResponse
+	13,  // 200: agentmesh.v1.MeshService.ListRuns:output_type -> agentmesh.v1.ListRunsResponse
+	15,  // 201: agentmesh.v1.MeshService.SpawnAgent:output_type -> agentmesh.v1.SpawnAgentResponse
+	17,  // 202: agentmesh.v1.MeshService.ListAgents:output_type -> agentmesh.v1.ListAgentsResponse
+	19,  // 203: agentmesh.v1.MeshService.GetAgent:output_type -> agentmesh.v1.GetAgentResponse
+	35,  // 204: agentmesh.v1.MeshService.StopAgent:output_type -> agentmesh.v1.StopAgentResponse
+	80,  // 205: agentmesh.v1.MeshService.ApproveAgent:output_type -> agentmesh.v1.ApproveAgentResponse
+	82,  // 206: agentmesh.v1.MeshService.SwitchAgent:output_type -> agentmesh.v1.SwitchAgentResponse
+	84,  // 207: agentmesh.v1.MeshService.ResumeAgent:output_type -> agentmesh.v1.ResumeAgentResponse
+	102, // 208: agentmesh.v1.MeshService.RetireAgent:output_type -> agentmesh.v1.RetireAgentResponse
+	5,   // 209: agentmesh.v1.MeshService.RenameRun:output_type -> agentmesh.v1.RenameRunResponse
+	7,   // 210: agentmesh.v1.MeshService.OpenView:output_type -> agentmesh.v1.OpenViewResponse
+	104, // 211: agentmesh.v1.MeshService.StopRun:output_type -> agentmesh.v1.StopRunResponse
+	37,  // 212: agentmesh.v1.MeshService.SendMessage:output_type -> agentmesh.v1.SendMessageResponse
+	39,  // 213: agentmesh.v1.MeshService.ReadInbox:output_type -> agentmesh.v1.ReadInboxResponse
+	41,  // 214: agentmesh.v1.MeshService.AdoptSession:output_type -> agentmesh.v1.AdoptSessionResponse
+	43,  // 215: agentmesh.v1.MeshService.CheckAgent:output_type -> agentmesh.v1.CheckAgentResponse
+	45,  // 216: agentmesh.v1.MeshService.ListMessages:output_type -> agentmesh.v1.ListMessagesResponse
+	47,  // 217: agentmesh.v1.MeshService.ListWaiting:output_type -> agentmesh.v1.ListWaitingResponse
+	50,  // 218: agentmesh.v1.MeshService.SubscribeEvents:output_type -> agentmesh.v1.SubscribeEventsResponse
+	71,  // 219: agentmesh.v1.MeshService.ListSettings:output_type -> agentmesh.v1.ListSettingsResponse
+	73,  // 220: agentmesh.v1.MeshService.SetSetting:output_type -> agentmesh.v1.SetSettingResponse
+	78,  // 221: agentmesh.v1.MeshService.ImportSettings:output_type -> agentmesh.v1.ImportSettingsResponse
+	75,  // 222: agentmesh.v1.MeshService.ResetSetting:output_type -> agentmesh.v1.ResetSettingResponse
+	58,  // 223: agentmesh.v1.MeshService.ResetRoot:output_type -> agentmesh.v1.ResetRootResponse
+	172, // 224: agentmesh.v1.MeshService.ListPullRequests:output_type -> agentmesh.v1.ListPullRequestsResponse
+	122, // 225: agentmesh.v1.MeshService.HoldPullRequest:output_type -> agentmesh.v1.HoldPullRequestResponse
+	126, // 226: agentmesh.v1.MeshService.ListProjects:output_type -> agentmesh.v1.ListProjectsResponse
+	60,  // 227: agentmesh.v1.MeshService.GetBrief:output_type -> agentmesh.v1.GetBriefResponse
+	56,  // 228: agentmesh.v1.MeshService.ReportHook:output_type -> agentmesh.v1.ReportHookResponse
+	69,  // 229: agentmesh.v1.MeshService.OpenTerminal:output_type -> agentmesh.v1.OpenTerminalResponse
+	63,  // 230: agentmesh.v1.MeshService.OpenShell:output_type -> agentmesh.v1.OpenShellResponse
+	65,  // 231: agentmesh.v1.MeshService.ListShells:output_type -> agentmesh.v1.ListShellsResponse
+	67,  // 232: agentmesh.v1.MeshService.CloseShell:output_type -> agentmesh.v1.CloseShellResponse
+	173, // 233: agentmesh.v1.MeshService.ReadTranscript:output_type -> agentmesh.v1.ReadTranscriptResponse
+	174, // 234: agentmesh.v1.MeshService.PromptAgent:output_type -> agentmesh.v1.PromptAgentResponse
+	175, // 235: agentmesh.v1.MeshService.ListPrompts:output_type -> agentmesh.v1.ListPromptsResponse
+	176, // 236: agentmesh.v1.MeshService.WithdrawPrompt:output_type -> agentmesh.v1.WithdrawPromptResponse
+	177, // 237: agentmesh.v1.MeshService.SendPromptAnyway:output_type -> agentmesh.v1.SendPromptAnywayResponse
+	178, // 238: agentmesh.v1.MeshService.InterruptAgent:output_type -> agentmesh.v1.InterruptAgentResponse
+	86,  // 239: agentmesh.v1.MeshService.CreatePairing:output_type -> agentmesh.v1.CreatePairingResponse
+	88,  // 240: agentmesh.v1.MeshService.ListDevices:output_type -> agentmesh.v1.ListDevicesResponse
+	90,  // 241: agentmesh.v1.MeshService.RevokeDevice:output_type -> agentmesh.v1.RevokeDeviceResponse
+	92,  // 242: agentmesh.v1.MeshService.RevokeSelf:output_type -> agentmesh.v1.RevokeSelfResponse
+	94,  // 243: agentmesh.v1.MeshService.RegisterPush:output_type -> agentmesh.v1.RegisterPushResponse
+	96,  // 244: agentmesh.v1.MeshService.UnregisterPush:output_type -> agentmesh.v1.UnregisterPushResponse
+	98,  // 245: agentmesh.v1.MeshService.TestPush:output_type -> agentmesh.v1.TestPushResponse
+	11,  // 246: agentmesh.v1.MeshService.StartSetup:output_type -> agentmesh.v1.StartSetupResponse
+	100, // 247: agentmesh.v1.MeshService.TailnetStatus:output_type -> agentmesh.v1.TailnetStatusResponse
+	111, // 248: agentmesh.v1.MeshService.GetUsage:output_type -> agentmesh.v1.GetUsageResponse
+	113, // 249: agentmesh.v1.MeshService.SetReserve:output_type -> agentmesh.v1.SetReserveResponse
+	179, // 250: agentmesh.v1.MeshService.Ask:output_type -> agentmesh.v1.AskResponse
+	180, // 251: agentmesh.v1.MeshService.RecordVerdict:output_type -> agentmesh.v1.RecordVerdictResponse
+	181, // 252: agentmesh.v1.MeshService.ListAsks:output_type -> agentmesh.v1.ListAsksResponse
+	182, // 253: agentmesh.v1.MeshService.ListPeers:output_type -> agentmesh.v1.ListPeersResponse
+	183, // 254: agentmesh.v1.MeshService.AddPeer:output_type -> agentmesh.v1.AddPeerResponse
+	184, // 255: agentmesh.v1.MeshService.EditPeer:output_type -> agentmesh.v1.EditPeerResponse
+	185, // 256: agentmesh.v1.MeshService.RemovePeer:output_type -> agentmesh.v1.RemovePeerResponse
+	186, // 257: agentmesh.v1.MeshService.ImportPeers:output_type -> agentmesh.v1.ImportPeersResponse
+	187, // 258: agentmesh.v1.MeshService.GetCost:output_type -> agentmesh.v1.GetCostResponse
+	188, // 259: agentmesh.v1.MeshService.CheckModels:output_type -> agentmesh.v1.CheckModelsResponse
+	189, // 260: agentmesh.v1.MeshService.ResolveModel:output_type -> agentmesh.v1.ResolveModelResponse
+	190, // 261: agentmesh.v1.MeshService.CheckConflicts:output_type -> agentmesh.v1.CheckConflictsResponse
+	191, // 262: agentmesh.v1.MeshService.ListTools:output_type -> agentmesh.v1.ListToolsResponse
+	192, // 263: agentmesh.v1.MeshService.AddTools:output_type -> agentmesh.v1.AddToolsResponse
+	115, // 264: agentmesh.v1.MeshService.RequestPermission:output_type -> agentmesh.v1.RequestPermissionResponse
+	117, // 265: agentmesh.v1.MeshService.DecidePermission:output_type -> agentmesh.v1.DecidePermissionResponse
+	119, // 266: agentmesh.v1.MeshService.ListPermissions:output_type -> agentmesh.v1.ListPermissionsResponse
+	193, // 267: agentmesh.v1.MeshService.ListMCPServers:output_type -> agentmesh.v1.ListMCPServersResponse
+	194, // 268: agentmesh.v1.MeshService.CreateWorktree:output_type -> agentmesh.v1.CreateWorktreeResponse
+	195, // 269: agentmesh.v1.MeshService.StreamLog:output_type -> agentmesh.v1.StreamLogResponse
+	23,  // 270: agentmesh.v1.MeshService.GetAgentChanges:output_type -> agentmesh.v1.GetAgentChangesResponse
+	26,  // 271: agentmesh.v1.MeshService.GetAgentProgress:output_type -> agentmesh.v1.GetAgentProgressResponse
+	28,  // 272: agentmesh.v1.MeshService.ArchiveAgent:output_type -> agentmesh.v1.ArchiveAgentResponse
+	30,  // 273: agentmesh.v1.MeshService.OpenInEditor:output_type -> agentmesh.v1.OpenInEditorResponse
+	32,  // 274: agentmesh.v1.MeshService.SetTailnet:output_type -> agentmesh.v1.SetTailnetResponse
+	196, // 275: agentmesh.v1.MeshService.RingAgent:output_type -> agentmesh.v1.RingAgentResponse
+	197, // 276: agentmesh.v1.MeshService.OpenAgent:output_type -> agentmesh.v1.OpenAgentResponse
+	198, // [198:277] is the sub-list for method output_type
+	119, // [119:198] is the sub-list for method input_type
 	119, // [119:119] is the sub-list for extension type_name
 	119, // [119:119] is the sub-list for extension extendee
 	0,   // [0:119] is the sub-list for field type_name
