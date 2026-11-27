@@ -18,9 +18,11 @@ import (
 
 	"connectrpc.com/connect"
 
+	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/transcript"
 )
 
 // meshActor is who the messages the daemon writes are from. It has no class: it is no one an action can be
@@ -184,7 +186,7 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 		holdEnd = waitUntil
 	}
 	// No deadline of its own: the hold is the full wait_max only if something the daemon can see would wake the
-	// agent (a background command of a Claude agent: its notification). A job started with `nohup … &` sends none,
+	// agent (a background command of a Claude or OpenCode agent: its notification). A job started with `nohup … &` sends none,
 	// so a wait on one would sleep for wait_max after the job ended (a root slept 2 h 51 min on its finished gates).
 	unseenHold := false
 	if !wait.IsZero() && waitUntil.IsZero() && w.after > 0 && w.after < waitMax && !now.Before(wait.Add(w.after)) && now.Before(holdEnd) && (w.visible == nil || !w.visible()) {
@@ -225,7 +227,7 @@ type waitHold struct {
 	visible func() bool
 }
 
-// waitHoldFor is the question for one agent: a background command is visible only for a Claude agent's terminal.
+// waitHoldFor is the question for one agent: a background command is visible only for a Claude or OpenCode agent's terminal.
 func (d *Daemon) waitHoldFor(ctx context.Context, a *v1.Agent, after time.Duration) waitHold {
 	var once sync.Once
 	var seen bool
@@ -490,7 +492,7 @@ func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nud
 	if err != nil || verdict == owesNothing {
 		return err
 	}
-	// A Claude agent whose background command still runs is waiting on it, for a while; after that it is nudged
+	// A Claude or OpenCode agent whose background command still runs is waiting on it, for a while; after that it is nudged
 	// once about the command (background.go).
 	// Only for the first nudge: once an agent ignored it, the alert follows as for any silent agent.
 	bg := hold.visible() // memoized: the terminal is read here, before the write, once
@@ -542,8 +544,9 @@ func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nud
 
 // alertExitTx tells an agent's parent that its process ended, when the agent still owed it a report. It runs in
 // the transaction that records the exit, so the alert and the exit are one write; the caller rings the message.
-// lastSaid is the agent's state detail from before the exit event was applied (which overwrites it).
-func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid string, code, signal int32, reason string) (*v1.Message, error) {
+// lastSaid is the agent's state detail from before the exit event was applied (which overwrites it); words is the
+// agent's newest reply read from its transcript before the write (exitWords), which is quoted in preference to it.
+func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid, words string, code, signal int32, reason string) (*v1.Message, error) {
 	if !owesParent(a) {
 		return nil, nil
 	}
@@ -562,6 +565,9 @@ func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid string, code, s
 		how = fmt.Sprintf("was killed by signal %d", signal)
 	}
 	text := fmt.Sprintf("%s %s with no report to you.", a.Name, how)
+	if words != "" {
+		lastSaid = words
+	}
 	if lastSaid != "" {
 		text += " It last said: " + lastSaid
 	}
@@ -603,4 +609,41 @@ func waitNudge(name string) string {
 		"(a job ending wakes you only when the CLI notifies you of it: Claude Code's Bash `run_in_background` and Monitor do, a job started with `nohup … &` or `setsid` does not, and the other CLIs have no such notification). " +
 		"If your job ended, run `mesh inbox`, then report: `mesh send parent --type done --body @$(mesh dir)/reports/" + name + ".md` (or `plan`, `question`, `failed`). " +
 		"If it still runs, check its log, then declare a fresh wait with a deadline: `mesh send parent --type wait --until <duration> --body \"<what>\"`."
+}
+
+// exitWordsRead and exitWordsBytes bound what exitWords reads: the end of the transcript, for at most this long.
+const (
+	exitWordsRead  = 2 * time.Second
+	exitWordsBytes = 64 << 10
+	exitWordsCut   = 300
+)
+
+// exitWords is what an agent last said, for the exit alert: its newest reply in its conversation, on one line and cut,
+// read through its adapter. It is read before the write that records the exit, which holds the store's one writer, so a
+// slow disk costs the exit nothing; "" when the agent owes its parent no alert, its CLI keeps no record we read, or the
+// conversation has no reply yet (the alert then quotes the agent's state detail, as it did before).
+func (d *Daemon) exitWords(ctx context.Context, a *v1.Agent) string {
+	if a == nil || !owesParent(a) || a.SessionId == "" || !d.rt.adapters.HasCapability(a.Kind, transcript.Cap) {
+		return ""
+	}
+	ad, err := d.rt.adapters.Get(a.Kind)
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, exitWordsRead)
+	defer cancel()
+	res, err := ad.ReadTranscript(ctx, connect.NewRequest(&adapterv1.ReadTranscriptRequest{
+		SessionId: a.SessionId, Cwd: a.Worktree, Env: d.agentEnv(a, ""), Offset: -1, Backward: true, MaxBytes: exitWordsBytes}))
+	if err != nil {
+		return ""
+	}
+	es := res.Msg.Entries
+	for i := len(es) - 1; i >= 0; i-- {
+		if es[i].Kind == v1.TranscriptKind_TRANSCRIPT_KIND_ASSISTANT {
+			if t := cutLine(es[i].Text, exitWordsCut); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
 }

@@ -150,9 +150,19 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 // waitForWithin is waitFor with its own limit, for a wait that holds a daemon timeout of its own (a compaction's).
 func waitForWithin(t *testing.T, limit time.Duration, what string, cond func() bool) {
 	t.Helper()
+	waitForWithinSaying(t, limit, what, cond, nil)
+}
+
+// waitForWithinSaying is waitForWithin that adds what `say` returns to the failure: the state a flake that is seen once
+// in a gate and never alone needs to be told apart from the next one.
+func waitForWithinSaying(t *testing.T, limit time.Duration, what string, cond func() bool, say func() string) {
+	t.Helper()
 	deadline := time.Now().Add(limit)
 	for !cond() {
 		if time.Now().After(deadline) {
+			if say != nil {
+				t.Fatalf("timed out waiting for %s: %s", what, say())
+			}
 			t.Fatalf("timed out waiting for %s", what)
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -400,17 +410,24 @@ func (h *agentsHarness) typeInto(a *v1.Agent, text string) {
 		h.t.Fatal(err)
 	}
 	waitFor(h.t, "the typist's stream dropped by the host", func() bool {
-		l, err := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
-		if err != nil {
-			return false
-		}
-		for _, t := range l.Msg.Terminals {
-			if t.Id == a.TerminalId {
-				return t.InputClients == 0
-			}
-		}
-		return true
+		t := h.terminalOf(ctx, tc, a)
+		return t == nil || t.InputClients == 0
 	})
+}
+
+// terminalOf is the host's own view of an agent's terminal (nil when it lists none or the host can't be asked): what the
+// daemon's "someone is typing" reads, observed without changing anything.
+func (h *agentsHarness) terminalOf(ctx context.Context, tc *termclient.Client, a *v1.Agent) *termv1.Terminal {
+	l, err := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+	if err != nil {
+		return nil
+	}
+	for _, t := range l.Msg.Terminals {
+		if t.Id == a.TerminalId {
+			return t
+		}
+	}
+	return nil
 }
 
 func (h *agentsHarness) openTerminal(ctx context.Context, a *v1.Agent, input bool, att *termv1.Attach) *termclient.Stream {

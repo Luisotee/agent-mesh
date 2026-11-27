@@ -13,6 +13,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1/termv1connect"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
@@ -38,6 +39,57 @@ func TestHasBackgroundCommandFindsOnlyClaudesShellSnapshotShells(t *testing.T) {
 		if got := hasBackgroundCommand(tc.procs, 10); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// An OpenCode command shell is `<shell> -c <command>` under the agent's own process; a language server or MCP server run
+// directly, a script, a shell with no command and a shell of another process are not.
+func TestShellCommandFindsOnlyACommandShellUnderTheAgent(t *testing.T) {
+	oc := proc.Info{PID: 10, PPID: 1, Argv: []string{"opencode", "-m", "opencode/x"}}
+	for _, tc := range []struct {
+		name  string
+		procs []proc.Info
+		want  string
+	}{
+		{"a background command", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"/bin/bash", "-c", "npm run dev"}}}, "npm run dev"},
+		{"under a wrapper", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"opencode.exe", "serve"}}, {PID: 12, PPID: 11, Argv: []string{"sh", "-c", "make test"}}}, "make test"},
+		{"a login shell", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"zsh", "-l", "-c", "make test"}}}, "make test"},
+		{"a combined flag", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"bash", "-lc", "make test"}}}, "make test"},
+		{"a language server", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"typescript-language-server", "--stdio"}}}, ""},
+		{"a script", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"bash", "build.sh", "-c", "x"}}}, ""},
+		{"a shell with no command", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"bash", "-i"}}}, ""},
+		{"a shell of another process", []proc.Info{oc, {PID: 20, PPID: 1, Argv: []string{"bash", "-c", "make"}}}, ""},
+		{"a non-shell with -c", []proc.Info{oc, {PID: 11, PPID: 10, Argv: []string{"node", "-c", "x"}}}, ""},
+		{"nothing running", []proc.Info{oc}, ""},
+	} {
+		got, ok := shellCommand(tc.procs, 10)
+		if got != tc.want || ok != (tc.want != "") {
+			t.Errorf("%s: %q, %v, want %q", tc.name, got, ok, tc.want)
+		}
+	}
+}
+
+// The read of an agent's background command follows its kind: a Claude agent's is a snapshot shell, an OpenCode agent's a
+// command shell, and neither reads the other's (a plain `bash -c` under Claude is not a background command: its Bash tool
+// runs the foreground ones that way).
+func TestABackgroundCommandIsReadByTheAgentsKind(t *testing.T) {
+	const snap = "source /home/u/.claude/shell-snapshots/snapshot-bash-1.sh 2>/dev/null || true && eval 'make test'"
+	snapshot := procSnapshot{pids: map[string]int{"t1": 10}, table: []proc.Info{{PID: 10, PPID: 1, Argv: []string{"x"}},
+		{PID: 11, PPID: 10, Argv: []string{"bash", "-c", snap}}}}
+	plain := procSnapshot{pids: map[string]int{"t1": 10}, table: []proc.Info{{PID: 10, PPID: 1, Argv: []string{"x"}},
+		{PID: 11, PPID: 10, Argv: []string{"bash", "-c", "make test"}}}}
+	cl, oc := &v1.Agent{Kind: claude.Kind, TerminalId: "t1"}, &v1.Agent{Kind: opencode.Kind, TerminalId: "t1"}
+	if cmd, ok := snapshot.backgroundCommand(cl); !ok || cmd != "make test" {
+		t.Errorf("claude, snapshot shell: %q %v", cmd, ok)
+	}
+	if _, ok := plain.backgroundCommand(cl); ok {
+		t.Error("claude, plain shell: found")
+	}
+	if cmd, ok := plain.backgroundCommand(oc); !ok || cmd != "make test" {
+		t.Errorf("opencode, plain shell: %q %v", cmd, ok)
+	}
+	if hasBackgroundShape("agy") || hasBackgroundShape("copilot") || !hasBackgroundShape(opencode.Kind) {
+		t.Error("the kinds that have a shape to read")
 	}
 }
 
