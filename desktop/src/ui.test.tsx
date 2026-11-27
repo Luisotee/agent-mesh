@@ -1413,12 +1413,9 @@ describe('ModelControl and vendor icons', () => {
     client.checkModels.mockRejectedValueOnce(new Error('[unavailable] busy'))
     render(wrap(<ModelPicker host={host} agent={a} />))
     const chip = screen.getByRole('button', { name: /^Model: / })
-    await userEvent.click(chip)
-    await waitFor(() => expect(client.checkModels).toHaveBeenCalledTimes(1))
-    await userEvent.keyboard('{Escape}')
-    await userEvent.click(chip)
-    await waitFor(() => expect(client.checkModels).toHaveBeenCalledTimes(2))
+    await userEvent.click(chip) // the hover's read fails; the click asks again
     expect(await screen.findByRole('menuitem', { name: 'opus' })).toBeInTheDocument()
+    expect(client.checkModels.mock.calls.length).toBeGreaterThanOrEqual(2)
   })
 
   it('has no picker to use for a read-only device or a stopped agent', () => {
