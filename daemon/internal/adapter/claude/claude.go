@@ -292,9 +292,16 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	// A reopen resumes the agent's own conversation (same id, its context kept); a first launch picks the id now.
 	sid := m.ResumeSessionId
 	argv := []string{bin, "--resume", sid}
+	resumeMissing := false
 	if sid == "" {
 		sid = a.NewSessionID()
 		argv = []string{bin, "--session-id", sid}
+	} else if !SessionExists(m.Env, sid) {
+		// The id was chosen at the first launch, but Claude Code writes the conversation only with its first turn: an
+		// agent reopened before then has nothing to resume (`--resume` exits 1 with "No conversation found"). The same
+		// id starts it fresh, and the first turn is then the conversation `--resume` finds next time.
+		argv = []string{bin, "--session-id", sid}
+		resumeMissing = true
 	}
 	if m.Model != "" {
 		argv = append(argv, "--model", m.Model)
@@ -332,7 +339,7 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if m.SkipPermissions {
 		argv = append(argv, "--dangerously-skip-permissions")
 	}
-	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid}), nil
+	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid, ResumeMissing: resumeMissing}), nil
 }
 
 // MeshPromptPrefix starts every doorbell the daemon types (`Doorbell`): a turn that began with it is the mesh's,

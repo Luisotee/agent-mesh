@@ -586,6 +586,8 @@ export function createAppModel(api: DesktopApi): AppModel {
       try {
         const res = await spawnAgent(h.client, { runId: run.run.id, repo, slug: kind, role: AgentRole.ROOT, kind, tier: '', model: '', effort: '', task: '', plain: true })
         if (!res.agent) throw new Error('the host started no agent')
+        // A chat in the setup project is the setup agent, which has a run of its own: the one made for this click is empty.
+        if (res.agent.runId && res.agent.runId !== run.run.id) await stopRun(h.client, run.run.id).catch(() => {})
         model.selectAgent(hostId, res.agent.id, 'chat')
       } catch (e) {
         // A run with no agent is nothing to keep: a refused spawn (a cap, a missing terminal host) must not leave one behind per click.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"connectrpc.com/connect"
 
@@ -39,6 +40,20 @@ func (d *Daemon) isSetupRun(r store.Reader, runID string) bool {
 	}
 	run, err := r.GetRun(runID)
 	return err == nil && run.Setup && run.Status == v1.RunStatus_RUN_STATUS_OPEN
+}
+
+// isSetupFolder reports whether a repo path is the setup agent's scratch repo (<state>/setup).
+func (d *Daemon) isSetupFolder(repo string) bool {
+	if strings.TrimSpace(repo) == "" {
+		return false
+	}
+	want := filepath.Join(d.paths.Dir, "setup")
+	if filepath.Clean(repo) == filepath.Clean(want) {
+		return true
+	}
+	a, errA := filepath.EvalSymlinks(repo)
+	b, errB := filepath.EvalSymlinks(want)
+	return errA == nil && errB == nil && a == b
 }
 
 // requireHostOrSetup lets the host's own device through, and the root of the setup run: the setup agent pairs

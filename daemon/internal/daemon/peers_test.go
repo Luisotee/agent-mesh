@@ -558,7 +558,13 @@ func TestImportingPeersCarriesTheirConversationsAndWorktreePathsAcrossAndAskResu
 		t.Errorf("the import wrote peers.json")
 	}
 
-	// Asked, it resumes the conversation in that worktree instead of starting one.
+	// Its conversation is on this machine (Claude Code keeps it by id): asked, it resumes it in that worktree instead of
+	// starting one.
+	if dir := filepath.Join(w.home, ".claude", "projects", "-old-peer-worktree"); os.MkdirAll(dir, 0o700) == nil {
+		if err := os.WriteFile(filepath.Join(dir, "sess-alpha.jsonl"), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	run := w.run
 	ar, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: "alpha-research", Tier: "mid", Body: "What changed?", NoRefresh: true}))
 	if err != nil {

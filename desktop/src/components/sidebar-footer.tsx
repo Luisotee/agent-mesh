@@ -33,7 +33,10 @@ export function SidebarFooter() {
   const hostEntries: MenuEntry[] = [
     ...(many ? hosts.map((h) => ({ label: `${h.info.name}: settings`, onSelect: () => { pickHost(app, h.info.id); app.openSettings(true) } })) : []),
     ...(fixed ? [] : ([...(many ? ['separator' as const] : []), { label: 'Connect a host…', onSelect: () => setAdding(true) }] as MenuEntry[])),
-    { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !mayPair },
+    // Only the host's own device makes pairing links; a paired machine asks the setup assistant, which has the right to.
+    mayPair
+      ? { label: 'Pair a device', onSelect: () => app.openPairing(true) }
+      : { label: 'Pair a device with the assistant', onSelect: () => void app.openSetup((host ?? hosts[0]!).info.id), disabled: !host },
     ...(fixed ? [] : (['separator', ...hosts.map((h) => ({ label: `Remove ${h.info.name}…`, onSelect: () => setRemoving(h), destructive: true }))] as MenuEntry[])),
   ]
   return (

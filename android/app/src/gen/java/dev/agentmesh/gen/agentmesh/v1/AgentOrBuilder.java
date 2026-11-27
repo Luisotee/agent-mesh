@@ -696,4 +696,16 @@ public interface AgentOrBuilder extends
    * @return The plain.
    */
   boolean getPlain();
+
+  /**
+   * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   * @return The hadTurn.
+   */
+  boolean getHadTurn();
 }

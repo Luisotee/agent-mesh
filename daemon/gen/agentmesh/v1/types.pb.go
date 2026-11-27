@@ -651,7 +651,11 @@ type Agent struct {
 	Archived bool `protobuf:"varint,42,opt,name=archived,proto3" json:"archived,omitempty"`
 	// A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
 	// with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
-	Plain         bool `protobuf:"varint,43,opt,name=plain,proto3" json:"plain,omitempty"`
+	Plain bool `protobuf:"varint,43,opt,name=plain,proto3" json:"plain,omitempty"`
+	// Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+	// CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+	// lost nothing.
+	HadTurn       bool `protobuf:"varint,44,opt,name=had_turn,json=hadTurn,proto3" json:"had_turn,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -983,6 +987,13 @@ func (x *Agent) GetArchived() bool {
 func (x *Agent) GetPlain() bool {
 	if x != nil {
 		return x.Plain
+	}
+	return false
+}
+
+func (x *Agent) GetHadTurn() bool {
+	if x != nil {
+		return x.HadTurn
 	}
 	return false
 }
@@ -4176,7 +4187,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"userMerges\x12\x1d\n" +
 	"\n" +
 	"ask_before\x18\x03 \x03(\tR\taskBefore\x12&\n" +
-	"\x0fkeep_repo_lists\x18\x04 \x01(\bR\rkeepRepoLists\"\x95\f\n" +
+	"\x0fkeep_repo_lists\x18\x04 \x01(\bR\rkeepRepoLists\"\xb0\f\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -4231,7 +4242,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"adoptedPid\x12*\n" +
 	"\x11adopted_pid_start\x18) \x01(\x04R\x0fadoptedPidStart\x12\x1a\n" +
 	"\barchived\x18* \x01(\bR\barchived\x12\x14\n" +
-	"\x05plain\x18+ \x01(\bR\x05plain\"\x9c\x02\n" +
+	"\x05plain\x18+ \x01(\bR\x05plain\x12\x19\n" +
+	"\bhad_turn\x18, \x01(\bR\ahadTurn\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
