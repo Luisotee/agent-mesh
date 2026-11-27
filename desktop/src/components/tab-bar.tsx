@@ -75,21 +75,25 @@ export function TabBar() {
   const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true, undefined, project)
   // A tab whose agent finished a turn while another tab was shown carries a quiet dot until it is opened.
   const [finished, setFinished] = useState<ReadonlySet<string>>(new Set())
-  const lastState = useRef(new Map<string, AgentState>())
+  // Whether a tab's agent has been at work since it was last idle: a quiet long turn reads as unknown, which is still work.
+  const worked = useRef(new Set<string>())
   useEffect(() => {
-    const next = new Set(finished)
+    const keys = new Set(all.map(tabKey))
+    // A tab that was closed starts over when it is opened again.
+    for (const k of [...worked.current]) if (!keys.has(k)) worked.current.delete(k)
+    const next = new Set([...finished].filter((k) => keys.has(k)))
     for (const t of all) {
       const a = isShellTab(t.agentId) ? undefined : views.find((v) => v.hostId === t.hostId)?.agents[t.agentId]
       if (!a) continue
       const key = tabKey(t)
-      const was = lastState.current.get(key)
-      lastState.current.set(key, a.state)
-      const shown = t.hostId === hostId && t.agentId === agentId
+      // On screen: the main pane or a split beside it.
+      const shown = (t.hostId === hostId && t.agentId === agentId) || side.some((p) => p.hostId === t.hostId && p.agentId === t.agentId)
+      if (a.state === AgentState.WORKING || a.state === AgentState.UNKNOWN) worked.current.add(key)
+      else if (a.state === AgentState.IDLE && worked.current.delete(key) && !shown) next.add(key)
       if (shown) next.delete(key)
-      else if (was === AgentState.WORKING && a.state === AgentState.IDLE) next.add(key)
     }
     if (next.size !== finished.size || [...next].some((k) => !finished.has(k))) setFinished(next)
-  }, [all, views, hostId, agentId, finished])
+  }, [all, views, hostId, agentId, side, finished])
 
   /** A tab's menu: the same list for the right-click and the ⋯ of the open one. */
   const entriesOf = (t: TabRef, agent: Agent | undefined, label: string): MenuEntry[] => {

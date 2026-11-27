@@ -133,5 +133,8 @@ describe('sameBlock', () => {
     const [done] = blocks([entry('c1', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolInput: 'ls', toolUseId: 't1' }), entry('r1', TranscriptKind.TOOL_RESULT, { text: 'ok', toolUseId: 't1' })])
     expect(sameBlock(open!, done!)).toBe(false)
     expect(sameBlock(a1!, open!)).toBe(false)
+    // The same text cut or not is another block.
+    const [cut] = blocks([entry('c1', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolInput: 'ls', toolUseId: 't1' }), create(TranscriptEntrySchema, { id: 'r1', kind: TranscriptKind.TOOL_RESULT, text: 'ok', toolUseId: 't1', truncated: true })])
+    expect(sameBlock(done!, cut!)).toBe(false)
   })
 })

@@ -798,6 +798,24 @@ describe('Dock and TabBar', () => {
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-fix', 'app-lead'])
   })
 
+  it('counts a quiet long turn (unknown) as work for the finished dot, and gives none to a tab beside the main one', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } } }))
+    model.selectAgent('h1', 'w1')
+    model.selectAgent('h1', 'lead')
+    render(wrap(<TabBar />))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.UNKNOWN } } })))
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } })))
+    expect(await within(tabs).findByRole('img', { name: 'Finished a turn while you were away' })).toBeInTheDocument()
+    // Shown in a split beside the main tab, it is on screen: no dot for its next turn.
+    act(() => model.pinSplit('h1', 'w1'))
+    await waitFor(() => expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull())
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } } })))
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } })))
+    expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull()
+  })
+
   it('closes a tab with a middle click and moves one by dragging it onto another', () => {
     const { wrap, model } = fixture()
     model.selectAgent('h1', 'lead')
