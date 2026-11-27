@@ -29,7 +29,7 @@ mesh send parent --type question --body "…"
 mesh send parent --type done     --body @"$(mesh dir)/reports/<your-name>.md"
 ```
 
-Name the task you report on: `--re <id>`, the id in your task's header line in `mesh inbox` (`── task from … (m3r6…) ──`). The daemon stamps every report with your current task either way; with `--re` it refuses a report for an older task, or a second `done` or `failed` for a task already reported, so a late or repeated report can't stand for the wrong task.
+Name the task you report on: `--re <id>`, the id in your task's header line in `mesh inbox` (`── task from … (m3r6…) ──`). The daemon stamps every report with your current task either way; with `--re` it refuses a report for an older task, any report after a `done` for the task, or a second `failed`, so a late or repeated report can't stand for the wrong task.
 
 `@file` reads the text from a file (`@-` from stdin, `@@` for a literal `@`). Types: `task`, `plan`, `question`, `answer`, `done`, `failed`, `info`, `wait`. A `plan` asks your parent to review it; the reply is an `answer`. While you plan, only a plan sent since your last task or answer can be approved, so after any answer that isn't `approved`, send the plan again, even unchanged. A message longer than a few lines goes through a file under `$(mesh dir)/reports/` (or `plans/`). **Never write mesh files inside the repo.**
 

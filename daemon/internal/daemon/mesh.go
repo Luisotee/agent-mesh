@@ -546,7 +546,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				if err := unreadInstructions(t.Reader, self); err != nil {
 					return err
 				}
-				if reTask, err = reportTask(t.Reader, self, req.Msg.Type, req.Msg.Re); err != nil {
+				if reTask, err = reportTask(t.Reader, self, req.Msg.Type, strings.TrimSpace(req.Msg.Re)); err != nil {
 					return err
 				}
 			}
@@ -564,6 +564,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					return err
 				}
 			}
+		}
+		if reTask == "" && strings.TrimSpace(req.Msg.Re) != "" {
+			return invalid("--re names the task a report answers: only a plan, question, done or failed to your parent takes it")
 		}
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			model, effort, _ := target(to)

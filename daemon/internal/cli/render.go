@@ -624,7 +624,9 @@ func askHead(a *v1.Ask) string {
 	line := fmt.Sprintf("%s  %s  %s", a.Id, enumLower(a.Kind, "ASK_KIND_"), enumLower(a.Status, "ASK_STATUS_"))
 	if a.Pr != "" {
 		line += fmt.Sprintf("  PR #%d", a.PrNumber)
-		if a.Round > 0 {
+		if a.RelayStep > 0 { // a relay step is no round, though it carries the number
+			line += fmt.Sprintf(" relay step %d", a.RelayStep)
+		} else if a.Round > 0 {
 			line += fmt.Sprintf(" round %d", a.Round)
 		}
 		if a.Size != "" {
@@ -655,7 +657,11 @@ func renderAsk(m proto.Message, w io.Writer) {
 	if a := r.Ask; a != nil {
 		fmt.Fprintln(w, askHead(a))
 		for _, mem := range a.Members {
-			line := fmt.Sprintf("  %s (%s, %s): %s", mem.Name, mem.Kind, mem.How, enumLower(mem.Status, "ASK_MEMBER_STATUS_"))
+			how := mem.Kind
+			if mem.How != "" {
+				how += ", " + mem.How
+			}
+			line := fmt.Sprintf("  %s (%s): %s", mem.Name, how, enumLower(mem.Status, "ASK_MEMBER_STATUS_"))
 			if mem.Line != "" {
 				line += ": " + mem.Line
 			}
@@ -693,13 +699,30 @@ func renderAsks(m proto.Message, w io.Writer) {
 		if len(a.Verdicts) > 0 {
 			var parts []string
 			for _, v := range a.Verdicts {
-				parts = append(parts, fmt.Sprintf("%s %d/%d/%d", v.Reviewer, v.Agree, v.Other, v.Disagree))
+				p := fmt.Sprintf("%s %d/%d/%d", v.Reviewer, v.Agree, v.Other, v.Disagree)
+				if v.Blocking > 0 {
+					p += fmt.Sprintf(" (%d blocking)", v.Blocking)
+				}
+				if v.Judge != "" {
+					p += " by " + v.Judge
+				}
+				parts = append(parts, p)
 			}
 			line += "  verdicts (agree/other/disagree): " + strings.Join(parts, ", ")
 		}
 		fmt.Fprintln(w, line)
-		if a.AnswersPath != "" && a.Status == v1.AskStatus_ASK_STATUS_FINISHED {
+		var who []string
+		for _, mem := range a.Members {
+			who = append(who, mem.Name+" "+enumLower(mem.Status, "ASK_MEMBER_STATUS_"))
+		}
+		if len(who) > 0 {
+			fmt.Fprintln(w, "    "+strings.Join(who, ", "))
+		}
+		switch {
+		case a.AnswersPath != "" && a.Status == v1.AskStatus_ASK_STATUS_FINISHED:
 			fmt.Fprintln(w, "    "+a.AnswersPath)
+		case a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED:
+			fmt.Fprintln(w, "    no answers file: the answers are in `mesh asks --format json` (each member's text)")
 		}
 	}
 }

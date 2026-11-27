@@ -93,8 +93,8 @@ public interface SendMessageRequestOrBuilder extends
   /**
    * <pre>
    * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
-   * a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
-   * current task.
+   * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+   * current task. Only a plan, question, done or failed to your parent takes it.
    * </pre>
    *
    * <code>string re = 6 [json_name = "re"];</code>
@@ -104,8 +104,8 @@ public interface SendMessageRequestOrBuilder extends
   /**
    * <pre>
    * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
-   * a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
-   * current task.
+   * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+   * current task. Only a plan, question, done or failed to your parent takes it.
    * </pre>
    *
    * <code>string re = 6 [json_name = "re"];</code>

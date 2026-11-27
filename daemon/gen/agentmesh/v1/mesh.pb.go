@@ -2183,8 +2183,8 @@ type SendMessageRequest struct {
 	// on another message type or a wait to anyone but your parent, is refused.
 	Until string `protobuf:"bytes,5,opt,name=until,proto3" json:"until,omitempty"`
 	// A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
-	// a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
-	// current task.
+	// a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+	// current task. Only a plan, question, done or failed to your parent takes it.
 	Re            string `protobuf:"bytes,6,opt,name=re,proto3" json:"re,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

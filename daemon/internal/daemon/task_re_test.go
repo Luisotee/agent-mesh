@@ -104,6 +104,48 @@ func TestARepeatedDoneIsRefusedUntilAnAnswerOrTask(t *testing.T) {
 	}
 }
 
+// No report follows a done for its task, not even a question or a plan: an intervening one doesn't hide the done.
+func TestNoReportFollowsADoneForTheTaskNotEvenAfterAQuestion(t *testing.T) {
+	a := newAcct(t)
+	task := a.taskID("do it")
+	if _, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_FAILED, "flaky", task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_QUESTION, "which?", task); err != nil {
+		t.Fatal(err) // a question after a failed is allowed
+	}
+	if _, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_FAILED, "again", task); code(err) != connect.CodeFailedPrecondition {
+		t.Errorf("a failed after a failed and a question: %v", err)
+	}
+	if _, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "x", task); err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range []v1.MessageType{v1.MessageType_MESSAGE_TYPE_QUESTION, v1.MessageType_MESSAGE_TYPE_PLAN,
+		v1.MessageType_MESSAGE_TYPE_DONE, v1.MessageType_MESSAGE_TYPE_FAILED} {
+		if _, err := a.sendRe(a.workerTok, "parent", typ, "late", task); code(err) != connect.CodeFailedPrecondition {
+			t.Errorf("%s after a done: %v", typ, err)
+		}
+	}
+}
+
+// --re belongs to a report to the parent: on anything else it is an error, not silently dropped.
+func TestReOnAnythingButAReportToTheParentIsRefused(t *testing.T) {
+	a := newAcct(t)
+	task := a.taskID("do it")
+	for _, typ := range []v1.MessageType{v1.MessageType_MESSAGE_TYPE_INFO, v1.MessageType_MESSAGE_TYPE_WAIT} {
+		if _, err := a.sendRe(a.workerTok, "parent", typ, "x", task); code(err) != connect.CodeInvalidArgument {
+			t.Errorf("%s --re: %v", typ, err)
+		}
+	}
+	if _, err := a.sendRe(a.rootTok, "repo-one", v1.MessageType_MESSAGE_TYPE_TASK, "x", task); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("a task --re: %v", err)
+	}
+	// Padding around a good id is ignored.
+	if m, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "x", " "+task+"\n"); err != nil || m.Re != task {
+		t.Errorf("a padded id: %v %v", m.GetRe(), err)
+	}
+}
+
 // A done may follow a failed for the task (the work was finished after all); a failed may not follow a failed.
 func TestADoneMayFollowAFailedForTheSameTask(t *testing.T) {
 	a := newAcct(t)

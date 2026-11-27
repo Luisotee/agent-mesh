@@ -1623,8 +1623,8 @@ func (d *Daemon) adoptReopens(ctx context.Context, terminals []*termv1.Terminal,
 
 // reportTask is the task a report of agent a to its parent answers: its current task, which the daemon stamps on the
 // report (Message.re). A report that names a task (--re) must name that one: a late or retried report for an older
-// task is refused, and so is a second done or failed for a task already reported done or failed (a task or answer
-// since starts the work again; a done after a failed goes through). A report that names none is stamped and let through, as every report was before.
+// task is refused, and so is any report after a done for it, or a second failed (a task or answer since starts the
+// work again; a done after a failed goes through). A report that names none is stamped and let through, as every report was before.
 func reportTask(r store.Reader, a *v1.Agent, typ v1.MessageType, re string) (string, error) {
 	cur, _, err := currentTask(r, a)
 	if err != nil || cur == nil {
@@ -1640,16 +1640,37 @@ func reportTask(r store.Reader, a *v1.Agent, typ v1.MessageType, re string) (str
 		return "", failedPrecondition("your current task is %s (%s), not %s: that report would answer an older task "+
 			"(read it with `mesh inbox --id %s`; nothing was sent)", cur.Id, firstLineOf(cur.Body, 60), re, cur.Id)
 	}
-	if typ == v1.MessageType_MESSAGE_TYPE_DONE || typ == v1.MessageType_MESSAGE_TYPE_FAILED {
-		last, err := lastReport(r, a)
-		if err != nil {
-			return "", err
+	sent, err := reportsSinceWork(r, a)
+	if err != nil {
+		return "", err
+	}
+	// A done is final: no report follows it. A failed may be followed by a done (the work was finished after
+	// all), a plan or a question, not by another failed.
+	if sent[v1.MessageType_MESSAGE_TYPE_DONE] || sent[v1.MessageType_MESSAGE_TYPE_FAILED] && typ == v1.MessageType_MESSAGE_TYPE_FAILED {
+		last := v1.MessageType_MESSAGE_TYPE_DONE
+		if !sent[last] {
+			last = v1.MessageType_MESSAGE_TYPE_FAILED
 		}
-		// A done is final; a failed may be followed by a done (the work was finished after all), not by another failed.
-		if last != nil && (last.Type == v1.MessageType_MESSAGE_TYPE_DONE || last.Type == typ && typ == v1.MessageType_MESSAGE_TYPE_FAILED) {
-			return "", failedPrecondition("task %s was already reported %s (%s): nothing was sent",
-				cur.Id, strings.ToLower(strings.TrimPrefix(last.Type.String(), "MESSAGE_TYPE_")), last.Id)
-		}
+		return "", failedPrecondition("task %s was already reported %s: nothing was sent (a new task or an answer opens it again)",
+			cur.Id, strings.ToLower(strings.TrimPrefix(last.String(), "MESSAGE_TYPE_")))
 	}
 	return cur.Id, nil
+}
+
+// reportsSinceWork is the types of the reports an agent sent to its parent since its last task or answer.
+func reportsSinceWork(r store.Reader, a *v1.Agent) (map[v1.MessageType]bool, error) {
+	msgs, err := r.RunMessages(a.RunId, "", -1) // -1: no limit
+	if err != nil {
+		return nil, err
+	}
+	sent := map[v1.MessageType]bool{}
+	for _, m := range msgs {
+		switch {
+		case m.ToId == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
+			clear(sent)
+		case m.From.GetId() == a.Id && m.ToId == a.ParentId && isReport(m.Type):
+			sent[m.Type] = true
+		}
+	}
+	return sent, nil
 }
