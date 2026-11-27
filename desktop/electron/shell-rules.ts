@@ -1,6 +1,6 @@
 import type { NoticeWire } from '../shared/api.js'
 
-const TABS = new Set(['overview', 'messages', 'terminal'])
+const TABS = new Set(['chat', 'terminal'])
 
 /** The renderer is untrusted: a notification is shown only if it has the right shape, within sane lengths. */
 export function validNotice(x: unknown): NoticeWire | undefined {

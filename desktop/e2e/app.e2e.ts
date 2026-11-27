@@ -35,7 +35,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   await page.getByText(/No projects yet/).waitFor()
 
   // Start a lead from the UI: the empty sidebar's New lead, on the project, in a run of its own.
-  await page.getByRole('button', { name: 'New lead' }).click()
+  await page.getByRole('button', { name: 'New lead', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Project').fill(host.repo)
   await dialog.getByLabel('Project').blur()
@@ -62,17 +62,21 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   // Open the worker, message it from the UI, and the daemon has it, from the device.
   await workerRow.click()
   const panel = page.getByRole('article', { name: 'repo-fix' })
-  await panel.getByLabel('Message', { exact: true }).fill('please look at the typo')
-  await panel.getByRole('button', { name: 'Send' }).click()
-  await panel.getByText('Sent.').waitFor()
+  await panel.getByRole('button', { name: 'Menu of repo-fix' }).click()
+  await page.getByRole('menuitem', { name: 'Send a message…' }).click()
+  const send = page.getByRole('dialog', { name: 'Message repo-fix' })
+  await send.getByLabel('Message', { exact: true }).fill('please look at the typo')
+  await send.getByRole('button', { name: 'Send' }).click()
+  await send.waitFor({ state: 'detached' })
   const inbox = await host.client(host.agentToken(worker!.id)).readInbox({ peek: true, all: true })
   const sent = inbox.messages.find((m) => m.body === 'please look at the typo')
   expect(sent?.type).toBe(MessageType.TASK)
   expect(sent?.from?.name).toBeTruthy()
 
   // Stopping an agent from the UI ends its process; the tree shows it stopped, from the daemon's exit event.
-  await panel.getByRole('button', { name: 'Stop agent' }).click()
-  await panel.getByRole('button', { name: 'Stop repo-fix' }).click()
+  await panel.getByRole('button', { name: 'Menu of repo-fix' }).click()
+  await page.getByRole('menuitem', { name: 'Stop…' }).click()
+  await page.getByRole('button', { name: 'Stop repo-fix' }).click()
   await expect.poll(() => panel.getByTestId('agent-status').innerText(), { timeout: 20_000 }).toBe('Stopped')
 
   await page.screenshot({ path: path.join(shots, 'lead-agent-view.png') })
@@ -114,11 +118,11 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   await page.getByRole('button', { name: 'Hide the side panel' }).click().catch(() => {})
   await openFromSidebar(page, 'repo-lead')
   const panel = page.getByRole('article', { name: 'repo-lead' })
-  await panel.getByRole('tab', { name: 'terminal' }).click()
-  // The selected tab controls a visible panel of the same name; the hidden one is not in the a11y tree.
-  expect(await panel.getByRole('tab', { name: 'terminal' }).getAttribute('aria-selected')).toBe('true')
-  await panel.getByRole('tabpanel', { name: 'terminal' }).waitFor({ state: 'visible' })
-  expect(await panel.getByRole('tabpanel', { name: 'overview' }).count()).toBe(0)
+  await panel.getByRole('button', { name: 'Terminal' }).click()
+  // The toggle shows the terminal in the chat's place; the hidden chat is not in the a11y tree.
+  await expect.poll(() => panel.getByRole('button', { name: 'Terminal' }).getAttribute('aria-pressed')).toBe('true')
+  await panel.getByRole('region', { name: 'Terminal' }).waitFor({ state: 'visible' })
+  expect(await panel.getByRole('region', { name: 'Chat' }).count()).toBe(0)
   const status = panel.getByTestId('terminal-status')
   const screen = panel.locator('.xterm-rows')
   await expect.poll(() => status.innerText(), { timeout: 20_000 }).toBe('Live')
@@ -249,7 +253,7 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   await asNoisy.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n- one thing' })
   await expect.poll(notices, { timeout: 20_000 }).toContain('repo-noisy sent a plan')
   const entry = log().find((l) => l.type === 'notify' && l.title === 'repo-noisy sent a plan')!
-  expect(entry).toMatchObject({ tab: 'messages', sound: true, body: 'Plan one thing' })
+  expect(entry).toMatchObject({ tab: 'chat', sound: true, body: 'Plan one thing' })
   await expect.poll(() => log().filter((l) => l.type === 'waiting').at(-1)?.count, { timeout: 20_000 }).toBe(1)
 
   // A page reload replays nothing into notifications.

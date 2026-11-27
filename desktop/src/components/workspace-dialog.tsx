@@ -1,10 +1,11 @@
 import { Pin, PinOff } from 'lucide-react'
+import { MarkdownField } from '@/components/ui/markdown-field'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listProjects, spawnAgent, startRun } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/label'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Input, Select } from '@/components/ui/input'
 import { useApp, useAppState, useHostState } from '@/context'
 import { knownRepos } from '@/derive'
 import { ProjectSchema, type Project } from '@/gen/agentmesh/v1/mesh_pb'
@@ -142,7 +143,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
       const res = await spawnAgent(host.client, { runId, repo: repo.trim(), slug: slug.trim(), role, kind: kind.trim(), tier, model: '', effort: '', task: task.trim(), base: startPoint(effective) })
       started.current = undefined
       onDone()
-      if (res.agent) app.selectAgent(host.info.id, res.agent.id, 'terminal')
+      if (res.agent) app.selectAgent(host.info.id, res.agent.id, 'chat')
     } catch (err) {
       setError(message(err))
     } finally {
@@ -267,7 +268,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
         </Field>
       </div>
       <Field label="First message" hint="Sent as a task once the agent is ready; empty starts it idle.">
-        <Textarea value={task} onChange={(e) => setTask(e.target.value)} />
+        <MarkdownField className="min-h-20" value={task} onValueChange={setTask} />
       </Field>
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       <Button type="submit" disabled={busy || noTier || (effective.kind !== 'default' && !effective.ref)}>Start workspace</Button>

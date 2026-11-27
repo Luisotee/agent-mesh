@@ -293,14 +293,14 @@ describe('OpenView', () => {
 })
 
 describe('OpenView: messages, a plan and a pull request', () => {
-  it("opens an agent's Messages tab, marks a plan's card, and selects the owner of a pull request with the side panel", () => {
+  it("opens an agent's chat for its messages, marks a plan's card, and selects the owner of a pull request with the side panel", () => {
     const { model } = fixture()
     const view = (v: string, target: string, more: { messageId?: string; agentId?: string } = {}) => showView(model, 'h1', create(ViewRequestSchema, { view: v, target, ...more }))
     view('messages', 'w1')
-    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages' })
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'chat' })
     expect(model.store.getState().focusMessage).toBeUndefined()
     view('plan', 'w1', { messageId: 'm9' })
-    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages', focusMessage: { hostId: 'h1', id: 'm9' } })
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'chat', focusMessage: { hostId: 'h1', id: 'm9' } })
     model.clearFocusMessage()
     model.setPanel(false)
     view('pr', 'https://github.com/acme/repo/pull/7', { agentId: 'lead' })

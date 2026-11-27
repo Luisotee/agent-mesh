@@ -1,4 +1,5 @@
 import { TranscriptKind, type ReadTranscriptResponse, type TranscriptEntry } from './gen/agentmesh/v1/chat_pb'
+import type { Message } from './gen/agentmesh/v1/types_pb'
 
 /**
  * What the chat view holds of an agent's conversation: the entries read so far (a window of its CLI's record) and
@@ -48,10 +49,12 @@ export function withLater(t: Transcript, res: ReadTranscriptResponse, from: bigi
 
 /** What the chat shows, in order: a prompt, a mesh doorbell, a reply, or a run of tool calls with their answers. */
 export type Block =
-  | { kind: 'user'; id: string; entry: TranscriptEntry }
-  | { kind: 'mesh'; id: string; entry: TranscriptEntry }
-  | { kind: 'assistant'; id: string; entry: TranscriptEntry }
-  | { kind: 'tools'; id: string; calls: ToolCall[] }
+  | { kind: 'user'; id: string; at: number; entry: TranscriptEntry }
+  | { kind: 'mesh'; id: string; at: number; entry: TranscriptEntry }
+  | { kind: 'assistant'; id: string; at: number; entry: TranscriptEntry }
+  | { kind: 'tools'; id: string; at: number; calls: ToolCall[] }
+
+const ms = (t?: { seconds: bigint; nanos: number }) => (t ? Number(t.seconds) * 1000 + Math.floor(t.nanos / 1e6) : 0)
 
 export interface ToolCall {
   id: string
@@ -71,7 +74,7 @@ export function toBlocks(entries: TranscriptEntry[]): Block[] {
       case TranscriptKind.TOOL_CALL: {
         const call: ToolCall = { id: e.id, tool: e.tool, input: e.toolInput }
         calls.set(e.toolUseId, call)
-        if (!run) blocks.push((run = { kind: 'tools', id: e.id, calls: [] }))
+        if (!run) blocks.push((run = { kind: 'tools', id: e.id, at: ms(e.time), calls: [] }))
         run.calls.push(call)
         break
       }
@@ -81,22 +84,22 @@ export function toBlocks(entries: TranscriptEntry[]): Block[] {
         else {
           // A result whose call is before the window we hold: shown on its own, as a call we can't name.
           const orphan: ToolCall = { id: e.id, tool: 'tool', input: '', result: e }
-          if (!run) blocks.push((run = { kind: 'tools', id: e.id, calls: [] }))
+          if (!run) blocks.push((run = { kind: 'tools', id: e.id, at: ms(e.time), calls: [] }))
           run.calls.push(orphan)
         }
         break
       }
       case TranscriptKind.USER:
         run = undefined
-        blocks.push({ kind: 'user', id: e.id, entry: e })
+        blocks.push({ kind: 'user', id: e.id, at: ms(e.time), entry: e })
         break
       case TranscriptKind.MESH:
         run = undefined
-        blocks.push({ kind: 'mesh', id: e.id, entry: e })
+        blocks.push({ kind: 'mesh', id: e.id, at: ms(e.time), entry: e })
         break
       case TranscriptKind.ASSISTANT:
         run = undefined
-        blocks.push({ kind: 'assistant', id: e.id, entry: e })
+        blocks.push({ kind: 'assistant', id: e.id, at: ms(e.time), entry: e })
         break
     }
   }
@@ -109,4 +112,38 @@ export function toolsSummary(calls: ToolCall[]): string {
   for (const c of calls) counts.set(c.tool, (counts.get(c.tool) ?? 0) + 1)
   const names = [...counts].map(([t, n]) => (n > 1 ? `${t} ×${n}` : t))
   return `Ran ${calls.length} ${calls.length === 1 ? 'tool' : 'tools'}: ${names.join(', ')}`
+}
+
+/**
+ * A doorbell the host typed for stored messages (`delivery.go` `Doorbell`: "📬 [mesh] task from x (ref t): run `mesh
+ * inbox`"), which a card stands for. Other mesh lines (a root's `mesh reset` prompt) announce no message and stay.
+ */
+const DOORBELL = /^📬 \[mesh\] (\S+ from \S+|\d+ messages) \(ref /
+export const isDoorbell = (text: string) => DOORBELL.test(text.trim())
+
+/** What the chat's timeline shows: the conversation's blocks and, where they were sent, the agent's mesh messages. */
+export type Item = Block | { kind: 'message'; id: string; at: number; message: Message }
+
+/**
+ * The conversation with the agent's mesh messages (to it and from it) put in where they were sent, as cards. Once the
+ * messages are there (`messages` given), the doorbells that announced them (`isDoorbell`) go: the cards stand for
+ * them. Only messages from the window held on are shown (`atStart`: all of them), so loading earlier
+ * entries brings the earlier messages in with them; one still waiting on the user (`open`, its id) shows whatever the
+ * window, at the top when it is older, so it can always be answered.
+ */
+export function timeline(blocks: Block[], messages: Message[] | undefined, atStart: boolean, open: ReadonlySet<string> = new Set()): Item[] {
+  if (!messages) return blocks
+  const from = atStart || blocks.length === 0 ? -Infinity : blocks[0]!.at
+  const cards: Item[] = messages
+    .map((m) => ({ kind: 'message' as const, id: `m-${m.id}`, at: ms(m.createdAt), message: m }))
+    .filter((c) => c.at >= from || open.has(c.message.id))
+    .sort((a, b) => a.at - b.at)
+  const out: Item[] = []
+  let i = 0
+  for (const b of blocks) {
+    while (i < cards.length && cards[i]!.at < b.at) out.push(cards[i++]!)
+    if (b.kind !== 'mesh' || !isDoorbell(b.entry.text)) out.push(b)
+  }
+  while (i < cards.length) out.push(cards[i++]!)
+  return out
 }

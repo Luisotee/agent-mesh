@@ -48,7 +48,7 @@ test('a first run finds the daemon in WSL, pairs with it with nothing pasted, an
     throw new Error(`${String(e)}\nthe page says: ${(await page.locator('body').innerText()).slice(0, 800)}`)
   })
   await page.getByRole('article', { name: 'setup-agent' }).waitFor({ timeout: 60_000 })
-  await page.getByRole('tabpanel', { name: 'chat' }).waitFor({ state: 'visible' })
+  await page.getByRole('region', { name: 'Chat' }).waitFor({ state: 'visible' })
   await page.screenshot({ path: path.join(shots, 'onboarding-chat.png') })
 
   // The host really has the app as a paired device, over the pinned TLS address, and a setup run with its lead.
