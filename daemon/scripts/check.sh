@@ -33,8 +33,9 @@ scratch=$(mktemp -d "$scratch_base/ck.XXXXXX")
 short=$(mktemp -d /tmp/cs.XXXXXX 2>/dev/null || echo "$scratch")
 export TMPDIR="$scratch" GOTMPDIR="$scratch" MESH_TEST_SHORT_TMP="$short"
 # Every step but the quick gofmt runs as a job of their own session, waited for: a TERM or INT to this script (a `pkill`, a Ctrl-C)
-# then stops at once instead of when `go test` ends, and takes the job's whole process group with it, tests' children
-# too, before the scratch dirs go.
+# then stops at once instead of when `go test` ends, and takes the job's whole process group with it before the scratch
+# dirs go. What the tests started in a session of their own (a terminal host, `--max-lifetime` 3 minutes) is not in
+# that group: it ends by its own lifetime.
 child=
 cleanup() {
   if [ -n "$child" ]; then
@@ -47,8 +48,11 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' TERM
 trap 'exit 130' INT
+# A background job of a non-interactive bash starts with SIGINT and SIGQUIT ignored, and the tests below would inherit
+# that: they get the default back (where this env can).
+if env --default-signal=INT,QUIT true 2>/dev/null; then defsig=(env --default-signal=INT,QUIT); else defsig=(); fi
 run() {
-  setsid "$@" &
+  setsid "${defsig[@]}" "$@" &
   child=$!
   local rc=0
   wait "$child" || rc=$?

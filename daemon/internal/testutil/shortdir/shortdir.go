@@ -64,12 +64,12 @@ func Make(prefix string) (string, error) {
 var binsPatterns = []string{"meshd-bins-*", "meshd-e2e-bins-*"}
 
 // Sweep removes the dirs a killed or timed-out run left (its cleanups never ran) that are older than maxAge, from Base
-// and the OS temp dir: every dir Make made (it holds the marker file) and the built-binaries dirs. The age is what
+// the OS temp dir and /tmp: every dir Make made (it holds the marker file) and the built-binaries dirs. The age is what
 // keeps a run in progress in another process safe: pass more than the longest suite takes.
 func Sweep(maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 	seen := map[string]bool{}
-	for _, base := range []string{Base(), os.TempDir()} {
+	for _, base := range []string{Base(), os.TempDir(), "/tmp"} { // /tmp too: a gate's own dirs are not where a killed hand-run left its
 		if seen[base] {
 			continue
 		}
@@ -101,7 +101,7 @@ func Sweep(maxAge time.Duration) {
 	}
 }
 
-// New is an empty dir with a short path, removed when the test ends (after the cleanups registered later, as
+// New is a dir with a short path (empty but for its marker file), removed when the test ends (after the cleanups registered later, as
 // t.TempDir's is).
 func New(t testing.TB) string {
 	t.Helper()

@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"slices"
@@ -218,10 +219,6 @@ func TestSignalSessionMembersReachesWhatTheLeaderLeftBehind(t *testing.T) {
 	leader := cmd.Process.Pid
 	// The leader's start time was read while it lived: it is gone now, as it is when a terminal's leader has exited.
 	leaderTicks := uint64(1)
-	// A pid that is a live process with another start time is a reused one: nothing of its session is signalled.
-	if n := SignalSessionMembers(os.Getpid(), 12345, syscall.SIGKILL); n != 0 {
-		t.Fatalf("signalled %d for a pid whose start time is not the recorded one", n)
-	}
 	if n := SignalSessionMembers(leader, leaderTicks, syscall.SIGKILL); n != 1 {
 		t.Fatalf("signalled %d, want the one job", n)
 	}
@@ -241,5 +238,42 @@ func TestSignalSessionMembersReachesWhatTheLeaderLeftBehind(t *testing.T) {
 	}
 	if n := SignalSessionMembers(1, 0, syscall.SIGKILL); n != 0 {
 		t.Errorf("signalled %d for pid 1", n)
+	}
+}
+
+// A pid that is a live process with another start time than the recorded one is a reused pid: what is in a session of
+// that pid is not the terminal's, and nothing is signalled.
+func TestSignalSessionMembersLeavesAReusedPidsSessionAlone(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "sleep 300 & echo $!; wait")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var job int
+	if _, err := fmt.Fscan(out, &job); err != nil || job <= 1 {
+		t.Fatalf("job pid: %v", err)
+	}
+	t.Cleanup(func() {
+		syscall.Kill(job, syscall.SIGKILL)
+		cmd.Process.Kill()
+		cmd.Wait()
+	})
+	leader := cmd.Process.Pid
+	ticks, err := StartTicks(leader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := SignalSessionMembers(leader, ticks+1, syscall.SIGKILL); n != 0 {
+		t.Fatalf("signalled %d under a start time that is not the leader's", n)
+	}
+	if f, err := stat(job); err != nil || f[0] == "Z" {
+		t.Fatalf("the job was signalled: %v %v", f, err)
+	}
+	if n := SignalSessionMembers(leader, ticks, syscall.SIGKILL); n != 1 {
+		t.Fatalf("signalled %d under the leader's own start time, want its one job", n)
 	}
 }
