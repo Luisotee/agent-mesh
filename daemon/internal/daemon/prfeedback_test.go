@@ -488,3 +488,68 @@ func TestTheFirstLooksCursorIsGitHubsClockAndAFeedbackInfoOpensTheTaskForANewDon
 		t.Fatalf("a done after the feedback: %v", err)
 	}
 }
+
+func TestApprovalsAndBotAuthorsAreNotFeedbackAndAFreshPRIsNewsFromItsCreation(t *testing.T) {
+	w := startFB(t)
+	// The worker has a task; the PR was opened after it: its failing CI at the first look is news.
+	asWorker := w.as(w.workTok)
+	if _, err := w.as(w.rootTok).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""),
+		To: "demo-fix", Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "go"})); err != nil {
+		t.Fatal(err)
+	}
+	readInbox(t, asWorker)
+	w.rollup = []any{run("COMPLETED", "FAILURE")}
+	w.publish()
+	w.mu.Lock()
+	w.views[fbURL]["createdAt"] = at(time.Minute)
+	w.mu.Unlock()
+	w.pass()
+	wk, _ := w.told()
+	if len(wk) != 1 || !strings.Contains(wk[0], "failing checks") {
+		t.Fatalf("a fresh PR's first look: %v", wk)
+	}
+	bot := comment("github-actions", "coverage 91%", time.Hour)
+	bot["author"] = map[string]any{"login": "github-actions", "is_bot": true}
+	w.comments = []any{bot}
+	w.reviews = []any{map[string]any{"author": map[string]any{"login": "owner"}, "authorAssociation": "OWNER", "state": "APPROVED",
+		"body": "LGTM, merging after lunch", "submittedAt": at(time.Hour)}}
+	w.publish()
+	w.mu.Lock()
+	w.views[fbURL]["createdAt"] = at(time.Minute)
+	w.mu.Unlock()
+	w.pass()
+	if wk, _ := w.told(); len(wk) != 1 {
+		t.Fatalf("an approval or a bot was told: %v", wk)
+	}
+}
+
+func TestAFailedReadIsTriedAgainNotTakenForReadAndAWholeBigGroupIsToldAtOnce(t *testing.T) {
+	w := startFB(t)
+	if w.d.PRLastRead("a-w1").IsZero() {
+		t.Fatal("a read in full left no time")
+	}
+	w.mu.Lock()
+	w.fail = context.DeadlineExceeded
+	w.mu.Unlock()
+	w.prs("", true)
+	if !w.d.PRLastRead("a-w1").IsZero() {
+		t.Error("a failed read counted as the last read")
+	}
+	w.mu.Lock()
+	w.fail = nil
+	w.mu.Unlock()
+	// 45 comments in one second are told whole (the cursor is a time), each shorter.
+	w.pass()
+	at0 := at(time.Hour)
+	for i := 0; i < 45; i++ {
+		c := comment("owner", "bulk "+itoa(i)+" "+strings.Repeat("x", 400), time.Hour)
+		c["createdAt"] = at0
+		w.comments = append(w.comments, c)
+	}
+	w.publish()
+	w.pass()
+	wk, _ := w.told()
+	if len(wk) != 1 || !strings.Contains(wk[0], "bulk 44") || strings.Contains(wk[0], "more follow") {
+		t.Fatalf("told %d: %.300s", len(wk), strings.Join(wk, "|"))
+	}
+}

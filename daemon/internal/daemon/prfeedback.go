@@ -33,9 +33,10 @@ import (
 )
 
 const (
-	feedbackResumeMax = 3    // resumes of a retired worker per PR
-	feedbackItemMax   = 10   // items told at once (a time group is not cut: the cursor is a time)
-	feedbackItemHard  = 40   // the most items told at once, a group cut or not
+	feedbackResumeMax = 3  // resumes of a retired worker per PR
+	feedbackItemMax   = 10 // items told at once (a time group is not cut: the cursor is a time)
+	feedbackItemBulk  = 40 // past this many items in one message each is cut to feedbackBulkText characters
+	feedbackBulkText  = 200
 	feedbackTextMax   = 600  // characters of one item's text
 	feedbackBodyMax   = 4000 // bytes of the item lines
 	prWatchCheckEvery = 5 * time.Second
@@ -55,18 +56,24 @@ type ghFeedback struct {
 	HeadRefOid string           `json:"headRefOid"`
 	Rollup     []map[string]any `json:"statusCheckRollup"`
 	Reviews    []struct {
-		Author      struct{ Login string } `json:"author"`
-		Assoc       string                 `json:"authorAssociation"`
-		Body        string                 `json:"body"`
-		State       string                 `json:"state"`
-		SubmittedAt time.Time              `json:"submittedAt"`
+		Author      ghAuthor  `json:"author"`
+		Assoc       string    `json:"authorAssociation"`
+		Body        string    `json:"body"`
+		State       string    `json:"state"`
+		SubmittedAt time.Time `json:"submittedAt"`
 	} `json:"reviews"`
 	Comments []struct {
-		Author    struct{ Login string } `json:"author"`
-		Assoc     string                 `json:"authorAssociation"`
-		Body      string                 `json:"body"`
-		CreatedAt time.Time              `json:"createdAt"`
+		Author    ghAuthor  `json:"author"`
+		Assoc     string    `json:"authorAssociation"`
+		Body      string    `json:"body"`
+		CreatedAt time.Time `json:"createdAt"`
 	} `json:"comments"`
+}
+
+// ghAuthor is who wrote a review or comment: GraphQL gives a bot's login without the `[bot]` suffix.
+type ghAuthor struct {
+	Login string `json:"login"`
+	IsBot bool   `json:"is_bot"`
 }
 
 // ghInline is one inline comment of `gh api repos/<o>/<r>/pulls/<n>/comments`.
@@ -157,7 +164,8 @@ func feedbackSince(v ghFeedback, inline []ghInline, cursor time.Time) (items []f
 		items = append(items, feedbackItem{at: at, author: login, where: where, text: body})
 	}
 	for _, rv := range v.Reviews {
-		if strings.EqualFold(rv.State, "PENDING") {
+		if st := strings.ToUpper(rv.State); st == "PENDING" || st == "APPROVED" || rv.Author.IsBot { // an approval is no work
+			add(rv.SubmittedAt, "", "", "", "") // moves the cursor on, tells nothing
 			continue
 		}
 		where := "review"
@@ -167,6 +175,10 @@ func feedbackSince(v ghFeedback, inline []ghInline, cursor time.Time) (items []f
 		add(rv.SubmittedAt, rv.Author.Login, rv.Assoc, where, rv.Body)
 	}
 	for _, c := range v.Comments {
+		if c.Author.IsBot {
+			add(c.CreatedAt, "", "", "", "")
+			continue
+		}
 		add(c.CreatedAt, c.Author.Login, c.Assoc, "", c.Body)
 	}
 	for _, c := range inline {
@@ -237,10 +249,14 @@ func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head
 		if it.where != "" {
 			where += ", " + it.where
 		}
-		line := "- " + where + ": " + strings.ReplaceAll(clip(it.text, feedbackTextMax), "\n", "\n  ") + "\n"
-		// Cut only between times (the cursor is a time, so an item cut from the middle of a group would be lost),
-		// unless the group passes feedbackItemHard.
-		if i > 0 && (i >= feedbackItemHard || (i >= feedbackItemMax || used+len(line) > feedbackBodyMax) && !it.at.Equal(items[i-1].at)) {
+		textMax := feedbackTextMax
+		if len(items) > feedbackItemBulk {
+			textMax = feedbackBulkText
+		}
+		line := "- " + where + ": " + strings.ReplaceAll(clip(it.text, textMax), "\n", "\n  ") + "\n"
+		// Cut only between times: the cursor is a time, so an item cut from the middle of a group would be lost (a
+		// big group is told whole, each item shorter).
+		if i > 0 && (i >= feedbackItemMax || used+len(line) > feedbackBodyMax) && !it.at.Equal(items[i-1].at) {
 			fmt.Fprintf(&b, "- … %d more follow at the next look (or read the PR).\n", len(items)-i)
 			included = i
 			break
@@ -347,15 +363,25 @@ func (d *Daemon) watchPR(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mo
 	if json.Unmarshal(out, &inline) != nil {
 		return
 	}
-	if p.FeedbackCursor == nil { // first look: what is there already is not news (the cursor starts on GitHub's clock)
-		start := newestTime(v, inline)
-		if start.IsZero() {
-			start = d.nowTime()
+	var cursor time.Time
+	if p.FeedbackCursor == nil {
+		// First look. A PR opened since the worker's current task is its work in progress: all of it is news, from
+		// its creation. An older one (a restart, an upgrade) is not: what is there already is not news, and the
+		// cursor starts at the newest time GitHub gave (GitHub's clock, never the daemon's).
+		if task, _, err := currentTask(d.store.Read(ctx), a); err == nil && task != nil && !v.CreatedAt.IsZero() &&
+			v.CreatedAt.After(task.CreatedAt.AsTime()) {
+			cursor = v.CreatedAt
+		} else {
+			start := newestTime(v, inline)
+			if start.IsZero() {
+				start = d.nowTime()
+			}
+			d.saveCursor(ctx, a, p, start, ternary(failing, v.HeadRefOid, ""), 0, nil, "")
+			return
 		}
-		d.saveCursor(ctx, a, p, start, ternary(failing, v.HeadRefOid, ""), 0, nil, "")
-		return
+	} else {
+		cursor = p.FeedbackCursor.AsTime()
 	}
-	cursor := p.FeedbackCursor.AsTime()
 	items, newest := feedbackSince(v, inline, cursor)
 	var checks []string
 	if failing && v.HeadRefOid != "" && v.HeadRefOid != p.FailingHead {
@@ -368,7 +394,7 @@ func (d *Daemon) watchPR(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mo
 		failedHead = v.HeadRefOid
 	}
 	if len(items) == 0 && len(checks) == 0 {
-		if !newest.Equal(cursor) || failedHead != p.FailingHead {
+		if p.FeedbackCursor == nil || !newest.Equal(cursor) || failedHead != p.FailingHead {
 			d.saveCursor(ctx, a, p, newest, failedHead, 0, nil, "")
 		}
 		return
@@ -413,7 +439,7 @@ func (d *Daemon) saveCursor(ctx context.Context, a *v1.Agent, p *v1.PullRequest,
 		}
 		live, err := tx.GetAgent(a.Id)
 		if err != nil {
-			return nil
+			return err
 		}
 		// The text goes to the worker's own inbox whether it runs or not: a retired one finds it when it is resumed
 		// (an info starts nothing), and rings only a live one.
