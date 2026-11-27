@@ -163,6 +163,8 @@ message Attached {
   uint64 epoch = 4;
   // Where the output that follows starts.
   uint64 offset = 5;
+  // The terminal's size in `epoch`. A repaint is of the size that counts this client; an exact attach that continues is in the
+  // epoch it left, and its own size counts after the replay: if that moves the terminal, a Resized follows ReplayDone.
   uint32 cols = 6;
   uint32 rows = 7;
   // Whether this client's input is accepted.
