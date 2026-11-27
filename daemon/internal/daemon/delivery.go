@@ -84,11 +84,19 @@ func (d *Daemon) deliverSoon(agentID string) {
 	}
 	d.rt.deliverQueued[agentID] = true
 	d.rt.mu.Unlock()
-	go func() {
-		if err := d.deliver(context.Background(), agentID); err != nil {
+	// In bgWG, and ended by the daemon's stop: close() closes the store only once it has returned.
+	started := d.goBG(func() {
+		ctx, cancel := d.stopCtx()
+		defer cancel()
+		if err := d.deliver(ctx, agentID); err != nil && ctx.Err() == nil {
 			d.log.Warn("doorbell", "agent", agentID, "err", err)
 		}
-	}()
+	})
+	if !started {
+		d.rt.mu.Lock()
+		delete(d.rt.deliverQueued, agentID)
+		d.rt.mu.Unlock()
+	}
 }
 
 // agentLock is held by whatever types into an agent's terminal or replaces it: a doorbell, a reopen, a stop.

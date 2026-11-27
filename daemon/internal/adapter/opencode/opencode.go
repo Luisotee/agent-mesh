@@ -658,6 +658,9 @@ type SessionInfo struct {
 	IsRate        bool
 	Evidence      string
 	ErrorText     string
+	// UpdatedAt is when the open reply (Status "working") last changed: the later of its own row and its newest
+	// part's. A reply that stays open with this unchanged for minutes is stalled. Zero when the DB doesn't say.
+	UpdatedAt time.Time
 }
 
 type opencodeMessage struct {
@@ -754,6 +757,7 @@ func InspectSession(dbPath, sessionID, cwd, repo, model string, since, notBefore
 
 	if lastMsg.Role == "user" || (lastMsg.Role == "assistant" && (lastMsg.Time.Completed == 0 || lastMsg.Finish == "tool-calls") && lastMsg.Error == nil) {
 		out.Status = "working"
+		out.UpdatedAt = replyUpdatedAt(db, lastID)
 		return out, nil
 	}
 	if lastMsg.Role == "assistant" && lastMsg.Error != nil {
@@ -789,6 +793,24 @@ func InspectSession(dbPath, sessionID, cwd, repo, model string, since, notBefore
 		out.Status = "idle"
 	}
 	return out, nil
+}
+
+// replyUpdatedAt is when a message, or any of its parts, last changed, from the DB's time_updated columns; zero when
+// they can't be read (an older schema), so no stall is ever read from a DB that doesn't say.
+func replyUpdatedAt(db *sql.DB, messageID string) time.Time {
+	var ms sql.NullInt64
+	if err := db.QueryRow(`SELECT time_updated FROM message WHERE id = ?`, messageID).Scan(&ms); err != nil || !ms.Valid {
+		return time.Time{}
+	}
+	latest := ms.Int64
+	var pms sql.NullInt64
+	if err := db.QueryRow(`SELECT MAX(time_updated) FROM part WHERE message_id = ?`, messageID).Scan(&pms); err == nil && pms.Valid && pms.Int64 > latest {
+		latest = pms.Int64
+	}
+	if latest <= 0 {
+		return time.Time{} // a row that says 0 says nothing: never a stall of fifty years
+	}
+	return time.UnixMilli(latest)
 }
 
 // ── limits & screen parsing ──

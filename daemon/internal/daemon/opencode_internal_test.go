@@ -204,7 +204,7 @@ func TestOpenCodePollOnlyAdvancesLastOutputOnSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	t.Cleanup(func() { st.Close() })
 
 	dbPath := filepath.Join(dir, "opencode.db")
 	now := time.Now().Truncate(time.Millisecond)
@@ -224,12 +224,16 @@ func TestOpenCodePollOnlyAdvancesLastOutputOnSuccess(t *testing.T) {
 		}}},
 	}
 	d := &Daemon{
-		store: st,
-		paths: Paths{Dir: dir},
-		rt:    rt,
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		now:   func() time.Time { return now.Add(3 * time.Second) },
+		store:  st,
+		paths:  Paths{Dir: dir},
+		rt:     rt,
+		schema: settings.Default(), // the poll reads opencode.stall_after
+		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		now:    func() time.Time { return now.Add(3 * time.Second) },
 	}
+	// A poll that ends a turn rings the doorbell in a goroutine of the daemon's: it must be done before the store
+	// closes and the temp dir goes (cleanups run last in, first out).
+	t.Cleanup(d.bgWG.Wait)
 
 	ctx := context.Background()
 	wt := filepath.Join(dir, "wt")

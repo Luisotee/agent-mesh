@@ -148,4 +148,23 @@ public interface MessageOrBuilder extends
    * @return The readAt.
    */
   com.google.protobuf.Timestamp getReadAt();
+
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   * @return Whether the waitUntil field is set.
+   */
+  boolean hasWaitUntil();
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   * @return The waitUntil.
+   */
+  com.google.protobuf.Timestamp getWaitUntil();
 }

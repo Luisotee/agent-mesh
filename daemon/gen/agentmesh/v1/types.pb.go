@@ -1012,7 +1012,9 @@ type Message struct {
 	// When its doorbell reached the recipient's terminal; unset until then.
 	DeliveredAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=delivered_at,json=deliveredAt,proto3" json:"delivered_at,omitempty"`
 	// When the recipient read it with ReadInbox; unset until then.
-	ReadAt        *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=read_at,json=readAt,proto3" json:"read_at,omitempty"`
+	ReadAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=read_at,json=readAt,proto3" json:"read_at,omitempty"`
+	// A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+	WaitUntil     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=wait_until,json=waitUntil,proto3" json:"wait_until,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1113,6 +1115,13 @@ func (x *Message) GetDeliveredAt() *timestamppb.Timestamp {
 func (x *Message) GetReadAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ReadAt
+	}
+	return nil
+}
+
+func (x *Message) GetWaitUntil() *timestamppb.Timestamp {
+	if x != nil {
+		return x.WaitUntil
 	}
 	return nil
 }
@@ -3706,7 +3715,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\x12=\n" +
 	"\frequested_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vrequestedAt\x126\n" +
 	"\frequested_by\x18\b \x01(\v2\x13.agentmesh.v1.ActorR\vrequestedBy\x12\x14\n" +
-	"\x05fresh\x18\t \x01(\bR\x05fresh\"\xf9\x02\n" +
+	"\x05fresh\x18\t \x01(\bR\x05fresh\"\xb4\x03\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12'\n" +
@@ -3719,7 +3728,9 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12=\n" +
 	"\fdelivered_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\vdeliveredAt\x123\n" +
 	"\aread_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\x06readAt\":\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\x06readAt\x129\n" +
+	"\n" +
+	"wait_until\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\twaitUntil\":\n" +
 	"\x06Cursor\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x01 \x01(\tR\n" +
@@ -4038,74 +4049,75 @@ var file_agentmesh_v1_types_proto_depIdxs = []int32{
 	43, // 18: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
 	43, // 19: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
 	43, // 20: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
-	43, // 21: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
-	44, // 22: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
-	18, // 23: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
-	19, // 24: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
-	20, // 25: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
-	21, // 26: agentmesh.v1.Event.message_sent:type_name -> agentmesh.v1.MessageSent
-	22, // 27: agentmesh.v1.Event.message_delivered:type_name -> agentmesh.v1.MessageDelivered
-	25, // 28: agentmesh.v1.Event.agent_exited:type_name -> agentmesh.v1.AgentExited
-	26, // 29: agentmesh.v1.Event.agent_adopted:type_name -> agentmesh.v1.AgentAdopted
-	35, // 30: agentmesh.v1.Event.hook_decode_failed:type_name -> agentmesh.v1.HookDecodeFailed
-	36, // 31: agentmesh.v1.Event.setting_changed:type_name -> agentmesh.v1.SettingChanged
-	27, // 32: agentmesh.v1.Event.agent_reopen_requested:type_name -> agentmesh.v1.AgentReopenRequested
-	28, // 33: agentmesh.v1.Event.agent_reopened:type_name -> agentmesh.v1.AgentReopened
-	33, // 34: agentmesh.v1.Event.agent_phase_changed:type_name -> agentmesh.v1.AgentPhaseChanged
-	29, // 35: agentmesh.v1.Event.agent_reopen_dropped:type_name -> agentmesh.v1.AgentReopenDropped
-	41, // 36: agentmesh.v1.Event.device_paired:type_name -> agentmesh.v1.DevicePaired
-	42, // 37: agentmesh.v1.Event.device_revoked:type_name -> agentmesh.v1.DeviceRevoked
-	30, // 38: agentmesh.v1.Event.agent_retired:type_name -> agentmesh.v1.AgentRetired
-	31, // 39: agentmesh.v1.Event.run_stopped:type_name -> agentmesh.v1.RunStopped
-	32, // 40: agentmesh.v1.Event.reserve_changed:type_name -> agentmesh.v1.ReserveChanged
-	34, // 41: agentmesh.v1.Event.agent_role_changed:type_name -> agentmesh.v1.AgentRoleChanged
-	47, // 42: agentmesh.v1.Event.agent_compacted:type_name -> agentmesh.v1.AgentCompacted
-	48, // 43: agentmesh.v1.Event.root_reset_requested:type_name -> agentmesh.v1.RootResetRequested
-	49, // 44: agentmesh.v1.Event.root_reset_finished:type_name -> agentmesh.v1.RootResetFinished
-	23, // 45: agentmesh.v1.Event.doorbell_failed:type_name -> agentmesh.v1.DoorbellFailed
-	24, // 46: agentmesh.v1.Event.doorbell_held:type_name -> agentmesh.v1.DoorbellHeld
-	17, // 47: agentmesh.v1.Event.worktree_created:type_name -> agentmesh.v1.WorktreeCreated
-	50, // 48: agentmesh.v1.Event.pull_request_changed:type_name -> agentmesh.v1.PullRequestChanged
-	13, // 49: agentmesh.v1.Event.prompt_queued:type_name -> agentmesh.v1.PromptQueued
-	14, // 50: agentmesh.v1.Event.prompt_typed:type_name -> agentmesh.v1.PromptTyped
-	15, // 51: agentmesh.v1.Event.prompt_withdrawn:type_name -> agentmesh.v1.PromptWithdrawn
-	43, // 52: agentmesh.v1.QueuedPrompt.created_at:type_name -> google.protobuf.Timestamp
-	44, // 53: agentmesh.v1.QueuedPrompt.from:type_name -> agentmesh.v1.Actor
-	12, // 54: agentmesh.v1.PromptQueued.prompt:type_name -> agentmesh.v1.QueuedPrompt
-	43, // 55: agentmesh.v1.Worktree.created_at:type_name -> google.protobuf.Timestamp
-	16, // 56: agentmesh.v1.WorktreeCreated.worktree:type_name -> agentmesh.v1.Worktree
-	6,  // 57: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
-	7,  // 58: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
-	2,  // 59: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
-	2,  // 60: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
-	9,  // 61: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
-	8,  // 62: agentmesh.v1.AgentReopenRequested.reopen:type_name -> agentmesh.v1.Reopen
-	8,  // 63: agentmesh.v1.AgentReopened.reopen:type_name -> agentmesh.v1.Reopen
-	8,  // 64: agentmesh.v1.AgentReopenDropped.reopen:type_name -> agentmesh.v1.Reopen
-	3,  // 65: agentmesh.v1.AgentPhaseChanged.from:type_name -> agentmesh.v1.AgentPhase
-	3,  // 66: agentmesh.v1.AgentPhaseChanged.to:type_name -> agentmesh.v1.AgentPhase
-	1,  // 67: agentmesh.v1.AgentRoleChanged.from:type_name -> agentmesh.v1.AgentRole
-	1,  // 68: agentmesh.v1.AgentRoleChanged.to:type_name -> agentmesh.v1.AgentRole
-	51, // 69: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
-	51, // 70: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
-	51, // 71: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
-	51, // 72: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
-	37, // 73: agentmesh.v1.Setting.schema:type_name -> agentmesh.v1.SettingSchema
-	43, // 74: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
-	44, // 75: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
-	52, // 76: agentmesh.v1.Device.class:type_name -> agentmesh.v1.ActorClass
-	43, // 77: agentmesh.v1.Device.created_at:type_name -> google.protobuf.Timestamp
-	43, // 78: agentmesh.v1.Device.revoked_at:type_name -> google.protobuf.Timestamp
-	40, // 79: agentmesh.v1.Device.push:type_name -> agentmesh.v1.PushRegistration
-	43, // 80: agentmesh.v1.PushRegistration.registered_at:type_name -> google.protobuf.Timestamp
-	43, // 81: agentmesh.v1.PushRegistration.last_ok_at:type_name -> google.protobuf.Timestamp
-	43, // 82: agentmesh.v1.PushRegistration.failing_since:type_name -> google.protobuf.Timestamp
-	39, // 83: agentmesh.v1.DevicePaired.device:type_name -> agentmesh.v1.Device
-	84, // [84:84] is the sub-list for method output_type
-	84, // [84:84] is the sub-list for method input_type
-	84, // [84:84] is the sub-list for extension type_name
-	84, // [84:84] is the sub-list for extension extendee
-	0,  // [0:84] is the sub-list for field type_name
+	43, // 21: agentmesh.v1.Message.wait_until:type_name -> google.protobuf.Timestamp
+	43, // 22: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
+	44, // 23: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
+	18, // 24: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
+	19, // 25: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
+	20, // 26: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
+	21, // 27: agentmesh.v1.Event.message_sent:type_name -> agentmesh.v1.MessageSent
+	22, // 28: agentmesh.v1.Event.message_delivered:type_name -> agentmesh.v1.MessageDelivered
+	25, // 29: agentmesh.v1.Event.agent_exited:type_name -> agentmesh.v1.AgentExited
+	26, // 30: agentmesh.v1.Event.agent_adopted:type_name -> agentmesh.v1.AgentAdopted
+	35, // 31: agentmesh.v1.Event.hook_decode_failed:type_name -> agentmesh.v1.HookDecodeFailed
+	36, // 32: agentmesh.v1.Event.setting_changed:type_name -> agentmesh.v1.SettingChanged
+	27, // 33: agentmesh.v1.Event.agent_reopen_requested:type_name -> agentmesh.v1.AgentReopenRequested
+	28, // 34: agentmesh.v1.Event.agent_reopened:type_name -> agentmesh.v1.AgentReopened
+	33, // 35: agentmesh.v1.Event.agent_phase_changed:type_name -> agentmesh.v1.AgentPhaseChanged
+	29, // 36: agentmesh.v1.Event.agent_reopen_dropped:type_name -> agentmesh.v1.AgentReopenDropped
+	41, // 37: agentmesh.v1.Event.device_paired:type_name -> agentmesh.v1.DevicePaired
+	42, // 38: agentmesh.v1.Event.device_revoked:type_name -> agentmesh.v1.DeviceRevoked
+	30, // 39: agentmesh.v1.Event.agent_retired:type_name -> agentmesh.v1.AgentRetired
+	31, // 40: agentmesh.v1.Event.run_stopped:type_name -> agentmesh.v1.RunStopped
+	32, // 41: agentmesh.v1.Event.reserve_changed:type_name -> agentmesh.v1.ReserveChanged
+	34, // 42: agentmesh.v1.Event.agent_role_changed:type_name -> agentmesh.v1.AgentRoleChanged
+	47, // 43: agentmesh.v1.Event.agent_compacted:type_name -> agentmesh.v1.AgentCompacted
+	48, // 44: agentmesh.v1.Event.root_reset_requested:type_name -> agentmesh.v1.RootResetRequested
+	49, // 45: agentmesh.v1.Event.root_reset_finished:type_name -> agentmesh.v1.RootResetFinished
+	23, // 46: agentmesh.v1.Event.doorbell_failed:type_name -> agentmesh.v1.DoorbellFailed
+	24, // 47: agentmesh.v1.Event.doorbell_held:type_name -> agentmesh.v1.DoorbellHeld
+	17, // 48: agentmesh.v1.Event.worktree_created:type_name -> agentmesh.v1.WorktreeCreated
+	50, // 49: agentmesh.v1.Event.pull_request_changed:type_name -> agentmesh.v1.PullRequestChanged
+	13, // 50: agentmesh.v1.Event.prompt_queued:type_name -> agentmesh.v1.PromptQueued
+	14, // 51: agentmesh.v1.Event.prompt_typed:type_name -> agentmesh.v1.PromptTyped
+	15, // 52: agentmesh.v1.Event.prompt_withdrawn:type_name -> agentmesh.v1.PromptWithdrawn
+	43, // 53: agentmesh.v1.QueuedPrompt.created_at:type_name -> google.protobuf.Timestamp
+	44, // 54: agentmesh.v1.QueuedPrompt.from:type_name -> agentmesh.v1.Actor
+	12, // 55: agentmesh.v1.PromptQueued.prompt:type_name -> agentmesh.v1.QueuedPrompt
+	43, // 56: agentmesh.v1.Worktree.created_at:type_name -> google.protobuf.Timestamp
+	16, // 57: agentmesh.v1.WorktreeCreated.worktree:type_name -> agentmesh.v1.Worktree
+	6,  // 58: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
+	7,  // 59: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
+	2,  // 60: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
+	2,  // 61: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
+	9,  // 62: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
+	8,  // 63: agentmesh.v1.AgentReopenRequested.reopen:type_name -> agentmesh.v1.Reopen
+	8,  // 64: agentmesh.v1.AgentReopened.reopen:type_name -> agentmesh.v1.Reopen
+	8,  // 65: agentmesh.v1.AgentReopenDropped.reopen:type_name -> agentmesh.v1.Reopen
+	3,  // 66: agentmesh.v1.AgentPhaseChanged.from:type_name -> agentmesh.v1.AgentPhase
+	3,  // 67: agentmesh.v1.AgentPhaseChanged.to:type_name -> agentmesh.v1.AgentPhase
+	1,  // 68: agentmesh.v1.AgentRoleChanged.from:type_name -> agentmesh.v1.AgentRole
+	1,  // 69: agentmesh.v1.AgentRoleChanged.to:type_name -> agentmesh.v1.AgentRole
+	51, // 70: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
+	51, // 71: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
+	51, // 72: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
+	51, // 73: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
+	37, // 74: agentmesh.v1.Setting.schema:type_name -> agentmesh.v1.SettingSchema
+	43, // 75: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
+	44, // 76: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
+	52, // 77: agentmesh.v1.Device.class:type_name -> agentmesh.v1.ActorClass
+	43, // 78: agentmesh.v1.Device.created_at:type_name -> google.protobuf.Timestamp
+	43, // 79: agentmesh.v1.Device.revoked_at:type_name -> google.protobuf.Timestamp
+	40, // 80: agentmesh.v1.Device.push:type_name -> agentmesh.v1.PushRegistration
+	43, // 81: agentmesh.v1.PushRegistration.registered_at:type_name -> google.protobuf.Timestamp
+	43, // 82: agentmesh.v1.PushRegistration.last_ok_at:type_name -> google.protobuf.Timestamp
+	43, // 83: agentmesh.v1.PushRegistration.failing_since:type_name -> google.protobuf.Timestamp
+	39, // 84: agentmesh.v1.DevicePaired.device:type_name -> agentmesh.v1.Device
+	85, // [85:85] is the sub-list for method output_type
+	85, // [85:85] is the sub-list for method input_type
+	85, // [85:85] is the sub-list for extension type_name
+	85, // [85:85] is the sub-list for extension extendee
+	0,  // [0:85] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_types_proto_init() }
