@@ -136,6 +136,7 @@ ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/StreamLog
   /agentmesh.v1.MeshService/SubscribeEvents
 ACTOR_CLASS_DEVICE
+  /agentmesh.v1.MeshService/AddAttachment
   /agentmesh.v1.MeshService/AddPeer
   /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/AdoptSession
@@ -190,6 +191,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RevokeDevice
   /agentmesh.v1.MeshService/RevokeSelf
+  /agentmesh.v1.MeshService/RewindAgent
   /agentmesh.v1.MeshService/RingAgent
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetReserve

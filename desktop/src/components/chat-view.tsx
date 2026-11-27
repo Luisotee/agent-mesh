@@ -1,6 +1,7 @@
-import { Check, ChevronRight, Clock, Copy, Pencil, Quote, Send, Square, X } from 'lucide-react'
+import { Check, ChevronRight, Clock, Copy, ImagePlus, Pencil, Quote, Send, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
+import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
+import { imageName, imageProblem, imageRef, imagesUnsupported, rewindUnsupported, splitImages, thumbs } from '@/attachments'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
 import { MarkdownField } from '@/components/ui/markdown-field'
@@ -17,6 +18,7 @@ import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { MessageCard } from './messages-panel'
+import { RewindDialog } from './rewind-dialog'
 import { ContextRing } from './agent-work'
 import { Markdown } from './markdown'
 import { ago } from '@/dock'
@@ -272,6 +274,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
       </p>
       <Composer host={host} agentId={agentId} readOnly={readOnly} active={active} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
+      {!readOnly && <RewindDialog host={host} agentId={agentId} blocks={blocks} messages={mine} />}
     </section>
   )
 }
@@ -332,7 +335,15 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
     <section aria-label="Queued prompts" className="flex flex-col items-end gap-1.5">
       {prompts.map((p) => (
         <div key={p.id} data-kind="queued" className="group flex max-w-[85%] flex-col items-end gap-0.5">
-          <div className="w-fit min-w-0 max-w-full rounded-lg border border-dashed bg-accent/50 px-3 py-2 opacity-80"><Markdown breaks className="text-[13px] break-words">{p.text}</Markdown></div>
+          <div className="w-fit min-w-0 max-w-full rounded-lg border border-dashed bg-accent/50 px-3 py-2 opacity-80">{(() => {
+            const q = splitImages(p.text)
+            return (
+              <>
+                {q.paths.length > 0 && <p className="flex items-center gap-1 text-xs text-muted-foreground"><ImagePlus className="size-3.5" />{q.paths.length === 1 ? 'An image' : `${q.paths.length} images`}</p>}
+                {q.text && <Markdown breaks className="text-[13px] break-words">{q.text}</Markdown>}
+              </>
+            )
+          })()}</div>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
@@ -384,6 +395,11 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
   const stopRef = useRef(false)
   const recallRef = useRef(false)
   const [error, setError] = useState('')
+  // The images going with the next prompt: stored on the host as they are added, named in the prompt when it is sent.
+  const [images, setImages] = useState<{ key: string; name: string; url: string; path?: string }[]>([])
+  const fileInput = useRef<HTMLInputElement>(null)
+  // When the interrupt key last went in at an idle agent: a second one soon after opens Rewind (Esc Esc).
+  const lastEsc = useRef(0)
   // A queued prompt taken back to edit lands here.
   useEffect(() => {
     if (fill && fill.agentId === agentId) {
@@ -400,14 +416,45 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
   const working = agent.state === AgentState.WORKING || agent.state === AgentState.UNKNOWN || atPrompt
   // Only Claude Code's interrupt key is known to the host (`interrupt-esc`, TODO.md for the other CLIs).
   const canStop = agent.kind === 'claude'
+  const noImages = imagesUnsupported(agent.kind)
+  const uploading = images.some((i) => !i.path)
   const why = readOnly
     ? 'This device is read-only: it can read the conversation, not type into the agent.'
     : gone
       ? 'The agent has stopped, so there is no terminal to type into. Send it a task from its menu (⋯) to bring it back.'
       : ''
+  /** Stores each image on the host (so an agent on another machine can read it), with a thumbnail kept here. */
+  async function attach(files: File[]) {
+    if (noImages || why) return
+    for (const f of files) {
+      const problem = imageProblem(f)
+      if (problem) {
+        setError(problem)
+        continue
+      }
+      const key = `${f.name}-${f.size}-${Math.random()}`
+      const url = await new Promise<string>((resolve) => {
+        const r = new FileReader()
+        r.onload = () => resolve(String(r.result))
+        r.onerror = () => resolve('')
+        r.readAsDataURL(f)
+      })
+      setImages((cur) => [...cur, { key, name: f.name, url }])
+      try {
+        const res = await addAttachment(host.client, agentId, imageName(f), new Uint8Array(await f.arrayBuffer()))
+        if (url) thumbs.set(res.path, url)
+        setImages((cur) => cur.map((i) => (i.key === key ? { ...i, path: res.path } : i)))
+      } catch (e) {
+        setImages((cur) => cur.filter((i) => i.key !== key))
+        setError(say(e))
+      }
+    }
+  }
   async function send() {
-    const body = text.trim()
-    if (!body || busy) return
+    const typed = text.trim()
+    const refs = images.flatMap((i) => (i.path ? [imageRef(i.path)] : []))
+    const body = [...refs, typed].filter(Boolean).join('\n')
+    if (!body || busy || uploading) return
     setBusy(true)
     setError('')
     try {
@@ -417,10 +464,11 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       // unmounted meanwhile (another tab opened) runs no updater.
       const left = (cur: string) => {
         const now = cur.trimStart()
-        return now.startsWith(body) ? now.slice(body.length).trimStart() : cur
+        return now.startsWith(typed) ? now.slice(typed.length).trimStart() : cur
       }
       saveDraft(host.info.id, agentId, left(loadDraft(host.info.id, agentId)))
       setText(left)
+      setImages([])
       onSent()
     } catch (e) {
       setError(say(e))
@@ -471,12 +519,33 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
         e.preventDefault()
         void send()
       }}
+      onDragOver={(e) => {
+        if (!noImages && !why && e.dataTransfer.types.includes('Files')) e.preventDefault()
+      }}
+      onDrop={(e) => {
+        const files = [...e.dataTransfer.files]
+        if (files.length === 0) return
+        e.preventDefault()
+        void attach(files)
+      }}
     >
       {atPrompt && !why && (
         <p role="status" className="flex items-center gap-2 text-xs text-state-needs">
           It is waiting at a prompt in its terminal: answer it there. What you send now waits until then.
           <Button type="button" size="sm" variant="outline" onClick={openTerminal}>Open the terminal</Button>
         </p>
+      )}
+      {images.length > 0 && (
+        <ul aria-label="Images" className="flex flex-wrap gap-2">
+          {images.map((i) => (
+            <li key={i.key} className="relative">
+              {i.url ? <img src={i.url} alt={i.name} className={cn('size-16 rounded-md border object-cover', !i.path && 'opacity-50')} /> : <span className="grid size-16 place-items-center rounded-md border text-xs">{i.name}</span>}
+              <button type="button" aria-label={`Remove ${i.name}`} onClick={() => setImages((cur) => cur.filter((x) => x.key !== i.key))} className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full border bg-popover outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
+                <X className="size-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
       <div className="flex items-end gap-2">
         <MarkdownField
@@ -487,12 +556,28 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
           placeholder={why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
           onValueChange={setText}
           onSend={() => void send()}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
+            if (files.length === 0 || noImages) return
+            e.preventDefault()
+            void attach(files)
+          }}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return
             const interrupt = parseChord(keys.interrupt)
             if (interrupt && working && canStop && matches(e.nativeEvent, interrupt)) {
               e.preventDefault()
               if (!e.repeat) void stop() // a held key fires once
+              return
+            }
+            // At an idle agent with nothing written, the interrupt key twice opens Rewind, as Esc Esc does in Claude Code.
+            if (interrupt && !working && !text && !rewindUnsupported(agent.kind) && matches(e.nativeEvent, interrupt) && !e.repeat) {
+              const now = Date.now()
+              if (now - lastEsc.current < 600) {
+                e.preventDefault()
+                lastEsc.current = 0
+                app.openRewind({ hostId: host.info.id, agentId })
+              } else lastEsc.current = now
               return
             }
             const back = parseChord(keys.recall)
@@ -502,13 +587,30 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
             }
           }}
         />
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])]
+            e.target.value = ''
+            void attach(files)
+          }}
+        />
+        <Tip label={noImages || 'Add an image (or paste or drop one)'}>
+          <Button type="button" size="icon" variant="ghost" aria-label="Add an image" disabled={!!why || !!noImages} onClick={() => fileInput.current?.click()}>
+            <ImagePlus />
+          </Button>
+        </Tip>
         <ContextRing host={host} agent={agent} active={active} />
         {working && canStop && !why && (
           <Button type="button" variant="outline" disabled={stopping} aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
             <Square /> Stop
           </Button>
         )}
-        <Button type="submit" disabled={!!why || busy || !text.trim()}>
+        <Button type="submit" disabled={!!why || busy || uploading || (!text.trim() && !images.some((i) => i.path))}>
           <Send /> {working ? 'Queue' : 'Send'}
         </Button>
       </div>
@@ -560,15 +662,33 @@ function BlockActions({ agentId, text, at, align }: { agentId: string; text: str
 
 function ChatBlock({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
   switch (block.kind) {
-    case 'user':
+    case 'user': {
+      // Its images: a thumbnail where this device sent it, else the file's name (the host's file isn't fetched).
+      const { paths, text } = splitImages(block.entry.text)
       return (
         <div className="group ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end" data-kind="user">
-          <div className="rounded-lg border border-identity/25 bg-identity/12 px-3 py-2">
-            <Markdown breaks className="text-[15px] leading-relaxed">{block.entry.text}</Markdown>
-          </div>
+          {paths.length > 0 && (
+            <ul aria-label="Images" className="mb-1 flex flex-wrap justify-end gap-1.5">
+              {paths.map((p) => {
+                const name = p.split(/[\\/]/).pop() ?? p
+                const url = thumbs.get(p)
+                return (
+                  <li key={p} title={p}>
+                    {url ? <img src={url} alt={name} className="max-h-40 max-w-60 rounded-md border object-contain" /> : <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"><ImagePlus className="size-3.5" />{name}</span>}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {text && (
+            <div className="rounded-lg border border-identity/25 bg-identity/12 px-3 py-2">
+              <Markdown breaks className="text-[15px] leading-relaxed">{text}</Markdown>
+            </div>
+          )}
           <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="end" />
         </div>
       )
+    }
     case 'mesh':
       return (
         <p className="text-center text-xs text-muted-foreground" data-kind="mesh">

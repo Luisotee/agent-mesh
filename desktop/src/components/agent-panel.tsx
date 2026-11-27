@@ -19,6 +19,7 @@ import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
 import { ChatView } from './chat-view'
 import { TerminalView } from './terminal-view'
+import { rewindUnsupported } from '@/attachments'
 
 const live = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
 
@@ -60,6 +61,17 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
       },
     },
     { label: 'Model…', onSelect: showModel },
+    {
+      label: 'Rewind…',
+      // Back to before one of its prompts: Claude Code only, the conversation only.
+      onSelect: () => {
+        app.setTab('chat')
+        if (view) view.setTab('chat')
+        app.openRewind({ hostId: host.info.id, agentId: agent.id })
+      },
+      disabled: !!rewindUnsupported(agent.kind) || !synced,
+      hint: 'Esc Esc',
+    },
     { label: 'Stop…', onSelect: () => setStopping(true), disabled: !live(agent), destructive: true },
   ]
   return (

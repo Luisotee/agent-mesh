@@ -202,7 +202,9 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - ★ While a turn runs: interrupt, steer, or queue the message, with an editable queue (P, O).
 - ★ Subagents, todo-list and background-work pills (P, O).
 - Composer: `@` files, `/` commands and skills, attachments, drafts that persist, prompt recall (P, O).
+  - Images and drafts built in the desktop (2026-11-27): a pasted, dropped or picked image is stored on the host (`AddAttachment`, the run's `attachments/` folder) and the prompt names its path for the CLI's file tool; Claude Code and agy only until the others are checked.
 - Rewind to a message; fork into a new tab or workspace (P, O).
+  - Rewind built for Claude Code (2026-11-27): `RewindAgent` reopens the agent on a copy of its conversation cut before a prompt (Esc Esc, or ⋯ › Rewind…); files, commits and sent messages stay.
 - A context meter with session cost (P, O).
 - Find in chat, a chat outline, quoting a selection into the composer (P, O).
 
