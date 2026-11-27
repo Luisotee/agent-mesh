@@ -24,8 +24,12 @@ for name in $(compgen -e | grep '^AGENT_MESH_' || true); do unset "$name"; done
 # The tests and the Go toolchain write scratch dirs (state dirs, built binaries, go-build trees). They go into dirs of
 # this run, removed when it ends, also when it is killed (TERM, INT) or a test run times out: /tmp is a tmpfs, and a
 # gate that leaves its dirs there fills it for every other one. TMPDIR keeps the user's own value as the parent (a long
-# one is the test of the suite); the short dir is for unix sockets (shortdir), which cannot take a long path.
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/ck.XXXXXX")
+# one is the test of the suite; unset, /var/tmp); the short dir is for unix sockets (shortdir), which cannot take a long path.
+# The big scratch (go-build trees, built test binaries) goes on disk, not on the /tmp tmpfs that every gate on the host
+# shares: $TMPDIR when set, else /var/tmp, else /tmp.
+scratch_base=${TMPDIR:-/var/tmp}
+[ -d "$scratch_base" ] && [ -w "$scratch_base" ] || scratch_base=/tmp
+scratch=$(mktemp -d "$scratch_base/ck.XXXXXX")
 short=$(mktemp -d /tmp/cs.XXXXXX 2>/dev/null || echo "$scratch")
 export TMPDIR="$scratch" GOTMPDIR="$scratch" AGENT_MESH_SHORT_TMP="$short"
 # The long steps run as a job of their own session, waited for: a TERM or INT to this script (a `pkill`, a Ctrl-C)
