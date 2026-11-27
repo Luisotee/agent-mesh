@@ -131,10 +131,7 @@ func (d *Daemon) StreamLog(ctx context.Context, req *connect.Request[v1.StreamLo
 			if sp := ev.GetAgentSpawned(); sp != nil && sp.Agent != nil {
 				agentNames[sp.Agent.Id] = sp.Agent.Name
 			}
-			if !events.VisibleTo(viewer, ev) {
-				if ev.GetRunStopped() != nil {
-					return nil
-				}
+			if !events.VisibleTo(viewer, ev) { // (RunStopped is never filtered: the stop below still ends the log)
 				continue
 			}
 			if entry, ok := logEntryFromEvent(ev, agentNames, filterID, filterName); ok {

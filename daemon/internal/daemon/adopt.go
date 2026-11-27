@@ -124,6 +124,12 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	out := &v1.AdoptSessionResponse{}
 	var agent *v1.Agent
 	var old *v1.Agent // the run's own root as it was, when this call took its row over
+	// One adoption of a run at a time, from the write to the identity file: a retry with the same mutation id then
+	// finds the file the first call wrote (or repairs a missing one), and never mints a token that call is about to
+	// overwrite. Whether the run has a root yet or not, so keyed by the run.
+	amu := d.agentLock("adopt:" + run.Id)
+	amu.Lock()
+	defer amu.Unlock()
 	if root != nil {
 		mu := d.agentLock(root.Id)
 		mu.Lock()
@@ -201,7 +207,7 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	if replayed {
 		// The first call did all of it, and its file stands; if the file write failed after the store's commit (a full
 		// disk), the stored answer is all there is and the token was lost with it: mint another and write it. The
-		// run's root is locked above (it is the adopted row by now), so two replays do not both mint.
+		// run's adoption lock is held (above) from before the write to here, so a replay never mints a token while the first call writes its file, and two replays do not both mint.
 		if err := d.repairAdoptedFile(ctx, out.GetAgent().GetId(), m); err != nil {
 			return nil, err
 		}
