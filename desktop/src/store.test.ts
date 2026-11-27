@@ -2,8 +2,8 @@ import { create, fromJson, toJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { applyFrame, createHostStore, emptyHost, mergeMessages, storeSink, type HostState } from './store'
-import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
+import { addPrompt, applyFrame, createHostStore, emptyHost, mergeMessages, setPrompts, storeSink, type HostState } from './store'
+import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, QueuedPromptSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -105,6 +105,42 @@ describe('applyFrame', () => {
     expect(Object.keys(s.messages)).toEqual(['m1'])
     expect(s.messages.m1?.deliveredAt).toBeTruthy()
     expect(s.cursor?.seq).toBe(8n)
+  })
+
+  it('a queued prompt joins its agent\'s queue in order, once, and leaves it when typed or taken back', () => {
+    const q = (id: string, sec: number) => create(QueuedPromptSchema, { id, agentId: 'a1', text: id, createdAt: timestampFromMs(sec * 1000) })
+    const queued = (seq: number, p: ReturnType<typeof q>): Frame => ev(seq, { case: 'promptQueued', value: { $typeName: 'agentmesh.v1.PromptQueued', prompt: p } })
+    let s = run([snapshot(), queued(6, q('late', 9)), queued(7, q('early', 2)), queued(8, q('early', 2))])
+    expect(s.prompts.a1?.map((p) => p.id)).toEqual(['early', 'late'])
+    s = run([ev(9, { case: 'promptTyped', value: { $typeName: 'agentmesh.v1.PromptTyped', promptId: 'early' } }), ev(10, { case: 'promptWithdrawn', value: { $typeName: 'agentmesh.v1.PromptWithdrawn', promptId: 'late' } })], s)
+    expect(s.prompts.a1).toEqual([])
+    expect(s.cursor?.seq).toBe(10n)
+  })
+
+  it('a listing or an answer older than a prompt\'s typing never brings it back', () => {
+    const p = create(QueuedPromptSchema, { id: 'q1', agentId: 'a1', text: 'go' })
+    let s = run([snapshot(), ev(6, { case: 'promptTyped', value: { $typeName: 'agentmesh.v1.PromptTyped', promptId: 'q1' } })])
+    s = { ...s, ...setPrompts('a1', [p], s.promptTouch.a1 ?? 0)(s) }
+    expect(s.prompts.a1).toEqual([])
+    s = { ...s, ...addPrompt(p)(s) }
+    expect(s.prompts.a1).toEqual([])
+    // Queued again (its typing never reached the terminal): it is shown again.
+    s = run([ev(7, { case: 'promptQueued', value: { $typeName: 'agentmesh.v1.PromptQueued', prompt: p } })], s)
+    expect(s.prompts.a1?.map((x) => x.id)).toEqual(['q1'])
+  })
+
+  it('a listing asked before the queue changed here doesn\'t clobber the change', () => {
+    const p = create(QueuedPromptSchema, { id: 'q2', agentId: 'a1', text: 'new' })
+    let s = run([snapshot()])
+    const asked = s.promptTouch.a1 ?? 0
+    s = { ...s, ...addPrompt(p)(s) } // sent while the listing was out
+    s = { ...s, ...setPrompts('a1', [], asked)(s) } // the older, empty answer
+    expect(s.prompts.a1?.map((x) => x.id)).toEqual(['q2'])
+    // A snapshot drops the queues of agents the host no longer has, and counts itself.
+    const before = s.snapshots
+    s = run([snapshot([agent('other')])], s)
+    expect(s.prompts.a1).toBeUndefined()
+    expect(s.snapshots).toBe(before + 1)
   })
 
   it('a loaded page never replaces a message events already updated', () => {

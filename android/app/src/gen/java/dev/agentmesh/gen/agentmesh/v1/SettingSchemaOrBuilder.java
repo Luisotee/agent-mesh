@@ -12,7 +12,8 @@ public interface SettingSchemaOrBuilder extends
 
   /**
    * <pre>
-   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
+   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json,
+   * shortcut, chat_key.
    * string      a non-empty string
    * strings     a list of strings
    * int         a whole number, 0 or more
@@ -26,6 +27,8 @@ public interface SettingSchemaOrBuilder extends
    * mb_or_auto  "auto" or a whole number of MB, 0 or more
    * int_or_auto "auto" or a whole number, 0 or more
    * json        any JSON value
+   * shortcut    a key chord such as "Mod+Shift+P" (a modifier besides Shift, or a function key), or "" for none
+   * chat_key    a key the chat's composer acts on: a named key alone ("Escape", "ArrowUp") or a chord, or ""
    * </pre>
    *
    * <code>string type = 1 [json_name = "type"];</code>
@@ -34,7 +37,8 @@ public interface SettingSchemaOrBuilder extends
   java.lang.String getType();
   /**
    * <pre>
-   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
+   * One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json,
+   * shortcut, chat_key.
    * string      a non-empty string
    * strings     a list of strings
    * int         a whole number, 0 or more
@@ -48,6 +52,8 @@ public interface SettingSchemaOrBuilder extends
    * mb_or_auto  "auto" or a whole number of MB, 0 or more
    * int_or_auto "auto" or a whole number, 0 or more
    * json        any JSON value
+   * shortcut    a key chord such as "Mod+Shift+P" (a modifier besides Shift, or a function key), or "" for none
+   * chat_key    a key the chat's composer acts on: a named key alone ("Escape", "ArrowUp") or a chord, or ""
    * </pre>
    *
    * <code>string type = 1 [json_name = "type"];</code>

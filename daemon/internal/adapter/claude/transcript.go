@@ -25,6 +25,9 @@ const (
 	// CapBracketedPaste is the capability of a CLI whose input box takes a bracketed paste, so a prompt of several
 	// lines is one prompt.
 	CapBracketedPaste = "bracketed-paste"
+	// CapInterruptEsc is the capability of a CLI whose turn Esc interrupts, leaving it at its prompt
+	// (InterruptAgent).
+	CapInterruptEsc = "interrupt-esc"
 
 	maxText     = transcript.MaxText
 	wantEntries = transcript.WantEntries

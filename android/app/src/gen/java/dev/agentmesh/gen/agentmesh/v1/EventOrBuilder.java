@@ -388,5 +388,38 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.PullRequestChanged getPullRequestChanged();
 
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   * @return Whether the promptQueued field is set.
+   */
+  boolean hasPromptQueued();
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   * @return The promptQueued.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptQueued getPromptQueued();
+
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   * @return Whether the promptTyped field is set.
+   */
+  boolean hasPromptTyped();
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   * @return The promptTyped.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptTyped getPromptTyped();
+
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   * @return Whether the promptWithdrawn field is set.
+   */
+  boolean hasPromptWithdrawn();
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   * @return The promptWithdrawn.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn getPromptWithdrawn();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

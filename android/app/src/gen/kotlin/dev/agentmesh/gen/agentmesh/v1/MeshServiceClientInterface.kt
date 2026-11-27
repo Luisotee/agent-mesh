@@ -188,9 +188,28 @@ public interface MeshServiceClientInterface {
   /**
    *  Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
    *  a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
-   *  with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+   *  with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
+   *  queued (the answer's `queued`) and typed at its next idle. Refused only for an agent with no terminal.
    */
   public suspend fun promptAgent(request: PromptAgentRequest, headers: Headers = emptyMap()): ResponseMessage<PromptAgentResponse>
+
+  /**
+   *  The prompts the user sent an agent that wait to be typed: sent while it worked, started, waited at a prompt or had
+   *  a draft in its box (`PromptAgent` queues them), typed one at a time at its next idle, oldest first.
+   */
+  public suspend fun listPrompts(request: ListPromptsRequest, headers: Headers = emptyMap()): ResponseMessage<ListPromptsResponse>
+
+  /**
+   *  Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
+   *  once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
+   */
+  public suspend fun withdrawPrompt(request: WithdrawPromptRequest, headers: Headers = emptyMap()): ResponseMessage<WithdrawPromptResponse>
+
+  /**
+   *  Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
+   *  for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
+   */
+  public suspend fun interruptAgent(request: InterruptAgentRequest, headers: Headers = emptyMap()): ResponseMessage<InterruptAgentResponse>
 
   /**
    *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or

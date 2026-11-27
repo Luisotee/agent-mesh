@@ -15,7 +15,8 @@
 //	              process stopped before it never writes it); with $FAKECLAUDE_COMPACT=none it only prints "Not
 //	              enough messages" and fires nothing
 //	/hold         UserPromptSubmit and PreToolUse, then waits for a line (a long turn); then PostToolUse and
-//	              Stop
+//	              Stop. With $FAKECLAUDE_ESC set, a lone Esc instead ends the turn with no Stop hook, as
+//	              interrupting the real one does
 //	/exit         SessionEnd, then exits 0
 //	/crash        exits 7 without any hook
 //	/limit <text> UserPromptSubmit, then StopFailure (rate_limit, <text> as the message): a usage limit
@@ -23,6 +24,9 @@
 //	              invokes settings.statusLine.command with rate_limits JSON on stdin
 //	/bash <cmd>   UserPromptSubmit, PreToolUse (Bash, <cmd>), then PostToolUse and Stop; "denied: <reason>" is
 //	              printed instead of the tool's, when a PreToolUse hook printed a permission denial
+//
+// With $FAKECLAUDE_ESC set the terminal leaves canonical mode, so a lone Esc reaches it as a key: it interrupts a
+// /hold turn (no Stop hook, as Claude Code fires none for an interrupted turn) and does nothing between turns.
 //
 // With $FAKECLAUDE_INPUT_LOG set, every line typed into it is appended there, one per line.
 //
@@ -215,18 +219,11 @@ func main() {
 	hook("SessionStart", map[string]any{"source": source})
 	prompt()
 	lines := make(chan string)
-	go func() {
-		in := bufio.NewScanner(os.Stdin)
-		for in.Scan() {
-			l := in.Text()
-			// A bracketed paste of several lines is one prompt, as the real CLI takes it.
-			for strings.Contains(l, "\x1b[200~") && !strings.Contains(l, "\x1b[201~") && in.Scan() {
-				l += "\n" + in.Text()
-			}
-			lines <- l
-		}
-		close(lines)
-	}()
+	if os.Getenv("FAKECLAUDE_ESC") != "" {
+		go readKeys(lines)
+	} else {
+		go readLines(lines)
+	}
 	if os.Getenv("FAKECLAUDE_SPIN") != "" {
 		go func() {
 			for {
@@ -261,6 +258,11 @@ func main() {
 			continue
 		}
 		turnMu.Lock()
+		if raw == "\x1b" {
+			// Esc with no turn to interrupt: nothing happens.
+			turnMu.Unlock()
+			continue
+		}
 		line := strings.TrimSpace(strings.NewReplacer("\x1b[200~", "", "\x1b[201~", "").Replace(raw))
 		if log := os.Getenv("FAKECLAUDE_INPUT_LOG"); log != "" && line != "" {
 			if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
@@ -430,7 +432,11 @@ func run(line string, next func() string) {
 		hook("UserPromptSubmit", map[string]any{"prompt": line})
 		hook("PreToolUse", map[string]any{"tool_name": "Bash"})
 		say("holding\r\n")
-		next()
+		if next() == "\x1b" {
+			// Interrupted (Esc, with $FAKECLAUDE_ESC): Claude Code fires no Stop hook for a turn the user interrupts.
+			say("Interrupted by user\r\n")
+			break
+		}
 		hook("PostToolUse", map[string]any{"tool_name": "Bash"})
 		hook("Stop", map[string]any{"stop_hook_active": false})
 	case "/ask":
@@ -717,4 +723,61 @@ func recordTurn(prompt string) {
 		{"type": "tool_use", "id": "toolu_" + id, "name": "Bash", "input": map[string]any{"command": "echo " + prompt, "description": "say it"}}})
 	line("user", id+"-r", []map[string]any{{"type": "tool_result", "tool_use_id": "toolu_" + id, "content": prompt}})
 	line("assistant", id+"-a2", []map[string]any{{"type": "text", "text": "Done: " + prompt}})
+}
+
+// readLines sends each line typed, as the terminal's line discipline hands them over (canonical mode). A bracketed
+// paste of several lines is one prompt, as the real CLI takes it.
+func readLines(lines chan<- string) {
+	in := bufio.NewScanner(os.Stdin)
+	for in.Scan() {
+		l := in.Text()
+		for strings.Contains(l, "\x1b[200~") && !strings.Contains(l, "\x1b[201~") && in.Scan() {
+			l += "\n" + in.Text()
+		}
+		lines <- l
+	}
+	close(lines)
+}
+
+// readKeys is readLines for $FAKECLAUDE_ESC: the terminal leaves canonical mode (echo stays on) so a lone Esc
+// reaches the fake as it reaches the real CLI, sent as the line "\x1b" (an interrupt); everything else is gathered
+// into lines as before.
+func readKeys(lines chan<- string) {
+	fd := int(os.Stdin.Fd())
+	if t, err := unix.IoctlGetTermios(fd, unix.TCGETS); err == nil {
+		t.Lflag &^= unix.ICANON
+		t.Cc[unix.VMIN], t.Cc[unix.VTIME] = 1, 0
+		unix.IoctlSetTermios(fd, unix.TCSETS, t)
+	}
+	buf := make([]byte, 4096)
+	var line []byte
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil || n == 0 {
+			close(lines)
+			return
+		}
+		chunk := buf[:n]
+		if len(line) == 0 && n == 1 && chunk[0] == 0x1b {
+			lines <- "\x1b"
+			continue
+		}
+		for _, b := range chunk {
+			switch {
+			case (b == '\r' || b == '\n') && bytes.Contains(line, []byte("\x1b[200~")) && !bytes.Contains(line, []byte("\x1b[201~")):
+				line = append(line, '\n') // inside a paste: one prompt of several lines
+			case b == '\r' || b == '\n':
+				lines <- string(line)
+				line = line[:0]
+			case b == 0x15:
+				line = line[:0] // Ctrl-U
+			case b == 0x7f:
+				if len(line) > 0 {
+					line = line[:len(line)-1]
+				}
+			default:
+				line = append(line, b)
+			}
+		}
+	}
 }

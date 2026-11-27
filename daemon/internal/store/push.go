@@ -23,7 +23,7 @@ type PushRecord struct {
 	LastOKAt     time.Time // zero: never
 	LastError    string
 	FailingSince time.Time // zero: not failing
-	// Events is what the device chose to be pushed (migration 0013): notice kinds; empty follows the host's list.
+	// Events is what the device chose to be pushed (migration 0014): notice kinds; empty follows the host's list.
 	Events []string
 }
 
