@@ -185,7 +185,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.HeldTask.after":                           "The task it waits for: a message id.",
 	"agentmesh.v1.HeldTask.body":                            "The held task's text.",
 	"agentmesh.v1.HeldTask.from":                            "Who asked for it.",
-	"agentmesh.v1.HeldTask.to":                              "The agent it is for, as the sender wrote it (a name or an id).",
+	"agentmesh.v1.HeldTask.to":                              "The agent it is for: its id.",
 	"agentmesh.v1.HelloRequest.protocol_version":            "The protocol major version the client speaks.",
 	"agentmesh.v1.HelloResponse.actor":                      "The caller, as its token says.",
 	"agentmesh.v1.HelloResponse.daemon_id":                  "Stable per host (kept in its state dir).",

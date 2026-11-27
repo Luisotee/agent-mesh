@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -646,7 +647,7 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		// The hook that closes what the bash patterns can't see (a bare redirect: readOnlyBash). It is a file of the
 		// installed share; a meshd with no share has no protocol for its agents either, so it is no real launch.
 		if share := env["AGENT_MESH_SHARE"]; filepath.IsAbs(share) {
-			cfg["plugin"] = []string{"file://" + filepath.ToSlash(filepath.Join(share, "opencode", "readonly-guard.js"))}
+			cfg["plugin"] = []string{(&url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Join(share, "opencode", "readonly-guard.js"))}).String()}
 		}
 	}
 	cfgBytes, err := json.Marshal(cfg)

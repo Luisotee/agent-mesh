@@ -1264,7 +1264,7 @@ export type HeldTask = Message<"agentmesh.v1.HeldTask"> & {
   after: string;
 
   /**
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    *
    * @generated from field: string to = 4;
    */

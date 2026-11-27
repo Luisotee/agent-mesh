@@ -191,7 +191,7 @@ public  final class HeldTask extends
   private java.lang.String to_;
   /**
    * <pre>
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    * </pre>
    *
    * <code>string to = 4 [json_name = "to"];</code>
@@ -203,7 +203,7 @@ public  final class HeldTask extends
   }
   /**
    * <pre>
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    * </pre>
    *
    * <code>string to = 4 [json_name = "to"];</code>
@@ -216,7 +216,7 @@ public  final class HeldTask extends
   }
   /**
    * <pre>
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    * </pre>
    *
    * <code>string to = 4 [json_name = "to"];</code>
@@ -230,7 +230,7 @@ public  final class HeldTask extends
   }
   /**
    * <pre>
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    * </pre>
    *
    * <code>string to = 4 [json_name = "to"];</code>
@@ -241,7 +241,7 @@ public  final class HeldTask extends
   }
   /**
    * <pre>
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    * </pre>
    *
    * <code>string to = 4 [json_name = "to"];</code>
@@ -705,7 +705,7 @@ public  final class HeldTask extends
 
     /**
      * <pre>
-     * The agent it is for, as the sender wrote it (a name or an id).
+     * The agent it is for: its id.
      * </pre>
      *
      * <code>string to = 4 [json_name = "to"];</code>
@@ -717,7 +717,7 @@ public  final class HeldTask extends
     }
     /**
      * <pre>
-     * The agent it is for, as the sender wrote it (a name or an id).
+     * The agent it is for: its id.
      * </pre>
      *
      * <code>string to = 4 [json_name = "to"];</code>
@@ -730,7 +730,7 @@ public  final class HeldTask extends
     }
     /**
      * <pre>
-     * The agent it is for, as the sender wrote it (a name or an id).
+     * The agent it is for: its id.
      * </pre>
      *
      * <code>string to = 4 [json_name = "to"];</code>
@@ -745,7 +745,7 @@ public  final class HeldTask extends
     }
     /**
      * <pre>
-     * The agent it is for, as the sender wrote it (a name or an id).
+     * The agent it is for: its id.
      * </pre>
      *
      * <code>string to = 4 [json_name = "to"];</code>
@@ -758,7 +758,7 @@ public  final class HeldTask extends
     }
     /**
      * <pre>
-     * The agent it is for, as the sender wrote it (a name or an id).
+     * The agent it is for: its id.
      * </pre>
      *
      * <code>string to = 4 [json_name = "to"];</code>

@@ -2467,7 +2467,7 @@ type HeldTask struct {
 	RunId string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	// The task it waits for: a message id.
 	After string `protobuf:"bytes,3,opt,name=after,proto3" json:"after,omitempty"`
-	// The agent it is for, as the sender wrote it (a name or an id).
+	// The agent it is for: its id.
 	To string `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
 	// The held task's text.
 	Body string `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`

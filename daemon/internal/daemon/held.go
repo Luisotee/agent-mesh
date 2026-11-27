@@ -29,15 +29,31 @@ const (
 )
 
 // outcomeOf is how a task stands: answered by a done (that wins), by a failed, or neither. Reports name their task in
-// `Message.re`.
+// `Message.re`, and name the recipient's newest task when it was sent another before it reported (a follow-up), so a
+// report of the same recipient that names a task sent to it at or after this one answers this one too.
 func outcomeOf(r store.Reader, runID, taskID string) (taskOutcome, error) {
 	msgs, err := r.RunMessages(runID, "", -1)
 	if err != nil {
 		return taskOpen, err
 	}
+	var task *v1.Message
+	for _, m := range msgs {
+		if m.Id == taskID {
+			task = m
+			break
+		}
+	}
+	mine := map[string]bool{taskID: true} // the task, and the tasks its recipient was sent after it
+	if task != nil {
+		for _, m := range msgs {
+			if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.ToId == task.ToId && !m.CreatedAt.AsTime().Before(task.CreatedAt.AsTime()) {
+				mine[m.Id] = true
+			}
+		}
+	}
 	out := taskOpen
 	for _, m := range msgs {
-		if m.Re != taskID {
+		if !mine[m.Re] || task != nil && m.From.GetId() != task.ToId {
 			continue
 		}
 		switch m.Type {
@@ -66,6 +82,9 @@ func (d *Daemon) holdTask(ctx context.Context, req *connect.Request[v1.SendMessa
 	}
 	after, err := d.store.Read(ctx).MessageByID(m.After)
 	if errors.Is(err, store.ErrNotFound) {
+		if _, herr := d.store.Read(ctx).GetHeldTask(m.After); herr == nil {
+			return nil, true, invalid("%s is a held task: it has no task id until it is sent (send this one after that is sent)", m.After)
+		}
 		return nil, true, notFound("no task %q (the id in its `mesh inbox` header)", m.After)
 	} else if err != nil {
 		return nil, true, err
@@ -76,10 +95,15 @@ func (d *Daemon) holdTask(ctx context.Context, req *connect.Request[v1.SendMessa
 	if own := runScope(actor); own != "" && own != after.RunId {
 		return nil, true, notFound("no task %q", m.After)
 	}
+	if depends, err := d.store.Read(ctx).GetAgent(after.ToId); err == nil && depends.Role == v1.AgentRole_AGENT_ROLE_ROOT {
+		return nil, true, invalid("%s is a task for the run's root, which reports to nobody: there is no done to wait for", m.After)
+	}
 	if o, err := outcomeOf(d.store.Read(ctx), after.RunId, after.Id); err != nil {
 		return nil, true, err
 	} else if o == taskDone {
 		return nil, false, nil // answered already: nothing to wait for
+	} else if o == taskFailed {
+		return nil, true, failedPrecondition("the task %s was reported failed: nothing to wait for", m.After)
 	}
 	out := &v1.SendMessageResponse{}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
@@ -106,18 +130,19 @@ func (d *Daemon) holdTask(ctx context.Context, req *connect.Request[v1.SendMessa
 	}
 	// The task may have been answered between the check above and the commit, and its release would have found
 	// nothing: look again now the row is there.
-	d.releaseHeldSoon(after.Id)
+	d.releaseHeldSoon(after.RunId)
 	return connect.NewResponse(out), true, nil
 }
 
-// releaseHeldSoon settles the tasks held for a task, in the background: it is called after a report is stored.
-func (d *Daemon) releaseHeldSoon(afterID string) {
+// releaseHeldSoon settles a run's held tasks, in the background: it is called after a report is stored (which task it
+// answers is the outcome's to say: a follow-up's report answers the task before it too).
+func (d *Daemon) releaseHeldSoon(runID string) {
 	d.goBG(func() {
 		ctx, cancel := d.stopCtx()
 		defer cancel()
-		held, err := d.store.Read(ctx).HeldTasksAfter(afterID)
+		held, err := d.store.Read(ctx).HeldTasks(runID)
 		if err != nil {
-			d.log.Error("reading held tasks", "after", afterID, "err", err)
+			d.log.Error("reading held tasks", "run", runID, "err", err)
 			return
 		}
 		for _, h := range held {
@@ -209,8 +234,13 @@ func (d *Daemon) settleHeld(ctx context.Context, id string) {
 		d.endHeld(ctx, h, fmt.Sprintf("the task it waited for (%s) was reported failed", h.After))
 		return
 	}
-	_, err = d.SendMessage(auth.WithActor(ctx, h.From), connect.NewRequest(&v1.SendMessageRequest{
+	res, err := d.SendMessage(auth.WithActor(ctx, h.From), connect.NewRequest(&v1.SendMessageRequest{
 		Meta: &v1.RequestMeta{MutationId: "held:" + h.Id}, To: h.To, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: h.Body}))
+	if err == nil && res.Msg.ResumeError != "" {
+		// Stored for the agent's next resume, but it stayed stopped: the lead has to know.
+		d.endHeld(ctx, h, "it was sent, but the agent could not be resumed ("+clip(res.Msg.ResumeError, 300)+"); the task waits in its inbox for a resume")
+		return
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return // the daemon is stopping: the start scan sends it
@@ -285,6 +315,9 @@ func (d *Daemon) ListHeldTasks(ctx context.Context, req *connect.Request[v1.List
 // CancelHeldTask drops a held task: it is never sent, and nobody is told (the caller knows).
 func (d *Daemon) CancelHeldTask(ctx context.Context, req *connect.Request[v1.CancelHeldTaskRequest]) (*connect.Response[v1.CancelHeldTaskResponse], error) {
 	out := &v1.CancelHeldTaskResponse{}
+	if _, err := d.store.Read(ctx).GetHeldTask(req.Msg.Id); errors.Is(err, store.ErrNotFound) {
+		return nil, notFound("no held task %q (`mesh held`)", req.Msg.Id) // no lock made for an id that is none
+	}
 	mu := d.agentLock("held:" + req.Msg.Id) // not while it is being sent
 	mu.Lock()
 	defer mu.Unlock()

@@ -11,7 +11,8 @@ cmd="${1:-> victim.txt}"
 here="$(cd "$(dirname "$0")/.." && pwd)"
 guard="$here/share/opencode/readonly-guard.js"
 work="$(mktemp -d /tmp/oc-guard.XXXXXX)"
-trap 'kill "$srv" 2>/dev/null || true; rm -rf "$work"' EXIT
+srv=
+trap '[ -z "$srv" ] || kill "$srv" 2>/dev/null || true; rm -rf "$work"' EXIT
 mkdir -p "$work/home" "$work/w"
 cat > "$work/fake.py" <<'PY'
 import json, sys

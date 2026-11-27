@@ -770,7 +770,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	}
 	if out.Message != nil && out.Message.Re != "" && (req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE ||
 		req.Msg.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
-		d.releaseHeldSoon(out.Message.Re) // tasks held for the task this report answers
+		d.releaseHeldSoon(out.Message.RunId) // tasks held for the task this report answers
 	}
 	return connect.NewResponse(out), nil
 }

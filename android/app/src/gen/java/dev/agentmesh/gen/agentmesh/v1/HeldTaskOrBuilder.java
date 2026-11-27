@@ -56,7 +56,7 @@ public interface HeldTaskOrBuilder extends
 
   /**
    * <pre>
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    * </pre>
    *
    * <code>string to = 4 [json_name = "to"];</code>
@@ -65,7 +65,7 @@ public interface HeldTaskOrBuilder extends
   java.lang.String getTo();
   /**
    * <pre>
-   * The agent it is for, as the sender wrote it (a name or an id).
+   * The agent it is for: its id.
    * </pre>
    *
    * <code>string to = 4 [json_name = "to"];</code>

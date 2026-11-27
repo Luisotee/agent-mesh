@@ -1455,7 +1455,7 @@ message HeldTask {
   string run_id = 2;
   // The task it waits for: a message id.
   string after = 3;
-  // The agent it is for, as the sender wrote it (a name or an id).
+  // The agent it is for: its id.
   string to = 4;
   // The held task's text.
   string body = 5;

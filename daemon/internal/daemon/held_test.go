@@ -254,3 +254,62 @@ func TestAHeldTaskOfAClosedRunIsDroppedAtStart(t *testing.T) {
 		return err == nil && len(l.Msg.Held) == 0
 	})
 }
+
+// A follow-up sent to the worker before it reported makes its done name the follow-up, and that done answers the task
+// before it too.
+func TestAFollowUpToTheWorkerDoesNotStrandATaskHeldForItsFirstTask(t *testing.T) {
+	h := startHeld(t)
+	t1 := h.task(t, h.a, h.asA, "first")
+	if _, err := h.hold(t, h.b, t1.Id, "second"); err != nil {
+		t.Fatal(err)
+	}
+	h.task(t, h.a, h.asA, "first, and one more thing") // a's done now names this one
+	h.report(t, h.a, v1.MessageType_MESSAGE_TYPE_DONE)
+	waitFor(t, "the held task sent", func() bool { return hasBody(inbox(t, h.asB), "second") })
+}
+
+func TestAHeldTaskIsRefusedForAFailedDependencyOrAHeldIdOrTheRoot(t *testing.T) {
+	h := startHeld(t)
+	t1 := h.task(t, h.a, h.asA, "first")
+	held, err := h.hold(t, h.b, t1.Id, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.hold(t, h.b, held.Held, "third"); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("after a held id: %v", err)
+	}
+	// The root takes no `--after` on a task for it: it reports to nobody.
+	toRoot, err := h.device.Mesh.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""),
+		To: h.lead.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "for the root"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.hold(t, h.b, toRoot.Msg.Message.Id, "x"); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("after a task for the root: %v", err)
+	}
+	h.report(t, h.a, v1.MessageType_MESSAGE_TYPE_FAILED)
+	waitFor(t, "the first held task dropped", func() bool { return len(h.held(t)) == 0 })
+	if _, err := h.hold(t, h.b, t1.Id, "fourth"); code(err) != connect.CodeFailedPrecondition {
+		t.Errorf("after a failed task: %v", err)
+	}
+}
+
+// What a device queued is dropped with its token, not sent in its name afterwards.
+func TestARevokedDevicesHeldTasksAreDropped(t *testing.T) {
+	h := startHeld(t)
+	t1 := h.task(t, h.a, h.asA, "first")
+	ph := pairPhone(t, h.harness, "phone", false)
+	if _, err := ph.c.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: h.b.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "from the phone", After: t1.Id})); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.held(t)); n != 1 {
+		t.Fatalf("held %d", n)
+	}
+	if _, err := h.device.Mesh.RevokeDevice(context.Background(), connect.NewRequest(&v1.RevokeDeviceRequest{Meta: meta(""), DeviceId: ph.id})); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.held(t)); n != 0 {
+		t.Fatalf("a revoked device's task is still held: %d", n)
+	}
+}

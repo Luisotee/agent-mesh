@@ -145,11 +145,11 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 		}
 		created = res.Msg.Terminal.Id
 		out.Shell = shellOf(res.Msg.Terminal)
+		// Told now, before the host's exit watch can tell its end (a shell that exits at once): a write that then fails
+		// ends the shell (below), which tells the apps it is gone.
+		d.bus.PublishShell(&v1.ShellChange{Shell: out.Shell})
 		return nil
 	})
-	if err == nil && created != "" {
-		d.bus.PublishShell(&v1.ShellChange{Shell: out.Shell})
-	}
 	if err != nil && created != "" {
 		// The shell started but its record did not commit (the caller went away): a retry with the same mutation id would start a
 		// second one, and nobody knows this one, so it ends.
