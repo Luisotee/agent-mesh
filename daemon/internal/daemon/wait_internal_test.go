@@ -14,7 +14,7 @@ func TestEvalLineIsTheCommandTheUserTyped(t *testing.T) {
 	for in, want := range map[string]string{
 		"source /h/.claude/shell-snapshots/s.sh 2>/dev/null || true && eval 'make test'": "make test",
 		`source /h/.claude/shell-snapshots/s.sh && eval "go test ./... -run X"`:          "go test ./... -run X",
-		"source /h/.claude/shell-snapshots/s.sh && eval 'echo it'\\''s' < /dev/null":     "echo it'\\''s",
+		"source /h/.claude/shell-snapshots/s.sh && eval 'echo it'\\''s' < /dev/null":     "echo it's",
 		"source /h/.claude/shell-snapshots/s.sh":                                         "",
 	} {
 		if got := evalLine(in); got != want {

@@ -101,7 +101,10 @@ export function waitSentence(w: AgentWait): string {
     case AgentWaitKind.BACKGROUND:
       return w.detail ? `Waiting on its background job: ${cut(w.detail)}` : 'Waiting on a background job'
     case AgentWaitKind.DECLARED: {
-      const until = w.until ? new Date(Number(w.until.seconds) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+      const end = w.until ? new Date(Number(w.until.seconds) * 1000) : undefined
+      const time = end?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      // Another day than today says which, so a deadline tomorrow does not read as one already past.
+      const until = end && time ? (end.toDateString() === new Date().toDateString() ? time : `${end.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`) : ''
       return `Waiting${w.detail ? `: ${cut(w.detail)}` : ''}${until ? `, until ${until}` : ''}`
     }
     case AgentWaitKind.ANSWER:

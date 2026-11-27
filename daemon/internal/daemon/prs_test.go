@@ -649,6 +649,30 @@ func TestAWorkersStackOfBranchesHasItsPRsFoundNotOnlyTheRecordedBranchs(t *testi
 	}
 }
 
+// Slugs `fix` and `fix-2` in one run: the agent recorded on `fix-2` cannot tell `fix`'s later branch `fix-3` from its own.
+func TestAnAgentRecordedOnASuffixedBranchLeavesTheBaseAgentsStackAlone(t *testing.T) {
+	w := startPR(t)
+	stem := "mesh/" + w.run.Id + "/fix"
+	runGit(t, w.repo, "branch", stem+"-2", w.base)
+	runGit(t, w.repo, "branch", stem+"-3", w.base)
+	w.harness.seedAgent(w.run.Id, "a-w2", "demo-fix-2", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	w.edit("a-w2", func(a *v1.Agent) { a.Repo, a.Worktree, a.Branch, a.BaseCommit = w.repo, w.repo, stem+"-2", w.base })
+	w.mu.Lock()
+	w.byHead = map[string][]map[string]any{}
+	w.mu.Unlock()
+	w.prs("demo-fix-2", true)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, h := range w.heads {
+		if h != stem+"-2" {
+			t.Errorf("fix-2's agent asked about %s, a branch of fix's stack: %v", h, w.heads)
+		}
+	}
+	if len(w.heads) == 0 {
+		t.Error("it asked about no branch at all")
+	}
+}
+
 func TestAStackOfBranchesAsksAboutTheNewestEightAtMost(t *testing.T) {
 	w := startPR(t)
 	stem := "mesh/" + w.run.Id + "/fix"

@@ -89,7 +89,8 @@ public interface GetAgentProgressResponseOrBuilder extends
    * <pre>
    * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
    * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
-   * only. Empty for a plain agent and where `supported` is false.
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
    * </pre>
    *
    * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
@@ -100,7 +101,8 @@ public interface GetAgentProgressResponseOrBuilder extends
    * <pre>
    * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
    * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
-   * only. Empty for a plain agent and where `supported` is false.
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
    * </pre>
    *
    * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
@@ -110,7 +112,8 @@ public interface GetAgentProgressResponseOrBuilder extends
    * <pre>
    * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
    * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
-   * only. Empty for a plain agent and where `supported` is false.
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
    * </pre>
    *
    * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>

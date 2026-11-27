@@ -1791,7 +1791,8 @@ type GetAgentProgressResponse struct {
 	Wait *AgentWait `protobuf:"bytes,5,opt,name=wait,proto3" json:"wait,omitempty"`
 	// Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
 	// its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
-	// only. Empty for a plain agent and where `supported` is false.
+	// only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+	// conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
 	Marks         []*ContextMark `protobuf:"bytes,6,rep,name=marks,proto3" json:"marks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

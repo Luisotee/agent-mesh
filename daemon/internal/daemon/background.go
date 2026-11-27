@@ -72,7 +72,11 @@ func evalLine(script string) string {
 	cmd := strings.TrimSpace(script[i+len("eval "):])
 	if n := len(cmd); n >= 2 && (cmd[0] == '\'' || cmd[0] == '"') {
 		if end := strings.LastIndexByte(cmd, cmd[0]); end > 0 {
+			quote := cmd[0]
 			cmd = cmd[1:end]
+			if quote == '\'' { // a quote inside a single-quoted string is written '\''
+				cmd = strings.ReplaceAll(cmd, `'\''`, `'`)
+			}
 		}
 	}
 	return strings.TrimSpace(cmd)
