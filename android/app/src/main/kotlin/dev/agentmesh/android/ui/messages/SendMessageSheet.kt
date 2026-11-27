@@ -15,6 +15,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.agentmesh.android.ui.chat.MarkdownField
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,19 +45,19 @@ private val COMPOSE_TYPES = listOf(MessageType.MESSAGE_TYPE_TASK, MessageType.ME
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SendMessageSheet(runtime: HostRuntime, agentId: String, onDismiss: () -> Unit) {
-    var text by rememberSaveable(agentId) { mutableStateOf("") }
+    val text = rememberTextFieldState()
     var type by rememberSaveable(agentId) { mutableStateOf(MessageType.MESSAGE_TYPE_TASK) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     fun send() {
-        if (busy || text.isBlank()) return
+        if (busy || text.text.isBlank()) return
         busy = true
         error = ""
         scope.launch {
             try {
-                runtime.send(agentId, type, text.trim())
-                text = ""
+                runtime.send(agentId, type, text.text.toString().trim())
+                text.clearText()
                 onDismiss()
             } catch (e: CancellationException) {
                 throw e
@@ -71,9 +75,9 @@ fun SendMessageSheet(runtime: HostRuntime, agentId: String, onDismiss: () -> Uni
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 COMPOSE_TYPES.forEach { t -> FilterChip(selected = type == t, onClick = { type = t }, label = { Text(messageLabel(t)) }, modifier = Modifier.testTag("type-${messageLabel(t)}")) }
             }
-            OutlinedTextField(text, { text = it }, Modifier.fillMaxWidth().testTag("message-text"), placeholder = { Text("Message the agent") }, minLines = 3, maxLines = 8)
+            MarkdownField(text, Modifier.fillMaxWidth(), tag = "message-text", placeholder = "Message the agent", minLines = 3, shape = RoundedCornerShape(12.dp))
             if (error.isNotEmpty()) Text(error, Modifier.testTag("message-error"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            Button(onClick = ::send, enabled = !busy && text.isNotBlank(), modifier = Modifier.fillMaxWidth().testTag("message-send")) { Text("Send") }
+            Button(onClick = ::send, enabled = !busy && text.text.isNotBlank(), modifier = Modifier.fillMaxWidth().testTag("message-send")) { Text("Send") }
         }
     }
 }

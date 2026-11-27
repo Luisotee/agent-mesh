@@ -201,3 +201,9 @@ func SetRoomPoll(d time.Duration) time.Duration {
 func LostIn(ctx context.Context, worktree, rel string, safe func(string) bool) (int64, int, bool) {
 	return lostIn(ctx, worktree, rel, safe)
 }
+
+// PRFeedbackPass runs the feedback watch once (it runs every `prs.watch_every` in a daemon).
+func (d *Daemon) PRFeedbackPass(ctx context.Context) { d.prFeedbackPass(ctx) }
+
+// PRLastRead is when an agent's PRs were last read in full (zero after a failed read).
+func (d *Daemon) PRLastRead(agentID string) time.Time { return d.prs.lastRead(agentID) }
