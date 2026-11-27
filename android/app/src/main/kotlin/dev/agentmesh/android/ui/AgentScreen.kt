@@ -79,7 +79,7 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
             ModelLine(runtime, agent, canChange = !isReadOnlyDevice(state))
             TabRow(selectedTabIndex = tab.ordinal) {
                 Tab.entries.forEach { t ->
-                    androidx.compose.material3.Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.name) })
+                    androidx.compose.material3.Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.name, maxLines = 1, softWrap = false) })
                 }
             }
             when (tab) {

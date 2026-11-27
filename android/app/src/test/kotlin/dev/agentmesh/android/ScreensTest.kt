@@ -100,7 +100,7 @@ class ScreensTest {
         compose.onNodeWithText("shop-fix-typo").assertIsDisplayed()
         compose.onNodeWithText("Needs you: Bash").assertIsDisplayed()
         // The plan and the prompt both wait on the user.
-        compose.onNodeWithText("WAITING ON YOU (2)").assertIsDisplayed()
+        compose.onNodeWithText("Waiting on you (2)").assertIsDisplayed()
         compose.onNodeWithText("shop-fix-typo sent a plan").assertIsDisplayed()
     }
 
