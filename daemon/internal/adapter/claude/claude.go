@@ -306,6 +306,12 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 		argv = append(append(argv, "--disallowedTools"), rules...)
 	}
 	argv = append(argv, LeanArgs(m.Lean)...)
+	if ReadOnly(m.Role) {
+		// An asker or a reviewer can sit on a PR head nobody trusted: its `.claude/settings.json` hooks, its project
+		// settings and its `.mcp.json` servers must not run. `user` loads only the user's own settings; the mesh's
+		// hooks and statusLine (`--settings`) and its plugin (`--plugin-dir`) are not settings sources and stay.
+		argv = append(argv, "--setting-sources", "user")
+	}
 	argv = append(argv, "--settings", settings)
 	// The daemon's skills, loaded for this session only (never installed into the user's own): the share folder
 	// is a Claude plugin (`.claude-plugin/plugin.json`, `skills/`).

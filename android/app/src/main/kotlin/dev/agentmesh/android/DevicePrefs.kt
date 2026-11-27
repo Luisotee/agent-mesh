@@ -48,9 +48,15 @@ class DevicePrefs(context: Context) {
     /** The projects the user pinned to the top of the drawer, as repo paths by host id, in the order they were pinned. */
     val pins: StateFlow<Map<String, List<String>>> get() = _pins
 
-    fun togglePin(hostId: String, repo: String) {
+    /** Pins a project; one already pinned stays pinned (and keeps its place in the order). */
+    fun pin(hostId: String, repo: String) = setPins(hostId) { if (repo in it) it else it + repo }
+
+    fun unpin(hostId: String, repo: String) = setPins(hostId) { it - repo }
+
+    private fun setPins(hostId: String, change: (List<String>) -> List<String>) {
         val now = _pins.value[hostId].orEmpty()
-        val next = if (repo in now) now - repo else now + repo
+        val next = change(now)
+        if (next == now) return
         _pins.value = _pins.value.toMutableMap().also { if (next.isEmpty()) it.remove(hostId) else it[hostId] = next }
         val arr = org.json.JSONArray()
         for ((h, repos) in _pins.value) for (r in repos) arr.put(org.json.JSONArray().put(h).put(r))
@@ -81,8 +87,12 @@ class DevicePrefs(context: Context) {
     /** The projects hidden from the drawer (`hostId`, a newline, the repo path: `projectKey`); one comes back while something in it waits on the user. */
     val hidden: StateFlow<Set<String>> get() = _hidden
 
-    fun toggleHidden(key: String) {
-        val next = if (key in _hidden.value) _hidden.value - key else _hidden.value + key
+    fun hide(key: String) = setHidden(_hidden.value + key)
+
+    fun unhide(key: String) = setHidden(_hidden.value - key)
+
+    private fun setHidden(next: Set<String>) {
+        if (next == _hidden.value) return
         prefs.edit().putStringSet(HIDDEN, next).apply()
         _hidden.value = next
     }

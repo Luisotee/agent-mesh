@@ -13,7 +13,11 @@ import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.AgentRole
 import dev.agentmesh.gen.agentmesh.v1.ListProjectsRequest
 import dev.agentmesh.gen.agentmesh.v1.Project
+import dev.agentmesh.gen.agentmesh.v1.RenameRunRequest
+import dev.agentmesh.gen.agentmesh.v1.RetireAgentRequest
 import dev.agentmesh.gen.agentmesh.v1.Run
+import dev.agentmesh.gen.agentmesh.v1.StopAgentRequest
+import dev.agentmesh.gen.agentmesh.v1.StopRunRequest
 import dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest
 import dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse
 import dev.agentmesh.gen.agentmesh.v1.StartRunRequest
@@ -87,7 +91,7 @@ val UI_ACTIONS = listOf(
     "hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal",
     "registerPush", "unregisterPush", "testPush", "revokeSelf",
     "readTranscript", "promptAgent", "switchAgent", "checkModels", "listAgents", "listWaiting", "listPullRequests", "holdPullRequest", "getUsage", "getCost",
-    "startRun", "spawnAgent", "listProjects",
+    "startRun", "spawnAgent", "listProjects", "stopAgent", "retireAgent", "renameRun", "stopRun",
 )
 
 /** What a terminal stream delivers: frames, then how it ended. */
@@ -191,6 +195,18 @@ interface MeshApi {
 
     /** What `mesh cost` prints: for a run, or (with [since], a span back from now such as `7d`) a window. */
     suspend fun getCost(runId: String = "", since: String = "", agents: Boolean = false): GetCostResponse
+
+    /** Stops an agent's process (its whole process group). Its worktree and branch stay. */
+    suspend fun stopAgent(agent: String)
+
+    /** Stops an agent on purpose and keeps its branch: a message to it, or a resume, brings it back. */
+    suspend fun retireAgent(agent: String)
+
+    /** Gives a run another title. */
+    suspend fun renameRun(runId: String, title: String)
+
+    /** Closes a run: its agents are retired and their finished worktrees go. Returns the ids it retired. */
+    suspend fun stopRun(runId: String): List<String>
 }
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
@@ -315,6 +331,21 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
         ).ok()
 
     override suspend fun listProjects(): List<Project> = service.listProjects(ListProjectsRequest.getDefaultInstance()).ok().projectsList
+
+    override suspend fun stopAgent(agent: String) {
+        service.stopAgent(StopAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).build()).ok()
+    }
+
+    override suspend fun retireAgent(agent: String) {
+        service.retireAgent(RetireAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).build()).ok()
+    }
+
+    override suspend fun renameRun(runId: String, title: String) {
+        service.renameRun(RenameRunRequest.newBuilder().setMeta(newMeta()).setRunId(runId).setTitle(title).build()).ok()
+    }
+
+    override suspend fun stopRun(runId: String): List<String> =
+        service.stopRun(StopRunRequest.newBuilder().setMeta(newMeta()).setRunId(runId).build()).ok().retiredList
 
     private fun Throwable.asApiException(): ApiException = when (this) {
         is ApiException -> this

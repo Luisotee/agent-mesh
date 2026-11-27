@@ -1,8 +1,16 @@
 package dev.agentmesh.android.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -38,7 +46,10 @@ import dev.agentmesh.android.ui.SectionHeader
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
 import kotlinx.coroutines.launch
 
-/** This device's own preferences. They aren't on a host: a theme chosen here overrides the host's `app.theme` on this phone only. */
+/**
+ * This device's own preferences, in groups with a line each on what they are for. They aren't on a host: a theme chosen
+ * here overrides the host's `app.theme` on this phone only.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceSettingsScreen(onBack: () -> Unit, onHosts: () -> Unit = {}) {
@@ -48,49 +59,56 @@ fun DeviceSettingsScreen(onBack: () -> Unit, onHosts: () -> Unit = {}) {
     Scaffold(topBar = {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { pad ->
-        LazyColumn(Modifier.padding(pad).fillMaxSize()) {
-            item { SectionHeader("Hosts") }
-            item {
-                Row(Modifier.fillMaxWidth().clickable(onClick = onHosts).padding(horizontal = 16.dp, vertical = 12.dp).testTag("settings-hosts"), verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-                        Text("Paired hosts")
-                        Text(
-                            if (hostCount.isEmpty()) "None yet: pair with a host to begin." else hostCount.joinToString(", ") { it.name },
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            SettingsGroup("Hosts", "The machines this phone works with.") {
+                SettingRow(
+                    "Paired hosts",
+                    if (hostCount.isEmpty()) "None yet: pair with a host to begin." else hostCount.joinToString(", ") { it.name },
+                    Modifier.clickable(onClick = onHosts).testTag("settings-hosts"),
+                ) { Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            item { SectionHeader("Notifications") }
-            item { NotificationSettings() }
-            item { SectionHeader("Theme") }
-            item { ThemeRow(ThemeStore.HOST, null, choice == ThemeStore.HOST) { themes.choose(ThemeStore.HOST) } }
-            item { ThemeRow(ThemeStore.SYSTEM, null, choice == ThemeStore.SYSTEM) { themes.choose(ThemeStore.SYSTEM) } }
-            items(themes.available, key = { it.name }) { spec ->
-                ThemeRow(spec.name, spec, choice == spec.name) { themes.choose(spec.name) }
+            SettingsGroup("Notifications", "What reaches you, and how, while you are not looking at the app.") { NotificationSettings() }
+            SettingsGroup("Appearance", "Colours for this phone only. A theme chosen here wins over the host's app.theme.") {
+                ThemeRow(ThemeStore.HOST, choice == ThemeStore.HOST) { themes.choose(ThemeStore.HOST) }
+                SettingDivider()
+                ThemeRow(ThemeStore.SYSTEM, choice == ThemeStore.SYSTEM) { themes.choose(ThemeStore.SYSTEM) }
+                SettingDivider()
+                ThemeCards(themes.available.map { it.name to Themes.resolve(it) }, choice) { themes.choose(it) }
             }
         }
     }
 }
 
 @Composable
-private fun ThemeRow(name: String, spec: dev.agentmesh.android.theme.ThemeSpec?, selected: Boolean, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected, onClick = onClick)
-        Text(
-            when (name) {
-                ThemeStore.HOST -> "Follow the host (its app.theme setting)"
-                ThemeStore.SYSTEM -> "Follow the system (${Themes.DEFAULT} or Alucard)"
-                else -> name
-            }, Modifier.weight(1f).padding(start = 8.dp),
-        )
-        if (spec != null) {
-            val t = Themes.resolve(spec)
-            Row {
-                listOf(t.scheme.background, t.scheme.primary, t.states.working, t.states.needs, t.states.done).forEach {
-                    Box(Modifier.padding(start = 4.dp).size(16.dp).clip(CircleShape).background(it).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
+private fun ThemeRow(name: String, selected: Boolean, onClick: () -> Unit) {
+    SettingRow(
+        if (name == ThemeStore.HOST) "Follow the host" else "Follow the system",
+        if (name == ThemeStore.HOST) "Use the theme the host sets (its app.theme setting)." else "${Themes.DEFAULT} in the dark, Alucard in the light.",
+        Modifier.selectable(selected, onClick = onClick, role = Role.RadioButton).testTag("theme-$name"),
+    ) { RadioButton(selected, onClick = null) }
+}
+
+/** The themes as swatch cards drawn from their own files: the page, the accent and the state colours, under the name. Two to a row; an odd last card keeps a card's width. */
+@Composable
+private fun ThemeCards(themes: List<Pair<String, dev.agentmesh.android.theme.MeshTheme>>, choice: String, onChoose: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        themes.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { (name, t) ->
+                    val on = choice == name
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(t.scheme.background)
+                            .border(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                            .selectable(on, onClick = { onChoose(name) }, role = Role.RadioButton).padding(12.dp).testTag("theme-$name"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(name, style = MaterialTheme.typography.labelLarge, color = t.scheme.onBackground, maxLines = 1)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(t.scheme.primary, t.states.working, t.states.needs, t.states.done).forEach { Box(Modifier.size(14.dp).clip(CircleShape).background(it)) }
+                        }
+                    }
                 }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
@@ -105,19 +123,18 @@ private fun NotificationSettings() {
     val allowedState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(container.notifier.allowed()) }
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { allowedState.value = container.notifier.allowed(); onPauseOrDispose { } }
     val allowed = allowedState.value
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-            Text("Stay connected in the background")
-            Text(
-                "Keeps your hosts connected so plans, questions and reports notify you with the app closed. Shows a quiet notification while it does.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    SettingRow(
+        "Stay connected in the background",
+        "Keeps your hosts connected so plans, questions and reports notify you with the app closed. Shows a quiet notification while it does.",
+    ) {
         androidx.compose.material3.Switch(background, { container.prefs.setBackground(it); if (it && container.hosts.hosts.value.isNotEmpty()) dev.agentmesh.android.notify.ConnectionService.start(context) })
     }
+    SettingDivider()
     PushSettings()
+    SettingDivider()
     NotifyKindsSettings()
     if (!allowed) {
+        SettingDivider()
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Notifications are blocked for this app.", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
             androidx.compose.material3.TextButton(onClick = {
@@ -151,14 +168,10 @@ private fun NotifyKindsSettings() {
     val container = LocalContainer.current
     val chosen by container.prefs.notifyEvents.collectAsStateWithLifecycleCompat()
     val follow = chosen == null
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-            Text("What to be told of")
-            Text(
-                if (follow) "Follows each host's own list (its app.notify.events)." else "One list for this phone, whatever a host's own says; it goes to every host for pushes.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    SettingRow(
+        "What to be told of",
+        if (follow) "Follows each host's own list (its app.notify.events)." else "One list for this phone, whatever a host's own says; it goes to every host for pushes.",
+    ) {
         androidx.compose.material3.Switch(
             !follow, { on -> container.prefs.setNotifyEvents(if (on) DEFAULT_CHOICE else null) },
             modifier = Modifier.testTag("choose-events"),
@@ -202,19 +215,15 @@ private fun PushSettings() {
     val installed = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(container.push.distributors()) }
     androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { installed.value = container.push.distributors(); onPauseOrDispose { } }
     var note by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-            Text("Notifications with the app closed")
-            val via = container.push.current()?.let { container.push.label(it) }
-            Text(
-                when {
-                    installed.value.isEmpty() -> "Needs a UnifiedPush distributor: install ntfy (F-Droid or Play) and point it at your own ntfy server or ntfy.sh."
-                    on && via != null -> "Through $via. What a push carries is encrypted for this phone."
-                    else -> "Your hosts push plans, questions and reports through a UnifiedPush distributor (ntfy), end-to-end encrypted, with no connection kept open."
-                },
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    val via = container.push.current()?.let { container.push.label(it) }
+    SettingRow(
+        "Notifications with the app closed",
+        when {
+            installed.value.isEmpty() -> "Needs a UnifiedPush distributor: install ntfy (F-Droid or Play) and point it at your own ntfy server or ntfy.sh."
+            on && via != null -> "Through $via. What a push carries is encrypted for this phone."
+            else -> "Your hosts push plans, questions and reports through a UnifiedPush distributor (ntfy), end-to-end encrypted, with no connection kept open."
+        },
+    ) {
         androidx.compose.material3.Switch(
             on,
             { want ->

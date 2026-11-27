@@ -10,7 +10,9 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import dev.agentmesh.android.hosts.HostRepository
 import dev.agentmesh.android.net.MeshApi
@@ -158,14 +160,25 @@ class ShotsTest {
         both("drawer", { androidx.compose.material3.Surface { SidebarContent(rememberSidebar(), "x" to "w2", noActions) } }, c = c)
     }
 
-    @Test fun agentOverview() { val rt = runtime(); both("agent-overview", { AgentScreen(rt, "w2", {}) }) }
-
+    /** A worker's chat: its tree strip, the plan it sent as a card, the reply with code, a tool run, the composer. */
     @Test fun agentChat() {
         val rt = runtime()
-        both("agent-chat", { AgentScreen(rt, "lead", {}, Tab.Chat) }, ready = { compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().isNotEmpty() } })
+        both("agent-chat", { AgentScreen(rt, "w2", {}, Tab.Chat) }, ready = { compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().isNotEmpty() } })
     }
 
-    @Test fun agentMessages() { val rt = runtime(); both("agent-messages", { AgentScreen(rt, "w2", {}, Tab.Messages) }) }
+    /** The lead's chat, with a worker that needs the user in its strip. */
+    @Test fun agentLeadChat() {
+        val rt = runtime()
+        both("agent-lead-chat", { AgentScreen(rt, "lead", {}, Tab.Chat) }, ready = { compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().isNotEmpty() } })
+    }
+
+    /** The details sheet (it is a window of its own: the picture shows the screen behind it when the capture can't reach it). */
+    @Test fun agentDetails() {
+        val rt = runtime()
+        both("agent-details", { AgentScreen(rt, "w1", {}, Tab.Chat) }, ready = { compose.onNodeWithTag("details-open").performClick(); compose.waitForIdle() })
+    }
+
+    @Test fun settings() { val c = container(); both("settings", { dev.agentmesh.android.ui.settings.DeviceSettingsScreen({}) }, c = c) }
 
     @Test fun hosts() {
         val ctx = ApplicationProvider.getApplicationContext<Application>()

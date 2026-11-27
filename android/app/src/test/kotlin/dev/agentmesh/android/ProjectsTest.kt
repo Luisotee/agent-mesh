@@ -160,5 +160,7 @@ class ProjectsTest {
         assertEquals("/home/u/shop", dev.agentmesh.android.ui.normalPath("/home/u//shop/"))
         assertEquals("/home/u/shop", dev.agentmesh.android.ui.normalPath("/home/u/./shop"))
         assertEquals("C:\\work\\app", dev.agentmesh.android.ui.normalPath("C:\\work\\app\\"))
+        // Spaces round it go first, or the slash after them would be missed.
+        assertEquals("/home/u/shop", dev.agentmesh.android.ui.normalPath("  /home/u/shop/  "))
     }
 }
