@@ -56,12 +56,17 @@ func TestSweepRemovesOnlyOldLeftovers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A dir with a generic name and nothing of the suites in it is somebody else's.
+	stranger := filepath.Join(base, "am999")
+	if err := os.MkdirAll(stranger, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	past := time.Now().Add(-5 * time.Hour)
-	for _, d := range []string{old, oldBins, other} {
+	for _, d := range []string{old, oldBins, other, stranger} {
 		os.Chtimes(d, past, past)
 	}
 	Sweep(3 * time.Hour)
-	for d, want := range map[string]bool{old: false, oldBins: false, young: true, other: true} {
+	for d, want := range map[string]bool{old: false, oldBins: false, young: true, other: true, stranger: true} {
 		if _, err := os.Stat(d); (err == nil) != want {
 			t.Errorf("%s: exists=%v, want %v", filepath.Base(d), err == nil, want)
 		}

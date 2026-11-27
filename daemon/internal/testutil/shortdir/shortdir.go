@@ -7,6 +7,7 @@ package shortdir
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -44,7 +45,9 @@ func Base() string {
 
 // leftovers are the names of the dirs the suites make under Base and the OS temp dir. A run that is killed or times
 // out (the panic skips every cleanup) leaves them; Sweep removes the old ones at the next start.
-var leftovers = []string{"am[0-9]*", "reopen-*", "meshd-bins-*", "meshd-e2e-bins-*", "share-[0-9]*", "cop-*", "tc[0-9]*"}
+var leftovers = []string{"am[0-9]*", "reopen-*", "meshd-bins-*", "meshd-e2e-bins-*"}
+
+func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }
 
 // Sweep removes the dirs a killed run left (see leftovers) that are older than maxAge, from Base and the OS temp
 // dir. The age is what keeps a run in progress in another process safe: pass more than the longest suite takes.
@@ -59,9 +62,15 @@ func Sweep(maxAge time.Duration) {
 		for _, pat := range leftovers {
 			names, _ := filepath.Glob(filepath.Join(base, pat))
 			for _, n := range names {
-				if st, err := os.Lstat(n); err == nil && st.IsDir() && st.ModTime().Before(cutoff) {
-					os.RemoveAll(n)
+				st, err := os.Lstat(n)
+				if err != nil || !st.IsDir() || !st.ModTime().Before(cutoff) {
+					continue
 				}
+				// A generic name (am123) is the suites' only if it holds what they put there.
+				if strings.HasPrefix(filepath.Base(n), "am") && !pathExists(filepath.Join(n, "state")) {
+					continue
+				}
+				os.RemoveAll(n)
 			}
 		}
 	}

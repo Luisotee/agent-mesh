@@ -388,7 +388,7 @@ func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillT
 func (t *Terminal) resignalSession(sig syscall.Signal) {
 	for i := 0; i < 10; i++ {
 		time.Sleep(100 * time.Millisecond)
-		if proc.SignalSessionMembers(t.pid, sig) == 0 {
+		if proc.SignalSessionMembers(t.pid, t.startTicks, sig) == 0 {
 			return
 		}
 	}

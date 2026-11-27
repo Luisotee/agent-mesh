@@ -216,7 +216,13 @@ func TestSignalSessionMembersReachesWhatTheLeaderLeftBehind(t *testing.T) {
 	}
 	t.Cleanup(func() { syscall.Kill(job, syscall.SIGKILL) })
 	leader := cmd.Process.Pid
-	if n := SignalSessionMembers(leader, syscall.SIGKILL); n != 1 {
+	// The leader's start time was read while it lived: it is gone now, as it is when a terminal's leader has exited.
+	leaderTicks := uint64(1)
+	// A pid that is a live process with another start time is a reused one: nothing of its session is signalled.
+	if n := SignalSessionMembers(os.Getpid(), 12345, syscall.SIGKILL); n != 0 {
+		t.Fatalf("signalled %d for a pid whose start time is not the recorded one", n)
+	}
+	if n := SignalSessionMembers(leader, leaderTicks, syscall.SIGKILL); n != 1 {
 		t.Fatalf("signalled %d, want the one job", n)
 	}
 	deadline := time.Now().Add(5 * time.Second)
@@ -230,10 +236,10 @@ func TestSignalSessionMembersReachesWhatTheLeaderLeftBehind(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if n := SignalSessionMembers(leader, syscall.SIGKILL); n != 0 {
+	if n := SignalSessionMembers(leader, leaderTicks, syscall.SIGKILL); n != 0 {
 		t.Errorf("signalled %d after it ended", n)
 	}
-	if n := SignalSessionMembers(1, syscall.SIGKILL); n != 0 {
+	if n := SignalSessionMembers(1, 0, syscall.SIGKILL); n != 0 {
 		t.Errorf("signalled %d for pid 1", n)
 	}
 }
