@@ -415,18 +415,22 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     : gone
       ? 'The agent has stopped, so there is no terminal to type into. Send it a task from its menu (⋯) to bring it back.'
       : ''
-  async function send(confirmed = false) {
-    const body = text.trim()
+  /** Sends the box, or `confirmedBody`: the text the user was asked about (the box may have changed since). */
+  async function send(confirmedBody?: string) {
+    const body = confirmedBody ?? text.trim()
     if (!body || busy) return
-    // `/exit` and the like end the session: ask first. `/resume` and the pickers open a dialog the chat can't show.
-    const cmd = invoked(body, assist.commands)
-    if (cmd?.command.danger && !confirmed) {
-      setConfirming(body)
-      return
-    }
     setBusy(true)
     setError('')
     try {
+      // `/exit` and the like end the session: ask first. The list may not be here yet (the first probe is slow): wait for it, so the question is never skipped.
+      const known = body.startsWith('/') && assist.commands.length === 0 ? await assist.load() : assist.commands
+      // `/resume` and the pickers open a dialog the chat can't show.
+      const cmd = invoked(body, known)
+      if (cmd?.command.danger && confirmedBody === undefined) {
+        setConfirming(body)
+        setBusy(false)
+        return
+      }
       const res = await promptAgent(host.client, agentId, body)
       if (res.queued) host.store.setState(addPrompt(res.queued))
       // Typed at once, a dialog is on the terminal's screen now: take the user there.
@@ -542,7 +546,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
         description={`${confirming.split(/\s/)[0]} ends or signs out of ${agent.name}'s session. Its terminal closes; you can resume it from its menu.`}
         action="Send"
         run={async () => {
-          await send(true)
+          await send(confirming)
         }}
       />
       {why && <p className="text-xs text-muted-foreground">{why}</p>}

@@ -160,7 +160,9 @@ func (a *Adapter) probedCommands(ctx context.Context, m *adapterv1.ListCommandsR
 			e = &cmdEntry{ready: make(chan struct{})}
 			a.cmds[key] = e
 			a.cmdMu.Unlock()
-			cmds, err := a.runCommandsProbe(ctx, m)
+			// The probe belongs to everyone waiting on it, not to the caller that happened to start it: a caller that
+			// leaves must not kill it and cache its cancellation as a failure.
+			cmds, err := a.runCommandsProbe(context.WithoutCancel(ctx), m)
 			a.cmdMu.Lock()
 			e.cmds, e.at = cmds, time.Now()
 			if err != nil {

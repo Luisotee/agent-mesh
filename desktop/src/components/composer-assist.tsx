@@ -30,7 +30,7 @@ function fetchCommands(host: HostRuntime, agentId: string, force = false): Promi
 }
 
 /** The commands of an agent's CLI, asked for on first use and again when they are older than a short while. */
-export function useAgentCommands(host: HostRuntime, agentId: string): { commands: AgentCommand[]; loading: boolean; refresh: () => void } {
+export function useAgentCommands(host: HostRuntime, agentId: string): { commands: AgentCommand[]; loading: boolean; refresh: () => void; load: () => Promise<AgentCommand[]> } {
   const [, bump] = useState(0)
   const get = useCallback(
     (force: boolean) => {
@@ -41,7 +41,11 @@ export function useAgentCommands(host: HostRuntime, agentId: string): { commands
   )
   useEffect(() => get(false), [get])
   const hit = cache.get(`${host.info.id}\n${agentId}`)
-  return { commands: hit?.commands ?? [], loading: !!hit?.loading, refresh: () => get(false) }
+  const load = useCallback(async () => {
+    await fetchCommands(host, agentId)
+    return cache.get(`${host.info.id}\n${agentId}`)?.commands ?? []
+  }, [host, agentId])
+  return { commands: hit?.commands ?? [], loading: !!hit?.loading, refresh: () => get(false), load }
 }
 
 /** When to look for a suggestion after a turn ended: the CLI makes it a moment later, so a few reads, the first soon (a test shortens them). */
@@ -95,6 +99,8 @@ export interface ComposerAssist {
   /** The box's placeholder when a suggestion is showing; undefined otherwise. */
   suggestion: string
   commands: AgentCommand[]
+  /** The commands, waiting for the first answer when there is none yet. */
+  load: () => Promise<AgentCommand[]>
 }
 
 /**
@@ -102,7 +108,7 @@ export interface ComposerAssist {
  * as grey text (Tab takes it). Everything it shows is the host's (`ListAgentCommands`, `GetPromptSuggestion`).
  */
 export function useComposerAssist({ host, agentId, kind, state, text, setText, field, disabled }: { host: HostRuntime; agentId: string; kind: string; state: AgentState | undefined; text: string; setText: (v: string) => void; field: RefObject<HTMLTextAreaElement | null>; disabled: boolean }): ComposerAssist {
-  const { commands, loading } = useAgentCommands(host, agentId)
+  const { commands, loading, refresh, load } = useAgentCommands(host, agentId)
   const id = useId()
   const [caret, setCaret] = useState(0)
   const [focused, setFocused] = useState(false)
@@ -110,6 +116,12 @@ export function useComposerAssist({ host, agentId, kind, state, text, setText, f
   const [closedFor, setClosedFor] = useState<string>()
   const pendingCaret = useRef<number>(undefined)
   const typed = slashQuery(text, caret)
+  // The commands are asked for again (when they are older than a short while) as the popup opens: a skill added since shows up.
+  const typing = typed !== undefined
+  useEffect(() => {
+    if (typing) refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typing])
   const items = typed === undefined ? [] : filterCommands(commands, typed)
   const open = !disabled && focused && typed !== undefined && closedFor !== typed && (items.length > 0 || (loading && commands.length === 0))
   // The highlight starts at the top again whenever what was typed changes.
@@ -176,5 +188,6 @@ export function useComposerAssist({ host, agentId, kind, state, text, setText, f
     popup: open ? <CommandPopup anchor={field.current} id={id} items={items} loading={loading} active={Math.min(active, Math.max(items.length - 1, 0))} onActive={setActive} onPick={pick} /> : null,
     suggestion,
     commands,
+    load,
   }
 }

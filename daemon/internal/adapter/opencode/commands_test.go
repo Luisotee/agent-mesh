@@ -1,6 +1,10 @@
 package opencode
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestCustomCommandsAreReadFromTheConfigAfterLogLines(t *testing.T) {
 	out := []byte("INFO  loading config\n{\n \"$schema\": \"x\",\n \"command\": {\n  \"deploy\": {\"template\": \"Ship $ARGUMENTS\\nthen tell me\", \"description\": \"Deploy it\"},\n  \"test\": {\"template\": \"Run the tests and report\\nmore\"}\n }\n}\n")
@@ -31,5 +35,14 @@ func TestTheBuiltInTableHasNoRepeatedNameOrAlias(t *testing.T) {
 		if c.Desc == "" {
 			t.Errorf("%s has no description", c.Name)
 		}
+	}
+}
+
+func TestADescriptionCutFromALongTemplateIsCutOnACharacter(t *testing.T) {
+	long := strings.Repeat("ção ", 60) // multi-byte text, longer than the cut
+	out := []byte(`{"command":{"x":{"template":"` + long + `"}}}`)
+	cs := customCommands(out)
+	if len(cs) != 1 || !utf8.ValidString(cs[0].Desc) || !strings.HasSuffix(cs[0].Desc, "…") || len([]rune(cs[0].Desc)) != 121 {
+		t.Errorf("%+v", cs)
 	}
 }

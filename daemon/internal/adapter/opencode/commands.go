@@ -58,7 +58,7 @@ func (a *Adapter) ListCommands(ctx context.Context, req *connect.Request[adapter
 		bin = "opencode"
 	}
 	out, err := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"debug", "config"}, Cwd: m.Cwd, Env: mapToEnv(m.Env),
-		Dir: a.ProbeDir, Timeout: 30 * time.Second})
+		Dir: a.ProbeDir, Timeout: 10 * time.Second})
 	if err == nil {
 		cmds = adapter.MergeCommands(cmds, adapter.Commands(customCommands(out)))
 	}
@@ -96,8 +96,8 @@ func oneLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		s = s[:i]
 	}
-	if len(s) > 120 {
-		s = s[:120] + "…"
+	if r := []rune(s); len(r) > 120 { // by characters: a cut inside one would be invalid UTF-8, which a proto string refuses
+		s = string(r[:120]) + "…"
 	}
 	return s
 }

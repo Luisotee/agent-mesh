@@ -281,3 +281,26 @@ func TestNoMoreThanTwoProbesRunAtOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestAProbeIsNotKilledWhenTheCallerThatStartedItLeaves(t *testing.T) {
+	bin, runs := fakeProbeClaude(t, initAnswer, false)
+	a := New()
+	req := &adapterv1.ListCommandsRequest{Cwd: t.TempDir(), Binary: bin, Env: map[string]string{"PATH": os.Getenv("PATH")}}
+	ctx, cancel := context.WithCancel(context.Background())
+	first := make(chan struct{})
+	go func() {
+		defer close(first)
+		a.ListCommands(ctx, connect.NewRequest(proto.CloneOf(req)))
+	}()
+	time.Sleep(60 * time.Millisecond) // the probe is running (it lives 200 ms)
+	cancel()
+	// A second caller, which waited on the same probe, still gets the commands.
+	got := list(t, a, req)
+	<-first
+	if got["deploy"] == nil {
+		t.Errorf("the probe died with its first caller: %d commands", len(got))
+	}
+	if n := runCount(t, runs); n != 1 {
+		t.Errorf("%d probes", n)
+	}
+}

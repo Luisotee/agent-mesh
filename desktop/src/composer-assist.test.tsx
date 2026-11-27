@@ -156,6 +156,19 @@ describe('the composer\'s / popup', () => {
     await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: '/quit' })))
   })
 
+  it('still asks before /exit when the list of commands has not come yet', async () => {
+    const { ui, client, promptAgent } = chat()
+    client.listAgentCommands.mockImplementation(() => new Promise((r) => setTimeout(() => r(create(ListAgentCommandsResponseSchema, { supported: true, commands: COMMANDS })), 150)))
+    render(ui)
+    await userEvent.type(field(), '/exit{Enter}')
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent(/\/exit ends or signs out/)
+    expect(promptAgent).not.toHaveBeenCalled()
+    // Confirming sends what was asked about.
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: '/exit' })))
+  })
+
   it('stays out of the way while the host has no commands for this CLI', async () => {
     const { ui, client } = chat({ kind: 'agy' })
     client.listAgentCommands.mockResolvedValue(create(ListAgentCommandsResponseSchema, { supported: false }))
