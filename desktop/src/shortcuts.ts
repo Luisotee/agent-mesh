@@ -35,8 +35,9 @@ export function commandFor(e: KeyboardEvent, keys: Record<KeyedCommand, string>)
   if ((term || md) && e.shiftKey) {
     for (const id of ids) {
       const chord = parseChord(keys[id])
-      if (!chord || !letter(chord) || chord.shift || chord.alt) continue
-      const taken = term ? chord.ctrl : (chord.ctrl || chord.meta) && FIELD_LETTERS.has(chord.key)
+      if (!chord || !letter(chord) || chord.shift) continue
+      // A terminal's shell takes every Ctrl+letter, Alt too (Ctrl+Alt+B is the panel's); a field only its four, bare.
+      const taken = term ? chord.ctrl : (chord.ctrl || chord.meta) && !chord.alt && FIELD_LETTERS.has(chord.key)
       if (taken && matches(e, { ...chord, shift: true })) return id
     }
   }

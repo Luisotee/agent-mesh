@@ -26,7 +26,7 @@ export type MarkdownFieldProps = Omit<React.ComponentProps<'textarea'>, 'value' 
 }
 
 /**
- * A multi-line field that writes markdown (`composer-keys.ts`): Enter continues a list, Tab and Shift+Tab indent,
+ * A multi-line field that writes markdown (`composer-keys.ts`): Enter continues a list, Tab and Shift+Tab indent a list item or a selection,
  * Ctrl+B, I, E and K make bold, italic, code and a link (the app's shortcuts on those keys wait while it has the
  * focus; with Shift added they run), and it grows with its text. Every multi-line field a person writes to an agent in is one.
  */
@@ -34,12 +34,28 @@ export function MarkdownField({ value, onValueChange, onSend, maxHeight = '40vh'
   const own = React.useRef<HTMLTextAreaElement>(null)
   React.useImperativeHandle(ref, () => own.current!, [])
   // Grow with the text, up to maxHeight, then scroll.
-  React.useLayoutEffect(() => {
+  const fit = React.useCallback(() => {
     const el = own.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight + 2}px`
-  }, [value])
+  }, [])
+  React.useLayoutEffect(fit, [value, fit])
+  // Measured again when its width changes: a field drawn while hidden (the chat behind the terminal) measured nothing.
+  React.useEffect(() => {
+    const el = own.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let width = -1
+    const ro = new ResizeObserver(([e]) => {
+      const w = e?.contentRect.width ?? 0
+      if (w !== width) {
+        width = w
+        fit()
+      }
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [fit])
   return (
     <Textarea
       {...props}

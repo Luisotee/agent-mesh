@@ -179,8 +179,8 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const working = agent?.state === AgentState.WORKING
   const lastTools = useMemo(() => [...blocks].reverse().find((b) => b.kind !== 'mesh'), [blocks])
   const items = useMemo(
-    () => timeline(blocks, messageLoad === 'loaded' ? mine : undefined, transcript.atStart || !transcript.supported),
-    [blocks, messageLoad, mine, transcript.atStart, transcript.supported],
+    () => timeline(blocks, messageLoad === 'loaded' ? mine : undefined, transcript.atStart || !transcript.supported, open),
+    [blocks, messageLoad, mine, transcript.atStart, transcript.supported, open],
   )
   const queued = useQueue(host, agentId, active)
 
@@ -329,7 +329,7 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
     <section aria-label="Queued prompts" className="flex flex-col items-end gap-1.5">
       {prompts.map((p) => (
         <div key={p.id} data-kind="queued" className="group flex max-w-[85%] flex-col items-end gap-0.5">
-          <div className="w-fit min-w-0 max-w-full rounded-lg border border-dashed bg-accent/50 px-3 py-2 opacity-80"><Markdown className="text-[13px] break-words">{p.text}</Markdown></div>
+          <div className="w-fit min-w-0 max-w-full rounded-lg border border-dashed bg-accent/50 px-3 py-2 opacity-80"><Markdown breaks className="text-[13px] break-words">{p.text}</Markdown></div>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
@@ -410,6 +410,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     try {
       const res = await promptAgent(host.client, agentId, body)
       if (res.queued) host.store.setState(addPrompt(res.queued))
+      // Cleared here too: a composer unmounted while the prompt was in flight (another tab opened) runs no updater.
+      saveDraft(host.info.id, agentId, '')
       setText('')
       onSent()
     } catch (e) {
@@ -546,7 +548,7 @@ function ChatBlock({ block, agentId, running }: { block: Block; agentId: string;
       return (
         <div className="group ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end" data-kind="user">
           <div className="rounded-lg border border-identity/25 bg-identity/12 px-3 py-2">
-            <Markdown className="text-[15px] leading-relaxed">{block.entry.text}</Markdown>
+            <Markdown breaks className="text-[15px] leading-relaxed">{block.entry.text}</Markdown>
           </div>
           <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="end" />
         </div>

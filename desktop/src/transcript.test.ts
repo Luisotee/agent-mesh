@@ -84,6 +84,10 @@ describe('timeline', () => {
     expect(timeline(blocks, [m('early', 5)], true).map((i) => i.id)).toEqual(['m-early', 'u1', 'a1'])
   })
 
+  it('shows a message still waiting on the user from before the window held, at the top', () => {
+    expect(timeline(blocks, [m('plan', 5), m('old', 6)], false, new Set(['plan'])).map((i) => i.id)).toEqual(['m-plan', 'u1', 'a1'])
+  })
+
   it('keeps the doorbells while the messages are not read yet, and shows every message of a conversation it cannot read', () => {
     expect(timeline(blocks, undefined, false).map((i) => i.id)).toEqual(['u1', 'bell', 'a1'])
     expect(timeline([], [m('x', 5)], false).map((i) => i.id)).toEqual(['m-x'])

@@ -42,13 +42,16 @@ describe('composerKey', () => {
     expect(press('- «on»e', k('Enter'))).toBe('send')
   })
 
-  it('indents and outdents the lines the selection touches by two spaces', () => {
+  it('indents and outdents a list item, or the lines the selection touches, by two spaces', () => {
     expect(press('- a|', k('Tab'))).toBe('  - a|')
     expect(press('  - a|', k('Tab', { shift: true }))).toBe('- a|')
     expect(press('«a\nb»', k('Tab'))).toBe('  «a\n  b»')
     expect(press('  «a\n b»', k('Tab', { shift: true }))).toBe('«a\nb»')
     // Nothing to outdent: the key is left alone (focus moves on).
     expect(press('a|', k('Tab', { shift: true }))).toBeUndefined()
+    // Not a list item and nothing selected: Tab moves the focus on, as in any field.
+    expect(press('a message|', k('Tab'))).toBeUndefined()
+    expect(press('  code|', k('Tab', { shift: true }))).toBeUndefined()
   })
 
   it('wraps the selection on Ctrl+B, I and E (and unwraps it), and makes a link on Ctrl+K', () => {

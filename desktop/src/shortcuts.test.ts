@@ -42,6 +42,9 @@ describe('commandFor', () => {
     // A chord that has Shift already keeps it, in a terminal too.
     expect(commandFor(press(inTerm, 'A', { ctrlKey: true, shiftKey: true }), keys)).toBe('waiting_next')
     expect(commandFor(press(inTerm, 'Tab', { ctrlKey: true }), keys)).toBe('tab_next')
+    // Ctrl+Alt+B (the panel) is the shell's too, so Ctrl+Alt+Shift+B runs it there.
+    expect(commandFor(press(inTerm, 'b', { ctrlKey: true, altKey: true }), keys)).toBeUndefined()
+    expect(commandFor(press(inTerm, 'B', { ctrlKey: true, altKey: true, shiftKey: true }), keys)).toBe('panel')
   })
 
   it('gives the Shift form in a terminal to the Ctrl+letter command first (Ctrl+Shift+T there is a new lead)', () => {

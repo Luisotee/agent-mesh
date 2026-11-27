@@ -1,5 +1,6 @@
 import type { ComponentProps } from 'react'
-import { Streamdown } from 'streamdown'
+import remarkBreaks from 'remark-breaks'
+import { Streamdown, defaultRehypePlugins, defaultRemarkPlugins } from 'streamdown'
 import { highlighter } from '@/highlight'
 import { cn } from '@/lib/utils'
 
@@ -7,6 +8,11 @@ type El<T extends keyof React.JSX.IntrinsicElements> = Omit<ComponentProps<T>, '
 
 /** Code blocks highlighted by Shiki (`highlight.ts`: its JavaScript regex engine, no WASM, a grammar loaded when first shown). */
 const plugins = { code: highlighter }
+/** Streamdown's rehype plugins minus `raw`, which would turn raw HTML into elements before `skipHtml` could drop it. */
+const { raw: _raw, ...kept } = defaultRehypePlugins
+const rehypePlugins = Object.values(kept)
+/** A prompt's own line breaks (Shift+Enter) kept, as they were typed; a reply's newlines join, as in any markdown. */
+const breaking = [...Object.values(defaultRemarkPlugins), remarkBreaks]
 const controls = { code: { copy: true, download: false }, table: false, mermaid: false } as const
 
 /** Opens a link in the user's browser, through the main process, and only an http(s) one. */
@@ -51,11 +57,13 @@ const components = {
  * the page), images aren't loaded (the page's CSP allows none from outside), and a link opens in the user's browser,
  * through the main process, never in the app's own window.
  */
-export function Markdown({ children, className }: { children: string; className?: string }) {
+export function Markdown({ children, className, breaks }: { children: string; className?: string; /** Keep each line break (a prompt someone typed). */ breaks?: boolean }) {
   return (
     <Streamdown
       className={cn('flex flex-col gap-2 text-sm leading-relaxed break-words [&_pre]:font-mono [&_pre]:text-[13px]', className)}
       skipHtml
+      rehypePlugins={rehypePlugins}
+      {...(breaks ? { remarkPlugins: breaking } : {})}
       mode="static"
       lineNumbers={false}
       plugins={plugins}

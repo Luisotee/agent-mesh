@@ -44,10 +44,22 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
   // The terminal, when the agent has one; else the chat (its terminal went away).
   const shown: AgentTab = tab === 'terminal' && hasTerminal ? 'terminal' : 'chat'
   const toggleKey = keys.chat_toggle ? ` (${displayChord(keys.chat_toggle)})` : ''
+  // The side panel shows the main pane's agent: a pane beside it takes the main pane first.
+  const toMain = () => view && app.focusPane({ hostId: host.info.id, agentId: agent.id })
+  const showModel = () => {
+    toMain()
+    app.showModel()
+  }
   const entries: MenuEntry[] = [
     { label: 'Send a message…', onSelect: () => app.openMessage({ hostId: host.info.id, agentId: agent.id }) },
-    { label: 'Details', onSelect: () => app.setPanel(true) },
-    { label: 'Model…', onSelect: () => app.showModel() },
+    {
+      label: 'Details',
+      onSelect: () => {
+        toMain()
+        app.setPanel(true)
+      },
+    },
+    { label: 'Model…', onSelect: showModel },
     { label: 'Stop…', onSelect: () => setStopping(true), disabled: !live(agent), destructive: true },
   ]
   return (
@@ -57,7 +69,7 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
         <h1 className="truncate text-[14px] font-semibold">{agent.name}</h1>
         <Chip>{ROLE_LABEL[agent.role]}</Chip>
         <Tip label="Change its model">
-          <button type="button" aria-label={`Model: ${agent.model || agent.kind}`} onClick={() => app.showModel()} className="flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+          <button type="button" aria-label={`Model: ${agent.model || agent.kind}`} onClick={showModel} className="flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
             <VendorIcon kind={agent.kind} model={agent.model} className="size-3.5" />
             <span className="truncate">{[agent.model || agent.kind, agent.effort].filter(Boolean).join(' ')}</span>
           </button>

@@ -473,7 +473,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
     openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false, watchOpen: false }),
     setTab: (tab) => set({ tab }),
-    closeTab: (ref) => set((s) => ({ ...closeTab(s, ref), closedTabs: s.tabs.some((t) => tabKey(t) === tabKey(ref)) ? [...s.closedTabs.filter((t) => tabKey(t) !== tabKey(ref)), ref].slice(-20) : s.closedTabs })),
+    closeTab: (ref) => set((s) => ({ ...closeTab(s, ref, projectOfTab(s)), closedTabs: s.tabs.some((t) => tabKey(t) === tabKey(ref)) ? [...s.closedTabs.filter((t) => tabKey(t) !== tabKey(ref)), ref].slice(-20) : s.closedTabs })),
     moveTab: (ref, to) =>
       set((s) => {
         const from = s.tabs.findIndex((t) => tabKey(t) === tabKey(ref))
@@ -517,8 +517,13 @@ export function createAppModel(api: DesktopApi): AppModel {
   return model
 }
 
+/** A tab's project (`sidebar.ts` `agentProject`), from the hosts' agents now. */
+function projectOfTab(s: AppState): (t: TabRef) => string | undefined {
+  const agentsOf = (hostId: string) => s.hosts.find((h) => h.info.id === hostId)?.store.getState().agents
+  return (t) => agentProject(t.hostId, agentsOf(t.hostId), t.agentId)
+}
+
 /** The tabs the tab bar shows now: the open agent's project's (`workspace.ts` `projectTabs`). */
 export function shownTabs(s: AppState): TabRef[] {
-  const agentsOf = (hostId: string) => s.hosts.find((h) => h.info.id === hostId)?.store.getState().agents
-  return projectTabs(s.tabs, (t) => agentProject(t.hostId, agentsOf(t.hostId), t.agentId), s.hostId && s.agentId ? { hostId: s.hostId, agentId: s.agentId } : undefined)
+  return projectTabs(s.tabs, projectOfTab(s), s.hostId && s.agentId ? { hostId: s.hostId, agentId: s.agentId } : undefined)
 }

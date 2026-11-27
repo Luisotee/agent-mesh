@@ -132,7 +132,6 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
   return keyed
 }
 
-/** Opens the open tab at a place in the strip (from 0), when there is one. */
 /** The tab at a place in the open project's tab bar (Mod+1…8, Mod+9 the last). */
 function goToTab(app: AppModel, at: number): void {
   const t = shownTabs(app.store.getState())[at]

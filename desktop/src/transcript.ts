@@ -121,14 +121,15 @@ export type Item = Block | { kind: 'message'; id: string; at: number; message: M
  * The conversation with the agent's mesh messages (to it and from it) put in where they were sent, as cards. Once the
  * messages are there (`messages` given), the doorbells that announced them ("📬 [mesh] … run `mesh inbox`") go: the
  * cards stand for them. Only messages from the window held on are shown (`atStart`: all of them), so loading earlier
- * entries brings the earlier messages in with them.
+ * entries brings the earlier messages in with them; one still waiting on the user (`open`, its id) shows whatever the
+ * window, at the top when it is older, so it can always be answered.
  */
-export function timeline(blocks: Block[], messages: Message[] | undefined, atStart: boolean): Item[] {
+export function timeline(blocks: Block[], messages: Message[] | undefined, atStart: boolean, open: ReadonlySet<string> = new Set()): Item[] {
   if (!messages) return blocks
   const from = atStart || blocks.length === 0 ? -Infinity : blocks[0]!.at
   const cards: Item[] = messages
     .map((m) => ({ kind: 'message' as const, id: `m-${m.id}`, at: ms(m.createdAt), message: m }))
-    .filter((c) => c.at >= from)
+    .filter((c) => c.at >= from || open.has(c.message.id))
     .sort((a, b) => a.at - b.at)
   const out: Item[] = []
   let i = 0

@@ -75,7 +75,7 @@ export function openInBackground(s: WorkspaceState, ref: TabRef): Partial<Worksp
 }
 
 /** Closes a tab. When it was the active one the next tab to its right is (else the one to its left, else none). */
-export function closeTab(s: WorkspaceState & Selection, ref: TabRef): Partial<WorkspaceState & Selection> {
+export function closeTab(s: WorkspaceState & Selection, ref: TabRef, projectOf?: (t: TabRef) => string | undefined): Partial<WorkspaceState & Selection> {
   const i = s.tabs.findIndex((t) => same(t, ref))
   if (i < 0) return {}
   const tabs = s.tabs.filter((_, j) => j !== i)
@@ -88,7 +88,10 @@ export function closeTab(s: WorkspaceState & Selection, ref: TabRef): Partial<Wo
   // The agent closed was in the main pane: the pane beside it moves over if there is one, else the next tab shows.
   const beside = side[0]
   if (beside) return { tabs, views, newTiles, hostId: beside.hostId, agentId: beside.agentId, tab: beside.tab, side: side.slice(1) }
-  const next = tabs[i] ?? tabs[i - 1]
+  // The next tab of the same project (the tab bar shows only its tabs), the one after it first; else any next tab.
+  const here = projectOf?.(ref)
+  const mates = here ? tabs.map((t, j) => [t, j] as const).filter(([t]) => projectOf!(t) === here) : []
+  const next = (mates.find(([, j]) => j >= i) ?? mates[mates.length - 1])?.[0] ?? tabs[i] ?? tabs[i - 1]
   if (!next) return { tabs, views, newTiles, side, agentId: undefined, tab: 'chat' }
   return { tabs, views, newTiles, side: side.filter((p) => !same(p, next)), hostId: next.hostId, agentId: next.agentId, tab: views[tabKey(next)] ?? 'chat' }
 }

@@ -65,9 +65,13 @@ function enter(f: Field, sends: boolean): Outcome {
   return undefined
 }
 
-/** Tab and Shift+Tab: indent or outdent every line the selection touches by two spaces. */
+/**
+ * Tab and Shift+Tab: indent or outdent every line the selection touches by two spaces. Only on a list item or a
+ * selection: elsewhere the key is left alone, so Tab still moves the focus on (to Send, or the next field).
+ */
 function indent(f: Field, out: boolean): Outcome {
   const from = lineStart(f.value, f.start)
+  if (f.start === f.end && !ITEM.test(f.value.slice(from, lineEnd(f.value, f.start)))) return undefined
   const to = lineEnd(f.value, f.end > f.start && f.value[f.end - 1] === '\n' ? f.end - 1 : f.end)
   const lines = f.value.slice(from, to).split('\n')
   let first = 0

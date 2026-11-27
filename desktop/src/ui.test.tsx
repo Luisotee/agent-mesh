@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel, SendMessageDialog } from './components/agent-panel'
+import { Markdown } from './components/markdown'
 import { ConnectionBanner } from './components/connection-banner'
 import { addPrompt } from './store'
 import { ChatView } from './components/chat-view'
@@ -596,7 +597,7 @@ describe('Markdown in messages', () => {
     const openExternal = vi.fn()
     ;(window as unknown as { desktop: unknown }).desktop = { openExternal }
     const { host, wrap } = fixture()
-    putMessages(host, msg('d1', MessageType.DONE, 'w1', 'lead', 1000, 'See [docs](https://example.com/a) and [bad](javascript:alert(1)).\n\n<script>window.x=1</script><img src="https://evil.example/x.png">![alt](https://evil.example/y.png)\n\n| a | b |\n|---|---|\n| 1 | 2 |'))
+    putMessages(host, msg('d1', MessageType.DONE, 'w1', 'lead', 1000, 'See [docs](https://example.com/a) and [bad](javascript:alert(1)).\n\n<script>window.x=1</script><details><summary>x</summary>secret</details><img src="https://evil.example/x.png">![alt](https://evil.example/y.png)\n\n| a | b |\n|---|---|\n| 1 | 2 |'))
     const { container } = render(wrap(<Cards host={host} agentId="w1" />))
     await userEvent.click(screen.getByRole('link', { name: 'docs' }))
     expect(openExternal).toHaveBeenCalledWith('https://example.com/a')
@@ -605,7 +606,15 @@ describe('Markdown in messages', () => {
     expect(openExternal).toHaveBeenCalledTimes(1)
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('details')).toBeNull()
     expect(screen.getByRole('table')).toBeInTheDocument()
+  })
+
+  it("keeps a prompt's line breaks, and joins a reply's lines as markdown does", () => {
+    const { container: prompt } = render(<Markdown breaks>{'step 1: build\nstep 2: test'}</Markdown>)
+    expect(prompt.querySelectorAll('br')).toHaveLength(1)
+    const { container: reply } = render(<Markdown>{'one\ntwo'}</Markdown>)
+    expect(reply.querySelector('br')).toBeNull()
   })
 })
 
@@ -750,6 +759,14 @@ describe('Splits', () => {
 
     await userEvent.click(within(split).getByRole('button', { name: 'Make this the main pane' }))
     expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'terminal', side: [{ agentId: 'lead', tab: 'chat' }] })
+
+    // The side panel is the main pane's: a pane's model chip makes its agent the main pane's first.
+    await userEvent.click(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('button', { name: /^Model: / }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'lead', panelOpen: true, side: [{ agentId: 'w1' }] })
+    act(() => {
+      model.focusPane({ hostId: 'h1', agentId: 'w1' })
+      model.setPanel(false)
+    })
 
     await userEvent.click(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('button', { name: 'Close this pane' }))
     expect(model.store.getState().side).toEqual([])

@@ -45,6 +45,17 @@ describe('closeTab', () => {
     expect(closed.tabs).toEqual([])
   })
 
+  it("shows the next tab of the closed one's project, as its tab bar does", () => {
+    const s = base({ tabs: ['a1', 'b1', 'a2', 'b2'].map((agentId) => ({ hostId: 'h', agentId })), hostId: 'h', agentId: 'a1' })
+    const projectOf = (t: { agentId: string }) => t.agentId[0]
+    expect(apply(s, closeTab(s, { hostId: 'h', agentId: 'a1' }, projectOf))).toMatchObject({ agentId: 'a2' })
+    const last = { ...s, agentId: 'b2' }
+    expect(apply(last, closeTab(last, { hostId: 'h', agentId: 'b2' }, projectOf))).toMatchObject({ agentId: 'b1' })
+    // The project's last tab: the next tab, whatever its project.
+    const lone = base({ tabs: ['a1', 'b1'].map((agentId) => ({ hostId: 'h', agentId })), hostId: 'h', agentId: 'a1' })
+    expect(apply(lone, closeTab(lone, { hostId: 'h', agentId: 'a1' }, projectOf))).toMatchObject({ agentId: 'b1' })
+  })
+
   it('leaves what shows alone when another tab is closed', () => {
     const s = three('a')
     expect(closeTab(s, { hostId: 'h', agentId: 'c' })).not.toHaveProperty('agentId')
