@@ -112,6 +112,8 @@ class RowMenuTest {
         api = RecordingApi(); NotificationsTest.api = api
         val rt = host(ActorClass.ACTOR_CLASS_DEVICE, lead.toBuilder().setState(dev.agentmesh.gen.agentmesh.v1.AgentState.AGENT_STATE_RETIRED).build())
         show(rt)
+        // A run nothing is alive in folds under "Earlier".
+        compose.onNodeWithTag("fold-Earlier").performClick()
         compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }
         compose.onNodeWithTag("menu-delete-run").performClick()
         compose.onNodeWithText("Delete Fix the typo?").assertIsDisplayed()
