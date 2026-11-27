@@ -190,6 +190,17 @@ class RecordingApi : MeshApi {
         return p
     }
 
+    /** What SendPromptAnyway reached the host with: agent, prompt, draft. */
+    val overDrafts = java.util.Collections.synchronizedList(mutableListOf<List<String>>())
+    @Volatile var failAnyway: Exception? = null
+
+    override suspend fun sendPromptAnyway(agent: String, promptId: String, draft: String): String {
+        failAnyway?.let { throw it }
+        overDrafts += listOf(agent, promptId, draft)
+        queued[agent] = queued[agent].orEmpty().filter { it.id != promptId }
+        return draft
+    }
+
     override suspend fun interruptAgent(agent: String): Boolean { interrupts += agent; return stopped }
 
     /** What SwitchAgent calls reached the host: agent, tier, model, effort. */
