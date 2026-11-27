@@ -1,3 +1,4 @@
+import { AnimatePresence, m } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { Columns2, MoreHorizontal, PanelRight, Plus, Rows2, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -141,6 +142,7 @@ export function TabBar() {
           if (e.deltaY && !e.deltaX) e.currentTarget.scrollLeft += e.deltaY
         }}
       >
+        <AnimatePresence initial={false}>
         {tabs.map((t) => {
           const view = views.find((v) => v.hostId === t.hostId)
           const shellTab = isShellTab(t.agentId)
@@ -153,7 +155,15 @@ export function TabBar() {
           const nth = shell && shells ? shells.filter((x) => x.repo === shell.repo).findIndex((x) => x.id === shell.id) + 1 : 0
           const label = shellTab ? (nth > 1 ? `Terminal ${nth}` : 'Terminal') : (agent?.name ?? t.agentId)
           return (
-            <RowContextMenu key={tabKey(t)} entries={entriesOf(t, agent, label)} className="flex w-48 min-w-28 shrink self-end">
+            <m.div
+              key={tabKey(t)}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, width: 0, minWidth: 0, overflow: 'hidden' }}
+              transition={{ duration: 0.14 }}
+              className="flex w-48 min-w-28 shrink self-end"
+            >
+            <RowContextMenu entries={entriesOf(t, agent, label)} className="flex w-full min-w-0 self-end">
               <div
                 draggable
                 // Dropped on an edge of the main pane (`DropEdges`), the tab opens as a split there.
@@ -213,8 +223,10 @@ export function TabBar() {
                 </button>
               </div>
             </RowContextMenu>
+            </m.div>
           )
         })}
+        </AnimatePresence>
       </div>
       <PlusMenu project={project} host={runs} newLead={newLead} />
       {/* The empty space: with no tab it says so. (A new lead starts from the +, as one thing does one way.) */}

@@ -1529,6 +1529,35 @@ describe('ModelControl and vendor icons', () => {
     expect(client.switchAgent.mock.calls[2]![0]).toMatchObject({ tier: '', model: '', effort: 'low' })
   })
 
+  it('"Other model…" asks for a model id the host does not list and switches to it', async () => {
+    const { host, a, wrap, client } = control()
+    client.checkModels.mockResolvedValue(create(CheckModelsResponseSchema, { kinds: [] }))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Other model…' }))
+    const send = await screen.findByRole('button', { name: 'Switch' })
+    expect(send).toBeDisabled()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Model' }), ' claude-opus-5-5 ')
+    await userEvent.click(send)
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(1))
+    expect(client.switchAgent.mock.calls[0]![0]).toMatchObject({ agent: 'c1', tier: '', model: 'claude-opus-5-5', effort: '' })
+    expect(screen.queryByRole('textbox', { name: 'Model' })).toBeNull()
+  })
+
+  it('Mod+L\'s command puts the cursor in the message box, and leaves a disabled one alone', () => {
+    const { model } = control()
+    const box = document.createElement('textarea')
+    box.setAttribute('data-composer', '')
+    document.body.append(box)
+    keyedCommands(model).composer()
+    expect(document.activeElement).toBe(box)
+    box.blur()
+    box.disabled = true
+    keyedCommands(model).composer()
+    expect(document.activeElement).not.toBe(box)
+    box.remove()
+  })
+
   it('marks the tier an executing worker runs on, not the one it planned on', async () => {
     const { host, a, wrap } = control({ tier: 'strong', execTier: 'mid', phase: AgentPhase.EXECUTING })
     render(wrap(<ModelPicker host={host} agent={a} />))
@@ -1745,6 +1774,29 @@ describe('ChatView', () => {
     const ui = f.wrap(<ChatView host={f.host} agentId="w1" active />)
     return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, rewindAgent, addAttachment, sendPromptAnyway, ui }
   }
+
+  it('draws only the newest 60 blocks of a long conversation, and Show earlier draws the next lot above without moving the reader', async () => {
+    const many = Array.from({ length: 150 }, (_, n) => entry(`q${n}`, TranscriptKind.USER, { text: `question number ${n}` }))
+    const { ui, readTranscript } = chat({ read: vi.fn(async () => res(many, { atStart: true })) })
+    render(ui)
+    await screen.findByText('question number 149')
+    expect(screen.getByText('question number 90')).toBeInTheDocument()
+    expect(screen.queryByText('question number 89')).toBeNull()
+    const scroller = screen.getByTestId('chat')
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 3000 })
+    scroller.scrollTop = 100
+    fireEvent.scroll(scroller)
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (90 more)' }))
+    expect(screen.getByText('question number 30')).toBeInTheDocument()
+    expect(screen.queryByText('question number 29')).toBeNull()
+    // No page is asked of the host for what it already holds; the reader is not taken to the end.
+    expect(readTranscript).toHaveBeenCalledTimes(1)
+    expect(scroller.scrollTop).toBe(100)
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (30 more)' }))
+    expect(screen.getByText('question number 0')).toBeInTheDocument()
+    // It all is on screen, and the host has no earlier page: the button is gone.
+    expect(screen.queryByRole('button', { name: /earlier/i })).toBeNull()
+  })
 
   it('shows a sent prompt at once as a bubble marked sending, until the record has it, and goes to the end for it', async () => {
     const { ui, promptAgent, readTranscript } = chat()

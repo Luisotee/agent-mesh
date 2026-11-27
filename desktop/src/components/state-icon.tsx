@@ -10,7 +10,8 @@ import { cn } from '@/lib/utils'
  * purpose, a message wakes it), a gauge at its usage limit, an octagon with a mark its last turn ended in an error.
  */
 export function StateIcon({ agent, className }: { agent: Agent; className?: string }) {
-  const c = cn('size-4 shrink-0', className)
+  // A changed state is a different icon, drawn new: it fades in (the spinner has its own animation).
+  const c = cn('size-4 shrink-0 animate-state-in motion-reduce:animate-none', className)
   switch (agent.state) {
     case AgentState.STARTING:
       return <CircleDashed aria-label="starting" className={cn(c, 'text-state-idle')} />

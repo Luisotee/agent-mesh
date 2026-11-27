@@ -59,4 +59,11 @@ describe('commandFor', () => {
     expect(commandFor(press(page, 'ArrowDown', { altKey: true }), keys)).toBe('sidebar_next')
     expect(commandFor(press(field, 'b', { ctrlKey: true }), keys)).toBe('sidebar')
   })
+
+  it('Mod+L focuses the message box, but in a terminal Ctrl+L stays the shell\'s clear-screen (Ctrl+Shift+L runs it)', () => {
+    expect(commandFor(press(page, 'l', { ctrlKey: true }), keys)).toBe('composer')
+    expect(commandFor(press(field, 'l', { ctrlKey: true }), keys)).toBe('composer')
+    expect(commandFor(press(inTerm, 'l', { ctrlKey: true }), keys)).toBeUndefined()
+    expect(commandFor(press(inTerm, 'L', { ctrlKey: true, shiftKey: true }), keys)).toBe('composer')
+  })
 })

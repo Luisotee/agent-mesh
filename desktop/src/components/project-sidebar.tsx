@@ -1,6 +1,6 @@
 import { Bot, ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server, SquareTerminal } from 'lucide-react'
 import { AnimatePresence, m } from 'motion/react'
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { memo, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Chip, Chips } from '@/components/ui/chip'
@@ -19,7 +19,7 @@ import { hueStyle } from '@/hue'
 import { displayChord } from '@/keys'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { buildProjects, helpersLabel, anyWorking, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
+import { buildProjects, helpersLabel, anyWorking, sameAgents, sameLead, sameProject, sameWorker, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
 import { vendorOfKind } from '@/vendor'
 import { ArchiveDialog } from './agent-work'
 import { AddProjectDialog } from './add-project'
@@ -186,7 +186,9 @@ function menuKey(e: KeyboardEvent<HTMLElement>) {
   }
 }
 
-function ProjectItem({ project: p, many, hidden }: { project: ProjectRow; many: boolean; /** Taken off the sidebar, and back while something in it waits on the user. */ hidden: boolean }) {
+const ProjectItem = memo(ProjectItemView, (a, b) => a.many === b.many && a.hidden === b.hidden && sameProject(a.project, b.project))
+
+function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; many: boolean; /** Taken off the sidebar, and back while something in it waits on the user. */ hidden: boolean }) {
   const app = useApp()
   const [open, setOpen] = useState(true)
   const renaming = useAppState((s) => (s.renaming?.hostId === p.hostId ? s.renaming.runId : undefined))
@@ -359,7 +361,9 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
 const archiveEntry = (a: Agent, open: (d: RowDialog) => void): MenuEntry[] => (canArchive(a) ? [{ label: 'Archive…', onSelect: () => open({ kind: 'archive', agent: a }), destructive: true }] : [])
 
 /** A run, as its lead: open it, or open the chevron to see its workers. */
-function LeadItem({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
+const LeadItem = memo(LeadItemView, (a, b) => a.elsewhere === b.elsewhere && sameLead(a.row, b.row))
+
+function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
   const app = useApp()
   const host = useAppState((s) => s.hosts.find((h) => h.info.id === row.hostId))
   const selectedHere = useAppState((s) => s.hostId === row.hostId && !!s.agentId && s.agentId !== row.lead?.id && [...row.helpers, ...flatAgents(row.workers)].some((a) => a.id === s.agentId))
@@ -405,7 +409,9 @@ function LeadItem({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
       </RowContextMenu>
       {kids && expanded && (
         <ul className="ml-5 border-l border-identity/50 pl-1">
-          {row.workers.map((w) => <WorkerItem key={w.agent.id} hostId={row.hostId} row={w} />)}
+          <AnimatePresence initial={false}>
+            {row.workers.map((w) => <WorkerItem key={w.agent.id} hostId={row.hostId} row={w} />)}
+          </AnimatePresence>
         </ul>
       )}
       <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
@@ -415,14 +421,16 @@ function LeadItem({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
 
 const flatAgents = (rows: WorkerRow[]): Agent[] => rows.flatMap((w) => [w.agent, ...w.helpers, ...flatAgents(w.workers)])
 
-function WorkerItem({ hostId, row }: { hostId: string; row: WorkerRow }) {
+const WorkerItem = memo(WorkerItemView, (a, b) => a.hostId === b.hostId && sameWorker(a.row, b.row))
+
+function WorkerItemView({ hostId, row }: { hostId: string; row: WorkerRow }) {
   const app = useApp()
   const host = useAppState((s) => s.hosts.find((h) => h.info.id === hostId))
   const [dialog, setDialog] = useState<RowDialog>()
   const a = row.agent
   const entries: MenuEntry[] = [...agentEntries(app, hostId, a, setDialog), ...archiveEntry(a, setDialog)]
   return (
-    <li style={row.elsewhere ? hueStyle(a.repo) : undefined}>
+    <m.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }} style={row.elsewhere ? hueStyle(a.repo) : undefined}>
       <RowContextMenu entries={entries}>
         <div data-row className="group flex items-start gap-0.5 pr-1">
           <AgentButton hostId={hostId} agent={a} helpers={row.helpers} tag={row.elsewhere ? repoName(a.repo) : undefined} onKeyDown={menuKey} />
@@ -431,16 +439,20 @@ function WorkerItem({ hostId, row }: { hostId: string; row: WorkerRow }) {
       </RowContextMenu>
       {row.workers.length > 0 && (
         <ul className="ml-4 border-l border-identity/50 pl-1">
-          {row.workers.map((w) => <WorkerItem key={w.agent.id} hostId={hostId} row={w} />)}
+          <AnimatePresence initial={false}>
+            {row.workers.map((w) => <WorkerItem key={w.agent.id} hostId={hostId} row={w} />)}
+          </AnimatePresence>
         </ul>
       )}
       <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
-    </li>
+    </m.li>
   )
 }
 
 /** An agent's row: its state, its name (a lead's is its run's title), what it is doing, and chips for its helpers, repo and model. */
-function AgentButton({ hostId, agent: a, title, helpers, tag, onKeyDown }: { hostId: string; agent: Agent; title?: string; helpers: Agent[]; tag?: string; onKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void }) {
+const AgentButton = memo(AgentButtonView, (a, b) => a.hostId === b.hostId && a.agent === b.agent && a.title === b.title && a.tag === b.tag && a.onKeyDown === b.onKeyDown && sameAgents(a.helpers, b.helpers))
+
+function AgentButtonView({ hostId, agent: a, title, helpers, tag, onKeyDown }: { hostId: string; agent: Agent; title?: string; helpers: Agent[]; tag?: string; onKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void }) {
   const app = useApp()
   const selected = useAppState((s) => s.hostId === hostId && s.agentId === a.id)
   const help = helpersLabel(helpers)

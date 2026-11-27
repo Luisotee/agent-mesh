@@ -1,6 +1,10 @@
 import { ChevronDown } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { checkModels, switchAgent } from '@/actions'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Field } from '@/components/ui/label'
 import { ActionMenu, type MenuEntry } from '@/components/ui/menu'
 import { useApp, useHostState } from '@/context'
 import { AgentPhase, type Agent } from '@/gen/agentmesh/v1/types_pb'
@@ -26,6 +30,8 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
   // The host's list is read the first time the chip is used, not for every composer drawn.
   const [families, setFamilies] = useState<string[]>([])
   const asked = useRef('')
+  // "Other model…": a model id the host's list doesn't have (or a host that listed none).
+  const [other, setOther] = useState<string>()
   const load = () => {
     if (asked.current === `${host.info.id}/${agent.kind}`) return
     const key = `${host.info.id}/${agent.kind}`
@@ -52,12 +58,16 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
   const current = families.filter((f) => !!agent.model && agent.model.toLowerCase().includes(f.toLowerCase())).sort((a, b) => b.length - a.length)[0]
   const entries: MenuEntry[] = [
     ...(tiers.length > 0 ? [{ heading: 'Tier' } as const, ...tiers.map((t) => ({ label: t, checked: runTier === t, onSelect: () => void pick({ tier: t }) }))] : []),
-    ...(families.length > 0 ? [...(tiers.length > 0 ? ['separator' as const] : []), { heading: 'Model' }, ...families.map((f) => ({ label: f, checked: f === current, onSelect: () => void pick({ model: f }) }))] : []),
-    ...(tiers.length > 0 || families.length > 0 ? ['separator' as const] : []),
+    ...(tiers.length > 0 ? ['separator' as const] : []),
+    { heading: 'Model' },
+    ...families.map((f) => ({ label: f, checked: f === current, onSelect: () => void pick({ model: f }) })),
+    { label: 'Other model…', onSelect: () => setOther('') },
+    'separator' as const,
     { heading: 'Effort' },
     ...EFFORTS.map((x) => ({ label: x, checked: agent.effort === x, onSelect: () => void pick({ effort: x }) })),
   ]
   return (
+    <>
     <ActionMenu
       side="top"
       entries={entries}
@@ -77,5 +87,30 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
         </button>
       }
     />
+    {other !== undefined && (
+      <Dialog open onOpenChange={(o) => !o && setOther(undefined)}>
+        <DialogContent title="Other model" description={`A model id of ${agent.kind} that the host's list doesn't show. The same conversation goes on, as with any pick.`}>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const model = other.trim()
+              if (!model) return
+              setOther(undefined)
+              void pick({ model })
+            }}
+          >
+            <Field label="Model">
+              <Input autoFocus value={other} onChange={(e) => setOther(e.target.value)} placeholder="claude-opus-5-5" spellCheck={false} />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setOther(undefined)}>Cancel</Button>
+              <Button type="submit" disabled={!other.trim()}>Switch</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   )
 }

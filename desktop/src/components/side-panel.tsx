@@ -1,6 +1,7 @@
 import { CircleCheck, CircleX, Copy, ExternalLink, Hand, LoaderCircle, MessageSquarePlus, PanelRightClose, Terminal, ChevronRight } from 'lucide-react'
 import { MarkdownField } from '@/components/ui/markdown-field'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { getAgent, getCost, holdPullRequest, sendMessage } from '@/actions'
 import { RUN_LEVEL_LABEL, runLevelOf } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
@@ -110,8 +111,10 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
 /** The open agent's tree: its run's lead, the workers, and the reviewers and askers of each, with their state. */
 function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const app = useApp()
-  const runs = useHostState(host, (s) => s.runs)
-  const agents = useHostState(host, (s) => s.agents)
+  // This run's own record and agents only: another run's agent changing is none of the tree's business (`useShallow`
+  // keeps the same object while each agent in it is the same record).
+  const runRecord = useHostState(host, (s) => s.runs[agent.runId])
+  const agents = useHostState(host, useShallow((s) => Object.fromEntries(Object.entries(s.agents).filter(([, a]) => a.runId === agent.runId))))
   const waiting = useHostState(host, (s) => s.waiting)
   const waitingAll = useHostState(host, (s) => s.waitingAll)
   const newTiles = useAppState((s) => s.newTiles)
@@ -120,12 +123,11 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const [asked, setAsked] = useState({ scope: '', on: false })
   const showResting = asked.on && asked.scope === scope
   const row = useMemo(() => {
-    const run = runs[agent.runId]
-    if (!run) return undefined
+    if (!runRecord) return undefined
+    const runs = { [runRecord.id]: runRecord }
     const ids = new Set(joinWaiting(waiting, runs, agents).map((w) => w.agent.id))
-    const mine = Object.fromEntries(Object.entries(agents).filter(([, a]) => a.runId === run.id))
-    return leadRows({ hostId: host.info.id, hostName: host.info.name, here: true, up: true, loading: false, runs: { [run.id]: run }, agents: mine, waiting: ids })[0]
-  }, [runs, agents, waiting, agent.runId, host.info.id, host.info.name])
+    return leadRows({ hostId: host.info.id, hostName: host.info.name, here: true, up: true, loading: false, runs, agents, waiting: ids })[0]
+  }, [runRecord, agents, waiting, host.info.id, host.info.name])
   const waits = useMemo(() => new Set([...waitingAll, ...waiting].map((w) => w.agentId)), [waitingAll, waiting])
   if (!row) return null
   // Live agents only; the idle and finished ones rest behind a count. A parent of a live agent stays, so the tree keeps its shape.
@@ -134,21 +136,6 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const live = (a: Agent) => isActive(a, { waiting: waits.has(a.id), keep: a.id === agent.id || isNew(a) })
   const workerLive = (w: WorkerRow): boolean => live(w.agent) || w.helpers.some(live) || w.workers.some(workerLive)
   const shown = (w: WorkerRow) => showResting || workerLive(w)
-  const item = (a: Agent, depth: number) => (
-    <li key={a.id}>
-      <button
-        type="button"
-        aria-current={a.id === agent.id ? 'true' : undefined}
-        onClick={() => app.selectAgent(host.info.id, a.id)}
-        style={{ paddingLeft: `${0.25 + depth * 0.875}rem` }}
-        className={cn('flex w-full items-center gap-1.5 rounded py-1 pr-1 text-left text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring', a.id === agent.id && 'bg-accent font-medium', a.needsInput > 0 && 'text-glow')}
-      >
-        <StateIcon agent={a} className="size-3.5" />
-        <span className="min-w-0 flex-1 truncate">{a.name}</span>
-        <Chip>{ROLE_LABEL[a.role]}</Chip>
-      </button>
-    </li>
-  )
   const helpers = (hs: Agent[]) => (showResting ? hs : hs.filter(live))
   const rendered: Array<[Agent, number]> = []
   const walk = (w: WorkerRow, depth: number) => {
@@ -163,7 +150,7 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const hidden = (row.lead ? 1 : 0) + row.helpers.length + row.workers.reduce((n, w) => n + total(w), 0) - rendered.length
   return (
     <Section title="Agent tree">
-      <ul aria-label="Agent tree">{rendered.map(([a, depth]) => item(a, depth))}</ul>
+      <ul aria-label="Agent tree">{rendered.map(([a, depth]) => <TreeRow key={a.id} hostId={host.info.id} agent={a} depth={depth} current={a.id === agent.id} />)}</ul>
       {(hidden > 0 || showResting) && (
         <button type="button" aria-pressed={showResting} onClick={() => setAsked({ scope, on: !showResting })} className="mt-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
           <ChevronRight className={cn('size-3 transition-transform motion-reduce:transition-none', showResting && 'rotate-90')} />
@@ -173,6 +160,26 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
     </Section>
   )
 }
+
+/** One agent of the tree: redrawn only when its own record, its depth or whether it is the open one changes. */
+const TreeRow = memo(function TreeRow({ hostId, agent: a, depth, current }: { hostId: string; agent: Agent; depth: number; current: boolean }) {
+  const app = useApp()
+  return (
+    <li>
+      <button
+        type="button"
+        aria-current={current ? 'true' : undefined}
+        onClick={() => app.selectAgent(hostId, a.id)}
+        style={{ paddingLeft: `${0.25 + depth * 0.875}rem` }}
+        className={cn('flex w-full items-center gap-1.5 rounded py-1 pr-1 text-left text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring', current && 'bg-accent font-medium', a.needsInput > 0 && 'text-glow')}
+      >
+        <StateIcon agent={a} className="size-3.5" />
+        <span className="min-w-0 flex-1 truncate">{a.name}</span>
+        <Chip>{ROLE_LABEL[a.role]}</Chip>
+      </button>
+    </li>
+  )
+})
 
 /** Where the agent is and what it is, folded: project, host, branch, worktree, session and ids, its model, its terminal. */
 function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
