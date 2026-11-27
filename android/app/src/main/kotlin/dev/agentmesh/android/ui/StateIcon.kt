@@ -65,10 +65,11 @@ fun StateIcon(state: AgentState, exitCode: Int, detail: String, description: Str
         rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart), label = "angle").value
     } else 0f
     // A state that needs the user glows: a soft halo in the theme's glow colour, which breathes unless motion is reduced.
-    val glow = if (shape == StateShape.Triangle) stateGlow(still) else 0f
+    val glow = if (shape == StateShape.Triangle) stateGlow(still) else null
     val glowColor = LocalMeshTheme.current.glow
     Canvas(modifier.size(size).semantics { contentDescription = description }) {
-        if (glow > 0f) drawCircle(glowColor.copy(alpha = glow), radius = this.size.minDimension * 0.72f)
+        // The alpha is read here, in the draw phase: the breathing redraws the icon and never recomposes it.
+        if (glow != null) drawCircle(glowColor.copy(alpha = glow.value), radius = this.size.minDimension * 0.5f)
         drawShape(shape, color, angle)
     }
 }
@@ -119,7 +120,7 @@ private fun DrawScope.drawShape(shape: StateShape, color: Color, angle: Float) {
 
 /** The needs-you halo's alpha: breathing between a quiet and a clear glow, or a steady one under reduced motion. */
 @Composable
-private fun stateGlow(still: Boolean): Float {
-    if (still) return 0.28f
-    return rememberInfiniteTransition(label = "glow").animateFloat(0.14f, 0.38f, infiniteRepeatable(tween(1400, easing = androidx.compose.animation.core.FastOutSlowInEasing), RepeatMode.Reverse), label = "glow-alpha").value
+private fun stateGlow(still: Boolean): androidx.compose.runtime.State<Float> {
+    if (still) return androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0.28f) }
+    return rememberInfiniteTransition(label = "glow").animateFloat(0.14f, 0.38f, infiniteRepeatable(tween(1400, easing = androidx.compose.animation.core.FastOutSlowInEasing), RepeatMode.Reverse), label = "glow-alpha")
 }

@@ -20,8 +20,8 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.withInfiniteAnimationFrameMillis
@@ -45,7 +45,7 @@ fun Modifier.shimmer(animate: Boolean = !LocalReducedMotion.current): Modifier {
 
 private data class ShimmerElement(val base: Color, val light: Color, val animate: Boolean) : ModifierNodeElement<ShimmerNode>() {
     override fun create() = ShimmerNode(base, light, animate)
-    override fun update(node: ShimmerNode) { node.base = base; node.light = light; node.setAnimate(animate) }
+    override fun update(node: ShimmerNode) = node.update(base, light, animate)
     override fun InspectorInfo.inspectableProperties() { name = "shimmer" }
 }
 
@@ -53,10 +53,15 @@ private class ShimmerNode(var base: Color, var light: Color, private var animate
     private var phase = 0f
     private var job: Job? = null
 
-    fun setAnimate(on: Boolean) {
-        if (on == animate) return
-        animate = on
-        if (isAttached) restart()
+    /** New colours (a theme change) redraw at once; a change of [animate] starts or stops the sweep. */
+    fun update(base: Color, light: Color, on: Boolean) {
+        val moved = base != this.base || light != this.light
+        this.base = base
+        this.light = light
+        if (on != animate) {
+            animate = on
+            if (isAttached) restart()
+        } else if (moved && isAttached) invalidateDraw()
     }
 
     override fun onAttach() = restart()
@@ -95,7 +100,7 @@ fun Skeleton(modifier: Modifier = Modifier, height: Dp = 12.dp, radius: Dp = 6.d
 /** Lines of skeleton for a list or a block of text, the last one shorter, [label] read out as what is loading. */
 @Composable
 fun SkeletonLines(label: String, modifier: Modifier = Modifier, lines: Int = 3) {
-    Column(modifier.semantics { contentDescription = label }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.clearAndSetSemantics { contentDescription = label }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         repeat(lines) { i -> Skeleton(Modifier.fillMaxWidth(if (i == lines - 1) 0.66f else if (i % 2 == 1) 0.85f else 1f)) }
     }
 }
@@ -103,9 +108,9 @@ fun SkeletonLines(label: String, modifier: Modifier = Modifier, lines: Int = 3) 
 /** Rows shaped like the list's own (a round icon, two lines) while a list loads. */
 @Composable
 fun SkeletonRows(label: String, modifier: Modifier = Modifier, rows: Int = 4) {
-    Column(modifier.semantics { contentDescription = label }, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+    Column(modifier.clearAndSetSemantics { contentDescription = label }, verticalArrangement = Arrangement.spacedBy(20.dp)) {
         repeat(rows) { i ->
-            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Skeleton(Modifier.size(20.dp), height = 20.dp, radius = 10.dp)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Skeleton(Modifier.fillMaxWidth(if (i % 2 == 0) 0.6f else 0.45f), height = 14.dp)

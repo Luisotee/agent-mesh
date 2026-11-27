@@ -1,5 +1,12 @@
 package dev.agentmesh.android.ui.chat
 
+import dev.agentmesh.android.ui.LocalReducedMotion
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import dev.agentmesh.android.ui.motionItem
 import dev.agentmesh.android.ui.SkeletonLines
 import dev.agentmesh.android.ui.Skeleton
@@ -179,7 +186,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
                     }
                 }
             }
-            items(blocks, key = { it.id }) { Box(motionItem()) { ChatBlock(it, bubble) } }
+            items(blocks, key = { it.id }) { Box(motionItem(glide = false)) { ChatBlock(it, bubble) } }
         }
         Text(
             if (working && agent.stateDetail.isNotEmpty()) "Working: ${agent.stateDetail}" else statusSentence(agent),
@@ -263,6 +270,7 @@ private fun ChatBlock(block: Block, bubble: androidx.compose.ui.graphics.Color) 
 
 @Composable
 private fun ToolsBlock(block: Block.Tools) {
+    val reduced = LocalReducedMotion.current
     var open by rememberSaveable(block.id) { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().testTag("chat-tools")) {
         Column {
@@ -270,7 +278,7 @@ private fun ToolsBlock(block: Block.Tools) {
                 Text(if (open) "▾" else "▸", Modifier.padding(end = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(toolsSummary(block.calls), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            AnimatedVisibility(open) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { block.calls.forEach { ToolCallRow(it) } } }
+            AnimatedVisibility(open, enter = if (reduced) EnterTransition.None else fadeIn() + expandVertically(), exit = if (reduced) ExitTransition.None else fadeOut() + shrinkVertically()) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { block.calls.forEach { ToolCallRow(it) } } }
         }
     }
 }
