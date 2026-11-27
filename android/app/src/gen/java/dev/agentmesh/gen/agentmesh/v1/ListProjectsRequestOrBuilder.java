@@ -33,4 +33,16 @@ public interface ListProjectsRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRepoBytes();
+
+  /**
+   * <pre>
+   * With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+   * its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+   * Ignored without `repo` (the full list asks git only).
+   * </pre>
+   *
+   * <code>bool quick = 2 [json_name = "quick"];</code>
+   * @return The quick.
+   */
+  boolean getQuick();
 }

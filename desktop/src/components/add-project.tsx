@@ -14,8 +14,8 @@ const reason = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_
 
 /**
  * Adds a project to the sidebar with no run in it yet: it is pinned there (device-local) until unpinned. A name picks one
- * the host knows; a path is checked with the host first (`ListProjects` of that repo), so what is not a git repository
- * is refused with the host's reason instead of being pinned as an empty row.
+ * the host knows; a path is checked with the host first (`ListProjects` of that repo, `quick`: no fetch and no pull requests, so
+ * Enter answers at once), so what is not a git repository is refused with the host's reason instead of being pinned as an empty row.
  */
 export function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose: () => void }) {
   const app = useApp()
@@ -40,7 +40,7 @@ export function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose
       setBusy(true)
       setError('')
       try {
-        const res = await listProjects(host.client, typed)
+        const res = await listProjects(host.client, typed, true)
         const found = res.projects[0]
         if (!found) throw new Error(`${typed} is not a git repository on ${host.info.name}`)
         add(found)
