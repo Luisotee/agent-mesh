@@ -84,6 +84,12 @@ describe('terminal socket bridge', () => {
     expect(t.events).toHaveLength(n)
   })
 
+  it('allows a project shell stream, with a ticket, as it does an agent terminal', () => {
+    expect(allowedSocketPath('/v1/shell/t_abc123?ticket=tkt_abc123')).toBe(true)
+    expect(allowedSocketPath('/v1/shell/t_abc123')).toBe(false)
+    expect(allowedSocketPath('/v1/shells/t_abc123?ticket=tkt_abc123')).toBe(false)
+  })
+
   it('refuses any path but a terminal stream, without touching the host', async () => {
     for (const bad of ['/agentmesh.v1.MeshService/Hello', '/v1/term/x', '/v1/term/../x?ticket=a', '/v1/term/a?ticket=a&x=1', '/v1/term/a?ticket=', undefined, 5]) {
       expect(allowedSocketPath(bad)).toBe(false)

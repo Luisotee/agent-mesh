@@ -1,3 +1,4 @@
+import { isShellTab, shellTabId } from './shells'
 import { approveAgent, renameRun, retireAgent, ringAgent, startRun, stopAgent, switchToNextModel } from './actions'
 import { canPair } from './components/pair-panel'
 import { stepSidebar } from './components/project-sidebar'
@@ -92,7 +93,8 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     },
     tab_new: () => {
       const { hostId, agentId, hosts } = st()
-      const repo = hostId && agentId ? hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.repo : undefined
+      const shell = hostId && isShellTab(agentId) ? st().shells[hostId]?.find((x) => shellTabId(x.id) === agentId) : undefined
+      const repo = shell?.repo ?? (hostId && agentId ? hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.repo : undefined)
       app.openWorkspace(true, undefined, hostId && repo ? { hostId, repo } : undefined)
     },
     tab_reopen: () => app.reopenTab(),
