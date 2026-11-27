@@ -82,6 +82,12 @@ func TestAgentChangesListsTheIgnoredFilesArchivingWouldDelete(t *testing.T) {
 	writeFile(t, filepath.Join(a.Worktree, ".gitignore"), "node_modules/\n.env\n.env.local\n*.log\n", 0o644)
 	writeFile(t, filepath.Join(a.Worktree, "node_modules", "a", "index.js"), strings.Repeat("x", 3000), 0o644)
 	writeFile(t, filepath.Join(a.Worktree, "node_modules", "b.js"), strings.Repeat("y", 2000), 0o644)
+	// A link to a big file outside the worktree counts as the link, not as what it points to.
+	big := filepath.Join(t.TempDir(), "big")
+	writeFile(t, big, strings.Repeat("z", 100_000), 0o644)
+	if err := os.Symlink(big, filepath.Join(a.Worktree, "node_modules", "link")); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(a.Worktree, ".env"), "KEY=1\n", 0o644)
 	writeFile(t, filepath.Join(a.Worktree, ".env.local"), "NOTES=mine\n", 0o644)
 	writeFile(t, filepath.Join(a.Worktree, "src", "kept.txt"), "not ignored\n", 0o644)
@@ -100,7 +106,7 @@ func TestAgentChangesListsTheIgnoredFilesArchivingWouldDelete(t *testing.T) {
 	for _, e := range got.Ignored {
 		seen = append(seen, fmt.Sprintf("%s=%d", e.Path, e.Bytes))
 	}
-	if want := "node_modules/=5000 .env.local=11"; strings.Join(seen, " ") != want {
+	if want := fmt.Sprintf("node_modules/=%d .env.local=11", 5000+len(big)); strings.Join(seen, " ") != want {
 		t.Errorf("ignored = %q, want %q (.env is brought back by .worktreeinclude, src/kept.txt is not ignored)", strings.Join(seen, " "), want)
 	}
 	for i := 0; i < 22; i++ {

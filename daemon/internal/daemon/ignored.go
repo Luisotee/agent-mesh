@@ -100,7 +100,7 @@ func restoredByInclude(entry string, included []string) bool {
 	return false
 }
 
-// sizeOf is the bytes of the regular files under a path (symlinks are not followed), counted up to maxIgnoredWalk files and
+// sizeOf is the bytes of the files under a path (a symlink counts as its own size and is never followed), counted up to maxIgnoredWalk files and
 // the time left: `partial` says the count stopped.
 func sizeOf(ctx context.Context, path string) (int64, bool) {
 	st, err := os.Lstat(path)
@@ -118,7 +118,8 @@ func sizeOf(ctx context.Context, path string) (int64, bool) {
 			partial = partial || ctx.Err() != nil
 			return nil
 		}
-		if de.Type().IsRegular() {
+		// A symlink counts as itself (WalkDir doesn't follow it): its target may be anywhere, outside the worktree too.
+		if de.Type().IsRegular() || de.Type()&fs.ModeSymlink != 0 {
 			if files++; files > maxIgnoredWalk {
 				partial = true
 				return filepath.SkipAll
