@@ -27,7 +27,7 @@ var builtinCommands = []adapter.Cmd{
 	{Name: "debug", Desc: "View debug info", Dialog: adapter.DialogAlways},
 	{Name: "diff", Desc: "Open diff viewer", Dialog: adapter.DialogAlways},
 	{Name: "editor", Desc: "Open editor", Dialog: adapter.DialogAlways},
-	{Name: "exit", Desc: "Exit the app", Danger: true},
+	{Name: "exit", Aliases: []string{"quit", "q"}, Desc: "Exit the app", Danger: true},
 	{Name: "export", Desc: "Export session transcript", Dialog: adapter.DialogBare},
 	{Name: "fork", Desc: "Fork session"},
 	{Name: "help", Desc: "Help", Dialog: adapter.DialogAlways},
@@ -56,6 +56,9 @@ func (a *Adapter) ListCommands(ctx context.Context, req *connect.Request[adapter
 	bin := m.Binary
 	if bin == "" {
 		bin = "opencode"
+	}
+	if m.Cwd == "" {
+		return connect.NewResponse(&adapterv1.ListCommandsResponse{Commands: cmds}), nil // no directory: the table alone
 	}
 	out, err := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"debug", "config"}, Cwd: m.Cwd, Env: mapToEnv(commandsEnv(m)),
 		Dir: a.ProbeDir, Timeout: 10 * time.Second})

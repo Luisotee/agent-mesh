@@ -60,3 +60,15 @@ func TestTheConfigProbeOfAReadOnlyAgentLoadsNoProjectConfigAndCarriesNoIdentity(
 		t.Errorf("a worker's own project config is its own: %v", env)
 	}
 }
+
+func TestOpenCodesExitHasTheAliasesItIsTypedWith(t *testing.T) {
+	for _, c := range builtinCommands {
+		if c.Name == "exit" {
+			if !c.Danger || len(c.Aliases) != 2 || c.Aliases[0] != "quit" || c.Aliases[1] != "q" {
+				t.Errorf("%+v", c)
+			}
+			return
+		}
+	}
+	t.Error("no exit")
+}

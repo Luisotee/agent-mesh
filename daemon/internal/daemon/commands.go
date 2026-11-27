@@ -31,8 +31,14 @@ func (d *Daemon) ListAgentCommands(ctx context.Context, req *connect.Request[v1.
 	if err != nil {
 		return nil, err
 	}
+	// An adopted root has no worktree of ours: its repo. With neither, the adapter answers from its tables alone (a probe
+	// with no directory would run in meshd's own).
+	cwd := a.Worktree
+	if cwd == "" {
+		cwd = a.Repo
+	}
 	res, err := ad.ListCommands(ctx, connect.NewRequest(&adapterv1.ListCommandsRequest{
-		Cwd: a.Worktree, Env: d.agentEnv(a, ""), Binary: d.rt.cfg.Binaries[a.Kind], ReadOnly: adapter.ReadOnly(a.Role), Lean: lean}))
+		Cwd: cwd, Env: d.agentEnv(a, ""), Binary: d.rt.cfg.Binaries[a.Kind], ReadOnly: adapter.ReadOnly(a.Role), Lean: lean}))
 	if connect.CodeOf(err) == connect.CodeUnimplemented {
 		return connect.NewResponse(&v1.ListAgentCommandsResponse{}), nil
 	}

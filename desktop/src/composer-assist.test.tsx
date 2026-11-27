@@ -239,6 +239,29 @@ describe('the composer\'s suggested prompt', () => {
     expect(promptAgent).not.toHaveBeenCalled()
   })
 
+  it('does not show a suggestion again when it was taken and sent before the agent started working', async () => {
+    const { ui, client, promptAgent } = chat({ suggestion: 'run it' })
+    render(ui)
+    await waitFor(() => expect(field()).toHaveAttribute('placeholder', 'run it'))
+    client.getPromptSuggestion.mockResolvedValue(create(GetPromptSuggestionResponseSchema, { text: '' }))
+    await userEvent.click(field())
+    await userEvent.keyboard('{Tab}')
+    expect(field()).toHaveValue('run it')
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: 'run it' })))
+    await new Promise((r) => setTimeout(r, 40))
+    expect(field().getAttribute('placeholder')).not.toBe('run it')
+  })
+
+  it('asks before /quit on a list that lacks it', async () => {
+    const { ui, promptAgent } = chat({ commands: [cmd('compact')] })
+    render(ui)
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Loading commands' })).toBeNull())
+    await userEvent.type(field(), '/q{Enter}')
+    await screen.findByRole('dialog')
+    expect(promptAgent).not.toHaveBeenCalled()
+  })
+
   it('is asked of Claude only, and only while the agent is at its prompt', async () => {
     const other = chat({ kind: 'agy', suggestion: 'x' })
     const { unmount } = render(other.ui)

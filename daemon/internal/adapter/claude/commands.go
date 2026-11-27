@@ -135,6 +135,9 @@ type cmdEntry struct {
 // probedCommands is the headless list for a worktree, kept for commandsTTL, one probe at a time per worktree. A
 // probe that fails gives nothing (the table's commands are still offered) and is not kept long.
 func (a *Adapter) probedCommands(ctx context.Context, m *adapterv1.ListCommandsRequest) []*v1.AgentCommand {
+	if m.Cwd == "" {
+		return nil // no directory to ask in: the tables alone (a probe would run in the daemon's own)
+	}
 	settings := probeSettings(m)
 	key := m.Cwd + "\x00" + settings
 	if m.ReadOnly {

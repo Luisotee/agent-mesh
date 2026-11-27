@@ -372,3 +372,14 @@ func TestACallerThatLeavesWhileWaitingForAProbeSlotGivesItUpAndDoesntPoisonTheEn
 		t.Errorf("the next caller got no probed commands: %d", len(got))
 	}
 }
+
+func TestWithNoDirectoryTheTablesAnswerAndNothingIsProbed(t *testing.T) {
+	bin, runs := fakeProbeClaude(t, initAnswer, false)
+	got := list(t, New(), &adapterv1.ListCommandsRequest{Binary: bin, Env: map[string]string{"PATH": os.Getenv("PATH")}})
+	if got["resume"] == nil || got["deploy"] != nil {
+		t.Errorf("%d commands, /resume %v, /deploy %v", len(got), got["resume"], got["deploy"])
+	}
+	if n := runCount(t, runs); n != 0 {
+		t.Errorf("a probe ran with no directory: %d", n)
+	}
+}

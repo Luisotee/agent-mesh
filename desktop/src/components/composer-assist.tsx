@@ -93,6 +93,10 @@ export function usePromptSuggestion(host: HostRuntime, agentId: string, state: A
       timers.forEach(clearTimeout)
     }
   }, [host, agentId, enabled, idle, boxEmpty])
+  // Taken (Tab) or typed over, it is spent: the box emptying again (a send) shows nothing until a read finds the next one.
+  useEffect(() => {
+    if (!boxEmpty) setFound(undefined)
+  }, [boxEmpty])
   // A suggestion belongs to the moment the agent was idle and the box empty: it goes when either stops being true.
   const text = enabled && idle && boxEmpty && found?.agentId === agentId && found.text !== dismissed ? found.text : ''
   return { suggestion: text, dismiss: () => setDismissed(found?.text ?? '') }

@@ -520,8 +520,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       if (body.startsWith('/') && known.length === 0) known = await assist.load(true)
       // `/resume` and the pickers open a dialog the chat can't show.
       const cmd = invoked(body, known)
-      // With no list at all (the host can't say, or it failed) the question is still asked for the commands every CLI has that end the session.
-      const unlisted = known.length === 0 && /^\/(exit|quit|logout)(\s|$)/i.test(body)
+      // With no list (the host can't say, or it failed) or one that lacks it, the question is still asked for the commands the CLIs have that end the session.
+      const unlisted = (known.length === 0 || !cmd) && /^\/(exit|quit|q|logout)(\s|$)/i.test(body)
       if ((cmd?.command.danger || unlisted) && confirmedText === undefined) {
         setConfirming(body)
         setBusy(false)
