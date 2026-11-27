@@ -212,4 +212,14 @@ func TestInterruptStopsAClaudeTurnAndTheQueueGoesOn(t *testing.T) {
 		t.Errorf("a retried interrupt: %v, %v", again, err)
 	}
 
+	// A new turn soon after: the Esc sent for the last one doesn't hold this one back (the agent did something since).
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	h.typeInto(a, "/hold\r")
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_WORKING)
+	time.Sleep(1600 * time.Millisecond)
+	if res, err := interrupt("i-again"); err != nil || !res.Stopped {
+		t.Fatalf("interrupting the next turn: %v, %v", res, err)
+	}
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+
 }

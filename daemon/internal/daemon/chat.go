@@ -134,16 +134,20 @@ func (d *Daemon) PromptAgent(ctx context.Context, req *connect.Request[v1.Prompt
 		return nil, err
 	}
 	// Not while a doorbell or a prompt typed before is in flight: the box reads empty before its turn starts.
-	now := len(queued) == 0 && takesDoorbell(a.State) && d.ringOf(a.Id) == nil && !d.promptInFlight(a)
+	// Nor while a reopen, a compaction or a root reset waits: the delivery does those first, and a prompt typed now
+	// would go to the process they replace or the context they clear.
+	now := len(queued) == 0 && takesDoorbell(a.State) && d.ringOf(a.Id) == nil && !d.promptInFlight(a) &&
+		a.PendingReopen == nil && a.PendingCompaction == nil && a.PendingReset == nil
+	hold := ""
 	if now {
-		hold, err := d.whyNotToType(ctx, a)
+		h, err := d.whyNotToType(ctx, a)
 		if err != nil {
 			return nil, err
 		}
-		now = hold.code == ""
+		hold, now = h.code, h.code == ""
 	}
 	if !now {
-		return d.queuePrompt(ctx, actor, req.Msg.Meta, a, text)
+		return d.queuePrompt(ctx, actor, req.Msg.Meta, a, text, hold)
 	}
 	at := d.now()
 	if err := d.typePrompt(ctx, a, text); err != nil {

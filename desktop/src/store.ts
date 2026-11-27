@@ -39,6 +39,10 @@ export interface HostState {
   prompts: Record<string, QueuedPrompt[]>
   /** Ids of prompts the host said were typed or taken back: a listing or an answer older than that event never brings one back. */
   promptsDone: Record<string, true>
+  /** How often an agent's queue changed here (an event, a send, a take-back): a listing asked before a change is not applied. */
+  promptTouch: Record<string, number>
+  /** Counts the snapshots: a resync (a reconnect, a daemon restart) may have changed what isn't in the events we saw, so views read again. */
+  snapshots: number
   cursor?: Cursor
   log: LogLine[]
 }
@@ -49,7 +53,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -68,7 +72,9 @@ export function applyFrame(s: HostState, frame: Frame): HostState {
       // Messages of runs the host no longer lists go; those of the others stay (and are topped up by the loader).
       const messages = Object.fromEntries(Object.entries(s.messages).filter(([, m]) => m.runId in runs))
       const messageLoad = Object.fromEntries(Object.entries(s.messageLoad).filter(([id]) => id in runs))
-      return { ...s, synced: true, runs, agents, messages, messageLoad, cursor: frame.value.cursor }
+      // The queues of agents the host no longer has go; the others are listed again by the views that show them.
+      const prompts = Object.fromEntries(Object.entries(s.prompts).filter(([id]) => id in agents))
+      return { ...s, synced: true, runs, agents, messages, messageLoad, prompts, snapshots: s.snapshots + 1, cursor: frame.value.cursor }
     }
     case 'resumed':
       return { ...s, synced: true }
@@ -185,11 +191,11 @@ function applyEvent(s: HostState, e: Event): HostState {
       const { [q.id]: _again, ...promptsDone } = s.promptsDone
       const list = (s.prompts[q.agentId] ?? []).filter((x) => x.id !== q.id)
       const sorted = [...list, q].sort((a, b) => Number((a.createdAt?.seconds ?? 0n) - (b.createdAt?.seconds ?? 0n)) || (a.createdAt?.nanos ?? 0) - (b.createdAt?.nanos ?? 0))
-      return { ...next, promptsDone, prompts: { ...s.prompts, [q.agentId]: sorted } }
+      return { ...next, promptsDone, prompts: { ...s.prompts, [q.agentId]: sorted }, promptTouch: touch(s, q.agentId) }
     }
     case 'promptTyped':
     case 'promptWithdrawn':
-      return { ...withoutPrompt(next, e.agentId, p.value.promptId), promptsDone: { ...s.promptsDone, [p.value.promptId]: true } }
+      return { ...withoutPrompt(next, e.agentId, p.value.promptId), promptsDone: { ...s.promptsDone, [p.value.promptId]: true }, promptTouch: touch(s, e.agentId) }
     case 'devicePaired': {
       const d = p.value.device
       if (!d) return next
@@ -205,21 +211,26 @@ function applyEvent(s: HostState, e: Event): HostState {
   }
 }
 
+const touch = (s: HostState, agentId: string) => ({ ...s.promptTouch, [agentId]: (s.promptTouch[agentId] ?? 0) + 1 })
+
 function withoutPrompt(s: HostState, agentId: string, id: string): HostState {
   const list = s.prompts[agentId]
   return list?.some((x) => x.id === id) ? { ...s, prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : s
 }
 
-/** An agent's queue as the host listed it, which replaces what we hold for it. */
-export function setPrompts(agentId: string, list: QueuedPrompt[]): (s: HostState) => Partial<HostState> {
-  return (s) => ({ prompts: { ...s.prompts, [agentId]: list.filter((q) => !s.promptsDone[q.id]) } })
+/**
+ * An agent's queue as the host listed it, which replaces what we hold for it, unless the queue changed here since the
+ * listing was asked for (`touchedAt`, the agent's `promptTouch` then): what we hold is newer than the answer.
+ */
+export function setPrompts(agentId: string, list: QueuedPrompt[], touchedAt: number): (s: HostState) => Partial<HostState> {
+  return (s) => ((s.promptTouch[agentId] ?? 0) !== touchedAt ? {} : { prompts: { ...s.prompts, [agentId]: list.filter((q) => !s.promptsDone[q.id]) } })
 }
 
 /** A prompt the host answered as queued, added before its event arrives (the event replaces it). */
 export function addPrompt(q: QueuedPrompt): (s: HostState) => Partial<HostState> {
   return (s) => {
     const list = s.prompts[q.agentId] ?? []
-    return list.some((x) => x.id === q.id) || s.promptsDone[q.id] ? {} : { prompts: { ...s.prompts, [q.agentId]: [...list, q] } }
+    return list.some((x) => x.id === q.id) || s.promptsDone[q.id] ? {} : { prompts: { ...s.prompts, [q.agentId]: [...list, q] }, promptTouch: touch(s, q.agentId) }
   }
 }
 
@@ -227,7 +238,7 @@ export function addPrompt(q: QueuedPrompt): (s: HostState) => Partial<HostState>
 export function dropPrompt(agentId: string, id: string): (s: HostState) => Partial<HostState> {
   return (s) => {
     const list = s.prompts[agentId]
-    return { promptsDone: { ...s.promptsDone, [id]: true }, ...(list?.some((x) => x.id === id) ? { prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : {}) }
+    return { promptsDone: { ...s.promptsDone, [id]: true }, promptTouch: touch(s, agentId), ...(list?.some((x) => x.id === id) ? { prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : {}) }
   }
 }
 

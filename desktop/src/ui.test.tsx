@@ -1350,6 +1350,24 @@ describe('ChatView', () => {
     await waitFor(() => expect(box).toHaveValue('new thought\n\nold idea'))
   })
 
+  it('offers no Stop for a CLI whose interrupt key the host doesn\'t know, and Up twice takes back one prompt', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING, kind: 'agy' } })
+    c.listPrompts.mockResolvedValue({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'one', held: 'working' }), create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'two', held: 'working' })] })
+    let release: (v: object) => void = () => {}
+    c.withdrawPrompt.mockImplementationOnce(() => new Promise((r) => (release = r)))
+    render(c.ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await screen.findByRole('region', { name: 'Queued prompts' })
+    expect(screen.queryByRole('button', { name: 'Stop the agent' })).not.toBeInTheDocument()
+    await userEvent.type(box, '{Escape}')
+    expect(c.interruptAgent).not.toHaveBeenCalled()
+    // Two presses while the first take-back is out: one call.
+    await userEvent.type(box, '{ArrowUp}{ArrowUp}')
+    expect(c.withdrawPrompt).toHaveBeenCalledTimes(1)
+    release({ prompt: create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'two' }) })
+    await waitFor(() => expect(box).toHaveValue('two'))
+  })
+
   it('a taken-back prompt that was typed meanwhile says so', async () => {
     const c = chat({ agent: { state: AgentState.WORKING } })
     c.listPrompts.mockResolvedValue({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'late', held: 'working' })] })

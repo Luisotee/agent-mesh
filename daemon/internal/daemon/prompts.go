@@ -27,17 +27,14 @@ import (
 // never both.
 
 // queuePrompt stores a prompt for its agent's next idle. Called under the agent's lock by PromptAgent.
-func (d *Daemon) queuePrompt(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, a *v1.Agent, text string) (*connect.Response[v1.PromptAgentResponse], error) {
+func (d *Daemon) queuePrompt(ctx context.Context, actor *v1.Actor, meta *v1.RequestMeta, a *v1.Agent, text, hold string) (*connect.Response[v1.PromptAgentResponse], error) {
 	p := &v1.QueuedPrompt{Id: ids.New("q", 10), AgentId: a.Id, Text: text, CreatedAt: timestamppb.New(d.now()),
 		From: &v1.Actor{Id: actor.Id, Class: actor.Class, Name: actor.Name}}
 	// What it waits for is said with it (the stored row doesn't keep it: ListPrompts says it as it is then).
 	shown := proto.CloneOf(p)
 	shown.Held = d.promptHold(a)
 	if shown.Held == "" {
-		// At its prompt but not typed now: a draft or a dialog says so; behind an earlier prompt it is simply due.
-		if hold, err := d.whyNotToType(ctx, a); err == nil {
-			shown.Held = hold.code
-		}
+		shown.Held = hold // at its prompt but not typed now: a draft or a dialog, read by PromptAgent; else simply due
 	}
 	out := &v1.PromptAgentResponse{Queued: shown}
 	if _, err := d.write(ctx, meta, agentmeshv1connect.MeshServicePromptAgentProcedure, out, func(tx *store.Tx) error {
@@ -243,10 +240,30 @@ func (d *Daemon) WithdrawPrompt(ctx context.Context, req *connect.Request[v1.Wit
 // How InterruptAgent watches for the agent back at its prompt: a box that reads empty on a screen that stopped
 // drawing (a turn's spinner redraws all the time).
 const (
-	interruptWait  = 4 * time.Second
-	interruptQuiet = 500 * time.Millisecond
+	interruptWait  = 6 * time.Second
+	interruptQuiet = 1500 * time.Millisecond
 	interruptPoll  = 150 * time.Millisecond
+	// escCooldown is how long after an Esc no second one is sent unless the agent showed activity since.
+	escCooldown = 10 * time.Second
 )
+
+func (d *Daemon) noteEsc(agentID string) {
+	d.rt.mu.Lock()
+	defer d.rt.mu.Unlock()
+	d.rt.lastEsc[agentID] = time.Now()
+}
+
+// escSettling reports whether an Esc was sent to the agent less than escCooldown ago with no activity reported since.
+func (d *Daemon) escSettling(a *v1.Agent) bool {
+	d.rt.mu.Lock()
+	defer d.rt.mu.Unlock()
+	at, ok := d.rt.lastEsc[a.Id]
+	if !ok || time.Since(at) >= escCooldown || (a.LastActivity != nil && a.LastActivity.AsTime().After(at)) {
+		delete(d.rt.lastEsc, a.Id)
+		return false
+	}
+	return true
+}
 
 // InterruptAgent sends an agent's CLI the key that interrupts its turn, as the user would in its terminal, and waits
 // a moment for it to be back at its prompt. Claude Code fires no hook when a turn is interrupted, so the daemon
@@ -313,15 +330,17 @@ func (d *Daemon) InterruptAgent(ctx context.Context, req *connect.Request[v1.Int
 	out := &v1.InterruptAgentResponse{}
 	switch a.State {
 	case v1.AgentState_AGENT_STATE_WORKING, v1.AgentState_AGENT_STATE_NEEDS_INPUT:
-		if a.State == v1.AgentState_AGENT_STATE_WORKING && d.atIdleScreen(ctx, a) {
-			// Already back at its prompt (an earlier interrupt worked after we stopped looking, or a turn that ended
-			// with no hook): an Esc now would open Claude's rewind menu. Record the end it missed instead.
-			out.Stopped = true
-			if err := d.recordInterrupted(ctx, a.Id); err != nil {
-				d.log.Warn("recording an interrupted turn", "agent", a.Name, "err", err)
+		if d.escSettling(a) {
+			// An Esc went in moments ago and nothing has happened since: it may still be stopping the turn, and a
+			// second Esc at the prompt it leaves would open Claude's rewind menu. Look again instead of sending one.
+			if out.Stopped = d.atIdleScreen(ctx, a); out.Stopped {
+				if err := d.recordInterrupted(ctx, a.Id); err != nil {
+					d.log.Warn("recording an interrupted turn", "agent", a.Name, "err", err)
+				}
 			}
 			break
 		}
+		d.noteEsc(a.Id)
 		if _, err := d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
 			Data: []byte("\x1b")})); err != nil {
 			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("sending Esc to %s's terminal: %w", a.Name, err))
@@ -387,7 +406,7 @@ func (d *Daemon) atIdleScreen(ctx context.Context, a *v1.Agent) bool {
 // recordInterrupted ends the turn of an agent seen back at its prompt after an interrupt: a TurnEnded through the
 // reducer, as the Stop hook the CLI doesn't fire would have.
 func (d *Daemon) recordInterrupted(ctx context.Context, agentID string) error {
-	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
 			return err
@@ -398,4 +417,8 @@ func (d *Daemon) recordInterrupted(ctx context.Context, agentID string) error {
 		return d.applyEvents(tx, a, []*adapterv1.AgentEvent{{Time: timestamppb.New(tx.Now()),
 			Kind: &adapterv1.AgentEvent_TurnEnded{TurnEnded: &adapterv1.TurnEnded{}}}})
 	})
+	if err == nil {
+		d.perms.endFor(agentID, "", "") // a permission prompt the Esc dismissed is over, as a Stop hook would say
+	}
+	return err
 }

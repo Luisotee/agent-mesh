@@ -120,13 +120,27 @@ describe('applyFrame', () => {
   it('a listing or an answer older than a prompt\'s typing never brings it back', () => {
     const p = create(QueuedPromptSchema, { id: 'q1', agentId: 'a1', text: 'go' })
     let s = run([snapshot(), ev(6, { case: 'promptTyped', value: { $typeName: 'agentmesh.v1.PromptTyped', promptId: 'q1' } })])
-    s = { ...s, ...setPrompts('a1', [p])(s) }
+    s = { ...s, ...setPrompts('a1', [p], s.promptTouch.a1 ?? 0)(s) }
     expect(s.prompts.a1).toEqual([])
     s = { ...s, ...addPrompt(p)(s) }
     expect(s.prompts.a1).toEqual([])
     // Queued again (its typing never reached the terminal): it is shown again.
     s = run([ev(7, { case: 'promptQueued', value: { $typeName: 'agentmesh.v1.PromptQueued', prompt: p } })], s)
     expect(s.prompts.a1?.map((x) => x.id)).toEqual(['q1'])
+  })
+
+  it('a listing asked before the queue changed here doesn\'t clobber the change', () => {
+    const p = create(QueuedPromptSchema, { id: 'q2', agentId: 'a1', text: 'new' })
+    let s = run([snapshot()])
+    const asked = s.promptTouch.a1 ?? 0
+    s = { ...s, ...addPrompt(p)(s) } // sent while the listing was out
+    s = { ...s, ...setPrompts('a1', [], asked)(s) } // the older, empty answer
+    expect(s.prompts.a1?.map((x) => x.id)).toEqual(['q2'])
+    // A snapshot drops the queues of agents the host no longer has, and counts itself.
+    const before = s.snapshots
+    s = run([snapshot([agent('other')])], s)
+    expect(s.prompts.a1).toBeUndefined()
+    expect(s.snapshots).toBe(before + 1)
   })
 
   it('a loaded page never replaces a message events already updated', () => {

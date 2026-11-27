@@ -171,6 +171,7 @@ type runtime struct {
 	deliverQueued map[string]bool        // agent id → a delivery is queued for it (deliverSoon)
 	promptHeld    map[string]string      // agent id → why its next queued prompt wasn't typed at the last try (prompts.go)
 	promptTyped   map[string]time.Time   // agent id → when a queued prompt was typed and no activity has followed yet (prompts.go)
+	lastEsc       map[string]time.Time   // agent id → when InterruptAgent last sent it Esc (prompts.go)
 	guard         guard
 	sampler       capSampler // what the agents measured (capacity.go)
 	cpus          cpuTracker
@@ -206,7 +207,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	}
 	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}, introduced: map[string]bool{},
-		rings: map[string]*ring{}, held: map[string]*held{}, nativeOff: map[string]time.Time{}, deliverQueued: map[string]bool{}, promptHeld: map[string]string{}, promptTyped: map[string]time.Time{}}, nil
+		rings: map[string]*ring{}, held: map[string]*held{}, nativeOff: map[string]time.Time{}, deliverQueued: map[string]bool{}, promptHeld: map[string]string{}, promptTyped: map[string]time.Time{}, lastEsc: map[string]time.Time{}}, nil
 }
 
 // view is an agent as shown: a working agent long silent reads as unknown.

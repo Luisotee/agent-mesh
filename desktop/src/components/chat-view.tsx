@@ -236,16 +236,18 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
 function useQueue(host: HostRuntime, agentId: string, active: boolean): QueuedPrompt[] {
   const state = useHostState(host, (s) => s.agents[agentId]?.state)
   const prompts = useHostState(host, (s) => s.prompts[agentId])
+  const snapshots = useHostState(host, (s) => s.snapshots)
   useEffect(() => {
     if (!active) return
     let live = true
+    const asked = host.store.getState().promptTouch[agentId] ?? 0
     listPrompts(host.client, agentId)
-      .then((res) => live && host.store.setState(setPrompts(agentId, res.prompts)))
+      .then((res) => live && host.store.setState(setPrompts(agentId, res.prompts, asked)))
       .catch(() => {})
     return () => {
       live = false
     }
-  }, [host, agentId, active, state])
+  }, [host, agentId, active, state, snapshots])
   return prompts ?? NO_PROMPTS
 }
 
@@ -306,12 +308,17 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
 function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
-  const settings = useHostState(host, (s) => s.settings)
+  // The app follows its first host's keys, as for the shortcuts (Settings edits them there).
+  const first = useAppState((s) => s.hosts[0]) ?? host
+  const settings = useHostState(first, (s) => s.settings)
   const keys = useMemo(() => chatKeys(settings), [settings])
   const fill = useAppState((s) => s.composerFill)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
+  // Refs, not state: a second key press before the first's re-render must see the call in flight.
+  const stopRef = useRef(false)
+  const recallRef = useRef(false)
   const [error, setError] = useState('')
   // A queued prompt taken back to edit lands here.
   useEffect(() => {
@@ -325,7 +332,10 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   if (!agent) return null
   const gone = agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED || !agent.terminalId
   const atPrompt = agent.state === AgentState.NEEDS_INPUT
-  const working = agent.state === AgentState.WORKING || atPrompt
+  // Quiet for a while, a working agent shows as unknown: it may still be at work, so Stop stays.
+  const working = agent.state === AgentState.WORKING || agent.state === AgentState.UNKNOWN || atPrompt
+  // Only Claude Code's interrupt key is known to the host (`interrupt-esc`, TODO.md for the other CLIs).
+  const canStop = agent.kind === 'claude'
   const why = readOnly
     ? 'This device is read-only: it can read the conversation, not type into the agent.'
     : gone
@@ -349,7 +359,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   }
   async function stop() {
     // One at a time: a second Esc at an agent that already stopped would open Claude's rewind menu.
-    if (stopping) return
+    if (stopRef.current) return
+    stopRef.current = true
     setStopping(true)
     setError('')
     try {
@@ -358,20 +369,27 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
     } catch (e) {
       setError(say(e))
     } finally {
+      stopRef.current = false
       setStopping(false)
     }
   }
   /** Up in an empty box takes back the newest queued prompt to edit, as Claude Code's Up arrow does. */
   async function recall() {
+    if (recallRef.current) return
+    recallRef.current = true
     setError('')
     try {
       const res = await withdrawPrompt(host.client, agentId)
-      if (res.prompt) {
-        host.store.setState(dropPrompt(agentId, res.prompt.id))
-        setText(res.prompt.text)
+      const p = res.prompt
+      if (p) {
+        host.store.setState(dropPrompt(agentId, p.id))
+        // Never over what was typed while the call was out.
+        setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${p.text}` : p.text))
       }
     } catch (e) {
       setError(say(e))
+    } finally {
+      recallRef.current = false
     }
   }
   return (
@@ -396,12 +414,13 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
           rows={Math.min(6, Math.max(1, text.split('\n').length))}
           value={text}
           disabled={!!why}
-          placeholder={why ? '' : working ? 'Write to the agent: it is sent when it finishes its turn. Esc stops it.' : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
+          placeholder={why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return
             const interrupt = parseChord(keys.interrupt)
-            if (interrupt && working && matches(e.nativeEvent, interrupt)) {
+            if (e.repeat && (e.key === 'Escape' || e.key === 'ArrowUp')) return
+            if (interrupt && working && canStop && matches(e.nativeEvent, interrupt)) {
               e.preventDefault()
               void stop()
               return
@@ -418,7 +437,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
             }
           }}
         />
-        {working && !why && (
+        {working && canStop && !why && (
           <Button type="button" variant="outline" disabled={stopping} aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
             <Square /> Stop
           </Button>
