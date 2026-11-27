@@ -36,7 +36,7 @@ Go (see `go.mod`), [buf](https://buf.build) for the protos, and for `go test -ra
 ## Commands
 
 ```bash
-daemon/scripts/check.sh                      # the CI equivalent: buf lint and breaking, gen current, vet, test -race, pytest (its scratch dirs are removed when it ends, however it ends but SIGKILL; clears AGENT_MESH_*: an agent's own token would be refused by the tests' daemons)
+daemon/scripts/check.sh                      # the CI equivalent: buf lint and breaking, gen current, vet, test -race, pytest (its scratch dirs are removed when it ends, however it ends but SIGKILL; clears AGENT_MESH_*: an agent's own token would be refused by the tests' daemons; trims Go's build cache past GOCACHE_MAX_GB, default 30, to what a build used in the last two hours)
 cd daemon && go test ./...                   # the Go tests only
 cd proto && buf generate                     # after changing a .proto
 cd daemon && go test ./internal/registry -update   # accept a reviewed change of who may call what

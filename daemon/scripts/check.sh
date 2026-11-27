@@ -68,6 +68,23 @@ runin() {
 
 step() { printf '\n== %s\n' "$*"; }
 
+# Go's build cache has no size cap: Go drops only entries no build used for five days, and the race builds of a day of
+# parallel gates filled it to 275 GB on 2026-11-27. Past GOCACHE_MAX_GB (default 30; 0 turns the trim off), drop the
+# entries no build used for two hours. Go refreshes an entry's mtime when a build uses it and the mtime is over an hour
+# old, so an entry used in the last hour is never older than two: a gate running beside this one keeps its cache.
+trim_gocache() {
+  local max=${GOCACHE_MAX_GB:-30} dir kb
+  [ "$max" -gt 0 ] 2>/dev/null || return 0
+  dir=$(go env GOCACHE 2>/dev/null) || return 0
+  [ -n "$dir" ] && [ -d "$dir" ] || return 0
+  kb=$(du -sk "$dir" 2>/dev/null | cut -f1) || return 0
+  [ "${kb:-0}" -gt $((max * 1024 * 1024)) ] || return 0
+  step "go build cache: $(du -sh "$dir" 2>/dev/null | cut -f1) is over ${max} GB, dropping what no build used for two hours"
+  find "$dir" -type f -mmin +120 -delete 2>/dev/null || true
+  echo "now $(du -sh "$dir" 2>/dev/null | cut -f1)"
+}
+trim_gocache
+
 step "buf lint"
 runin "$repo/proto" buf lint
 
