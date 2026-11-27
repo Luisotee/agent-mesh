@@ -68,9 +68,9 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 		text, err := claude.CutSession(path, uid, next)
 		switch {
 		case errors.Is(err, claude.ErrNotAPrompt):
-			return failedPrecondition("that entry is not one of %s's prompts in its current conversation", a.Name)
+			return failedPrecondition("that entry is not one of %s's prompts in its current conversation (or it was typed while the agent worked, which can't be rewound to)", a.Name)
 		case errors.Is(err, claude.ErrFirstPrompt):
-			return failedPrecondition("that is the first prompt of %s's conversation, with nothing before it to go back to: start a new conversation instead", a.Name)
+			return failedPrecondition("no answered turn comes before that prompt in %s's conversation, so there is nothing to go back to: pick a later prompt, or start a new conversation", a.Name)
 		case errors.Is(err, os.ErrNotExist):
 			return failedPrecondition("%s's conversation file is not on this host (%s)", a.Name, path)
 		case err != nil:
@@ -79,7 +79,7 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 		cutFrom, cutID = path, next
 		a.SessionId = next
 		if stopped(a) {
-			if _, err := d.revive(tx, a, reviveSpec{why: "rewound"}); err != nil {
+			if _, err := d.revive(tx, a, reviveSpec{why: "rewound", compact: "no"}); err != nil {
 				return err
 			}
 			revived = true

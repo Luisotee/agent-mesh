@@ -21,9 +21,10 @@ const CapRewind = "rewind"
 // ErrNotAPrompt says the entry named is not a prompt of the session (another kind of line, or none at all).
 var ErrNotAPrompt = errors.New("not a prompt of this conversation")
 
-// ErrFirstPrompt says the prompt is the conversation's first: nothing comes before it, and Claude Code (2.1.332,
-// checked live) can't resume a session with no messages ("No conversation found").
-var ErrFirstPrompt = errors.New("the first prompt of the conversation has nothing before it to go back to")
+// ErrFirstPrompt says no assistant reply comes before the prompt (it is the conversation's first, or only a root's
+// /clear precedes it): Claude Code (2.1.332, checked live) can't resume a session with no messages ("No conversation
+// found"), so there is nothing to rewind to.
+var ErrFirstPrompt = errors.New("no answered turn comes before that prompt to go back to")
 
 // maxSessionLine bounds one line of a session file (a tool result can be large).
 const maxSessionLine = 64 << 20
@@ -44,8 +45,9 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), maxSessionLine)
 	type line struct {
-		raw  []byte
-		uuid string
+		raw       []byte
+		uuid      string
+		assistant bool
 	}
 	var before []line
 	parents := map[string]string{}
@@ -77,7 +79,7 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 		if l.UUID != "" {
 			parents[l.UUID] = p
 		}
-		before = append(before, line{raw: raw, uuid: l.UUID})
+		before = append(before, line{raw: raw, uuid: l.UUID, assistant: l.Type == "assistant"})
 	}
 	if err := sc.Err(); err != nil {
 		return "", err
@@ -90,14 +92,12 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 		chain[at] = true
 	}
 	var out bytes.Buffer
-	messages := 0
+	answered := false
 	for _, l := range before {
 		if !linear && l.uuid != "" && !chain[l.uuid] {
 			continue
 		}
-		if l.uuid != "" {
-			messages++
-		}
+		answered = answered || l.assistant
 		kept, err := withSession(l.raw, newID)
 		if err != nil {
 			return "", err
@@ -105,7 +105,7 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 		out.Write(kept)
 		out.WriteByte('\n')
 	}
-	if messages == 0 {
+	if !answered {
 		return "", ErrFirstPrompt
 	}
 	dst := filepath.Join(filepath.Dir(path), newID+".jsonl")

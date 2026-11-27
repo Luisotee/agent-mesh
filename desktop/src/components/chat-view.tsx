@@ -326,7 +326,10 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
     try {
       const res = await withdrawPrompt(host.client, agentId, p.id)
       host.store.setState(dropPrompt(agentId, p.id))
-      if (edit && res.prompt) app.store.setState({ composerFill: { agentId, text: res.prompt.text } })
+      if (edit && res.prompt) {
+        const back = splitImages(res.prompt.text)
+        app.store.setState({ composerFill: { agentId, text: back.text, images: back.paths } })
+      }
     } catch (e) {
       setError(say(e))
     }
@@ -391,13 +394,14 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
   useEffect(() => setTextNow(loadDraft(host.info.id, agentId)), [host, agentId])
   // The images are this agent's: another agent shown here starts with none, and an upload that ends after the switch
   // is dropped (`forAgent`).
-  const forAgent = useRef(`${host.info.id}/${agentId}`)
+  const forAgent = useRef(0)
   useEffect(() => {
-    forAgent.current = `${host.info.id}/${agentId}`
+    // A new generation for each agent shown (even one shown again): what began under an earlier one is dropped.
+    forAgent.current++
     setImages([])
     // Unmounted (the tab closed) is leaving the agent too.
     return () => {
-      forAgent.current = ''
+      forAgent.current++
     }
   }, [host, agentId])
   const [busy, setBusy] = useState(false)
@@ -459,7 +463,9 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       if (forAgent.current !== owner) return
       setImages((cur) => [...cur, { key, name: f.name, url }])
       try {
-        const res = await addAttachment(host.client, agentId, imageName(f), new Uint8Array(await f.arrayBuffer()))
+        const bytes = new Uint8Array(await f.arrayBuffer())
+        if (forAgent.current !== owner) return
+        const res = await addAttachment(host.client, agentId, imageName(f), bytes)
         if (url) keepThumb(res.path, url)
         if (forAgent.current !== owner) return
         setImages((cur) => cur.map((i) => (i.key === key ? { ...i, path: res.path } : i)))
@@ -594,7 +600,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
               return
             }
             // At an idle agent with nothing written, the interrupt key twice opens Rewind, as Esc Esc does in Claude Code.
-            if (interrupt && !working && !text && !rewindUnsupported(agent.kind) && matches(e.nativeEvent, interrupt) && !e.repeat) {
+            if (interrupt && agent.state === AgentState.IDLE && !text && !rewindUnsupported(agent.kind) && matches(e.nativeEvent, interrupt) && !e.repeat) {
               const now = Date.now()
               if (now - lastEsc.current < 600) {
                 e.preventDefault()

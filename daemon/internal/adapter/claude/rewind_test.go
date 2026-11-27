@@ -155,3 +155,25 @@ func TestCutSessionRefusesTheFirstPrompt(t *testing.T) {
 		t.Error("a refused cut wrote a file")
 	}
 }
+
+func TestCutSessionRefusesAPromptWithNoAnsweredTurnBeforeIt(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "old.jsonl")
+	// A root after a reset: a caveat, the /clear line and a system line (all with uuids), then the first real prompt.
+	body := `{"type":"user","uuid":"c0","isMeta":true,"parentUuid":null,"sessionId":"old","message":{"content":"caveat"}}
+{"type":"user","uuid":"c1","parentUuid":"c0","sessionId":"old","message":{"content":"<command-name>/clear</command-name>"}}
+{"type":"system","uuid":"s1","parentUuid":"c1","sessionId":"old"}
+{"type":"user","uuid":"u1","parentUuid":"s1","sessionId":"old","message":{"content":"first"}}
+`
+	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"c1", "u1"} {
+		if _, err := CutSession(src, id, "new"); !errors.Is(err, ErrFirstPrompt) {
+			t.Errorf("%s: err = %v, want ErrFirstPrompt", id, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.jsonl")); !os.IsNotExist(err) {
+		t.Error("a refused cut wrote a file")
+	}
+}

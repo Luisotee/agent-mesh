@@ -1529,6 +1529,21 @@ describe('ChatView', () => {
     expect(addAttachment).toHaveBeenCalledTimes(1)
   })
 
+  it('uploads nothing when another agent is shown while the file is still being read', async () => {
+    const { ui, addAttachment, wrap, host } = chat()
+    const { container, rerender } = render(ui)
+    await screen.findByRole('textbox', { name: 'Prompt' })
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'slow.png', { type: 'image/png' })
+    let read: (b: ArrayBuffer) => void = () => {}
+    png.arrayBuffer = () => new Promise((r) => { read = r })
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, png)
+    await waitFor(() => expect(screen.getByRole('list', { name: 'Images' })).toBeInTheDocument())
+    rerender(wrap(<ChatView host={host} agentId="w2" active />))
+    read(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(addAttachment).not.toHaveBeenCalled()
+  })
+
   it('offers no images for a CLI not checked to read them', async () => {
     const { ui } = chat({ agent: { kind: 'opencode' } })
     render(ui)

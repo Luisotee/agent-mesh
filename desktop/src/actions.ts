@@ -116,8 +116,8 @@ export const interruptAgent = (c: MeshClient, agent: string) => c.interruptAgent
 /** Takes an agent's conversation back to before one of its prompts (a transcript entry's id); its text comes back. */
 export const rewindAgent = (c: MeshClient, agent: string, entryId: string) => c.rewindAgent({ meta: meta(), agent, entryId })
 
-/** Stores an image on the agent's host for a prompt; the path it returns goes in the prompt. */
-export const addAttachment = (c: MeshClient, agent: string, name: string, data: Uint8Array) => c.addAttachment({ meta: meta(), agent, name, data })
+/** Stores an image on the agent's host for a prompt; the path it returns goes in the prompt. Its expiry is long: the host checks it after the whole image arrived. */
+export const addAttachment = (c: MeshClient, agent: string, name: string, data: Uint8Array) => c.addAttachment({ meta: meta(Date.now() + 9 * 60_000), agent, name, data })
 
 /** The user's reply to what an agent sent: its plan approved, or a question answered, as an `answer` to its author. */
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)
