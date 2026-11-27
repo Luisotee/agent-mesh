@@ -1,22 +1,33 @@
-import { Columns2, PanelRight, Rows2, X } from 'lucide-react'
+import { Columns2, PanelRight, Plus, Rows2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { displayChord } from '@/keys'
 import { useApp, useAppState } from '@/context'
 import { cn } from '@/lib/utils'
 import { hueStyle } from '@/hue'
-import { MAX_SIDE_PANES, tabKey } from '@/workspace'
+import { MAX_SIDE_PANES, projectTabs, tabKey, type TabRef } from '@/workspace'
+import { agentProject } from '@/sidebar'
+import { repoName } from '@/derive'
+import { AgentRole, type Agent } from '@/gen/agentmesh/v1/types_pb'
+import type { HostRuntime } from '@/model'
 import { useHostViews, useKeys } from '@/hooks'
 import { StateIcon } from './state-icon'
 import { Tip } from '@/components/ui/tooltip'
 
+/** The repo the run of `a` is led from (its root agent's), else its own. */
+function leadRepo(host: HostRuntime | undefined, a: Agent): string {
+  const agents = host?.store.getState().agents ?? {}
+  return Object.values(agents).find((x) => x.runId === a.runId && x.role === AgentRole.ROOT)?.repo || a.repo
+}
+
 /**
- * The agents open as tabs, across hosts: a click shows one, the × or a middle click closes it, the wheel scrolls the
+ * The open project's agents as tabs (one tab bar per project: opening an agent of another project shows that
+ * project's tabs, each project keeping its own): a click shows one, the × or a middle click closes it, the wheel scrolls the
  * strip, a drag onto another tab moves it there (onto an edge of the main pane, a split), and a double click on the
- * strip's empty space starts a new lead. The side panel's toggle sits at its end.
+ * strip's empty space or the + starts a new lead in the project. The side panel's toggle sits at its end.
  */
 export function TabBar() {
   const app = useApp()
-  const tabs = useAppState((s) => s.tabs)
+  const all = useAppState((s) => s.tabs)
   const hosts = useAppState((s) => s.hosts)
   const hostId = useAppState((s) => s.hostId)
   const agentId = useAppState((s) => s.agentId)
@@ -27,7 +38,15 @@ export function TabBar() {
   const views = useHostViews(hosts)
   const keys = useKeys(hosts)
   const many = hosts.length > 1
-  const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true)
+  // This project's tabs: those of the open agent's project (with none open, all of them).
+  const open = hostId && agentId ? { hostId, agentId } : undefined
+  const projectOf = (t: TabRef) => agentProject(t.hostId, views.find((v) => v.hostId === t.hostId)?.agents, t.agentId)
+  const tabs = projectTabs(all, projectOf, open)
+  const openAgent = open && views.find((v) => v.hostId === open.hostId)?.agents[open.agentId]
+  const runs = useAppState((s) => s.hosts.find((h) => h.info.id === hostId))
+  // A new lead goes in the open project (its host and the repo its run is led from).
+  const project = open && openAgent ? { hostId: open.hostId, repo: leadRepo(runs, openAgent) } : undefined
+  const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true, undefined, project)
   return (
     <div className="flex min-h-9 shrink-0 items-end border-b bg-surface px-1 pt-1">
     <div
@@ -121,6 +140,11 @@ export function TabBar() {
       })}
     </div>
     {tabs.length === 0 && <span className="self-center px-2 text-xs text-muted-foreground">No agent open</span>}
+    <Tip label={project ? `New lead in ${repoName(project.repo)}` : 'New lead'}>
+      <Button size="icon" variant="ghost" className="mb-1 ml-1 size-7" aria-label={project ? `New lead in ${repoName(project.repo)}` : 'New lead in this project'} onClick={newLead}>
+        <Plus />
+      </Button>
+    </Tip>
     {side.length > 0 && (
       <Tip label={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}>
         <button

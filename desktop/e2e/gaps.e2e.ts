@@ -47,7 +47,7 @@ test('a run is renamed in place, a held permission prompt is allowed from the ap
   // Type the fake CLI's `/perm` line in the worker's terminal, as a person would.
   await openFromSidebar(page, 'repo-fix')
   const panel = page.getByRole('article', { name: 'repo-fix' })
-  await panel.getByRole('tab', { name: 'terminal' }).click()
+  await panel.getByRole('button', { name: 'Terminal' }).click()
   await expect.poll(() => panel.getByTestId('terminal-status').innerText(), { timeout: 20_000 }).toBe('Live')
   await panel.getByTestId('terminal').click()
   await page.keyboard.type('/perm Bash rm -rf build')

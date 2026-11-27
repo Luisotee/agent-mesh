@@ -4,7 +4,7 @@ import { stepSidebar } from './components/project-sidebar'
 import { TERMINAL_SEARCH } from './keys'
 import { joinWaiting, ROLE_LABEL, statusSentence, type Waiting } from './derive'
 import { AgentRole, AgentState, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
-import type { AgentTab, AppModel, HostRuntime } from './model'
+import { shownTabs, type AgentTab, type AppModel, type HostRuntime } from './model'
 import { DEFAULT_KEYS, appKeys, type KeyedCommand } from './prefs'
 import { MAX_SIDE_PANES, cycleTab as nextTab } from './workspace'
 
@@ -39,7 +39,7 @@ export function waitingTargets(app: AppModel): Array<{ hostId: string; agentId: 
       hostId: h.info.id,
       agentId: w.agent.id,
       kind: w.kind,
-      tab: (w.kind === 'input' ? 'terminal' : 'messages') as AgentTab,
+      tab: (w.kind === 'input' ? 'terminal' : 'chat') as AgentTab,
       text: w.kind === 'plan' ? `${w.agent.name} sent a plan` : w.kind === 'question' ? `${w.agent.name} asked a question` : `${w.agent.name} is waiting in its terminal`,
     }))
   })
@@ -72,16 +72,16 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     dock: () => app.setDock(!st().dockOpen),
     chat_toggle: () => {
       const { agentId, tab } = st()
-      // From the chat to the terminal only where there is one (an exited agent has none): the panel would fall back
-      // to the overview, and the next press would go back to the chat.
+      // From the chat to the terminal only where there is one (an exited agent has none): the panel would show the
+      // chat still, and the next press would seem to do nothing.
       if (agentId && (tab === 'chat' ? hasOpenTerminal(app) : true)) app.setTab(tab === 'chat' ? 'terminal' : 'chat')
     },
     tab_next: () => {
-      const t = nextTab(st(), 1)
+      const t = nextTab(st(), 1, shownTabs(st()))
       if (t) app.selectAgent(t.hostId, t.agentId)
     },
     tab_prev: () => {
-      const t = nextTab(st(), -1)
+      const t = nextTab(st(), -1, shownTabs(st()))
       if (t) app.selectAgent(t.hostId, t.agentId)
     },
     tab_next_page: () => keyed.tab_next(),
@@ -104,7 +104,7 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     tab_6: () => goToTab(app, 5),
     tab_7: () => goToTab(app, 6),
     tab_8: () => goToTab(app, 7),
-    tab_last: () => goToTab(app, st().tabs.length - 1),
+    tab_last: () => goToTab(app, shownTabs(st()).length - 1),
     waiting_next: () => goToNextWaiting(app),
     search: () => app.openPalette(true),
     sidebar: () => app.setSidebarCollapsed(!st().sidebarCollapsed),
@@ -132,9 +132,9 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
   return keyed
 }
 
-/** Opens the open tab at a place in the strip (from 0), when there is one. */
+/** The tab at a place in the open project's tab bar (Mod+1…8, Mod+9 the last). */
 function goToTab(app: AppModel, at: number): void {
-  const t = app.store.getState().tabs[at]
+  const t = shownTabs(app.store.getState())[at]
   if (t) app.selectAgent(t.hostId, t.agentId)
 }
 
@@ -162,8 +162,8 @@ export function buildCommands(app: AppModel): Command[] {
   view('settings', s.settingsOpen ? 'Close the host settings' : 'Open the host settings', !!selected)
   view('dock', s.dockOpen ? 'Hide the live dock' : 'Show the live dock')
   view('chat_toggle', 'Switch the open agent between chat and terminal', !!s.agentId && (s.tab !== 'chat' || hasOpenTerminal(app)))
-  view('tab_next', 'Next tab', s.tabs.length > 1)
-  view('tab_prev', 'Previous tab', s.tabs.length > 1)
+  view('tab_next', 'Next tab', shownTabs(s).length > 1)
+  view('tab_prev', 'Previous tab', shownTabs(s).length > 1)
   view('tab_close', 'Close the open tab', !!s.agentId)
   view('tab_reopen', 'Open the last closed tab again', s.closedTabs.length > 0)
   view('tab_new', 'New lead in this project', !!selected)
@@ -273,7 +273,7 @@ function agentCommands(app: AppModel, h: HostRuntime, a: Agent, many: boolean, r
     ...extra,
   })
   cmds.push(act('Ring', ringAgent))
-  cmds.push(act('Retire', retireAgent, { confirm: `Retire ${a.name}? Its process stops and its conversation is kept; a message brings it back.` }))
+  cmds.push(act('Retire', retireAgent, { confirm: `Retire ${a.name}? Its process stops and its conversation is kept; a task or an answer brings it back.` }))
   cmds.push(act('Stop', stopAgent, { confirm: `Stop ${a.name}? Its process ends.` }))
   if (a.state === AgentState.LIMITED) cmds.push(act('Switch', switchToNextModel, { title: `Move ${a.name} to its next model${on}` }))
   if (hasPlan) cmds.push(act('Approve', approveAgent, { title: `Approve the plan of ${a.name}${on}`, confirm: `Approve ${a.name}'s plan? It goes on at its execution tier.` }))

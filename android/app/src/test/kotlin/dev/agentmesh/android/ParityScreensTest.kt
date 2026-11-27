@@ -123,7 +123,8 @@ class ParityScreensTest {
         show { AgentScreen(rt, "w1", {}, Tab.Chat) }
         waitForText("On it.")
         compose.onNodeWithText("fix the typo").assertIsDisplayed()
-        compose.onNodeWithText("From the mesh: task from lead").assertIsDisplayed()
+        // The mesh's own doorbell line gives way to the message's card once the run's messages are known.
+        compose.onAllNodesWithText("From the mesh: task from lead").assertCountEquals0()
         // Tool calls are folded until tapped.
         compose.onNodeWithText("Ran 1 tool: Bash").assertIsDisplayed()
         compose.onAllNodesWithText("no changes").assertCountEquals0()
@@ -171,7 +172,7 @@ class ParityScreensTest {
         val rt = host(worker.toBuilder().setState(AgentState.AGENT_STATE_RETIRED).build())
         show { AgentScreen(rt, "w1", {}, Tab.Chat) }
         waitForTag("prompt-why")
-        compose.onNodeWithText("The agent has stopped, so there is no terminal to type into. Message it from the Messages tab to bring it back.").assertIsDisplayed()
+        compose.onNodeWithText("The agent has stopped, so there is no terminal to type into. Send it a message from its details (⋯) to bring it back.").assertIsDisplayed()
     }
 
     @Test fun `a CLI the host reads no record for says to use the terminal`() {
@@ -267,7 +268,8 @@ class ParityScreensTest {
         NotificationsTest.api = api
         val rt = host(worker.toBuilder().setPendingReopen(Reopen.newBuilder().setModel("opus").setEffort("high").setWhy("moved")).build())
         show { AgentScreen(rt, "w1", {}) }
-        compose.onNodeWithTag("runs-on").assertIsDisplayed()
+        // The chip is one button that says what it runs on.
+        compose.onNodeWithTag("change-model").assertIsDisplayed()
         compose.onNodeWithText("claude · sonnet · high").assertIsDisplayed()
         compose.onNodeWithText("Switching to opus (moved)…").assertIsDisplayed()
         compose.onNodeWithTag("change-model").performClick()
@@ -313,6 +315,7 @@ class ParityScreensTest {
         val rt = host(worker)
         waitUntilState(rt) { "w1" in it.pullRequests }
         show { AgentScreen(rt, "w1", {}) }
+        compose.onNodeWithTag("details-open").performClick()
         compose.onNodeWithText("#7").assertIsDisplayed()
         compose.onNodeWithText("open · checks failing").assertIsDisplayed()
         compose.onNodeWithTag("hold").performClick()
@@ -336,6 +339,7 @@ class ParityScreensTest {
         val rt = host(worker, actor = ActorClass.ACTOR_CLASS_READ_ONLY_DEVICE)
         waitUntilState(rt) { "w1" in it.pullRequests }
         show { AgentScreen(rt, "w1", {}) }
+        compose.onNodeWithTag("details-open").performClick()
         compose.onNodeWithText("#7").assertIsDisplayed()
         compose.onAllNodesWithTag("hold").assertCountEquals0()
     }
@@ -456,6 +460,7 @@ class ParityScreensTest {
         val rt = host(worker)
         waitUntilState(rt) { "w1" in it.pullRequests }
         show { AgentScreen(rt, "w1", {}) }
+        compose.onNodeWithTag("details-open").performClick()
         compose.onNodeWithTag("hold").assertIsEnabled()
         rt.onState(ConnState.Reconnecting(1, System.currentTimeMillis() + 60_000, "gone"))
         compose.waitUntil(5_000) { runCatching { compose.onNodeWithTag("hold").assertIsNotEnabled() }.isSuccess }

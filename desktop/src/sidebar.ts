@@ -67,6 +67,14 @@ export interface ProjectRow {
 
 export const projectKey = (hostId: string, repo: string) => `${hostId}\n${repo}`
 
+/** The project an agent is in, as the sidebar files it: its host and the repo its run's lead works in (else its own). */
+export function agentProject(hostId: string, agents: Record<string, Agent> | undefined, agentId: string): string | undefined {
+  const a = agents?.[agentId]
+  if (!a) return undefined
+  const lead = Object.values(agents!).find((x) => x.runId === a.runId && x.role === AgentRole.ROOT)
+  return projectKey(hostId, lead?.repo || a.repo)
+}
+
 const alive = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
 const helper = (a: Agent) => a.role === AgentRole.REVIEWER || a.role === AgentRole.ASKER
 const ms = (t?: { seconds: bigint; nanos: number }) => (t ? Number(t.seconds) * 1000 + Math.floor(t.nanos / 1e6) : 0)

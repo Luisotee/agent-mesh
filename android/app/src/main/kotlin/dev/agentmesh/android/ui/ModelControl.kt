@@ -1,5 +1,6 @@
 package dev.agentmesh.android.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -14,6 +15,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -39,22 +41,27 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
- * The CLI, model and effort an agent runs on, a reopen under way, and (for a device that may act) a button to change
- * them: a tier, a model of the host's list for its CLI, or an effort alone. The host reopens the same conversation.
+ * The CLI, model and effort an agent runs on, as a chip of the top bar; for a device that may act, a tap opens the sheet that
+ * changes them (a tier, a model of the host's list for its CLI, or an effort alone: the host reopens the same conversation).
  */
 @Composable
-fun ModelLine(runtime: HostRuntime, agent: Agent, canChange: Boolean, modifier: Modifier = Modifier) {
+fun ModelChip(runtime: HostRuntime, agent: Agent, canChange: Boolean, modifier: Modifier = Modifier) {
     var open by androidx.compose.runtime.saveable.rememberSaveable(agent.id) { mutableStateOf(false) }
-    val pending = pendingText(agent)
-    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        VendorIcon(agent.kind, agent.model, size = 18.dp, modifier = Modifier.padding(end = 10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(runsOn(agent).ifEmpty { agent.kind }, Modifier.testTag("runs-on"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (pending.isNotEmpty()) Text(pending, Modifier.testTag("pending-switch"), style = MaterialTheme.typography.bodySmall, color = stateColors.needs)
-        }
-        if (canChange) TextButton(onClick = { open = true }, modifier = Modifier.testTag("change-model")) { Text("Change") }
+    val text = runsOn(agent).ifEmpty { agent.kind }
+    Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier.then(if (canChange) Modifier.clickable { open = true }.testTag("change-model") else Modifier),
+    ) {
+        Text(text, Modifier.padding(horizontal = 10.dp, vertical = 6.dp).testTag("runs-on"), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
     if (open) ChangeModelSheet(runtime, agent) { open = false }
+}
+
+/** A reopen under way ("Switching to …"); nothing when none is. */
+@Composable
+fun PendingSwitch(agent: Agent, modifier: Modifier = Modifier) {
+    val pending = pendingText(agent)
+    if (pending.isNotEmpty()) Text(pending, modifier.testTag("pending-switch"), style = MaterialTheme.typography.bodySmall, color = stateColors.needs)
 }
 
 private enum class By(val label: String) { Tier("A tier"), Model("A model"), Effort("Effort only") }

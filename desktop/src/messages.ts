@@ -7,7 +7,7 @@ const MAX_RETRIES = 5
 const RETRY_BASE_MS = 1000
 
 /**
- * Loads the stored messages of one run at a time, a page at a time, when the run's Messages tab is first shown: the
+ * Loads the stored messages of one run at a time, a page at a time, when a chat of the run is first shown: the
  * event stream starts from a snapshot, so what was said before the app connected comes only from `ListMessages`,
  * and nothing else in the app needs it (what waits on the user is `ListWaiting`). A run that loaded completely once
  * is topped up after its newest message when a later snapshot arrives; one that didn't starts over.
@@ -52,7 +52,7 @@ export function messageLoader(client: Pick<MeshClient, 'listMessages'>, store: H
         log(`couldn't load the messages of run ${runId}: ${e instanceof Error ? e.message : String(e)}`)
         if (!wanted.has(runId)) return
         if (!complete.has(runId)) store.setState(setMessageLoad(runId, 'failed'))
-        // The Messages tab reads the history: try again, a few times, with a growing wait.
+        // The chat reads the history: try again, a few times, with a growing wait.
         const n = retries.get(runId) ?? 0
         if (n < MAX_RETRIES) {
           retries.set(runId, n + 1)

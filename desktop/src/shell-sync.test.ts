@@ -123,7 +123,7 @@ it('turns live events into notifications by the host\'s own preferences, and cou
   push(sentEvent(1, m0, 3_600_000))
   push(sentEvent(2, m1))
   await vi.waitFor(() => expect(shell.notify).toHaveBeenCalledTimes(1))
-  expect(shell.notify.mock.calls[0]![0]).toEqual({ tag: 'h:w1', title: 'app-fix sent a plan', body: 'The plan do it', sound: true, hostId: 'h', agentId: 'w1', tab: 'messages' })
+  expect(shell.notify.mock.calls[0]![0]).toEqual({ tag: 'h:w1', title: 'app-fix sent a plan', body: 'The plan do it', sound: true, hostId: 'h', agentId: 'w1', tab: 'chat' })
   // Both plans wait (the old one is still unanswered), counted for the tray.
   await vi.waitFor(() => expect(shell.setWaiting).toHaveBeenLastCalledWith(2))
 
@@ -162,8 +162,8 @@ it('follows a change of the tray setting, and a click on a notification opens th
   hostStore.setState((s) => ({ settings: { ...s.settings, 'app.tray.close_to_tray': { ...s.settings['app.tray.close_to_tray']!, value: fromJson(ValueSchema, true) } } }))
   expect(shell.configure).toHaveBeenLastCalledWith({ closeToTray: true })
   const click = shell.onNotificationClick.mock.calls[0]![0] as (c: { hostId: string; agentId: string; tab: string }) => void
-  click({ hostId: 'h', agentId: 'w1', tab: 'messages' })
-  expect(model.store.getState()).toMatchObject({ hostId: 'h', agentId: 'w1', tab: 'messages', settingsOpen: false })
+  click({ hostId: 'h', agentId: 'w1', tab: 'chat' })
+  expect(model.store.getState()).toMatchObject({ hostId: 'h', agentId: 'w1', tab: 'chat', settingsOpen: false })
   // A click on a notification of a host that isn't there any more goes nowhere.
   click({ hostId: 'gone', agentId: 'x', tab: 'terminal' })
   expect(model.store.getState()).toMatchObject({ hostId: 'h', agentId: 'w1' })

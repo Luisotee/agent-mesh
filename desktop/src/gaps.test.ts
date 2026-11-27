@@ -65,12 +65,12 @@ describe('rankProjects', () => {
 })
 
 describe('splitAtEdge', () => {
-  const ws = (o: Partial<WorkspaceState> = {}): WorkspaceState & { hostId?: string; agentId?: string; tab: 'overview' } => ({ ...emptyWorkspace(), tab: 'overview', hostId: 'h', agentId: 'a', tabs: [{ hostId: 'h', agentId: 'a' }, { hostId: 'h', agentId: 'b' }], ...o })
+  const ws = (o: Partial<WorkspaceState> = {}): WorkspaceState & { hostId?: string; agentId?: string; tab: 'chat' } => ({ ...emptyWorkspace(), tab: 'chat', hostId: 'h', agentId: 'a', tabs: [{ hostId: 'h', agentId: 'a' }, { hostId: 'h', agentId: 'b' }], ...o })
   const b = { hostId: 'h', agentId: 'b' }
 
   it('puts the dropped agent beside the open one on the right or bottom edge, side by side or stacked', () => {
-    expect(splitAtEdge(ws(), b, 'right')).toMatchObject({ splitDir: 'row', side: [{ ...b, tab: 'overview' }] })
-    expect(splitAtEdge(ws(), b, 'bottom')).toMatchObject({ splitDir: 'column', side: [{ ...b, tab: 'overview' }] })
+    expect(splitAtEdge(ws(), b, 'right')).toMatchObject({ splitDir: 'row', side: [{ ...b, tab: 'chat' }] })
+    expect(splitAtEdge(ws(), b, 'bottom')).toMatchObject({ splitDir: 'column', side: [{ ...b, tab: 'chat' }] })
   })
   it('makes it the main pane on the left or top edge, and the open agent goes beside it', () => {
     const left = splitAtEdge(ws(), b, 'left')
@@ -87,7 +87,7 @@ describe('splitAtEdge', () => {
 })
 
 describe('the layout keeps dismissed tiles and pinned projects', () => {
-  const src = (o: Partial<LayoutSource> = {}): LayoutSource => ({ ...emptyWorkspace(), tab: 'overview', panelOpen: true, ...o })
+  const src = (o: Partial<LayoutSource> = {}): LayoutSource => ({ ...emptyWorkspace(), tab: 'chat', panelOpen: true, ...o })
 
   it('round-trips them for the hosts that are still there', () => {
     const l = parseLayout(JSON.stringify(layoutOf(src({ dismissed: { 'h/a': AgentState.IDLE, 'g/z': AgentState.EXITED }, pins: { h: ['/p/app', '/p/app'], g: ['/q'] } }))))!

@@ -3,6 +3,7 @@ import { keyedCommands } from './commands'
 import { useApp } from './context'
 import { isRecorder, matches, parseChord, type Chord } from './keys'
 import { appKeys, type KeyedCommand } from './prefs'
+import { FIELD_LETTERS } from './composer-keys'
 
 /** Whether the focus is in a terminal (xterm's input), where the shell owns Ctrl+letter keys. */
 const inTerminal = (t: EventTarget | null) => t instanceof Element && !!t.closest('.xterm')
@@ -13,28 +14,38 @@ const typing = (t: EventTarget | null) =>
 
 const letter = (c: Chord) => /^[A-Z]$/.test(c.key)
 
+/** Whether the focus is in a markdown field (`MarkdownField`), which takes Ctrl+B, I, E and K for itself. */
+const inMarkdown = (t: EventTarget | null) => t instanceof Element && !!t.closest('[data-markdown-field]')
+
 /**
  * The command a key press runs, if any. In a focused terminal a Mod+letter chord (Ctrl+W, Ctrl+C, Ctrl+K) goes to the
  * shell, and the same chord with Shift added runs the command (Ctrl+Shift+W closes the tab), as Windows Terminal does,
  * ahead of a command bound to that Shift form (Ctrl+Shift+T there is Ctrl+T's new lead, not Ctrl+Shift+T's reopen).
  * Only Ctrl is the shell's: a macOS terminal never sends Cmd keys to it, so a Cmd chord always runs its command.
+ * A markdown field keeps Ctrl+B, I, E and K (bold, italic, code, a link) the same way, Cmd included.
  * A chord without Ctrl or Meta (F2, Alt+ArrowDown) does nothing while the user types in a field or a terminal.
  */
 export function commandFor(e: KeyboardEvent, keys: Record<KeyedCommand, string>): KeyedCommand | undefined {
   const term = inTerminal(e.target)
   const ids = Object.keys(keys) as KeyedCommand[]
-  // In a terminal the Shift form stands for the Ctrl+letter command first, so each of those keeps a key there even
-  // when another command is bound to the Shift form itself: Ctrl+Shift+T is a new lead (Ctrl+T), not reopen the tab.
-  if (term && e.shiftKey) {
+  // In a terminal (or a markdown field) the Shift form stands for the command whose key it took, first, so each of
+  // those keeps a key there even when another command is bound to the Shift form itself: Ctrl+Shift+T in a terminal
+  // is a new lead (Ctrl+T), not reopen the tab.
+  const md = inMarkdown(e.target)
+  if ((term || md) && e.shiftKey) {
     for (const id of ids) {
       const chord = parseChord(keys[id])
-      if (chord && letter(chord) && chord.ctrl && !chord.shift && matches(e, { ...chord, shift: true })) return id
+      if (!chord || !letter(chord) || chord.shift) continue
+      // A terminal's shell takes every Ctrl+letter, Alt too (Ctrl+Alt+B is the panel's); a field only its four, bare.
+      const taken = term ? chord.ctrl : (chord.ctrl || chord.meta) && !chord.alt && FIELD_LETTERS.has(chord.key)
+      if (taken && matches(e, { ...chord, shift: true })) return id
     }
   }
   for (const id of ids) {
     const chord = parseChord(keys[id])
     if (!chord || !matches(e, chord)) continue
     if (term && letter(chord) && chord.ctrl && !chord.shift) continue
+    if (inMarkdown(e.target) && (chord.ctrl || chord.meta) && !chord.shift && !chord.alt && FIELD_LETTERS.has(chord.key)) continue
     if (!chord.ctrl && !chord.meta && typing(e.target)) continue
     return id
   }
