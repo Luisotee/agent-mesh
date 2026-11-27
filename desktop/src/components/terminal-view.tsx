@@ -6,7 +6,9 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { openShellTerminal, openTerminal } from '@/actions'
+import { addAttachment, openShellTerminal, openTerminal } from '@/actions'
+import { attachName, attachProblem, terminalAttachText } from '@/attachments'
+import { useApp, useHostState } from '@/context'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { HostRuntime } from '@/model'
@@ -58,6 +60,34 @@ export function TerminalView({ host, agentId = '', shellId = '', active }: { hos
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const root = useRef<HTMLDivElement>(null)
+  const app = useApp()
+  // An agent's terminal takes a pasted or dropped file: it is stored on the host and its path typed, as its CLI takes a file
+  // (`terminalAttachText`). A project shell has no agent to store it for.
+  const kind = useHostState(host, (s) => s.agents[agentId]?.kind ?? '')
+  const [sending, setSending] = useState(false)
+  const files = useRef<(files: File[]) => void>(undefined)
+  files.current = (list) => {
+    if (!agentId) return
+    if (!(state.kind === 'live' && state.input)) return app.notify('This terminal takes no typing, so a file can\'t be pasted into it.', 'error')
+    void (async () => {
+      setSending(true)
+      try {
+        for (const f of list) {
+          const problem = attachProblem(f)
+          if (problem) {
+            app.notify(`${f.name || 'The file'}: ${problem}`, 'error')
+            continue
+          }
+          const res = await addAttachment(host.client, agentId, attachName(f), new Uint8Array(await f.arrayBuffer()))
+          term.current?.paste(terminalAttachText(kind, res.path))
+        }
+      } catch (e) {
+        app.notify(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e), 'error')
+      } finally {
+        setSending(false)
+      }
+    })()
+  }
   useEffect(() => {
     const el = root.current
     const open = () => setSearching(true)
@@ -83,6 +113,26 @@ export function TerminalView({ host, agentId = '', shellId = '', active }: { hos
     t.loadAddon(new WebLinksAddon((_e, url) => window.desktop.openExternal(url)))
     t.open(el)
     term.current = t
+    // Before xterm's own handlers (a capture listener on its parent): a clipboard or drop that holds files is not text for it.
+    const onPaste = (e: ClipboardEvent) => {
+      const list = [...(e.clipboardData?.files ?? [])]
+      if (list.length === 0 || !agentId) return
+      e.preventDefault()
+      e.stopPropagation()
+      files.current?.(list)
+    }
+    const hasFiles = (e: DragEvent) => !!agentId && !!e.dataTransfer?.types.includes('Files')
+    const onDragOver = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault()
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      files.current?.([...e.dataTransfer!.files])
+    }
+    el.addEventListener('paste', onPaste, true)
+    el.addEventListener('dragover', onDragOver)
+    el.addEventListener('drop', onDrop)
     search.current = s
     // The size the host was told for this window (it clamps what it is told, and takes a resize only from a client with input rights),
     // so another client is blamed only when the host's size is below that.
@@ -147,6 +197,9 @@ export function TerminalView({ host, agentId = '', shellId = '', active }: { hos
       refit()
     })
     return () => {
+      el.removeEventListener('paste', onPaste, true)
+      el.removeEventListener('dragover', onDragOver)
+      el.removeEventListener('drop', onDrop)
       offTheme()
       clearTimeout(settle)
       ro.disconnect()
@@ -174,7 +227,7 @@ export function TerminalView({ host, agentId = '', shellId = '', active }: { hos
   return (
     <section ref={root} aria-label="Terminal" className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div className="flex items-center gap-2 text-xs">
-        <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}{shared && state.kind === 'live' ? ` (${shared})` : ''}</span>
+        <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}{shared && state.kind === 'live' ? ` (${shared})` : ''}{sending ? ', storing a file…' : ''}</span>
         <span className="flex-1" />
         {searching ? (
           <form
