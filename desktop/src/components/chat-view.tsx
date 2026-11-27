@@ -197,54 +197,70 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const dropper = useRef<Dropper>(null)
   const [dragging, setDragging] = useState(false)
   const drag = useRef(0)
-  const hasFiles = (e: React.DragEvent) => !!dropper.current?.allowed && e.dataTransfer.types.includes('Files')
+  const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes('Files')
 
   // What was just sent shows at once as the user's bubble ("sending…") and goes when the record has it: it is read again
-  // 0.3 s and 1.5 s after a send, and the host takes a moment to write it. `before` is how many prompts the record held
-  // then: one more is this one, whatever the CLI echoes of its text (an earlier identical prompt does not end it early,
-  // and a text it normalised does not leave it lingering).
-  const [sending, setSending] = useState<Array<{ id: number; body: string; before: number; at: number }>>([])
+  // 0.3 s and 1.5 s after a send, and the host takes a moment to write it. `seen` is what the window held then (the user
+  // prompts by id, and the last block): a user prompt that is new and comes AFTER that last block is this one, whatever
+  // the CLI echoes of its text. Older prompts loaded above it end nothing, and one sent before the first read waits for
+  // that read to say what was there.
+  type Seen = { users: Set<string>; last?: string }
+  const [sending, setSending] = useState<Array<{ id: number; body: string; at: number; seen?: Seen }>>([])
   const sendId = useRef(0)
-  const userBlocks = blocks.filter((b) => b.kind === 'user').length
+  const snapshot = (): Seen => ({ users: new Set(blocks.filter((b) => b.kind === 'user').map((b) => b.id)), last: blocks[blocks.length - 1]?.id })
   useEffect(() => {
     if (sending.length === 0) return
-    const recorded = Math.max(0, userBlocks - sending[0]!.before)
-    const left = sending.slice(recorded).filter((x) => Date.now() - x.at < 30_000)
-    if (left.length !== sending.length) setSending(left)
+    let next = sending
+    if (loaded && next.some((x) => !x.seen)) next = next.map((x) => (x.seen ? x : { ...x, seen: snapshot() }))
+    const first = next.find((x) => x.seen)?.seen
+    if (first) {
+      const from = first.last ? blocks.findIndex((b) => b.id === first.last) : -1
+      const fresh = blocks.slice(from + 1).filter((b) => b.kind === 'user' && !first.users.has(b.id)).length
+      let drop = fresh
+      next = next.filter((x) => !(x.seen && drop-- > 0))
+    }
+    next = next.filter((x) => Date.now() - x.at < 30_000)
+    if (next.length !== sending.length || next.some((x, i) => x !== sending[i])) setSending(next)
     // A bubble the record never shows (the prompt went nowhere) goes after the cap, even with nothing else changing.
     const t = setTimeout(() => setSending((cur) => cur.filter((x) => Date.now() - x.at < 30_000)), 30_000)
     return () => clearTimeout(t)
-  }, [userBlocks, sending])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, loaded, sending])
   const sentNow = (body: string, queuedAtOnce: boolean) => {
     follow()
-    if (!queuedAtOnce) setSending((cur) => [...cur, { id: ++sendId.current, body, at: Date.now(), before: userBlocks }])
+    if (!queuedAtOnce) setSending((cur) => [...cur, { id: ++sendId.current, body, at: Date.now(), seen: loaded ? snapshot() : undefined }])
   }
 
   // Scrolling: follow the end while the reader is at it; keep the place when earlier entries come in above. Sending
   // goes to the end whatever the reader was at, and a pill brings a reader who scrolled up back.
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
-  const anchor = useRef<{ height: number; top: number }>(undefined)
+  const anchor = useRef<{ height: number; top: number; start: bigint }>(undefined)
   const [followTick, setFollowTick] = useState(0)
   const follow = () => {
     stick.current = true
     setFollowTick((n) => n + 1)
   }
   const [away, setAway] = useState(false)
-  const seen = useRef(0)
+  // The last entry the reader has seen at the end: "new" is what came after it, so older pages loaded above count for nothing.
+  const seenLast = useRef<string | undefined>(undefined)
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
     if (anchor.current) {
-      el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height)
-      anchor.current = undefined
+      // Used once the earlier page is in (the start of the window moved), not by another redraw while it is out.
+      if (transcript.start !== anchor.current.start) {
+        el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height)
+        anchor.current = undefined
+      }
     } else if (stick.current) {
       el.scrollTop = el.scrollHeight
-      seen.current = items.length
+      seenLast.current = items[items.length - 1]?.id
       setAway(false)
     }
-  }, [transcript.entries, active, sending.length, queued.length, followTick, items.length])
-  const unseen = away ? Math.max(0, items.length - seen.current) : 0
+  }, [transcript.entries, transcript.start, active, sending.length, queued.length, followTick, items.length])
+  const seenAt = seenLast.current ? items.findIndex((i) => i.id === seenLast.current) : -1
+  const unseen = away ? Math.max(0, items.length - 1 - seenAt) : 0
   // Read on shortly after a prompt is sent (its turn shows within a second or so); not after the view is gone.
   const sendTimers = useRef<Array<ReturnType<typeof setTimeout>>>([])
   useEffect(() => () => sendTimers.current.forEach(clearTimeout), [])
@@ -253,7 +269,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   }
   const earlier = async () => {
     const el = scroller.current
-    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop }
+    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop, start: transcript.start }
     await loadEarlier()
   }
 
@@ -270,7 +286,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         setDragging(true)
       }}
       onDragOver={(e) => {
-        if (hasFiles(e)) e.preventDefault()
+        if (hasFiles(e) && dropper.current?.allowed) e.preventDefault()
       }}
       onDragLeave={(e) => {
         if (!hasFiles(e)) return
@@ -286,7 +302,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         dropper.current.attach(files)
       }}
     >
-      {dragging && (
+      {dragging && dropper.current?.allowed && (
         <div role="status" aria-label="Drop images" className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-md border-2 border-dashed border-identity bg-surface/80 text-sm font-medium">
           Drop images to attach
         </div>
@@ -298,7 +314,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         onScroll={(e) => {
           const el = e.currentTarget
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-          if (stick.current) seen.current = items.length
+          if (stick.current) seenLast.current = items[items.length - 1]?.id
           setAway(!stick.current)
         }}
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-md border bg-surface p-3"

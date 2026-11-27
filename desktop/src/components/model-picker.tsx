@@ -46,9 +46,11 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
     }
   }
   const pending = pendingText(agent)
+  // The listed family the agent runs on: the longest name its model contains (`gpt-5-codex` is not also `gpt-5`).
+  const current = families.filter((f) => !!agent.model && agent.model.toLowerCase().includes(f.toLowerCase())).sort((a, b) => b.length - a.length)[0]
   const entries: MenuEntry[] = [
     ...(tiers.length > 0 ? [{ heading: 'Tier' } as const, ...tiers.map((t) => ({ label: t, checked: agent.tier === t, onSelect: () => void pick({ tier: t }) }))] : []),
-    ...(families.length > 0 ? ['separator' as const, { heading: 'Model' }, ...families.map((f) => ({ label: f, checked: !!agent.model && agent.model.toLowerCase().includes(f.toLowerCase()), onSelect: () => void pick({ model: f }) }))] : []),
+    ...(families.length > 0 ? ['separator' as const, { heading: 'Model' }, ...families.map((f) => ({ label: f, checked: f === current, onSelect: () => void pick({ model: f }) }))] : []),
     'separator',
     { heading: 'Effort' },
     ...EFFORTS.map((x) => ({ label: x, checked: agent.effort === x, onSelect: () => void pick({ effort: x }) })),
@@ -68,7 +70,7 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
           className={cn('flex h-8 min-w-0 max-w-56 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-popup-open:bg-muted', pending && 'text-state-needs')}
         >
           <VendorIcon kind={agent.kind} model={agent.model} className="size-3.5" />
-          <span className="truncate" data-testid="model-chip">{pending ? pending.replace(/^Switching to /, '→ ').replace(/…$/, ' at next idle') : chipText(agent)}</span>
+          <span className="truncate" data-testid="model-chip">{pending ? pending.replace(/^Switching to /, '→ ').replace(/ \(.*\)…$|…$/, '') : chipText(agent)}</span>
           <ChevronDown aria-hidden className="size-3 shrink-0" />
         </button>
       }
