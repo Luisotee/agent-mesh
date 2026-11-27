@@ -334,10 +334,11 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
     val lead = r.lead
     val here = lead != null && current == (r.hostId to lead.id)
     var menu by remember { mutableStateOf(false) }
+    val canAdd = canAct && r.run.status == dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_OPEN
     Box {
         Row(
             Modifier.fillMaxWidth().then(if (here) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
-                .combinedClickable(onClick = { lead?.let { a.openAgent(r.hostId, it.id, Tab.Chat) } ?: run { menu = true } }, onLongClick = { menu = true })
+                .combinedClickable(enabled = lead != null || canAdd, onClick = { lead?.let { a.openAgent(r.hostId, it.id, Tab.Chat) } ?: run { menu = true } }, onLongClick = { menu = true })
                 .padding(start = 28.dp, end = 16.dp, top = 6.dp, bottom = 6.dp).testTag("lead-${r.run.id}"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -356,7 +357,7 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
         }
         // Held down, a run offers what a run can do (more with the row menus of the next change).
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text("Add an agent") }, enabled = canAct && r.run.status == dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_OPEN, onClick = { menu = false; a.addAgent(r.hostId, r.run.id) })
+            DropdownMenuItem(text = { Text("Add an agent") }, enabled = canAdd, onClick = { menu = false; a.addAgent(r.hostId, r.run.id) })
         }
     }
 }
@@ -402,7 +403,8 @@ private fun QuotaFooter(model: SidebarModel, active: Boolean, onUsage: (String) 
             LaunchedEffect(h.hostId, h.up, rt, active) {
                 // A host that is down has no reading to show: a frozen figure would pass for the current one.
                 if (!h.up || rt == null) { quotas.remove(h.hostId); return@LaunchedEffect }
-                if (!active) return@LaunchedEffect
+                // Out of view the reading goes: a reopened drawer shows nothing until a new one lands, not a stale figure.
+                if (!active) { quotas.remove(h.hostId); return@LaunchedEffect }
                 // Read while the drawer is in view and the app started, not for a drawer nobody can see.
                 lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                   while (true) {

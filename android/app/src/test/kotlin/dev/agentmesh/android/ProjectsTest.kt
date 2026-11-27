@@ -155,4 +155,10 @@ class ProjectsTest {
         assertEquals(95.0, lines.last().used, 0.0)
         assertFalse(quotaLines(usageView(GetUsageResponse.getDefaultInstance())).isNotEmpty())
     }
+
+    @Test fun `a typed path is made the way the runs name it`() {
+        assertEquals("/home/u/shop", dev.agentmesh.android.ui.normalPath("/home/u//shop/"))
+        assertEquals("/home/u/shop", dev.agentmesh.android.ui.normalPath("/home/u/./shop"))
+        assertEquals("C:\\work\\app", dev.agentmesh.android.ui.normalPath("C:\\work\\app\\"))
+    }
 }

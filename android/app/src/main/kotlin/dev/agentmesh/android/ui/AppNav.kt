@@ -110,8 +110,6 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     val reduced = LocalReducedMotion.current
     // The slide stands still under reduced motion.
     fun closeDrawer(then: () -> Unit) { scope.launch { if (reduced) drawer.snapTo(DrawerValue.Closed) else drawer.close() }; then() }
-    // System Back closes an open drawer first.
-    BackHandler(enabled = drawer.isOpen && !wide) { closeDrawer {} }
     val actions = SidebarActions(
         openAgent = { h, a, t -> closeDrawer { openAgent(h, a, t) } },
         home = { closeDrawer { nav.popBackStack(Routes.HOME, inclusive = false) } },
@@ -125,7 +123,12 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     val sheet: @Composable () -> Unit = { SidebarContent(model, current, actions, Modifier.statusBarsPadding(), active = wide || drawer.isOpen) }
     // One scrim dim and a slide; no alpha over the window. The menu button of a screen opens it.
     val openDrawer: (() -> Unit)? = if (wide || !hasDrawer) null else ({ scope.launch { if (reduced) drawer.snapTo(DrawerValue.Open) else drawer.open() }; Unit })
-    val content: @Composable () -> Unit = { Routed(nav, runtimes, model, openDrawer, ::openAgent, wide, onAddAgent = { h, r -> spawn = "$h\n\n$r" }) }
+    val content: @Composable () -> Unit = {
+        Routed(nav, runtimes, model, openDrawer, ::openAgent, wide, onAddAgent = { h, r -> spawn = "$h\n\n$r" })
+        // System Back closes an open (or opening) drawer first. Registered after the NavHost's own callback, so it wins over
+        // popping the agent; the scrim tap still animates under reduced motion (the drawer's own dismissal).
+        BackHandler(enabled = !wide && (drawer.targetValue == DrawerValue.Open || drawer.currentValue == DrawerValue.Open)) { closeDrawer {} }
+    }
     if (wide) {
         PermanentNavigationDrawer(drawerContent = { if (hasDrawer) PermanentDrawerSheet(Modifier.width(320.dp)) { sheet() } }, content = content)
     } else {

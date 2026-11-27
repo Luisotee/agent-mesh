@@ -101,11 +101,12 @@ fun HomeScreen(
             }
             if (live.isNotEmpty()) item(key = "live-header") { SectionHeader("Live runs") }
             items(live, key = { "run:${it.hostId}:${it.run.id}" }) { r ->
-                LeadCard(r, model.many, model.hosts.firstOrNull { it.hostId == r.hostId }?.name.orEmpty()) {
+                val canAdd = r.run.status == dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_OPEN && model.hosts.none { h -> h.hostId == r.hostId && h.readOnly }
+                LeadCard(r, model.many, model.hosts.firstOrNull { it.hostId == r.hostId }?.name.orEmpty(), canAdd) {
                     // A run with no agent yet offers to start one (when this device may).
                     val lead = r.lead
                     if (lead != null) onAgent(r.hostId, lead.id, Tab.Chat)
-                    else if (model.hosts.none { h -> h.hostId == r.hostId && h.readOnly }) onAddAgent(r.hostId, r.run.id)
+                    else if (canAdd) onAddAgent(r.hostId, r.run.id)
                 }
             }
             if (live.isEmpty() && !model.loading && model.waiting.isEmpty() && model.hosts.any { !it.loading }) item(key = "empty") {
@@ -117,12 +118,12 @@ fun HomeScreen(
 
 /** A live run as its lead: the project in its colour, what the lead is doing, and its workers and reviewers folded in. */
 @Composable
-private fun LeadCard(r: LeadRow, withHost: Boolean, hostName: String, onClick: () -> Unit) {
+private fun LeadCard(r: LeadRow, withHost: Boolean, hostName: String, canAdd: Boolean, onClick: () -> Unit) {
     val lead = r.lead
     val hue = LocalMeshTheme.current.hues[hueOf(lead?.repo.orEmpty()) - 1]
     val attention = r.needs > 0
     Card(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable(onClick = onClick).testTag("run-card"),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clickable(enabled = lead != null || canAdd, onClick = onClick).testTag("run-card"),
         colors = CardDefaults.cardColors(containerColor = if (attention) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {

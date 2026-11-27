@@ -129,4 +129,23 @@ class NarrowDrawerNavTest : DrawerNavBase() {
         compose.onNodeWithTag("sidebar").assertIsNotDisplayed()
         assertEquals(listOf("home"), stack())
     }
+
+    @Test fun `system Back on an agent closes the open drawer and leaves the agent where it is`() {
+        start()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("open-drawer").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.waitForIdle()
+        open("worker-w1")
+        compose.onNodeWithTag("open-drawer").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("sidebar").assertIsDisplayed()
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("sidebar").assertIsNotDisplayed()
+        assertEquals(listOf("home", agentRoute), stack())
+        // With the drawer closed, Back is the agent's: home.
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        assertEquals(listOf("home"), stack())
+    }
 }
