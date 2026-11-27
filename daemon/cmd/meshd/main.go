@@ -168,7 +168,7 @@ func main() {
 	// meshd again (its units restart on failure); otherwise meshd says a restart is needed.
 	var restarting atomic.Bool
 	var restart func()
-	if os.Getenv("INVOCATION_ID") != "" {
+	if underServiceManager() {
 		restart = func() {
 			restarting.Store(true)
 			stop()
@@ -256,4 +256,15 @@ func startTailnet(state, hostName, tsHost string, port uint, controlURL, keyFile
 		AuthKey:    authKey,
 		Logger:     log,
 	})
+}
+
+// underServiceManager says whether a service manager started this meshd, and so will start it again: systemd sets
+// INVOCATION_ID, but everything the unit launches inherits it, so meshd started by hand from a terminal that descends from
+// a unit would exit and stay down. The parent must be systemd itself.
+func underServiceManager() bool {
+	if os.Getenv("INVOCATION_ID") == "" {
+		return false
+	}
+	comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", os.Getppid()))
+	return err == nil && strings.TrimSpace(string(comm)) == "systemd"
 }

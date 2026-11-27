@@ -129,7 +129,7 @@ func todosOfLine(line []byte) ([]PlanItem, bool) {
 				st = "pending"
 			}
 			if len(c) > 200 {
-				c = c[:200]
+				c = strings.ToValidUTF8(c[:200], "") // cut inside a character: a proto string must stay valid UTF-8
 			}
 			out = append(out, PlanItem{Content: c, Status: st})
 		}

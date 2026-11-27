@@ -268,6 +268,24 @@ func TestSetTailnetWritesTheMarkerAndRestartsOnlyUnderAServiceManager(t *testing
 	}
 }
 
+// A retry of an applied request (the same mutation id) gets the first answer and restarts nothing again.
+func TestARetriedSetTailnetRestartsOnce(t *testing.T) {
+	restarts := make(chan struct{}, 4)
+	h := startWithConfig(t, daemon.Config{Restart: func() { restarts <- struct{}{} }})
+	for i := 0; i < 2; i++ {
+		res, err := h.device.Mesh.SetTailnet(context.Background(), connect.NewRequest(&v1.SetTailnetRequest{Meta: meta("once"), Enabled: true}))
+		if err != nil || !res.Msg.Restarting {
+			t.Fatalf("call %d: %v, %v", i, res, err)
+		}
+	}
+	<-restarts
+	select {
+	case <-restarts:
+		t.Error("a replay restarted meshd again")
+	case <-time.After(1500 * time.Millisecond):
+	}
+}
+
 func TestSetTailnetWithoutAServiceManagerSaysARestartIsNeeded(t *testing.T) {
 	h := startWithConfig(t, daemon.Config{})
 	res, err := h.device.Mesh.SetTailnet(context.Background(), connect.NewRequest(&v1.SetTailnetRequest{Meta: meta(""), Enabled: true}))

@@ -155,7 +155,8 @@ func (d *Daemon) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTail
 	marked := statErr == nil
 	running := d.cfg.Tailnet != nil
 	out := &v1.SetTailnetResponse{Enabled: running}
-	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSetTailnetProcedure, out, func(*store.Tx) error {
+	restart := false
+	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSetTailnetProcedure, out, func(*store.Tx) error {
 		switch {
 		case want && running && d.cfg.TailnetFromFlag:
 			out.Enabled, out.Note = true, "already on: meshd was started with --tailscale"
@@ -180,9 +181,13 @@ func (d *Daemon) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTail
 		}
 		if out.RestartNeeded && d.cfg.Restart != nil {
 			out.RestartNeeded, out.Restarting = false, true
-			time.AfterFunc(restartDelay, d.cfg.Restart)
+			restart = true
 		}
 		return nil
 	})
+	// Only once the write has committed, and never for a replay of an applied request: a failed call restarts nothing.
+	if err == nil && !replayed && restart {
+		time.AfterFunc(restartDelay, d.cfg.Restart)
+	}
 	return connect.NewResponse(out), err
 }
