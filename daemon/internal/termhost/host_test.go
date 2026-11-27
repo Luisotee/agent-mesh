@@ -73,11 +73,13 @@ type fixture struct {
 	done   chan error
 }
 
-func startHost(t *testing.T) *fixture {
+func startHost(t *testing.T) *fixture { return startHostGrace(t, -1) } // no grace: a leave grows the terminal at once
+
+func startHostGrace(t *testing.T, grow time.Duration) *fixture {
 	t.Helper()
 	dir := shortdir.New(t)
 	h, err := termhost.Open(termhost.Config{Dir: dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		KillGrace: 500 * time.Millisecond})
+		KillGrace: 500 * time.Millisecond, GrowGrace: grow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -682,4 +684,99 @@ func TestFocusReportsPassThroughButOnlyKeysCountAsTyping(t *testing.T) {
 	s.Input(ctx, []byte("mark\n"))
 	col.until(t, s, "mark")
 	waitFor("a typed line to count as typing", func(x *termv1.Terminal) bool { return x.LastClientInput != nil })
+}
+
+func (f *fixture) size(id string) (cols, rows uint32, epoch uint64) {
+	f.t.Helper()
+	l, err := f.c.API.ListTerminals(context.Background(), connect.NewRequest(&termv1.ListTerminalsRequest{}))
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	for _, x := range l.Msg.Terminals {
+		if x.Id == id {
+			return x.Cols, x.Rows, x.Epoch
+		}
+	}
+	f.t.Fatalf("no terminal %s", id)
+	return
+}
+
+// The smallest client leaving does not grow the terminal at once: for the grace period it stays at that client's size, so the
+// client coming back with an EXACT attach continues (same epoch, no repaint); after the grace the terminal grows, in a new epoch.
+func TestAClientThatLeavesAndComesBackInTheGraceKeepsItsExactAttach(t *testing.T) {
+	f := startHostGrace(t, 600*time.Millisecond)
+	term := f.spawn("echo")
+	ctx := context.Background()
+	big := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
+	var cb collector
+	cb.next(t, big)
+	small := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 20})
+	var cs collector
+	cs.next(t, small)
+	small.Ready(ctx)
+	small.Input(ctx, []byte("one\n"))
+	cs.until(t, small, "got:one\r\r\n")
+	epoch, offset := cs.epoch, cs.offset
+	small.Close()
+
+	// Gone, but the grace is running: the terminal has not grown, and has not moved its epoch.
+	time.Sleep(150 * time.Millisecond)
+	if c, r, e := f.size(term.Id); c != 60 || r != 20 || e != epoch {
+		t.Fatalf("in the grace the terminal is %dx%d in epoch %d, want 60x20 in %d", c, r, e, epoch)
+	}
+	back := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_EXACT, Epoch: epoch, Offset: offset, Cols: 60, Rows: 20})
+	var cbk collector
+	att := cbk.next(t, back).GetAttached()
+	if att.Mode != termv1.AttachMode_ATTACH_MODE_EXACT || att.Reanchored || att.Epoch != epoch || att.Offset != offset {
+		t.Fatalf("the return was answered %v, want an exact continue in epoch %d from offset %d", att, epoch, offset)
+	}
+	// Its return ended the wait: well after the grace, the terminal is still 60x20 in the same epoch.
+	time.Sleep(900 * time.Millisecond)
+	if c, r, e := f.size(term.Id); c != 60 || r != 20 || e != epoch {
+		t.Fatalf("after the return the terminal is %dx%d in epoch %d, want 60x20 in %d (the timer must not grow it)", c, r, e, epoch)
+	}
+
+	// Leaving for good: after the grace it grows, in a new epoch, and the client still there is told.
+	back.Close()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		c, r, e := f.size(term.Id)
+		if c == 100 && r == 30 && e > epoch {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal is %dx%d in epoch %d long after the grace, want 100x30 in a later epoch", c, r, e)
+		}
+	}
+	var told []*termv1.Resized // the 60x20 from when the small client came, then the growth
+	for len(told) == 0 || told[len(told)-1].Cols != 100 {
+		if r := cb.next(t, big).GetResized(); r != nil {
+			told = append(told, r)
+		}
+	}
+	if r := told[len(told)-1]; r.Rows != 30 || r.Epoch <= epoch || len(told) != 2 {
+		t.Errorf("the client left behind was told %v, want 60x20 and then, once, 100x30 in a later epoch than %d", told, epoch)
+	}
+}
+
+// A resize or a new client during the grace decides the size on the spot: the wait is over.
+func TestAnAttachInTheGraceEndsTheWait(t *testing.T) {
+	f := startHostGrace(t, time.Hour)
+	term := f.spawn("echo")
+	big := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
+	var cb collector
+	cb.next(t, big)
+	small := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 20})
+	var cs collector
+	cs.next(t, small)
+	small.Close()
+	time.Sleep(100 * time.Millisecond)
+	if c, _, _ := f.size(term.Id); c != 60 {
+		t.Fatalf("grew to %d inside the grace", c)
+	}
+	other := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 120, Rows: 40})
+	var co collector
+	at := co.next(t, other).GetAttached()
+	if at.Cols != 100 || at.Rows != 30 {
+		t.Errorf("a new client during the grace got %dx%d, want the smallest of those there, 100x30", at.Cols, at.Rows)
+	}
 }

@@ -608,6 +608,9 @@ func (d *Daemon) watchTerminals(ctx context.Context) {
 				switch f := stream.Msg().Frame.(type) {
 				case *termv1.WatchTerminalsResponse_Exited:
 					if f.Exited.Labels["kind"] == shellKind {
+						if err := d.shellEnded(ctx, f.Exited.Id, f.Exited.Labels["repo"], f.Exited.ExitCode); err != nil && ctx.Err() == nil {
+							d.log.Error("recording the end of a shell", "terminal", f.Exited.Id, "err", err)
+						}
 						if err := d.shellExited(ctx, f.Exited.Id); err != nil && ctx.Err() == nil {
 							d.log.Error("forgetting a shell", "terminal", f.Exited.Id, "err", err)
 						}

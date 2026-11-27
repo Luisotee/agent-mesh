@@ -400,6 +400,9 @@ func TestVisibleToShowsAViewerOnlyItsOwnTextBearingEvents(t *testing.T) {
 		{"its own reset notes", "me", &v1.Event{AgentId: "me", Payload: &v1.Event_RootResetRequested{RootResetRequested: &v1.RootResetRequested{}}}, true},
 		{"its own reopen", "me", &v1.Event{AgentId: "me", Payload: &v1.Event_AgentReopened{AgentReopened: &v1.AgentReopened{}}}, true},
 		{"a state change of another agent is metadata", "me", state, true},
+		{"a shell opened", "me", &v1.Event{Payload: &v1.Event_ShellOpened{ShellOpened: &v1.ShellOpened{Id: "t1", Repo: "/p"}}}, false},
+		{"a shell closed", "me", &v1.Event{Payload: &v1.Event_ShellClosed{ShellClosed: &v1.ShellClosed{Id: "t1"}}}, false},
+		{"a shell opened, for a device", "", &v1.Event{Payload: &v1.Event_ShellOpened{ShellOpened: &v1.ShellOpened{Id: "t1"}}}, true},
 	} {
 		if got := VisibleTo(c.viewer, c.ev); got != c.want {
 			t.Errorf("%s: %v, want %v", c.name, got, c.want)

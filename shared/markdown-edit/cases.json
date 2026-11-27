@@ -1,5 +1,5 @@
 {
-  "about": "The Markdown keys of a multi-line field, as cases for the desktop's composer-keys.ts and Android's MarkdownEdit.kt (Android's test reads this file; the desktop's can, TODO.md). `input` marks the cursor with | or the selection with « and »; `expected` is the field after the edit in the same marks, or null when the key is left to the field (Enter then sends on the desktop and adds a line on a phone; Tab moves the focus). `action` is one of: enter, tab, shift-tab, bold, italic, code, link.",
+  "about": "The Markdown keys of a multi-line field, as cases for the desktop's composer-keys.ts and Android's MarkdownEdit.kt (each side's test reads this file: Android's `MarkdownEditTest` and the desktop's `composer-keys.test.ts`). `input` marks the cursor with | or the selection with « and »; `expected` is the field after the edit in the same marks, or null when the key is left to the field (Enter then sends on the desktop and adds a line on a phone; Tab moves the focus). `action` is one of: enter, tab, shift-tab, bold, italic, code, link.",
   "cases": [
     { "name": "Enter on plain text is the field's own", "action": "enter", "input": "hello|", "expected": null },
     { "name": "Enter continues a dash list", "action": "enter", "input": "- one|", "expected": "- one\n- |" },

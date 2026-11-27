@@ -70,6 +70,9 @@ type Config struct {
 	Dir       string
 	RingSize  int
 	KillGrace time.Duration
+	// GrowGrace is how long the terminal stays small after the client that made it small leaves, so that client coming back
+	// at once (a dropped connection, an app resumed) continues exactly. 0 is DefaultGrowGrace; negative grows at once.
+	GrowGrace time.Duration
 	Logger    *slog.Logger
 	// NewScreen makes each terminal's emulator; tests may replace it.
 	NewScreen NewScreenFunc
@@ -103,6 +106,9 @@ func Open(cfg Config) (*Host, error) {
 	}
 	if cfg.KillGrace == 0 {
 		cfg.KillGrace = 3 * time.Second
+	}
+	if cfg.GrowGrace == 0 {
+		cfg.GrowGrace = DefaultGrowGrace
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -499,6 +505,8 @@ type Terminal struct {
 	lastOutput time.Time
 	lastInput  time.Time // newest input frame from a client with input rights
 	lastMark   time.Time
+	growTimer  *time.Timer // set while a leave's growth is waiting out the grace period
+	growGen    uint64      // moves whenever that wait is cancelled or ends, so a timer that fires late knows it is stale
 }
 
 func (t *Terminal) isExited() bool {
@@ -630,11 +638,13 @@ func (t *Terminal) closeClients(reason string) {
 	}
 }
 
-// resizeLocked sets the PTY to the smallest attached client's size. A change is a sync boundary: the epoch
-// moves, so an exact reattach from before it gets a repaint instead, and every attached client but `except` is
-// told (`Resized`). It reports whether the size changed.
-func (t *Terminal) resizeLocked(except *client) bool {
-	var cols, rows uint16
+// DefaultGrowGrace is how long a terminal stays at the size of a client that left before it grows. The clients reconnect
+// after 0.5 s (Android) or 1 s (desktop) and back off from there, so five seconds covers a drop and the next try or two; the
+// price is a terminal that is narrower than any client for that long after the smallest one really goes.
+const DefaultGrowGrace = 5 * time.Second
+
+// wantedSizeLocked is the smallest size of the attached clients that have one, or 0 when none does.
+func (t *Terminal) wantedSizeLocked() (cols, rows uint16) {
 	for c := range t.clients {
 		if c.cols == 0 || c.rows == 0 {
 			continue
@@ -646,11 +656,55 @@ func (t *Terminal) resizeLocked(except *client) bool {
 			rows = c.rows
 		}
 	}
+	return cols, rows
+}
+
+// cancelGrowLocked drops a growth that is waiting out the grace period.
+func (t *Terminal) cancelGrowLocked() {
+	t.growGen++
+	if t.growTimer != nil {
+		t.growTimer.Stop()
+		t.growTimer = nil
+	}
+}
+
+// resizeLocked sets the PTY to the smallest attached client's size. A change is a sync boundary: the epoch
+// moves, so an exact reattach from before it gets a repaint instead, and every attached client but `except` is
+// told (`Resized`). It reports whether the size changed. It also ends a growth that was waiting (`growAfterLeaveLocked`):
+// whatever it was waiting for has been decided now.
+func (t *Terminal) resizeLocked(except *client) bool {
+	t.cancelGrowLocked()
+	cols, rows := t.wantedSizeLocked()
 	if cols == 0 || (cols == t.cols && rows == t.rows) {
 		return false
 	}
 	t.setSizeLocked(cols, rows, except)
 	return true
+}
+
+// growAfterLeaveLocked is what a client leaving does to the size. The terminal can only grow (the leaver was the smallest
+// in width or height, or nothing changes), and a growth is a new epoch, so the leaver's EXACT attach would be stale on its
+// return. A leave that would grow the terminal waits `GrowGrace` for it: the timer runs the resize then, and any resize or
+// attach before it (which recomputes the size from the clients there are) ends the wait. Every client counts, a viewer too:
+// a viewer's size is in the minimum, and a phone reconnecting as a viewer loses its place the same way. A dead terminal never
+// resizes, so it needs no wait.
+func (t *Terminal) growAfterLeaveLocked() {
+	if t.cancelGrowLocked(); len(t.clients) == 0 {
+		return
+	}
+	cols, rows := t.wantedSizeLocked()
+	if t.h.cfg.GrowGrace < 0 || t.exited || cols == 0 || (cols == t.cols && rows == t.rows) {
+		t.resizeLocked(nil)
+		return
+	}
+	gen := t.growGen
+	t.growTimer = time.AfterFunc(t.h.cfg.GrowGrace, func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if t.growGen == gen && !t.exited {
+			t.resizeLocked(nil)
+		}
+	})
 }
 
 // setSizeLocked moves the terminal to a size, in a new epoch, and queues a Resized for every attached client but `except`,

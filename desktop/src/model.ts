@@ -13,13 +13,13 @@ import { applyFrame, createHostStore, setSettings, storeSink, type HostStore } f
 import type { Frame } from './connection'
 import { hostTransport } from './transport'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
-import type { Agent } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Event } from './gen/agentmesh/v1/types_pb'
 import type { ViewRequest } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole } from './gen/agentmesh/v1/types_pb'
 import { activate, cycleTab, closeTab, projectTabs, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
 import { agentProject } from './sidebar'
-import { isShellTab, shellIdOf, shellProject, shellTabId } from './shells'
+import { applyShellEvent, isShellTab, shellIdOf, shellProject, shellTabId } from './shells'
 import { closeShell as callCloseShell, listShells, openShell } from './actions'
 import type { Shell } from './gen/agentmesh/v1/mesh_pb'
 import type { DockNewAgents } from './prefs'
@@ -44,6 +44,8 @@ export interface HostHooks {
   spawned(hostId: string, agent: Agent, mode: DockNewAgents): void
   /** An agent or the CLI asked the app to show a view (`OpenView`), on a host whose `app.open_views` is `openViews`. */
   view(hostId: string, request: ViewRequest, openViews: boolean): void
+  /** A project shell of the host opened or ended (`ShellOpened`, `ShellClosed`). */
+  shell(hostId: string, event: Event): void
 }
 
 export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'shell'>, info: HostInfo, hooks?: HostHooks): HostRuntime {
@@ -64,6 +66,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
       sink.onFrame(f)
       if (f.case === 'event' && f.value.payload.case === 'settingChanged') pendingSettings.push(f)
       if (f.case === 'view') hooks?.view(info.id, f.value, appPrefs(before.settings).openViews)
+      if (f.case === 'event' && (f.value.payload.case === 'shellOpened' || f.value.payload.case === 'shellClosed')) hooks?.shell(info.id, f.value)
       if (f.case === 'event') refresher.event(f.value)
       else if (f.case === 'snapshot' || f.case === 'resumed') refresher.synced()
       if (f.case === 'event') {
@@ -360,9 +363,18 @@ export function createAppModel(api: DesktopApi): AppModel {
     const first = store.getState().hosts[0]
     api.shell.configure({ closeToTray: appPrefs(first?.store.getState().settings ?? {}).closeToTray })
   }
+  const shellEvents: Record<string, number> = {} // per host: the shell events seen, to notice one that came while ListShells was on its way
   const hooks: HostHooks = {
     spawned: (hostId, agent, mode) => set((s) => noteSpawned(s, { hostId, agentId: agent.id }, mode, Date.now())),
     view: (hostId, v, openViews) => offerView(model, hostId, v, openViews),
+    shell: (hostId, e) => {
+      shellEvents[hostId] = (shellEvents[hostId] ?? 0) + 1 // a listing on its way may predate it: loadShells asks again
+      set((s) => {
+        const was = s.shells[hostId]
+        const now = applyShellEvent(was, e.payload)
+        return now && now !== was ? { shells: { ...s.shells, [hostId]: now } } : s
+      })
+    },
   }
   // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
   let saved = ''
@@ -529,7 +541,13 @@ export function createAppModel(api: DesktopApi): AppModel {
       const h = store.getState().hosts.find((x) => x.info.id === hostId)
       if (!h) return
       try {
-        const res = await listShells(h.client)
+        // An event that came while the list was on its way may be missing from it (opened after the host read its shells): ask again.
+        let seen = shellEvents[hostId] ?? 0
+        let res = await listShells(h.client)
+        for (let tries = 0; tries < 3 && (shellEvents[hostId] ?? 0) !== seen; tries++) {
+          seen = shellEvents[hostId] ?? 0
+          res = await listShells(h.client)
+        }
         set((s) => {
           const shells = { ...s.shells, [hostId]: res.shells }
           const { [hostId]: _was, ...shellsError } = s.shellsError
