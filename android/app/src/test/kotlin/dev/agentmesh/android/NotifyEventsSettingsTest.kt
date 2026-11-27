@@ -73,13 +73,12 @@ class NotifyEventsSettingsTest {
         rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         container.prefs.setPush(true)
         container.pushRegistrar.onEndpoint(host.id, SavedEndpoint("https://ntfy.example/up?up=1", "pub", "auth"))
-        waitUntil { api.pushEvents.size >= 1 }
-        assertEquals(emptyList<String>(), api.pushEvents.last())
+        // Registrations come from the endpoint and from the connection: what is checked is what the host was last sent.
+        waitUntil { api.pushEvents.isNotEmpty() && api.pushEvents.last().isEmpty() }
         container.prefs.setNotifyEvents(setOf("plan", "limited"))
-        waitUntil { api.pushEvents.size >= 2 }
-        assertEquals(listOf("limited", "plan"), api.pushEvents.last())
+        waitUntil { api.pushEvents.lastOrNull() == listOf("limited", "plan") }
         container.prefs.setNotifyEvents(null)
-        waitUntil { api.pushEvents.size >= 3 }
+        waitUntil { api.pushEvents.lastOrNull()?.isEmpty() == true && api.pushEvents.size > 2 && api.pushEvents.any { it.isNotEmpty() } }
         assertEquals(emptyList<String>(), api.pushEvents.last())
     }
 
