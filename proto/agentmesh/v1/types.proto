@@ -33,6 +33,9 @@ message Run {
   Actor created_by = 5;
   // True when the user let this run go on past the quota reserve (`mesh reserve off`).
   bool over_reserve = 6;
+  // True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+  // tailnet, which only the host's own device may otherwise.
+  bool setup = 7;
 }
 
 // AgentRole is an agent's place in its run. It is also its token's actor class.

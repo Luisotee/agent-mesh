@@ -2,10 +2,11 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, app, ipcMain, session, shell } from 'electron'
-import type { BridgeEvent, BridgeRequest, NewHost, SocketEvent } from '../shared/api.js'
+import type { BridgeEvent, BridgeRequest, LocalFix, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
-import { Hosts, toInfo } from './hosts.js'
+import { Hosts } from './hosts.js'
 import { LinkInbox, PROTOCOL, linkIn, openedLink } from './links.js'
+import { Local } from './local.js'
 import { redeemPairing } from './pair.js'
 import { Shell } from './shell.js'
 import { validNotice } from './shell-rules.js'
@@ -19,6 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const userData = process.env.AGENT_MESH_DESKTOP_USERDATA
 if (userData) app.setPath('userData', userData)
 const hosts = new Hosts(path.join(app.getPath('userData'), 'hosts.json'), process.env.AGENT_MESH_DESKTOP_STATE, redeemPairing)
+const local = new Local(hosts)
 
 let mainWindow: BrowserWindow | undefined
 const appShell = new Shell(
@@ -60,9 +62,18 @@ function wire(): void {
   ipcMain.on('hosts:fixed', (e) => {
     e.returnValue = hosts.fixed
   })
-  ipcMain.handle('hosts:list', () => hosts.all().map(toInfo))
-  ipcMain.handle('hosts:add', async (_e, n: NewHost) => toInfo(await hosts.add(n)))
+  ipcMain.handle('hosts:list', () => hosts.all().map((h) => local.info(h)))
+  ipcMain.handle('hosts:add', async (_e, n: NewHost) => local.info(await hosts.add(n)))
   ipcMain.handle('hosts:remove', (_e, id: string) => hosts.remove(id))
+  ipcMain.handle('local:detect', () => (hosts.fixed ? [] : local.detect()))
+  ipcMain.handle('local:connect', async (_e, id: unknown) => {
+    if (typeof id !== 'string') throw new Error('no daemon given')
+    return local.connect(id)
+  })
+  ipcMain.handle('local:fix', (_e, id: unknown, fix: unknown) => {
+    if (typeof id !== 'string' || (fix !== 'start' && fix !== 'enable-listen')) throw new Error('no such fix')
+    return local.fix(id, fix as LocalFix)
+  })
   ipcMain.on('bridge:request', (e, id: unknown, hostId: unknown, req: BridgeRequest) => {
     if (typeof id !== 'string' || typeof hostId !== 'string') return
     const key = `${e.sender.id}:${id}`

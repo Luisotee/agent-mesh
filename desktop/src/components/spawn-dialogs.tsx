@@ -17,7 +17,7 @@ function message(e: unknown): string {
 }
 
 /** StartRun: a run is a title; its agents come after. */
-export function NewRunDialog({ host }: { host: HostRuntime }) {
+export function NewRunDialog({ host, label = 'New run', variant = 'secondary' }: { host: HostRuntime; label?: string; variant?: 'secondary' | 'outline' }) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [error, setError] = useState('')
@@ -38,8 +38,8 @@ export function NewRunDialog({ host }: { host: HostRuntime }) {
   }
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="secondary" />}>
-        <Plus /> New run
+      <DialogTrigger render={<Button size="sm" variant={variant} />}>
+        <Plus /> {label}
       </DialogTrigger>
       <DialogContent title="New run" description="A run groups a lead agent and its workers across repos.">
         <form onSubmit={submit} className="flex flex-col gap-3">

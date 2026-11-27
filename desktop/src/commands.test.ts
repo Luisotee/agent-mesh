@@ -34,7 +34,7 @@ function fixture(hostIds = ['h1']) {
     })
     return { info: { id, name: `host-${id}`, kind: 'state-dir', target: '/s' }, store, client: rec.client, connection: { stop: vi.fn() }, loadMessages: vi.fn(), stop: vi.fn() } as unknown as HostRuntime
   })
-  const api = { hosts: { list: async () => [], fixed: false }, request: vi.fn(), links: { take: async () => undefined, onOpen: vi.fn(() => () => {}) }, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
+  const api = { hosts: { list: async () => [], remove: vi.fn(async () => {}), fixed: false }, request: vi.fn(), links: { take: async () => undefined, onOpen: vi.fn(() => () => {}) }, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
   const model = createAppModel(api)
   model.store.setState({ loaded: true, hosts, hostId: hosts[0]!.info.id })
   return { model, rec, hosts }
@@ -83,7 +83,7 @@ describe('every command that touches a host goes through the registry actions', 
     expect(acting.length).toBeGreaterThan(5)
     for (const c of acting) await c.run(c.ask ? 'a title' : undefined)
     const used = new Set(rec.calls.map((c) => c.method))
-    expect([...used].sort()).toEqual(['approveAgent', 'retireAgent', 'ringAgent', 'startRun', 'stopAgent', 'switchAgent'])
+    expect([...used].sort()).toEqual(['approveAgent', 'retireAgent', 'ringAgent', 'startRun', 'startSetup', 'stopAgent', 'switchAgent'])
     for (const m of used) expect(UI_ACTIONS, m).toContain(m)
     // Each is a write that carries its idempotency key, and says which agent.
     expect(rec.calls.every((c) => (c.req.meta as { mutationId?: string }).mutationId)).toBe(true)
@@ -94,8 +94,23 @@ describe('every command that touches a host goes through the registry actions', 
 
   it('moving around calls the host for nothing', () => {
     const { model, rec } = fixture()
-    for (const c of buildCommands(model).filter((x) => x.group !== 'Actions')) c.run()
+    // (Removing a host asks to be confirmed first: it is the app's own, tested where it is.)
+    for (const c of buildCommands(model).filter((x) => x.group !== 'Actions' && !x.confirm)) c.run()
     expect(rec.calls).toEqual([])
+  })
+})
+
+describe('the setup and host commands', () => {
+  it('offers the setup assistant and removing a host, the second only after a confirmation', async () => {
+    const { model, rec, hosts } = fixture()
+    const by = Object.fromEntries(buildCommands(model).map((c) => [c.title, c]))
+    expect(by['Set up with the assistant']).toMatchObject({ group: 'Actions' })
+    expect(by['Remove host host-h1']!.confirm).toMatch(/daemon and its agents are untouched/)
+    await by['Remove host host-h1']!.run()
+    expect(model.api.hosts.remove).toHaveBeenCalledWith('h1')
+    expect(model.store.getState().hosts).toEqual([])
+    expect(rec.calls).toEqual([])
+    void hosts
   })
 })
 

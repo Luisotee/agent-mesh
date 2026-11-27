@@ -393,7 +393,10 @@ type Run struct {
 	// Who started it.
 	CreatedBy *Actor `protobuf:"bytes,5,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
 	// True when the user let this run go on past the quota reserve (`mesh reserve off`).
-	OverReserve   bool `protobuf:"varint,6,opt,name=over_reserve,json=overReserve,proto3" json:"over_reserve,omitempty"`
+	OverReserve bool `protobuf:"varint,6,opt,name=over_reserve,json=overReserve,proto3" json:"over_reserve,omitempty"`
+	// True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+	// tailnet, which only the host's own device may otherwise.
+	Setup         bool `protobuf:"varint,7,opt,name=setup,proto3" json:"setup,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -466,6 +469,13 @@ func (x *Run) GetCreatedBy() *Actor {
 func (x *Run) GetOverReserve() bool {
 	if x != nil {
 		return x.OverReserve
+	}
+	return false
+}
+
+func (x *Run) GetSetup() bool {
+	if x != nil {
+		return x.Setup
 	}
 	return false
 }
@@ -3347,7 +3357,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\vmutation_id\x18\x01 \x01(\tR\n" +
 	"mutationId\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xee\x01\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\x84\x02\n" +
 	"\x03Run\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12/\n" +
@@ -3356,7 +3366,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x122\n" +
 	"\n" +
 	"created_by\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\tcreatedBy\x12!\n" +
-	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\"\xe3\v\n" +
+	"\fover_reserve\x18\x06 \x01(\bR\voverReserve\x12\x14\n" +
+	"\x05setup\x18\a \x01(\bR\x05setup\"\xe3\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +

@@ -163,6 +163,11 @@ func SetBackgroundGrace(d time.Duration) time.Duration {
 	return old
 }
 
+// ReminderText is what a session of agent a that started again (source: compact, clear or resume) is told.
+func (d *Daemon) ReminderText(ctx context.Context, a *v1.Agent, source string) string {
+	return d.reminderText(ctx, a, source)
+}
+
 // RecordStopped records an agent's exit as StopAgent does for one whose process is already gone.
 func (d *Daemon) RecordStopped(ctx context.Context, agentID string) error {
 	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {

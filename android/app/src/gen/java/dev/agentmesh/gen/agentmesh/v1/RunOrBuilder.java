@@ -84,4 +84,15 @@ public interface RunOrBuilder extends
    * @return The overReserve.
    */
   boolean getOverReserve();
+
+  /**
+   * <pre>
+   * True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
+   * tailnet, which only the host's own device may otherwise.
+   * </pre>
+   *
+   * <code>bool setup = 7 [json_name = "setup"];</code>
+   * @return The setup.
+   */
+  boolean getSetup();
 }

@@ -46,6 +46,11 @@ const api: DesktopApi = {
       return () => ipcRenderer.removeListener('links:open', handler)
     },
   },
+  local: {
+    detect: () => ipcRenderer.invoke('local:detect'),
+    connect: (id) => ipcRenderer.invoke('local:connect', id),
+    fix: (id, fix) => ipcRenderer.invoke('local:fix', id, fix),
+  },
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
   shell: {
     notify: (n) => ipcRenderer.send('shell:notify', n),

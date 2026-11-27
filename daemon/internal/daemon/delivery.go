@@ -598,6 +598,9 @@ func (d *Daemon) protocolPointer(a *v1.Agent) string {
 	}
 	protocol := filepath.Join(share, "protocol")
 	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
+		if d.isSetupRun(d.store.Read(context.Background()), a.RunId) {
+			return " (first one here: read " + filepath.Join(protocol, "PROTOCOL.md") + " once, then " + filepath.Join(protocol, setupFile) + ", and follow it)"
+		}
 		return " (first one here: read " + filepath.Join(protocol, "ROOT_CARD.md") + " and follow it)"
 	}
 	return " (first one here: read " + filepath.Join(protocol, "PROTOCOL.md") + " once, and follow it)"

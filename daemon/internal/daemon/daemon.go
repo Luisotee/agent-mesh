@@ -131,6 +131,7 @@ type Daemon struct {
 	notify func(agentID string)
 	rt     *runtime
 
+	setupMu    sync.Mutex // StartSetup, so two callers make one setup run
 	streamsMu  sync.Mutex
 	streams    map[string]map[uint64]context.CancelFunc
 	nextStream uint64

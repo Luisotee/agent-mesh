@@ -1,3 +1,4 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { DesktopApi, HostInfo, NewHost, SocketEvent, SocketHandle } from '../shared/api'
 import { joinWaiting } from './derive'
@@ -7,7 +8,7 @@ import { messageLoader } from './messages'
 import { hostRefresher } from './refresh'
 import { isLive, noticeFor } from './notify'
 import { appPrefs } from './prefs'
-import { listSettings } from './actions'
+import { listSettings, startSetup } from './actions'
 import { applyFrame, createHostStore, setSettings, storeSink, type HostStore } from './store'
 import type { Frame } from './connection'
 import { hostTransport } from './transport'
@@ -118,6 +119,10 @@ export interface AppState extends WorkspaceState {
   watchOpen: boolean
   /** The command palette is open. */
   paletteOpen: boolean
+  /** The app started with no host and hasn't yet looked for one on this machine: the first-run screen connects by itself, once. */
+  firstRun: boolean
+  /** Why the setup agent couldn't be opened, and on which host (shown in that host's empty pane only). */
+  setupError?: { hostId: string; message: string }
   /** How the sidebar groups the agents. */
   sidebarGroup: SidebarGroup
   /** The side panel beside the open agent is shown. */
@@ -140,6 +145,10 @@ export interface AppModel {
   api: DesktopApi
   load(): Promise<void>
   addHost(h: NewHost): Promise<void>
+  /** Connects to the daemon found on this machine (`api.local`) and saves it as a host; `setup`: opens the setup chat on it. */
+  connectLocal(id: string, setup?: boolean): Promise<void>
+  /** Opens the chat with the setup agent of a host, starting it if it isn't running. */
+  openSetup(hostId: string): Promise<void>
   removeHost(id: string): Promise<void>
   selectHost(id: string): void
   selectAgent(hostId: string, agentId: string | undefined, tab?: AgentTab): void
@@ -172,9 +181,16 @@ export interface AppModel {
   openUsage(open: boolean): void
 }
 
+/** What went wrong opening the setup agent, in words the user can act on. */
+export function setupMessage(e: unknown): string {
+  const err = ConnectError.from(e)
+  if (err.code === Code.Unimplemented) return "This host's daemon is older than the app and doesn't have the setup assistant yet: update it (run ./install.sh in the agent-mesh checkout), then try again."
+  return err.rawMessage || err.message
+}
+
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, firstRun: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -238,6 +254,18 @@ export function createAppModel(api: DesktopApi): AppModel {
     // A click on a notification of a host that has since been removed goes nowhere.
     if (store.getState().hosts.some((h) => h.info.id === c.hostId)) set((s) => ({ ...activate(s, c.hostId, c.agentId, c.tab), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false }))
   })
+  /** Takes a host the main process saved and connects to it; `openSetup`: opens the setup chat. */
+  async function adopt(info: HostInfo, openSetup = false) {
+    const rt = connectHost(api, info, hooks)
+    watch(rt)
+    set((s) => ({ hosts: [...s.hosts, rt], hostId: info.id, agentId: undefined, firstRun: false }))
+    recount()
+    configure()
+    // The first run's connection is a new install: the first thing the user sees is the assistant. A host added any
+    // other way (by hand, or through the add dialog's "Look for a daemon") may have weeks of runs: starting an agent
+    // there is the user's call (the empty pane offers it).
+    if (openSetup) void model.openSetup(info.id)
+  }
   let loading: Promise<void> | undefined
   async function loadHosts() {
     try {
@@ -252,7 +280,7 @@ export function createAppModel(api: DesktopApi): AppModel {
       }
       const back = layout ? restoreOf(layout, new Set(hosts.map((h) => h.info.id))) : {}
       saved = layout ? JSON.stringify(layout) : ''
-      set({ ...back, loaded: true, hosts, hostId: back.hostId ?? hosts[0]?.info.id, error: undefined })
+      set({ ...back, loaded: true, hosts, hostId: back.hostId ?? hosts[0]?.info.id, error: undefined, firstRun: hosts.length === 0 && !api.hosts.fixed })
       restored = true
       recount()
       configure()
@@ -260,18 +288,30 @@ export function createAppModel(api: DesktopApi): AppModel {
       set({ loaded: true, error: String(e) })
     }
   }
-  return {
+  const model: AppModel = {
     store,
     api,
     // Once: a second call (React's strict mode runs effects twice) must not open every connection again.
     load: () => (loading ??= loadHosts()),
     async addHost(h) {
-      const info = await api.hosts.add(h)
-      const rt = connectHost(api, info, hooks)
-      watch(rt)
-      set((s) => ({ hosts: [...s.hosts, rt], hostId: info.id, agentId: undefined }))
-      recount()
-      configure()
+      await adopt(await api.hosts.add(h))
+    },
+    async connectLocal(id, setup = false) {
+      await adopt(await api.local.connect(id), setup)
+    },
+    async openSetup(hostId) {
+      const host = store.getState().hosts.find((h) => h.info.id === hostId)
+      if (!host) return
+      try {
+        const { agent, run } = await startSetup(host.client)
+        if (!agent) throw new Error('the host started no agent')
+        // Put them in the host's state now, so the tab doesn't say "not on this host" until the event arrives.
+        host.store.setState((st) => ({ agents: { ...st.agents, [agent.id]: agent }, runs: run ? { ...st.runs, [run.id]: run } : st.runs }))
+        set((st) => ({ setupError: st.setupError?.hostId === hostId ? undefined : st.setupError }))
+        set((st) => ({ ...activate(st, hostId, agent.id, 'chat'), hostId, settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false }))
+      } catch (e) {
+        set({ setupError: { hostId, message: setupMessage(e) } })
+      }
     },
     async removeHost(id) {
       await api.hosts.remove(id)
@@ -316,4 +356,5 @@ export function createAppModel(api: DesktopApi): AppModel {
       if (state !== undefined) set((s) => ({ dismissed: { ...s.dismissed, [tabKey({ hostId, agentId })]: state } }))
     },
   }
+  return model
 }
