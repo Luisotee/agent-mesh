@@ -123,7 +123,11 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	stoppedAsker := w.waitState(asker.Id, v1.AgentState_AGENT_STATE_RETIRED)
 	agyWorker = w.waitState(agyWorker.Id, v1.AgentState_AGENT_STATE_RETIRED)
 
-	// Stopped agent with PendingReopen set must be refused just like a running reopening agent.
+	// Stopped agent with PendingReopen set must be refused just like a running reopening agent. Its run is closed, so
+	// the daemon's retry tick would cancel the stored reopen ("its run is closed") the moment it ran a delivery for
+	// the agent, and OpenAgent would find none: the agent's delivery lock keeps the tick out until the check is made.
+	release := w.d.HoldDeliveries(stoppedAsker.Id)
+	defer release()
 	if err := w.d.Store().Write(ctx, &v1.Actor{Id: "test", Class: v1.ActorClass_ACTOR_CLASS_DEVICE}, "", func(tx *store.Tx) error {
 		cur, gerr := tx.GetAgent(stoppedAsker.Id)
 		if gerr != nil {
@@ -147,6 +151,7 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	release()
 
 	if _, err := os.Stat(stoppedAsker.Worktree); !os.IsNotExist(err) {
 		// Remove worktree explicitly if still around so recreation path is exercised too.

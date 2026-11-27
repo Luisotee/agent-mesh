@@ -2,6 +2,7 @@ package hook
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -397,5 +398,58 @@ func TestAPermissionRequestForAPlanOrAQuestionAsksNoOne(t *testing.T) {
 		if (err != nil) != tc.wantErr || out.Len() != 0 {
 			t.Errorf("%s: err = %v, printed %q", tc.tool, err, out.String())
 		}
+	}
+}
+
+// A kill by pattern is refused for every agent, the ones with no deny rule too, with the daemon down; a person's
+// own session (check-only) and a payload it can't read pass (it fails open, unlike the read-only rules).
+func TestAPatternKillIsDeniedForEveryAgent(t *testing.T) {
+	_, o := setup(t)
+	claudeCall := func(cmd string) string {
+		b, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": cmd}})
+		return string(b)
+	}
+	agyCall := func(cmd string) string {
+		b, _ := json.Marshal(map[string]any{"toolCall": map[string]any{"name": "run_command", "args": map[string]string{"CommandLine": cmd}}})
+		return string(b)
+	}
+	for _, c := range []struct {
+		name, kind, stdin, want string
+		deny, checkOnly         bool
+		event                   string
+	}{
+		{"claude pkill", "claude", claudeCall(`pkill -f "sleep 30"`), `"permissionDecision":"deny"`, false, false, "PreToolUse"},
+		{"claude kill $(pgrep)", "claude", claudeCall(`kill -9 $(pgrep -f sleep)`), "pgrep", false, false, "PreToolUse"},
+		{"claude read-only", "claude", claudeCall(`killall node`), "killall", true, false, "PreToolUse"},
+		{"agy pkill", "agy", agyCall(`pkill sleep`), `"decision":"deny"`, false, false, "PreToolUse"},
+		{"agy read-only", "agy", agyCall(`sudo killall x`), `"decision":"deny"`, true, false, "PreToolUse"},
+		{"claude kill by pid", "claude", claudeCall(`kill 1234`), "", false, false, "PreToolUse"},
+		{"claude pgrep -P", "claude", claudeCall(`kill $(pgrep -P 1234)`), "", false, false, "PreToolUse"},
+		{"agy kill by pid", "agy", agyCall(`kill -9 $!`), "", false, false, "PreToolUse"},
+		{"a person's agy session", "agy", agyCall(`pkill sleep`), "", true, true, "PreToolUse"},
+		{"unreadable", "claude", `{not json`, "", false, false, "PreToolUse"},
+		{"another tool", "claude", `{"tool_name":"Read","tool_input":{"command":"pkill x"}}`, "", false, false, "PreToolUse"},
+		{"another event", "claude", claudeCall(`pkill x`), "", false, false, "PostToolUse"},
+	} {
+		var out bytes.Buffer
+		o.Kind, o.Event, o.Stdout, o.DenyPublish, o.CheckOnly = c.kind, c.event, &out, c.deny, c.checkOnly
+		o.Cwd, o.DenyPaths = t.TempDir(), nil
+		o.Stdin = strings.NewReader(c.stdin)
+		_ = Run(o)
+		if c.want == "" && out.Len() != 0 || c.want != "" && !strings.Contains(out.String(), c.want) {
+			t.Errorf("%s: printed %q, want %q", c.name, out.String(), c.want)
+		}
+		// agy's writer hook script passes on only a denial that starts like this (adapter/agy, HooksJSON).
+		if c.kind == "agy" && c.want != "" && !strings.HasPrefix(out.String(), `{"decision":"deny"`) {
+			t.Errorf("%s: the denial does not start with the prefix the agy hook script looks for: %q", c.name, out.String())
+		}
+	}
+	// An oversized payload is let through, as the check can't read it (the read-only rules would deny it).
+	var out bytes.Buffer
+	o.Kind, o.Event, o.Stdout, o.DenyPublish, o.CheckOnly = "claude", "PreToolUse", &out, false, false
+	o.Stdin = strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"pkill x","x":"` + strings.Repeat("x", MaxPayload) + `"}}`)
+	_ = Run(o)
+	if out.Len() != 0 {
+		t.Errorf("an oversized payload printed %q", out.String())
 	}
 }

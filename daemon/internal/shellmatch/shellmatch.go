@@ -12,7 +12,7 @@ import (
 // and local inspection. `*` is any verb of the group, and a group with only `*` and no verb is the command
 // itself (`gh status`). Everything else is a publish (a create, comment, review, merge, close, edit, delete, a
 // workflow run, a secret set, an extension, an alias), so a gh command added later is denied until listed here.
-// `git push` and gh api writes are matched apart (matchPublishTokens, matchGh).
+// `git push` and gh api writes are matched apart (publishFinal, matchGh).
 var ghReads = map[string]map[string]bool{
 	"pr":          {"list": true, "view": true, "diff": true, "checks": true, "status": true},
 	"issue":       {"list": true, "view": true, "status": true},
@@ -52,9 +52,13 @@ const maxShellDepth = 4
 // and `$(…)` is unwrapped (variable assignments, `env`, `sudo`, `nohup`, `timeout`, `xargs` and the like, `sh -c`
 // and `eval` strings) and its command checked. It guards against an agent's honest mistake, not a determined one
 // (a script it writes, a git alias): the role's prompt says what it may do.
-func MatchPublishCommand(cmdline string) string { return matchPublishDepth(cmdline, 0) }
+func MatchPublishCommand(cmdline string) string { return matchLine(cmdline, 0, publishFinal) }
 
-func matchPublishDepth(cmdline string, depth int) string {
+// finalMatch judges a command once its wrappers are stripped: tokens[0] is the command, and piped says an `xargs`
+// fed it its arguments.
+type finalMatch func(tokens []string, piped bool) string
+
+func matchLine(cmdline string, depth int, final finalMatch) string {
 	if depth > maxShellDepth {
 		return ""
 	}
@@ -66,7 +70,7 @@ func matchPublishDepth(cmdline string, depth int) string {
 		if len(fields) == 0 {
 			continue
 		}
-		if matched := matchPublishTokens(fields, depth); matched != "" {
+		if matched := matchTokens(fields, depth, final); matched != "" {
 			return matched
 		}
 	}
@@ -146,7 +150,8 @@ var wrapperValueFlags = map[string]map[string]bool{
 
 var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "mksh": true, "ash": true, "busybox": true}
 
-func matchPublishTokens(tokens []string, depth int) string {
+func matchTokens(tokens []string, depth int, final finalMatch) string {
+	piped := false
 	for len(tokens) > 0 {
 		if assignmentRE.MatchString(tokens[0]) || shellKeywords[tokens[0]] {
 			tokens = tokens[1:]
@@ -158,7 +163,7 @@ func matchPublishTokens(tokens []string, depth int) string {
 		}
 		name := filepath.Base(tokens[0])
 		if name == "eval" {
-			return matchPublishDepth(strings.Join(tokens[1:], " "), depth+1)
+			return matchLine(strings.Join(tokens[1:], " "), depth+1, final)
 		}
 		if shells[name] {
 			args := tokens[1:]
@@ -172,7 +177,7 @@ func matchPublishTokens(tokens []string, depth int) string {
 					i++
 				case strings.HasPrefix(t, "-") && !strings.HasPrefix(t, "--") && strings.ContainsRune(t, 'c'):
 					if i+1 < len(args) {
-						return matchPublishDepth(args[i+1], depth+1)
+						return matchLine(args[i+1], depth+1, final)
 					}
 					return ""
 				case strings.HasPrefix(t, "-") || strings.HasPrefix(t, "+"):
@@ -187,10 +192,11 @@ func matchPublishTokens(tokens []string, depth int) string {
 			break
 		}
 		tokens = tokens[1:]
+		piped = piped || name == "xargs"
 		for len(tokens) > 0 {
 			t := tokens[0]
 			if name == "env" && (t == "-S" || t == "--split-string") && len(tokens) > 1 {
-				return matchPublishDepth(strings.Join(tokens[1:], " "), depth+1)
+				return matchLine(strings.Join(tokens[1:], " "), depth+1, final)
 			}
 			if name == "env" && assignmentRE.MatchString(t) {
 				tokens = tokens[1:]
@@ -212,6 +218,14 @@ func matchPublishTokens(tokens []string, depth int) string {
 			tokens = tokens[1:] // its duration
 		}
 	}
+	if len(tokens) == 0 {
+		return ""
+	}
+	return final(tokens, piped)
+}
+
+// publishFinal is the check of MatchPublishCommand: `git push` and a gh write.
+func publishFinal(tokens []string, _ bool) string {
 	if len(tokens) < 2 {
 		return ""
 	}
