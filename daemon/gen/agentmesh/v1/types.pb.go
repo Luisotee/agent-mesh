@@ -1920,8 +1920,9 @@ type QueuedPrompt struct {
 	// human's draft is in the agent's box), "typing" (someone types in its terminal), "no_box" (its screen shows no
 	// input box), or empty when it is due. Set by ListPrompts; the queue's order is the order they are typed in.
 	Held string `protobuf:"bytes,6,opt,name=held,proto3" json:"held,omitempty"`
-	// With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-	// to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+	// With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+	// 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+	// ListPrompts and by the answer that queued the prompt; never in the event log.
 	HeldText      string `protobuf:"bytes,7,opt,name=held_text,json=heldText,proto3" json:"held_text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

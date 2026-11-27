@@ -278,7 +278,7 @@ func TestASendOverAConfirmedDraftClearsItAndTypesThePrompt(t *testing.T) {
 	}
 	// A retry with the same mutation id is the first answer, not a second send.
 	again, err := h.sendAnyway(a.Id, p.Id, p.HeldText, "over-1")
-	if err != nil || again.Discarded != "half a thou" {
+	if err != nil || again.Discarded != "" { // the stored answer does not keep the draft
 		t.Errorf("the retry: %v, %v", again, err)
 	}
 }
@@ -342,4 +342,27 @@ func TestASendOverADraftWhileSomeoneTypesAndOtherRefusals(t *testing.T) {
 		return err == nil
 	})
 	h.waitTranscript(a.Id, "hello")
+}
+
+func TestASendOverADraftIsForTheOldestPromptAndNotForALongDraft(t *testing.T) {
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_BOX": "1"})
+	h.typeInto(a, "half a thou")
+	for _, text := range []string{"first", "second"} {
+		if err := h.prompt(a.Id, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitFor(t, "both queued behind the draft", func() bool {
+		q := h.prompts(a.Id)
+		return len(q) == 2 && q[0].Held == "draft" && q[1].HeldText == "half a thou"
+	})
+	q := h.prompts(a.Id)
+	// The second would be typed before the first: refused, nothing is cleared.
+	if _, err := h.sendAnyway(a.Id, q[1].Id, "half a thou", "over-8"); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "older prompt") {
+		t.Errorf("the second prompt: %v", err)
+	}
+	if _, err := h.sendAnyway(a.Id, q[0].Id, "half a thou", "over-9"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitTranscript(a.Id, "first")
 }

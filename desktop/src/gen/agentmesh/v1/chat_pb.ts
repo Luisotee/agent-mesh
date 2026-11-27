@@ -365,7 +365,7 @@ export const SendPromptAnywayRequestSchema: GenMessage<SendPromptAnywayRequest> 
  */
 export type SendPromptAnywayResponse = Message<"agentmesh.v1.SendPromptAnywayResponse"> & {
   /**
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    *
    * @generated from field: string discarded = 1;
    */

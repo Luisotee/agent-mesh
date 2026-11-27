@@ -12,7 +12,7 @@ public interface SendPromptAnywayResponseOrBuilder extends
 
   /**
    * <pre>
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    * </pre>
    *
    * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -21,7 +21,7 @@ public interface SendPromptAnywayResponseOrBuilder extends
   java.lang.String getDiscarded();
   /**
    * <pre>
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    * </pre>
    *
    * <code>string discarded = 1 [json_name = "discarded"];</code>

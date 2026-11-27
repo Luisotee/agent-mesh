@@ -241,16 +241,19 @@ type typeHold struct {
 	text string
 }
 
-// maxDraftShown is how many characters of a draft the daemon tells the app.
-const maxDraftShown = 300
+// maxDraftShown is the longest draft the daemon tells the app, whole: a longer one is not told, so no one confirms to
+// discard text they were not shown.
+const maxDraftShown = 2000
 
-// shownDraft is a draft as the app is told it.
+// squeezed is a draft with its whitespace squeezed, as the box reader gives it.
+func squeezed(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// shownDraft is a draft as the app is told it: whole, or empty when it is too long to show (then there is no "send anyway").
 func shownDraft(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > maxDraftShown {
-		return string(r[:maxDraftShown]) + "…"
+	if s = squeezed(s); len([]rune(s)) <= maxDraftShown {
+		return s
 	}
-	return s
+	return ""
 }
 
 // whyNotToType says why a prompt may not be typed into an agent's terminal now: only into a box that reads empty (a

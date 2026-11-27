@@ -21,7 +21,7 @@ public  final class SendPromptAnywayResponse extends
   private java.lang.String discarded_;
   /**
    * <pre>
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    * </pre>
    *
    * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -33,7 +33,7 @@ public  final class SendPromptAnywayResponse extends
   }
   /**
    * <pre>
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    * </pre>
    *
    * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -46,7 +46,7 @@ public  final class SendPromptAnywayResponse extends
   }
   /**
    * <pre>
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    * </pre>
    *
    * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -60,7 +60,7 @@ public  final class SendPromptAnywayResponse extends
   }
   /**
    * <pre>
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    * </pre>
    *
    * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -71,7 +71,7 @@ public  final class SendPromptAnywayResponse extends
   }
   /**
    * <pre>
-   * The draft that was cleared out of the box, as it read just before.
+   * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
    * </pre>
    *
    * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -183,7 +183,7 @@ public  final class SendPromptAnywayResponse extends
 
     /**
      * <pre>
-     * The draft that was cleared out of the box, as it read just before.
+     * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
      * </pre>
      *
      * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -195,7 +195,7 @@ public  final class SendPromptAnywayResponse extends
     }
     /**
      * <pre>
-     * The draft that was cleared out of the box, as it read just before.
+     * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
      * </pre>
      *
      * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -208,7 +208,7 @@ public  final class SendPromptAnywayResponse extends
     }
     /**
      * <pre>
-     * The draft that was cleared out of the box, as it read just before.
+     * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
      * </pre>
      *
      * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -223,7 +223,7 @@ public  final class SendPromptAnywayResponse extends
     }
     /**
      * <pre>
-     * The draft that was cleared out of the box, as it read just before.
+     * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
      * </pre>
      *
      * <code>string discarded = 1 [json_name = "discarded"];</code>
@@ -236,7 +236,7 @@ public  final class SendPromptAnywayResponse extends
     }
     /**
      * <pre>
-     * The draft that was cleared out of the box, as it read just before.
+     * The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
      * </pre>
      *
      * <code>string discarded = 1 [json_name = "discarded"];</code>

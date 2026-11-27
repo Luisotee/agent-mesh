@@ -39,17 +39,22 @@ func (d *Daemon) queuePrompt(ctx context.Context, actor *v1.Actor, meta *v1.Requ
 			shown.HeldText = heldText
 		}
 	}
-	out := &v1.PromptAgentResponse{Queued: shown}
-	if _, err := d.write(ctx, meta, agentmeshv1connect.MeshServicePromptAgentProcedure, out, func(tx *store.Tx) error {
+	// What the box held is for the answer to this caller only: the event log and the stored answer would keep it (a draft
+	// may hold a secret typed in the terminal).
+	logged := proto.CloneOf(shown)
+	logged.HeldText = ""
+	stored := &v1.PromptAgentResponse{Queued: logged}
+	if _, err := d.write(ctx, meta, agentmeshv1connect.MeshServicePromptAgentProcedure, stored, func(tx *store.Tx) error {
 		if err := tx.QueuePrompt(p); err != nil {
 			return err
 		}
 		_, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_PromptQueued{
-			PromptQueued: &v1.PromptQueued{Prompt: shown}}})
+			PromptQueued: &v1.PromptQueued{Prompt: logged}}})
 		return err
 	}); err != nil {
 		return nil, err
 	}
+	out := &v1.PromptAgentResponse{Queued: shown}
 	// It may be due already (the agent went idle meanwhile): the delivery takes the lock once it is free.
 	d.deliverSoon(a.Id)
 	return connect.NewResponse(out), nil
@@ -197,7 +202,12 @@ func (d *Daemon) ListPrompts(ctx context.Context, req *connect.Request[v1.ListPr
 	hold := d.promptHold(a)
 	draft := ""
 	if hold == "draft" {
-		draft = shownDraft(d.readInputBox(ctx, a, "").GetText()) // what it holds now, for the app to name before it offers to send over it
+		// What it holds now, for the app to name before it offers to send over it. A box that reads empty by now is no draft.
+		if box := d.readInputBox(ctx, a, ""); box.GetBox() == adapterv1.InputBox_INPUT_BOX_TYPED {
+			draft = shownDraft(box.GetText())
+		} else {
+			hold = ""
+		}
 	}
 	for _, p := range prompts {
 		p.Held = hold
@@ -462,9 +472,6 @@ func (d *Daemon) SendPromptAnyway(ctx context.Context, req *connect.Request[v1.S
 	if req.Msg.PromptId == "" {
 		return nil, invalid("name the prompt")
 	}
-	if err := expired(req.Msg.Meta, d.now()); err != nil {
-		return nil, err
-	}
 	mid := req.Msg.Meta.GetMutationId()
 	replay := func() (*connect.Response[v1.SendPromptAnywayResponse], error) {
 		if mid == "" {
@@ -487,6 +494,10 @@ func (d *Daemon) SendPromptAnyway(ctx context.Context, req *connect.Request[v1.S
 	}
 	if res, err := replay(); res != nil || err != nil {
 		return res, err
+	}
+	// After the replay: a retry of a send that was done answers with it, even past its expiry.
+	if err := expired(req.Msg.Meta, d.now()); err != nil {
+		return nil, err
 	}
 	found, err := d.FindAgent(d.store.Read(ctx), actor, req.Msg.Agent)
 	if err != nil {
@@ -521,6 +532,9 @@ func (d *Daemon) SendPromptAnyway(ctx context.Context, req *connect.Request[v1.S
 	if prompt == nil {
 		return nil, precondition("that prompt is no longer waiting: it was typed into %s's terminal, or taken back", a.Name)
 	}
+	if queued[0].Id != prompt.Id {
+		return nil, precondition("an older prompt waits before this one: send or take back that one first (they are typed in the order they were sent)")
+	}
 	if !takesDoorbell(a.State) || d.ringOf(a.Id) != nil || d.promptInFlight(a) || a.PendingReopen != nil || a.PendingCompaction != nil || a.PendingReset != nil {
 		return nil, precondition("%s is not at its prompt now: the prompt is typed once it is", a.Name)
 	}
@@ -532,13 +546,13 @@ func (d *Daemon) SendPromptAnyway(ctx context.Context, req *connect.Request[v1.S
 		return nil, precondition("someone is typing in %s's terminal: try again when they stop", a.Name)
 	}
 	box := d.readInputBox(ctx, a, "")
-	now := shownDraft(box.GetText())
+	now := squeezed(box.GetText()) // all of it: a draft is confirmed only as a whole
 	switch box.GetBox() {
 	case adapterv1.InputBox_INPUT_BOX_EMPTY:
 		now = "" // nothing to clear any more: it is typed as it would have been
 	case adapterv1.InputBox_INPUT_BOX_TYPED:
-		if now != shownDraft(req.Msg.Draft) {
-			return nil, precondition("the draft in %s's box changed since you saw it (it holds: %s): look at it and send again", a.Name, now)
+		if now != squeezed(req.Msg.Draft) {
+			return nil, precondition("the draft in %s's box changed since you saw it (it holds: %s): look at it and send again", a.Name, shownDraft(now))
 		}
 	default:
 		return nil, precondition("%s's screen shows no input box (a dialog may be open in the terminal)", a.Name)
@@ -554,6 +568,9 @@ func (d *Daemon) SendPromptAnyway(ctx context.Context, req *connect.Request[v1.S
 	put := func(cause error) error {
 		if rerr := d.requeuePrompt(context.WithoutCancel(ctx), a, prompt); rerr != nil {
 			d.log.Warn("putting a prompt back in the queue", "agent", a.Name, "err", rerr)
+		}
+		if now != "" {
+			d.setPromptHeld(a.Id, "draft") // what it waits for stays true until the box is clear
 		}
 		return cause
 	}
@@ -572,10 +589,11 @@ func (d *Daemon) SendPromptAnyway(ctx context.Context, req *connect.Request[v1.S
 	if meta != nil {
 		meta.ExpiresAt = nil
 	}
-	out := &v1.SendPromptAnywayResponse{Discarded: now}
-	if _, err := d.write(context.WithoutCancel(ctx), meta, agentmeshv1connect.MeshServiceSendPromptAnywayProcedure, out,
+	// The answer to this caller carries the draft that was cleared; the stored one, which a retry gets, does not keep it (it may
+	// hold a secret typed in the terminal).
+	if _, err := d.write(context.WithoutCancel(ctx), meta, agentmeshv1connect.MeshServiceSendPromptAnywayProcedure, &v1.SendPromptAnywayResponse{},
 		func(*store.Tx) error { return nil }); err != nil {
 		d.log.Warn("recording a prompt sent over a draft", "agent", a.Name, "err", err)
 	}
-	return connect.NewResponse(out), nil
+	return connect.NewResponse(&v1.SendPromptAnywayResponse{Discarded: shownDraft(now)}), nil
 }

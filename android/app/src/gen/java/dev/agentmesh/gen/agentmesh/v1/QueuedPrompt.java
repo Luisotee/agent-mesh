@@ -362,8 +362,9 @@ public  final class QueuedPrompt extends
   private java.lang.String heldText_;
   /**
    * <pre>
-   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-   * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
    * </pre>
    *
    * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -375,8 +376,9 @@ public  final class QueuedPrompt extends
   }
   /**
    * <pre>
-   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-   * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
    * </pre>
    *
    * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -389,8 +391,9 @@ public  final class QueuedPrompt extends
   }
   /**
    * <pre>
-   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-   * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
    * </pre>
    *
    * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -404,8 +407,9 @@ public  final class QueuedPrompt extends
   }
   /**
    * <pre>
-   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-   * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
    * </pre>
    *
    * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -416,8 +420,9 @@ public  final class QueuedPrompt extends
   }
   /**
    * <pre>
-   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-   * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
    * </pre>
    *
    * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -877,8 +882,9 @@ public  final class QueuedPrompt extends
 
     /**
      * <pre>
-     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-     * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
      * </pre>
      *
      * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -890,8 +896,9 @@ public  final class QueuedPrompt extends
     }
     /**
      * <pre>
-     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-     * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
      * </pre>
      *
      * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -904,8 +911,9 @@ public  final class QueuedPrompt extends
     }
     /**
      * <pre>
-     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-     * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
      * </pre>
      *
      * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -920,8 +928,9 @@ public  final class QueuedPrompt extends
     }
     /**
      * <pre>
-     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-     * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
      * </pre>
      *
      * <code>string held_text = 7 [json_name = "heldText"];</code>
@@ -934,8 +943,9 @@ public  final class QueuedPrompt extends
     }
     /**
      * <pre>
-     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
-     * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
      * </pre>
      *
      * <code>string held_text = 7 [json_name = "heldText"];</code>

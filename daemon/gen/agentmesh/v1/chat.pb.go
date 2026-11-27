@@ -748,7 +748,7 @@ func (x *SendPromptAnywayRequest) GetDraft() string {
 
 type SendPromptAnywayResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The draft that was cleared out of the box, as it read just before.
+	// The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
 	Discarded     string `protobuf:"bytes,1,opt,name=discarded,proto3" json:"discarded,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
