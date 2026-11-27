@@ -80,21 +80,19 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     t.onData((d) => session.input(encoder.encode(d)))
     t.onBinary((d) => session.input(Uint8Array.from(d, (ch) => ch.charCodeAt(0))))
     t.onResize(({ cols, rows }) => session.resize(cols, rows))
+    let started = false
     const refit = () => {
       // A box that is hidden or not laid out yet has no size to fit to.
-      if (el.clientWidth > 0 && el.clientHeight > 0) f.fit()
+      if (el.clientWidth === 0 || el.clientHeight === 0) return
+      f.fit()
+      // Attached only once it has its real size: a repaint drawn at xterm's default 80x24 and then reflowed to the
+      // box's width loses lines (the trailing blanks of a row wrap), and the host would shrink the program to 80x24.
+      if (!started) {
+        started = true
+        session.start()
+      }
     }
     refit()
-    // The bundled mono font loads after the first paint; xterm measured its cells with a fallback until then.
-    let live = true
-    void document.fonts?.load(`13px ${monoStack(activeTheme)}`).then(() => {
-      if (!live) return
-      // xterm measures again only when the option changes, so it is set to another value and back.
-      t.options.fontFamily = 'monospace'
-      t.options.fontFamily = monoStack(activeTheme)
-      refit()
-    }, () => {})
-    session.start()
     const ro = new ResizeObserver(refit)
     ro.observe(el)
     // Another theme repaints this terminal in its colours and font.
@@ -104,7 +102,6 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
       refit()
     })
     return () => {
-      live = false
       offTheme()
       ro.disconnect()
       session.dispose()

@@ -74,10 +74,7 @@ async function pairedApp(link: string, name: string): Promise<App> {
 async function openLeadTerminal(app: App, status: string) {
   const { page } = app
   await page.getByRole('button', { name: 'Host e2e-home, ready' }).waitFor({ timeout: 30_000 })
-  // At its prompt first: a terminal attached while the fake is still starting can lose its first line (TODO.md).
-  const lead = page.getByRole('navigation', { name: 'Runs' }).getByRole('button', { name: /repo-lead/ })
-  await lead.filter({ hasText: 'Idle' }).waitFor({ timeout: 30_000 })
-  await lead.click()
+  await page.getByRole('navigation', { name: 'Runs' }).getByRole('button', { name: /repo-lead/ }).click()
   const panel = page.getByRole('article', { name: 'repo-lead' })
   await panel.getByRole('tab', { name: 'terminal' }).click()
   const st = panel.getByTestId('terminal-status')
