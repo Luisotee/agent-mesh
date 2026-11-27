@@ -264,10 +264,13 @@ func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error
 	}
 	answers := make([]answer, len(branches))
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, stackFetchers)
 	for i, branch := range branches {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func() { // joined below, within this call
 			defer wg.Done()
+			defer func() { <-sem }()
 			remote := prRemote(ctx, a.Repo, branch, remotes)
 			args := []string{"pr", "list", "--repo", remotes[remote], "--head", branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
 			out, err := d.runGH(ctx, dir, args...)

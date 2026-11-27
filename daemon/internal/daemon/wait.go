@@ -30,18 +30,23 @@ func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
 	if err != nil {
 		return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 	}
-	waitMax := time.Duration(0)
+	var waitMax, unseen time.Duration
 	if v, err := d.Setting(r, "accountability.wait_max"); err == nil {
 		waitMax = time.Duration(v.(float64) * float64(time.Second))
 	}
-	return waitFrom(a, parent, msgs, d.now(), waitMax, func(wait time.Time) bool { return d.waits.peek(a, wait) })
+	if v, err := d.Setting(r, "accountability.wait_unseen"); err == nil {
+		unseen = time.Duration(v.(float64) * float64(time.Second))
+	}
+	return waitFrom(a, parent, msgs, d.now(), waitMax, unseen, func(wait time.Time) bool { return d.waits.peek(a, wait) })
 }
 
 // waitFrom reads the wait off the run's messages: the newest one that settles it, scanning from the end. A task or an
 // answer to the agent ends every wait before it; a message of the agent to its parent starts the one it names. A
 // declared wait ends as the accountability check ends it (`reportOwed`): at its own deadline, never later than waitMax
-// (`accountability.wait_max`, 0 is unknown) from its start, and when the agent woke from it (`woke`, told the wait's start).
-func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time, waitMax time.Duration, woke func(wait time.Time) bool) *v1.AgentWait {
+// (`accountability.wait_max`, 0 is unknown) from its start, one with no deadline of its own at `unseen`
+// (`accountability.wait_unseen`, 0 is off) when nothing the daemon can see would wake the agent (agentWait has found
+// no background command by then), and when the agent woke from it (`woke`, told the wait's start).
+func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time, waitMax, unseen time.Duration, woke func(wait time.Time) bool) *v1.AgentWait {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		switch {
@@ -50,7 +55,7 @@ func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time, wai
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 		case m.From.GetId() != a.Id || m.ToId != a.ParentId:
 			continue
-		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT && waitOver(m, now, waitMax, woke):
+		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT && waitOver(m, now, waitMax, unseen, woke):
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED, Detail: statusLine(m.Body), From: parent, Until: m.WaitUntil}
@@ -63,13 +68,17 @@ func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message, now time.Time, wai
 	return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
 }
 
-// waitOver says whether a declared wait has ended: its deadline passed, or waitMax since it was declared, or the agent woke.
-func waitOver(m *v1.Message, now time.Time, waitMax time.Duration, woke func(wait time.Time) bool) bool {
+// waitOver says whether a declared wait has ended: its deadline passed, or waitMax since it was declared, or (with no
+// deadline, and nothing visible to wake the agent) `unseen` since, or the agent woke.
+func waitOver(m *v1.Message, now time.Time, waitMax, unseen time.Duration, woke func(wait time.Time) bool) bool {
 	start := m.CreatedAt.AsTime()
 	if m.WaitUntil != nil && !m.WaitUntil.AsTime().After(now) {
 		return true
 	}
 	if waitMax > 0 && !now.Before(start.Add(waitMax)) {
+		return true
+	}
+	if m.WaitUntil == nil && unseen > 0 && (waitMax == 0 || unseen < waitMax) && !now.Before(start.Add(unseen)) {
 		return true
 	}
 	return woke != nil && woke(start)

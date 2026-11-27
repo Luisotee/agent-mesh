@@ -183,27 +183,33 @@ func (d *Daemon) readProcs(ctx context.Context) (procSnapshot, bool) {
 	return procSnapshot{pids: pids, table: table}, true
 }
 
-// procReads is the read recentProcs keeps: one for the whole daemon, shared by every agent asked about.
+// procReads is the read recentProcs keeps: one for the whole daemon, shared by every agent asked about. A read that
+// failed is kept too (ok false), so a terminal host that does not answer is asked once per waitReadTTL, not by every
+// caller that queues behind it.
 type procReads struct {
 	mu   sync.Mutex
 	at   time.Time
 	snap procSnapshot
+	ok   bool
 }
 
-// recentProcs is readProcs, or the last read when it is less than waitReadTTL old. Callers at once make one read.
+// procReadTimeout bounds the read recentProcs makes, so a terminal host that stalls holds callers for this long at most.
+const procReadTimeout = 3 * time.Second
+
+// recentProcs is readProcs, or the last read (a failed one too) when it is less than waitReadTTL old. Callers at once
+// make one read.
 func (d *Daemon) recentProcs(ctx context.Context) (procSnapshot, bool) {
 	d.procs.mu.Lock()
 	defer d.procs.mu.Unlock()
 	now := d.now()
 	if age := now.Sub(d.procs.at); !d.procs.at.IsZero() && age >= 0 && age < waitReadTTL {
-		return d.procs.snap, true
+		return d.procs.snap, d.procs.ok
 	}
-	snap, ok := d.readProcs(ctx)
-	if !ok {
-		return procSnapshot{}, false
-	}
-	d.procs.at, d.procs.snap = now, snap
-	return snap, true
+	rctx, cancel := context.WithTimeout(ctx, procReadTimeout)
+	defer cancel()
+	snap, ok := d.readProcs(rctx)
+	d.procs.at, d.procs.snap, d.procs.ok = now, snap, ok
+	return snap, ok
 }
 
 // withinBackgroundGrace reports whether a running background command is still let run: the agent's last activity

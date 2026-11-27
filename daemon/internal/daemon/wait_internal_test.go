@@ -58,7 +58,7 @@ func TestWaitFromNamesWhatAnIdleAgentWaitsOn(t *testing.T) {
 		{"a wait after a done", []*v1.Message{msg("5", v1.MessageType_MESSAGE_TYPE_DONE, w, lead, "done"), wait}, v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED, "lead", "CI on #12"},
 		{"an info to the parent says nothing", []*v1.Message{msg("1", v1.MessageType_MESSAGE_TYPE_TASK, lead, w, "go"), msg("6", v1.MessageType_MESSAGE_TYPE_INFO, w, lead, "fyi")}, v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, "lead", ""},
 	} {
-		got := waitFrom(w, "lead", tc.msgs, now, 0, nil)
+		got := waitFrom(w, "lead", tc.msgs, now, 0, 0, nil)
 		if got.Kind != tc.kind || got.From != tc.from || got.Detail != tc.det {
 			t.Errorf("%s: %v from %q detail %q, want %v from %q detail %q", tc.name, got.Kind, got.From, got.Detail, tc.kind, tc.from, tc.det)
 		}
@@ -66,13 +66,13 @@ func TestWaitFromNamesWhatAnIdleAgentWaitsOn(t *testing.T) {
 	// A lead has no parent to wait on: what it says to the user is read as nothing owed to it (a person answers by typing).
 	root := &v1.Agent{Id: "R", Name: "root"}
 	asked := &v1.Message{Id: "u", Type: v1.MessageType_MESSAGE_TYPE_QUESTION, From: &v1.Actor{Id: root.Id}, ToId: "user", Body: "which one?"}
-	if got := waitFrom(root, "user", []*v1.Message{asked}, now, 0, nil); got.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.From != "user" {
+	if got := waitFrom(root, "user", []*v1.Message{asked}, now, 0, 0, nil); got.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.From != "user" {
 		t.Errorf("a lead's question to the user: %v from %q", got.Kind, got.From)
 	}
-	if got := waitFrom(w, "lead", []*v1.Message{wait}, until.AsTime().Add(time.Minute), 0, nil); got.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.Until != nil {
+	if got := waitFrom(w, "lead", []*v1.Message{wait}, until.AsTime().Add(time.Minute), 0, 0, nil); got.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.Until != nil {
 		t.Errorf("a wait past its deadline is still shown: %v", got)
 	}
-	if got := waitFrom(w, "lead", []*v1.Message{wait}, now, 0, nil); got.Until == nil || !got.Until.AsTime().Equal(until.AsTime()) {
+	if got := waitFrom(w, "lead", []*v1.Message{wait}, now, 0, 0, nil); got.Until == nil || !got.Until.AsTime().Equal(until.AsTime()) {
 		t.Errorf("a declared wait lost its deadline: %v", got.Until)
 	}
 }
@@ -109,8 +109,30 @@ func TestAWaitEndsInTheWaitFromAsTheAccountabilityCheckEndsIt(t *testing.T) {
 		if tc.name == "wait_max unknown" {
 			wm = 0
 		}
-		got := waitFrom(w, "lead", []*v1.Message{tc.m}, declared.Add(tc.now), wm, tc.woke)
+		got := waitFrom(w, "lead", []*v1.Message{tc.m}, declared.Add(tc.now), wm, 0, tc.woke)
 		if over := got.Kind == v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE; over != tc.over {
+			t.Errorf("%s: %v, want over=%v", tc.name, got.Kind, tc.over)
+		}
+	}
+	// With nothing visible to wake the agent, a wait with no deadline is cut at wait_unseen, as reportOwed cuts it: the app
+	// must not show an agent the daemon has nudged as still waiting for hours. A deadline of its own holds past it.
+	const unseen = 15 * time.Minute
+	for _, tc := range []struct {
+		name string
+		m    *v1.Message
+		now  time.Duration
+		over bool
+	}{
+		{"no deadline, within wait_unseen", open, 14 * time.Minute, false},
+		{"no deadline, at wait_unseen", open, unseen, true},
+		{"a deadline holds past wait_unseen", deadline, time.Hour, false},
+		{"wait_unseen past wait_max is no cut", open, time.Hour, false},
+	} {
+		un := unseen
+		if tc.name == "wait_unseen past wait_max is no cut" {
+			un = 3 * time.Hour
+		}
+		if got := waitFrom(w, "lead", []*v1.Message{tc.m}, declared.Add(tc.now), max, un, never); (got.Kind == v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE) != tc.over {
 			t.Errorf("%s: %v, want over=%v", tc.name, got.Kind, tc.over)
 		}
 	}

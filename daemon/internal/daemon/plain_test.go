@@ -195,6 +195,9 @@ func TestStoppingAPlainAgentDeletesItsMergedBranch(t *testing.T) {
 			onMain = runGit(t, a.Worktree, "rev-parse", "HEAD")
 		}
 		runGit(t, a.Repo, "update-ref", "refs/remotes/origin/main", onMain)
+		// origin/HEAD at some other, older branch of the remote does not hide that the work is in origin/main.
+		runGit(t, a.Repo, "update-ref", "refs/remotes/origin/develop", runGit(t, a.Repo, "rev-parse", "main"))
+		runGit(t, a.Repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
 		res, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-" + tc.name), RunId: run.Id}))
 		if err != nil {
 			t.Fatal(err)
@@ -206,6 +209,42 @@ func TestStoppingAPlainAgentDeletesItsMergedBranch(t *testing.T) {
 		}
 		if kept == tc.merged {
 			t.Errorf("%s: branch kept = %v (outcomes %v)", tc.name, kept, res.Msg.Worktrees)
+		}
+	}
+}
+
+// Two "New agent" clicks at once must not both take the first free name.
+func TestPlainAgentsSpawnedAtOnceAreNamedApart(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	repo := gitRepo(t)
+	const n = 4
+	names := make(chan string, n)
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		run := startRun(t, w.device.Mesh, "")
+		go func() {
+			res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+				RunId: run.Id, Repo: repo, Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
+			if err != nil {
+				errs <- err
+				return
+			}
+			names <- res.Msg.Agent.Name
+		}()
+	}
+	seen := map[string]bool{}
+	for i := 0; i < n; i++ {
+		select {
+		case name := <-names:
+			if seen[name] {
+				t.Errorf("two plain agents are named %q", name)
+			}
+			seen[name] = true
+		case err := <-errs:
+			t.Fatal(err)
+		case <-time.After(20 * time.Second):
+			t.Fatal("a plain agent did not start")
 		}
 	}
 }

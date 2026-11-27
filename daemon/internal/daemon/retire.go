@@ -566,19 +566,18 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 	return o
 }
 
-// branchMerged says whether every commit of a branch is in the default branch of a remote of the repo (the last
-// `origin/HEAD`, else `origin/main` or `origin/master`, as the repo last saw them). A branch squash-merged is not: its
-// own commits are not in the default branch, so it is kept.
+// branchMerged says whether every commit of a branch is in a default branch of a remote of the repo (`origin/HEAD`,
+// `origin/main` or `origin/master`, as the repo last saw them: it is in any of those that exist). A branch
+// squash-merged is not: its own commits are not in the default branch, so it is kept.
 func branchMerged(ctx context.Context, repo, branch string) bool {
 	tip, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
 	if err != nil || tip == "" {
 		return false
 	}
 	for _, ref := range []string{"refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"} {
-		if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", ref); err != nil {
-			continue
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", ref); err == nil && gitIsAncestor(ctx, repo, tip, ref) {
+			return true
 		}
-		return gitIsAncestor(ctx, repo, tip, ref)
 	}
 	return false
 }

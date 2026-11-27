@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -88,5 +89,27 @@ func TestTheWaitAnAppShowsSharesOneReadOfTheProcessTable(t *testing.T) {
 	// An exited terminal has no command, and another agent's terminal id is not this one's.
 	if _, ok := d.shownBackgroundCommand(ctx, &v1.Agent{Id: "a2", Kind: claude.Kind, TerminalId: "t2"}); ok {
 		t.Errorf("an exited terminal has a background command")
+	}
+}
+
+// A terminal host that does not answer is asked once per waitReadTTL, not by every caller that waits for it.
+func TestAFailedReadOfTheProcessTableIsKeptForTheTTLToo(t *testing.T) {
+	var reads atomic.Int32
+	now := time.Date(2026, 11, 27, 14, 0, 0, 0, time.UTC)
+	d := &Daemon{now: func() time.Time { return now }, rt: &runtime{term: &termclient.Client{API: &listTerm{}},
+		sys: &SystemOps{ProcTable: func() ([]proc.Info, error) { reads.Add(1); return nil, errors.New("no /proc") }}}}
+	a := &v1.Agent{Id: "a1", Kind: claude.Kind, TerminalId: "t1"}
+	for i := 0; i < 4; i++ {
+		if _, ok := d.shownBackgroundCommand(context.Background(), a); ok {
+			t.Fatal("a command from a failed read")
+		}
+	}
+	if reads.Load() != 1 {
+		t.Errorf("%d reads for four calls within the ttl, want 1", reads.Load())
+	}
+	now = now.Add(waitReadTTL)
+	d.shownBackgroundCommand(context.Background(), a)
+	if reads.Load() != 2 {
+		t.Errorf("%d reads after the ttl, want 2", reads.Load())
 	}
 }

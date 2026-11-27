@@ -1063,8 +1063,11 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	slug := m.Slug
 	if m.Plain {
 		// Each plain agent is a run of its own, so the run's check for a name taken would let two of a CLI in one repo
-		// share a name, and a tab: the second takes `-2`, the third `-3`.
-		if slug, err = plainSlug(r, top, m.Slug); err != nil {
+		// share a name, and a tab: the second takes `-2`, the third `-3`. Plain spawns go one at a time from here to the
+		// store write, so two at once do not both take the same slug (`New agent` clicked twice).
+		d.plainSpawn.Lock()
+		defer d.plainSpawn.Unlock()
+		if slug, err = plainSlug(d.store.Read(ctx), top, m.Slug); err != nil {
 			return nil, err
 		}
 	}
