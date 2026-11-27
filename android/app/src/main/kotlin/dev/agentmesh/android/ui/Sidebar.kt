@@ -132,9 +132,11 @@ fun rememberSidebar(): SidebarModel {
                 w.forEach { waiting.add(WaitingItem(rt, it)) }
             }
             SidebarModel(status, buildProjects(side, pins), waiting)
-        }.flowOn(Dispatchers.Default)
-    }.distinctUntilChanged()
-    return flow.collectAsStateWithLifecycleCompat(SidebarModel(emptyList(), emptyList(), emptyList())).value
+        }.flowOn(Dispatchers.Default).distinctUntilChanged()
+    }
+    // Until the first model is built, the paired hosts are loading (not "no hosts").
+    val initial = remember(hosts) { SidebarModel(hosts.map { HostStatus(it.id, it.name, up = false, loading = true, readOnly = false, note = "") }, emptyList(), emptyList()) }
+    return flow.collectAsStateWithLifecycleCompat(initial).value
 }
 
 /** What the drawer can do: each is a navigation or a sheet the app's root owns. */

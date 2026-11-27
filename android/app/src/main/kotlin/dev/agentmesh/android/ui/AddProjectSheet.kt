@@ -35,7 +35,7 @@ import kotlinx.coroutines.CancellationException
 @Composable
 fun AddProjectSheet(runtime: HostRuntime, onDismiss: () -> Unit) {
     val prefs = LocalContainer.current.prefs
-    val pinned = prefs.pins.value[runtime.hostId].orEmpty()
+    val pinned = prefs.pins.collectAsStateWithLifecycleCompat().value[runtime.hostId].orEmpty()
     var query by remember { mutableStateOf("") }
     var projects by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
     var error by remember { mutableStateOf("") }

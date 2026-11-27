@@ -20,7 +20,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.currentBackStackEntryAsState
 import kotlinx.coroutines.launch
@@ -98,7 +99,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     val current = if (route == Routes.AGENT) entry?.arguments?.let { it.getString("id").orEmpty() to it.getString("agent").orEmpty() } else null
     // The drawer is on the screens that are about the work; settings and forms use the whole window.
     val hasDrawer = route == Routes.HOME || route == Routes.AGENT || route == Routes.DOCK_ALL || route == Routes.USAGE
-    val wide = LocalConfiguration.current.screenWidthDp >= WIDE_DP
+    val wide = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } >= WIDE_DP.dp
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val model = rememberSidebar()
