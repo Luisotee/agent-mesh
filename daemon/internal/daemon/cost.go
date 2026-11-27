@@ -89,7 +89,7 @@ func claudeCallCost(model string, input, w5, w1, read, output int64) float64 {
 		float64(output)*rates[4]) / 1e6
 }
 
-var bareGeminiRE = regexp.MustCompile(`^gemini-[0-9.]+-([a-z]+)(?:-[a-z])?$`)
+var bareGeminiRE = regexp.MustCompile(`^gemini-[0-9.]+-([a-z]+)(?:-[a-z0-9-]+)?$`)
 
 func costModelFamily(model string) string {
 	if model == "" {
@@ -98,7 +98,7 @@ func costModelFamily(model string) string {
 	if fam, ok := agy.ModelFamily(model); ok {
 		return fam
 	}
-	// A conversation file names the model without an effort (`gemini-4-neon`, `gemini-3.8-flash-n`).
+	// A conversation file names the model without an effort (`gemini-4-neon`, `gemini-3.8-flash-n`, `gemini-4-argon-trial`).
 	if m := bareGeminiRE.FindStringSubmatch(model); m != nil {
 		return m[1]
 	}

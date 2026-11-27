@@ -17,6 +17,9 @@ import (
 
 // The step payloads have the layout found in real agy 1.5.17 conversation files (which fields hold the user's text,
 // the reply, the tool call and its output); the texts, ids and paths are made up.
+// t0 is when the fixture's first step was written: recent, because a running step older than `quiet` is not held back.
+var t0 = uint64(time.Now().Unix()) - 100
+
 func str(num int, s string) []byte { return pbBytes(num, []byte(s)) }
 
 func cat(parts ...[]byte) []byte {
@@ -53,15 +56,15 @@ func failedToolStep(sec uint64, id, name, args, why string) []byte {
 
 func chatSteps() []chatStepSeed {
 	return []chatStepSeed{
-		{14, 3, userStep(1792820600, "Plan the change")},
-		{15, 3, modelStep(1792820601, "", "I should look at the repo first.")}, // thinking only: nothing to show
-		{132, 3, toolStep(132, 1792820602, "toolu_1", "run_command", `{"CommandLine":"git status","WaitMsBeforeAsync":"5000","toolSummary":"Check the tree"}`, "Command exited with code 0.\n\nclean")},
-		{101, 3, head(101, 1792820603, str(1, "[Message] system notice"))},
-		{132, 6, toolStep(132, 1792820604, "toolu_2", "read_file", `{"Path":"/work/missing.go"}`, "no such file")},
-		{15, 3, modelStep(1792820605, "Done: the tree is clean.", "thinking")},
-		{14, 3, userStep(1792820606, "📬 [mesh] task from parent (ref a1): run `mesh inbox`\n")},
-		{17, 3, head(17, 1792820607, str(1, "compaction summary"))},
-		{132, 2, toolStep(132, 1792820608, "toolu_3", "run_command", `{"CommandLine":"sleep 100"}`, "")},
+		{14, 3, userStep((t0 + 0), "Plan the change")},
+		{15, 3, modelStep((t0 + 1), "", "I should look at the repo first.")}, // thinking only: nothing to show
+		{132, 3, toolStep(132, (t0 + 2), "toolu_1", "run_command", `{"CommandLine":"git status","WaitMsBeforeAsync":"5000","toolSummary":"Check the tree"}`, "Command exited with code 0.\n\nclean")},
+		{101, 3, head(101, (t0 + 3), str(1, "[Message] system notice"))},
+		{132, 6, toolStep(132, (t0 + 4), "toolu_2", "read_file", `{"Path":"/work/missing.go"}`, "no such file")},
+		{15, 3, modelStep((t0 + 5), "Done: the tree is clean.", "thinking")},
+		{14, 3, userStep((t0 + 6), "📬 [mesh] task from parent (ref a1): run `mesh inbox`\n")},
+		{17, 3, head(17, (t0 + 7), str(1, "compaction summary"))},
+		{132, 2, toolStep(132, (t0 + 8), "toolu_3", "run_command", `{"CommandLine":"sleep 100"}`, "")},
 	}
 }
 
@@ -122,7 +125,7 @@ func TestTranscriptShowsTheConversation(t *testing.T) {
 	if !res.Entries[4].IsError || res.Entries[2].IsError || res.Entries[1].ToolUseId != "toolu_1" || res.Entries[2].ToolUseId != "toolu_1" {
 		t.Errorf("tool ties or errors wrong: %+v / %+v", res.Entries[1], res.Entries[4])
 	}
-	if res.Entries[0].Time.AsTime().Unix() != 1792820600 {
+	if res.Entries[0].Time.AsTime().Unix() != int64(t0) {
 		t.Errorf("time = %v", res.Entries[0].Time.AsTime())
 	}
 	// Once the step finishes, reading on from the end offset finds it.
@@ -137,8 +140,8 @@ func TestTranscriptShowsTheConversation(t *testing.T) {
 func TestFailedAndRefusedToolCallsShowTheirError(t *testing.T) {
 	dir := t.TempDir()
 	writeChat(t, dir, "c1", []chatStepSeed{
-		{132, 7, failedToolStep(1792820600, "t1", "read_file", `{"Path":"/work/none"}`, "file does not exist")},
-		{132, 4, failedToolStep(1792820601, "t2", "nope", `{}`, `unknown tool: "nope"`)},
+		{132, 7, failedToolStep((t0 + 0), "t1", "read_file", `{"Path":"/work/none"}`, "file does not exist")},
+		{132, 4, failedToolStep((t0 + 1), "t2", "nope", `{}`, `unknown tool: "nope"`)},
 	})
 	res := readChat(t, dir, "c1", 0, false)
 	if got := shown(res.Entries); got != "TOOL_CALL:read_file/work/none | TOOL_RESULT:file does not exist | TOOL_CALL:nope{} | TOOL_RESULT:unknown tool: \"nope\"" {
@@ -152,10 +155,10 @@ func TestFailedAndRefusedToolCallsShowTheirError(t *testing.T) {
 func TestAParallelBatchHoldsTheReadBackUntilItsEarliestStepFinishes(t *testing.T) {
 	dir := t.TempDir()
 	seeds := []chatStepSeed{
-		{14, 3, userStep(1792820600, "Check two things")},
-		{132, 2, toolStep(132, 1792820601, "p1", "run_command", `{"CommandLine":"slow"}`, "")}, // still running
-		{132, 3, toolStep(132, 1792820602, "p2", "read_file", `{"Path":"/a"}`, "fast result")}, // finished first
-		{15, 8, modelStep(1792820603, "", "")},                                                 // the model generating
+		{14, 3, userStep((t0 + 0), "Check two things")},
+		{132, 2, toolStep(132, (t0 + 1), "p1", "run_command", `{"CommandLine":"slow"}`, "")}, // still running
+		{132, 3, toolStep(132, (t0 + 2), "p2", "read_file", `{"Path":"/a"}`, "fast result")}, // finished first
+		{15, 8, modelStep((t0 + 3), "", "")},                                                 // the model generating
 	}
 	writeChat(t, dir, "c1", seeds)
 	res := readChat(t, dir, "c1", 0, false)
@@ -183,6 +186,21 @@ func TestAConversationWrittenOnlyInItsWALIsStillLive(t *testing.T) {
 	}
 	if res := readChat(t, dir, "c1", 0, false); res.EndOffset != 8 {
 		t.Errorf("end = %d, want 8 (before the running step)", res.EndOffset)
+	}
+}
+
+func TestAnUnfinishedStepLongOldDoesNotHoldBackALiveConversation(t *testing.T) {
+	dir := t.TempDir()
+	long := uint64(time.Now().Add(-time.Hour).Unix())
+	seeds := []chatStepSeed{
+		{14, 3, userStep(long, "Plan the change")},
+		{132, 1, toolStep(132, long+1, "d1", "run_command", `{"CommandLine":"dropped"}`, "")}, // never finished
+		{15, 3, modelStep(t0, "Carried on.", "")},
+	}
+	writeChat(t, dir, "c1", seeds)
+	res := readChat(t, dir, "c1", 0, false)
+	if got := shown(res.Entries); !strings.HasSuffix(got, "ASSISTANT:Carried on.") || res.EndOffset != 3 {
+		t.Errorf("a dropped step held the read back: %s (end %d)", got, res.EndOffset)
 	}
 }
 

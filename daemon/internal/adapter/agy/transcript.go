@@ -28,7 +28,7 @@ import (
 // (done), 4 (refused), 6 or 7 (failed); any other status (1, 2, 8: pending, running, the model generating) is a step
 // whose content changes in place, and a read stops before the earliest of those among the last few steps (parallel
 // tool calls finish out of order), so it is read whole later. A turn that was interrupted leaves its step so: once
-// the file (`.db` and its `-wal`, where a live conversation writes) has been quiet for `quiet`, it is shown as it is.
+// the file (`.db` and its `-wal`, where a live conversation writes) has been quiet for `quiet`, it is shown as it is; a step started longer than `quiet` ago that never finished (the CLI dropped it) holds nothing back.
 
 const (
 	capTranscript = transcript.Cap
@@ -106,12 +106,10 @@ func readSteps(db *sql.DB, offset int64, backward, live bool) ([]*agentmeshv1.Tr
 	// limit is where a read stops: past the last step, or before the earliest recent step still changing.
 	limit := last.Int64 + 1
 	if live {
-		var running sql.NullInt64
-		if err := db.QueryRow(`SELECT MIN(idx) FROM steps WHERE status NOT IN (3, 4, 6, 7) AND idx > ?`, last.Int64-tailSteps).Scan(&running); err != nil {
+		if running, err := earliestRunning(db, last.Int64); err != nil {
 			return nil, 0, 0, false, err
-		}
-		if running.Valid {
-			limit = running.Int64
+		} else if running >= 0 {
+			limit = running
 		}
 	}
 	var first int64
@@ -159,6 +157,29 @@ func readSteps(db *sql.DB, offset int64, backward, live bool) ([]*agentmeshv1.Tr
 		end = limit
 	}
 	return out, offset, end, offset <= first, nil
+}
+
+// earliestRunning is the idx of the earliest step among the last tailSteps that is still changing and was started
+// less than `quiet` ago, or -1. An older one is a step the CLI never finished (before a compaction, or a background
+// command it dropped): it would hold the read back for as long as the conversation goes on.
+func earliestRunning(db *sql.DB, last int64) (int64, error) {
+	rows, err := db.Query(`SELECT idx, step_payload FROM steps WHERE status NOT IN (3, 4, 6, 7) AND idx > ? ORDER BY idx`, last-tailSteps)
+	if err != nil {
+		return -1, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var idx int64
+		var payload []byte
+		if err := rows.Scan(&idx, &payload); err != nil {
+			return -1, err
+		}
+		sec := varintAt(bytesAt(payload, 5, 1), 1)
+		if sec == 0 || time.Since(time.Unix(int64(sec), 0)) < quiet {
+			return idx, nil
+		}
+	}
+	return -1, rows.Err()
 }
 
 func stepsWhere(db *sql.DB, where string, args ...any) ([]chatStep, error) {
