@@ -115,8 +115,11 @@ interface MeshApi {
     /** Approves an agent's plan: it moves to its execution model in the same conversation. Returns the stored answer. */
     suspend fun approveAgent(agent: String): Message
 
-    /** A one-time ticket for an agent's terminal stream: the path to open on the host (read only: this app asks for no input right). */
-    suspend fun openTerminal(agent: String): String
+    /**
+     * A one-time ticket for an agent's terminal stream: the path to open on the host. With [input] it asks for the input right
+     * (the host grants it only to a device that may type, and says so in the attach answer); without, the stream only watches.
+     */
+    suspend fun openTerminal(agent: String, input: Boolean = false): String
 
     /** The terminal stream at [path] (from [openTerminal]): a WebSocket of binary `TermFrame`s, both ways. */
     fun connectTerminal(path: String): TerminalSocket
@@ -228,8 +231,8 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
     override suspend fun approveAgent(agent: String): Message =
         service.approveAgent(ApproveAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).build()).ok().message
 
-    override suspend fun openTerminal(agent: String): String =
-        service.openTerminal(OpenTerminalRequest.newBuilder().setAgent(agent).setInput(false).build()).ok().path
+    override suspend fun openTerminal(agent: String, input: Boolean): String =
+        service.openTerminal(OpenTerminalRequest.newBuilder().setAgent(agent).setInput(input).build()).ok().path
 
     override fun connectTerminal(path: String): TerminalSocket = OkHttpTerminalSocket(connection, path)
 

@@ -88,9 +88,13 @@ class RecordingApi : MeshApi {
     val tickets = mutableListOf<String>()
     var terminalError: Throwable? = null
 
-    override suspend fun openTerminal(agent: String): String {
+    /** Whether each ticket asked for the input right. */
+    val ticketInputs = mutableListOf<Boolean>()
+
+    override suspend fun openTerminal(agent: String, input: Boolean): String {
         terminalError?.let { throw it }
         tickets += agent
+        ticketInputs += input
         return "/v1/term/$agent?ticket=t${tickets.size}"
     }
 

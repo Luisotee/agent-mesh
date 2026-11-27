@@ -52,7 +52,7 @@ private class FakeApi : MeshApi {
     override suspend fun listMessages(runId: String, afterId: String): dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse = error("unused")
     override suspend fun sendMessage(to: String, type: dev.agentmesh.gen.agentmesh.v1.MessageType, body: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
     override suspend fun approveAgent(agent: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
-    override suspend fun openTerminal(agent: String): String = error("unused")
+    override suspend fun openTerminal(agent: String, input: Boolean): String = error("unused")
     override fun connectTerminal(path: String): dev.agentmesh.android.net.TerminalSocket = error("unused")
     override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value): Setting = error("unused")
