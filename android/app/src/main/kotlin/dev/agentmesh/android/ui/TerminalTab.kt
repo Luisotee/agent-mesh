@@ -99,7 +99,8 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
     val state by client.state.collectAsStateWithLifecycleCompat()
     val typing by client.typing.collectAsStateWithLifecycleCompat()
     // A selection names cells of one screen: a repaint (the desktop resized the terminal, the keyboard flipped) makes another.
-    var selection by remember(screen, screen.resets) { mutableStateOf<Selection?>(null) }
+    var selection by remember(screen) { mutableStateOf<Selection?>(null) }
+    LaunchedEffect(screen.resets) { selection = null }
     // The sticky modifiers are for the keyboard that is open: not carried over a Hide.
     var ctrl by remember(typingOn) { mutableStateOf(false) }
     var alt by remember(typingOn) { mutableStateOf(false) }

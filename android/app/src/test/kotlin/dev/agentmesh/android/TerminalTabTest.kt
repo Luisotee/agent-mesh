@@ -7,6 +7,9 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -286,5 +289,30 @@ class TerminalTabTest {
         compose.onNodeWithTag("ime-capture").performTextInput("cd")
         compose.waitUntil(5_000) { typed().length >= 4 }
         assertEquals("ab\u0003d", typed())
+    }
+
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+    @Test fun `a long press selects after the screen was made again, and a tap that drops a selection is only that`() {
+        val rt = runtime(dev.agentmesh.gen.agentmesh.v1.ActorClass.ACTOR_CLASS_DEVICE)
+        val first = FakeSocket().also { api.sockets += it }
+        show(rt)
+        compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
+        live(first, input = false)
+        compose.waitUntil(5_000) { compose.onAllNodes(hasContentDescription("fake claude", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+        val canvas = { compose.onNode(hasContentDescription("Terminal", substring = true)) }
+        // The first touch starts the canvas's gesture handlers: they must follow what changes later.
+        canvas().performTouchInput { longClick(androidx.compose.ui.geometry.Offset(30f, 10f)) }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("copy").fetchSemanticsNodes().isNotEmpty() }
+        // A tap drops it.
+        canvas().performTouchInput { click(androidx.compose.ui.geometry.Offset(300f, 300f)) }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("copy").fetchSemanticsNodes().isEmpty() }
+        // The keyboard flips: the screen is made again (same screen, a new attach). Selecting still works.
+        val second = FakeSocket().also { api.sockets += it }
+        compose.onNodeWithTag("keyboard-toggle").performClick()
+        compose.waitUntil(5_000) { api.tickets.size >= 2 }
+        live(second, input = true)
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live · typing")).fetchSemanticsNodes().isNotEmpty() }
+        canvas().performTouchInput { longClick(androidx.compose.ui.geometry.Offset(30f, 10f)) }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("copy").fetchSemanticsNodes().isNotEmpty() }
     }
 }

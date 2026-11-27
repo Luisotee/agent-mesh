@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -112,6 +113,11 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
             delay(DESCRIPTION_EVERY_MS)
         }
     }
+    // The gesture blocks below run for as long as their key (the screen) holds, so what they call must be read afresh: the
+    // selection's owner changes when the screen is made again, and a tap's meaning with the keyboard.
+    val currentOnSelection by rememberUpdatedState(onSelection)
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentSelection by rememberUpdatedState(selection)
     Canvas(
         modifier.fillMaxSize()
             .semantics { contentDescription = description }
@@ -128,7 +134,12 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                     }
                 }
             }
-            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }, onTap = { onSelection(null); onTap() }) }
+            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }, onTap = {
+                // A tap that drops a selection is only that: it doesn't also ask for the keyboard.
+                val had = currentSelection != null
+                currentOnSelection(null)
+                if (!had) currentOnTap()
+            }) }
             // A long press selects the word under the finger, and dragging on extends it from there.
             .pointerInput(screen) {
                 var anchor: CellPos? = null
@@ -144,9 +155,9 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                         val c = cellAt(o)
                         val word = screen.wordRange(screen.externalRow(c.row), c.col)
                         anchor = CellPos(word.first, c.row)
-                        onSelection(Selection(anchor!!, CellPos(word.last, c.row)))
+                        currentOnSelection(Selection(anchor!!, CellPos(word.last, c.row)))
                     },
-                    onDrag = { change, _ -> anchor?.let { onSelection(Selection(it, cellAt(change.position))) } },
+                    onDrag = { change, _ -> anchor?.let { currentOnSelection(Selection(it, cellAt(change.position))) } },
                     onDragEnd = { anchor = null },
                     onDragCancel = { anchor = null },
                 )
