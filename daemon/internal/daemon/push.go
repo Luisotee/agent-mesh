@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/notice"
+	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/webpush"
 )
@@ -197,16 +199,35 @@ func (p *pusher) dispatch(ctx context.Context, evs []*v1.Event) {
 		if _, exit := e.Payload.(*v1.Event_AgentExited); exit {
 			delete(p.spawned, e.AgentId)
 		}
-		if n == nil || !kinds[n.Kind] {
+		if n == nil {
+			continue
+		}
+		// A device that chose its own list is pushed by it; one that didn't, by the host's.
+		var to []store.PushRecord
+		for _, reg := range regs {
+			if pushedKind(reg, n.Kind, kinds) {
+				to = append(to, reg)
+			}
+		}
+		if len(to) == 0 {
 			continue
 		}
 		at := p.d.now()
 		if e.Time != nil {
 			at = e.Time.AsTime()
 		}
-		p.send(regs, pushPayload{V: 1, Daemon: p.d.daemonID, Seq: e.Seq, Kind: n.Kind, Title: n.Title, Body: n.Body,
+		p.send(to, pushPayload{V: 1, Daemon: p.d.daemonID, Seq: e.Seq, Kind: n.Kind, Title: n.Title, Body: n.Body,
 			Agent: n.AgentID, Tab: n.Tab, At: at.UnixMilli()}, n.Waiting())
 	}
+}
+
+// pushedKind reports whether a registration is pushed a notice of this kind: by its own list when it chose one, else by the
+// host's (hostKinds).
+func pushedKind(reg store.PushRecord, kind string, hostKinds map[string]bool) bool {
+	if len(reg.Events) > 0 {
+		return slices.Contains(reg.Events, kind)
+	}
+	return hostKinds[kind]
 }
 
 // allowPrivate reads push.allow_private_endpoints, at each dial.
@@ -483,6 +504,10 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 	if err != nil {
 		return nil, invalid("%v", err)
 	}
+	events, err := pushEvents(req.Msg.Events)
+	if err != nil {
+		return nil, err
+	}
 	out := &v1.RegisterPushResponse{}
 	rekeyed := false
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRegisterPushProcedure, out, func(t *store.Tx) error {
@@ -491,7 +516,7 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 			return err
 		}
 		rekeyed = err == nil && old.Endpoint == endpoint && (!bytes.Equal(old.P256dh, pub) || !bytes.Equal(old.Auth, secret))
-		if err := t.PutPush(device, endpoint, pub, secret); err != nil {
+		if err := t.PutPush(device, endpoint, pub, secret, events); err != nil {
 			return err
 		}
 		reg, err := t.Push(device)
@@ -514,6 +539,24 @@ func (d *Daemon) RegisterPush(ctx context.Context, req *connect.Request[v1.Regis
 		d.push.stop(device, endpoint)
 	}
 	return connect.NewResponse(out), nil
+}
+
+// pushEvents checks the kinds a device chose to be pushed against the ones app.notify.events knows, and drops a repeat:
+// an unknown kind is refused (a typo would silently push nothing), and none means follow the host's list.
+func pushEvents(in []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, k := range in {
+		k = strings.TrimSpace(k)
+		if !slices.Contains(settings.NotifyEvents, k) {
+			return nil, invalid("unknown event %q: one of %s", k, strings.Join(settings.NotifyEvents, ", "))
+		}
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	return out, nil
 }
 
 // UnregisterPush removes a device's push endpoint.

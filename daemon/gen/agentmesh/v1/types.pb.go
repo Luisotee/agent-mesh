@@ -3165,7 +3165,9 @@ type PushRegistration struct {
 	// The last failure, cleared by the next success.
 	LastError string `protobuf:"bytes,5,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	// Since when every push has failed; unset while pushes go through.
-	FailingSince  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=failing_since,json=failingSince,proto3" json:"failing_since,omitempty"`
+	FailingSince *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=failing_since,json=failingSince,proto3" json:"failing_since,omitempty"`
+	// What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+	Events        []string `protobuf:"bytes,7,rep,name=events,proto3" json:"events,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3238,6 +3240,13 @@ func (x *PushRegistration) GetLastError() string {
 func (x *PushRegistration) GetFailingSince() *timestamppb.Timestamp {
 	if x != nil {
 		return x.FailingSince
+	}
+	return nil
+}
+
+func (x *PushRegistration) GetEvents() []string {
+	if x != nil {
+		return x.Events
 	}
 	return nil
 }
@@ -3598,7 +3607,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"revoked_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\trevokedAt\x122\n" +
-	"\x04push\x18\x06 \x01(\v2\x1e.agentmesh.v1.PushRegistrationR\x04push\"\xaf\x02\n" +
+	"\x04push\x18\x06 \x01(\v2\x1e.agentmesh.v1.PushRegistrationR\x04push\"\xc7\x02\n" +
 	"\x10PushRegistration\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12#\n" +
 	"\rendpoint_host\x18\x02 \x01(\tR\fendpointHost\x12?\n" +
@@ -3607,7 +3616,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"last_ok_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\blastOkAt\x12\x1d\n" +
 	"\n" +
 	"last_error\x18\x05 \x01(\tR\tlastError\x12?\n" +
-	"\rfailing_since\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ffailingSince\"[\n" +
+	"\rfailing_since\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\ffailingSince\x12\x16\n" +
+	"\x06events\x18\a \x03(\tR\x06events\"[\n" +
 	"\fDevicePaired\x12,\n" +
 	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\x12\x1d\n" +
 	"\n" +
