@@ -1,3 +1,4 @@
+import { isShellTab, shellTabId } from './shells'
 import type { AgentTab } from './model'
 import { MAX_SIDE_PANES, tabKey, type PaneRef, type SplitDir, type TabRef } from './workspace'
 import type { Agent, AgentState } from './gen/agentmesh/v1/types_pb'
@@ -153,10 +154,12 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
  * Drops from the open tabs and panes the agents a host no longer has, once its first snapshot says which it has (before
  * that every agent looks missing). Returns what to change, or nothing when every agent is still there.
  */
-export function pruneHost(s: LayoutSource, hostId: string, agents: Record<string, Agent>): Partial<LayoutSource> | undefined {
-  const gone = (r: TabRef) => r.hostId === hostId && !(r.agentId in agents)
+export function pruneHost(s: LayoutSource & { shells?: Record<string, Array<{ id: string }>> }, hostId: string, agents: Record<string, Agent>): Partial<LayoutSource> | undefined {
+  // A shell tab is judged by the host's shells, once they are read (before that it is not missing, only not here yet).
+  const shells = s.shells?.[hostId]
+  const gone = (r: TabRef) => r.hostId === hostId && (isShellTab(r.agentId) ? !!shells && !shells.some((x) => shellTabId(x.id) === r.agentId) : !(r.agentId in agents))
   // A dismissal of an agent the host lost is dead weight in the kept layout.
-  const deadKeys = Object.keys(s.dismissed ?? {}).filter((k) => k.startsWith(`${hostId}/`) && !(k.slice(hostId.length + 1) in agents))
+  const deadKeys = Object.keys(s.dismissed ?? {}).filter((k) => k.startsWith(`${hostId}/`) && !isShellTab(k.slice(hostId.length + 1)) && !(k.slice(hostId.length + 1) in agents))
   if (!s.tabs.some(gone) && !s.side.some(gone) && !(s.agentId && gone({ hostId: s.hostId ?? '', agentId: s.agentId })) && deadKeys.length === 0) return undefined
   const tabs = s.tabs.filter((t) => !gone(t))
   const side = s.side.filter((p) => !gone(p))

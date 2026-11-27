@@ -249,7 +249,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.OpenAgentResponse.terminal_path":          "For OPEN_MODE_ATTACH: WebSocket path on the daemon's listener, ticket included (with input=true).",
 	"agentmesh.v1.OpenInEditorRequest.path":                 "A path under the agent's worktree (relative to it, or absolute); empty opens the worktree itself.",
 	"agentmesh.v1.OpenInEditorResponse.opened":              "What was opened, as an absolute path.",
-	"agentmesh.v1.OpenShellRequest.repo":                    "The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.",
+	"agentmesh.v1.OpenShellRequest.repo":                    "The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).",
 	"agentmesh.v1.OpenTerminalRequest.agent":                "The agent whose terminal to open. Exactly one of `agent` and `shell`.",
 	"agentmesh.v1.OpenTerminalRequest.input":                "Ask for input rights; granted only to actors with the terminal.input right.",
 	"agentmesh.v1.OpenTerminalRequest.shell":                "A project shell's id (`ListShells`): a ticket for `/v1/shell/<id>`. Devices only.",

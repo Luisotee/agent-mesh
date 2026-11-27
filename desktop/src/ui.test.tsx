@@ -24,6 +24,8 @@ import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
+import { ShellCloseDialog } from './components/shell-panel'
+import { pruneHost } from './layout'
 import { MessageCard } from './components/messages-panel'
 import { ProjectSidebar, stepSidebar } from './components/project-sidebar'
 import { ProjectSettingsDialog } from './components/project-settings'
@@ -44,6 +46,7 @@ import { createHostStore } from './store'
 import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
 import { AgentCostSchema, GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
 import { CheckModelsResponseSchema, KindModelsSchema, ModelFamilyEntrySchema } from './gen/agentmesh/v1/report_pb'
+import { ShellSchema, ListShellsResponseSchema, OpenShellResponseSchema, CloseShellResponseSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
@@ -721,7 +724,8 @@ describe('Dock and TabBar', () => {
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-fix', 'app-lead'])
     act(() => model.selectAgent('h1', 'o1'))
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['web-lead'])
-    await userEvent.click(screen.getByRole('button', { name: 'New lead in web' }))
+    await userEvent.click(screen.getByRole('button', { name: 'New in web' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'New lead' }))
     expect(model.store.getState()).toMatchObject({ workspaceOpen: true, workspaceRepo: '/p/web', workspaceHost: 'h1' })
   })
 
@@ -1757,5 +1761,77 @@ describe('ChatView', () => {
     render(ui)
     expect(await screen.findByText(/reads no record of a/)).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeEnabled()
+  })
+})
+
+describe('Project shells', () => {
+  const shell = (id: string, o: { repo?: string; exited?: boolean } = {}) => create(ShellSchema, { id, repo: '/p/app', ...o })
+  function shells(initial: ReturnType<typeof shell>[] = []) {
+    const f = fixture()
+    let live = initial
+    Object.assign(f.client, {
+      listShells: vi.fn(async () => create(ListShellsResponseSchema, { shells: live })),
+      openShell: vi.fn(async (req: { repo: string }) => {
+        const sh = shell('t1', { repo: req.repo })
+        live = [...live, sh]
+        return create(OpenShellResponseSchema, { shell: sh })
+      }),
+      closeShell: vi.fn(async (req: { id: string }) => {
+        live = live.filter((x) => x.id !== req.id)
+        return create(CloseShellResponseSchema)
+      }),
+    })
+    f.model.selectAgent('h1', 'lead')
+    return { ...f, client: f.client as unknown as Record<'openShell' | 'closeShell' | 'listShells', ReturnType<typeof vi.fn>> }
+  }
+
+  it('offers New terminal from the +, starts a shell in the project, opens its tab, and keeps its tab across a restore', async () => {
+    const { client, wrap, model } = shells()
+    render(wrap(<TabBar />))
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New lead', 'New terminal'])
+    await userEvent.click(screen.getByRole('menuitem', { name: 'New terminal' }))
+    await waitFor(() => expect(model.store.getState().agentId).toBe('shell:t1'))
+    expect(client.openShell).toHaveBeenCalledWith(expect.objectContaining({ repo: '/p/app' }))
+    // It is a tab of the project's bar, beside the lead's.
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-lead', 'Terminal'])
+    expect(model.store.getState().tabs).toContainEqual({ hostId: 'h1', agentId: 'shell:t1' })
+  })
+
+  it('asks when a shell tab closes: Keep running closes the tab only and the + menu opens it again; End shell stops it', async () => {
+    const { client, wrap, model } = shells([shell('t1'), shell('t2')])
+    await act(() => model.loadShells('h1'))
+    model.selectAgent('h1', 'shell:t1')
+    model.selectAgent('h1', 'shell:t2')
+    render(wrap(<><TabBar /><ShellCloseDialog /></>))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-lead', 'Terminal', 'Terminal 2'])
+    // Keep running: the tab goes, the shell stays on the host.
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Close Terminal' }))
+    expect(await screen.findByRole('dialog', { name: 'Close this terminal?' })).toBeInTheDocument()
+    expect(model.store.getState().tabs).toContainEqual({ hostId: 'h1', agentId: 'shell:t1' })
+    await userEvent.click(screen.getByRole('button', { name: 'Keep running' }))
+    expect(model.store.getState().tabs).not.toContainEqual({ hostId: 'h1', agentId: 'shell:t1' })
+    expect(client.closeShell).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Open the running terminal' }))
+    expect(model.store.getState().agentId).toBe('shell:t1')
+    // End shell: the host is told, and the tab and the shell are gone.
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Close Terminal' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'End shell' }))
+    await waitFor(() => expect(client.closeShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' })))
+    await waitFor(() => expect(model.store.getState().tabs).not.toContainEqual({ hostId: 'h1', agentId: 'shell:t1' }))
+    expect(model.store.getState().shells.h1!.map((x) => x.id)).toEqual(['t2'])
+  })
+
+  it('judges a restored shell tab by the host\'s shells, once they are read, and not before', async () => {
+    const { host, model } = shells([shell('t1')])
+    model.store.setState({ tabs: [{ hostId: 'h1', agentId: 'lead' }, { hostId: 'h1', agentId: 'shell:t1' }, { hostId: 'h1', agentId: 'shell:gone' }] })
+    // A host's first snapshot prunes the agents it lost, not the shells it has not listed yet.
+    const patch = pruneHost(model.store.getState(), 'h1', host.store.getState().agents)
+    expect(patch).toBeUndefined()
+    await act(() => model.loadShells('h1'))
+    expect(model.store.getState().tabs).toEqual([{ hostId: 'h1', agentId: 'lead' }, { hostId: 'h1', agentId: 'shell:t1' }])
   })
 })

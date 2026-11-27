@@ -518,7 +518,7 @@ public class MeshServiceClient(
   /**
    *  Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
    *  daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
-   *  host lists (`ListProjects`).
+   *  host knows (a folder of `repos.dir`, or a repo an agent worked in: what `ListProjects` draws on).
    */
   override suspend fun openShell(request: OpenShellRequest, headers: Headers): ResponseMessage<OpenShellResponse> = client.unary(
     request,

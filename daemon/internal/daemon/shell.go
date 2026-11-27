@@ -7,6 +7,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -26,14 +28,17 @@ const (
 	shellKind = "shell"
 	// maxShells is how many live shells the host keeps: each is a process and a screen.
 	maxShells = 20
+	// shellGrace is how long a closed shell has to leave on SIGHUP before it is sent SIGTERM and then SIGKILL.
+	shellGrace = 3 * time.Second
 )
 
-// shellEnv is what a shell starts with: the user's basics and none of the daemon's secrets (no AGENT_MESH_*, no token,
-// no API key). A login shell reads the user's profile for the rest. HOME and PATH may come from the host's configured
+// shellEnv is what a shell starts with: the user's basics and session and none of the daemon's secrets (no AGENT_MESH_*, no
+// token, no API key). A login shell reads the user's profile for the rest. HOME and PATH may come from the host's configured
 // environment (a test's own home).
 func (d *Daemon) shellEnv() map[string]string {
 	env := map[string]string{}
-	for _, k := range []string{"HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "TZ"} {
+	// Session variables a login profile doesn't set (the user's bus, ssh agent, display) are the user's own, not the daemon's secrets.
+	for _, k := range []string{"HOME", "USER", "LOGNAME", "SHELL", "PATH", "LANG", "TZ", "TMPDIR", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "SSH_AUTH_SOCK", "DISPLAY", "WAYLAND_DISPLAY"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env[k] = v
 		}
@@ -107,10 +112,11 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 	}
 	i := slices.IndexFunc(paths, func(p string) bool { return sameDir(p, top) })
 	if i < 0 {
-		return nil, notFound("%s is not one of the projects the host lists (`mesh projects`)", req.Msg.Repo)
+		return nil, notFound("%s is not a project the host knows (a folder of `repos.dir`, or a repo an agent worked in: `mesh projects`)", req.Msg.Repo)
 	}
 	top = paths[i]
 	out := &v1.OpenShellResponse{}
+	var created string
 	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceOpenShellProcedure, out, func(*store.Tx) error {
 		// Counted inside the write, so a replay of an applied request neither is refused nor uses a place.
 		live, err := d.shells(ctx)
@@ -132,10 +138,23 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 		if err != nil {
 			return err
 		}
+		created = res.Msg.Terminal.Id
 		out.Shell = shellOf(res.Msg.Terminal)
 		return nil
 	})
+	if err != nil && created != "" {
+		// The shell started but its record did not commit (the caller went away): a retry with the same mutation id would start a
+		// second one, and nobody knows this one, so it ends.
+		d.dropShell(created)
+	}
 	return connect.NewResponse(out), err
+}
+
+// dropShell ends a shell nobody will ask about, and forgets it.
+func (d *Daemon) dropShell(id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, _ = d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: id, Signal: int32(syscall.SIGKILL)}))
 }
 
 func (d *Daemon) ListShells(ctx context.Context, _ *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error) {
@@ -152,23 +171,41 @@ func (d *Daemon) ListShells(ctx context.Context, _ *connect.Request[v1.ListShell
 
 func (d *Daemon) CloseShell(ctx context.Context, req *connect.Request[v1.CloseShellRequest]) (*connect.Response[v1.CloseShellResponse], error) {
 	out := &v1.CloseShellResponse{}
-	ts, err := d.shells(ctx)
-	if err != nil {
-		return nil, err
-	}
-	i := slices.IndexFunc(ts, func(t *termv1.Terminal) bool { return t.Id == req.Msg.Id })
-	if i < 0 {
-		return nil, notFound("no shell %q (`mesh shells`)", req.Msg.Id)
-	}
-	t := ts[i]
-	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceCloseShellProcedure, out, func(*store.Tx) error {
+	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceCloseShellProcedure, out, func(*store.Tx) error {
+		// Looked up here, after a replay of an applied request is answered: a retry of a close that worked is not "no such shell".
+		ts, err := d.shells(ctx)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(ts, func(t *termv1.Terminal) bool { return t.Id == req.Msg.Id })
+		if i < 0 {
+			return notFound("no shell %q (`mesh shells`)", req.Msg.Id)
+		}
+		t := ts[i]
 		d.revokeShellTickets(t.Id) // a ticket for a closed shell is refused
 		if t.Exited {
 			return d.shellExited(ctx, t.Id)
 		}
-		// SIGTERM, then SIGKILL after the host's grace period; the host's exit watch forgets it.
-		_, err := d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: t.Id}))
-		return err
+		// As closing a terminal window does: SIGHUP, which the shell passes on to its background jobs. SIGTERM, then SIGKILL, follow
+		// if it is still there after a grace period (a shell ignoring HUP); the host's exit watch forgets it.
+		_, err = d.rt.term.API.KillTerminal(ctx, connect.NewRequest(&termv1.KillTerminalRequest{Id: t.Id, Signal: int32(syscall.SIGHUP)}))
+		if connect.CodeOf(err) == connect.CodeNotFound {
+			return nil // it exited and was forgotten meanwhile
+		}
+		if err != nil {
+			return err
+		}
+		d.goBG(func() {
+			select {
+			case <-time.After(shellGrace):
+			case <-d.stopping:
+				return
+			}
+			bg, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, _ = d.rt.term.API.KillTerminal(bg, connect.NewRequest(&termv1.KillTerminalRequest{Id: t.Id}))
+		})
+		return nil
 	})
 	return connect.NewResponse(out), err
 }
@@ -176,6 +213,9 @@ func (d *Daemon) CloseShell(ctx context.Context, req *connect.Request[v1.CloseSh
 // shellExited forgets an exited shell: there is nothing to record, and a client still on its stream was told by the stream.
 func (d *Daemon) shellExited(ctx context.Context, id string) error {
 	d.revokeShellTickets(id)
+	d.rt.mu.Lock()
+	delete(d.rt.lastOutput, id) // the output mark the host's watch kept for it
+	d.rt.mu.Unlock()
 	_, err := d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: id}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
 		err = nil

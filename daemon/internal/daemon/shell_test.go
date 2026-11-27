@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -27,6 +29,7 @@ type shellWorld struct {
 
 func startShells(t *testing.T) *shellWorld {
 	t.Helper()
+	t.Setenv("SHELL", "/bin/bash") // the tests type bash syntax, whatever shell the developer uses
 	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	project := gitRepo(t)
@@ -346,4 +349,52 @@ func TestShellsSurviveADaemonRestart(t *testing.T) {
 	s.Ready(ctx)
 	s.Input(ctx, []byte("echo STILL-$((20+1))\n"))
 	readUntil(t, s, "STILL-21")
+}
+
+// Ending a shell is like closing a terminal window: its background jobs get the hangup, so a server started with `&` does not
+// outlive the shell holding its port; a closed shell's retry is not "no such shell".
+func TestEndingAShellHangsUpItsBackgroundJobs(t *testing.T) {
+	w := startShells(t)
+	ctx := context.Background()
+	sh, err := w.open(t, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := w.attach(t, w.device, sh.Id, true)
+	s.Ready(ctx)
+	pidFile := filepath.Join(t.TempDir(), "job.pid")
+	s.Input(ctx, []byte("sleep 4242 & echo $! > "+pidFile+"; echo JOB-$((40+2))\n"))
+	readUntil(t, s, "JOB-42")
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if pid <= 1 {
+		t.Fatalf("job pid %q", raw)
+	}
+	// Gone, or a zombie waiting for its parent to reap it (a stopped process is not a running job).
+	alive := func() bool {
+		if syscall.Kill(pid, 0) != nil {
+			return false
+		}
+		st, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+		return err == nil && !strings.Contains(string(st), ") Z ")
+	}
+	if !alive() {
+		t.Fatal("the background job is not running")
+	}
+	close := func(id string) error {
+		_, err := w.device.Mesh.CloseShell(ctx, connect.NewRequest(&v1.CloseShellRequest{Meta: meta("close-1"), Id: id}))
+		return err
+	}
+	if err := close(sh.Id); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the shell's background job hung up", func() bool { return !alive() })
+	waitFor(t, "the shell forgotten", func() bool { return len(w.list(t)) == 0 })
+	// The same request again (the bridge retries a call that got no answer) is the stored answer, not NotFound.
+	if err := close(sh.Id); err != nil {
+		t.Errorf("a replayed close: %v", err)
+	}
 }

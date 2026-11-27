@@ -21,6 +21,7 @@ import { EmptyPane } from '@/components/empty-pane'
 import { ProjectSidebar } from '@/components/project-sidebar'
 import { FindBar } from '@/components/find-bar'
 import { ProjectSettingsDialog } from '@/components/project-settings'
+import { ShellCloseDialog } from '@/components/shell-panel'
 import { NewWorkspaceDialog } from '@/components/workspace-dialog'
 import { PairPanel } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
@@ -95,6 +96,7 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
           <ViewToasts />
           <WorkspaceSlot host={host} />
           <ProjectSettingsDialog />
+          <ShellCloseDialog />
           <SendMessageDialog />
         </>
       )}

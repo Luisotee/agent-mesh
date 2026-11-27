@@ -3931,7 +3931,7 @@ func (x *OpenTerminalRequest) GetShell() string {
 type OpenShellRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
-	// The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+	// The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
 	Repo          string `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -1,4 +1,4 @@
-import { Columns2, PanelRight, Plus, Rows2, X } from 'lucide-react'
+import { Columns2, PanelRight, Plus, Rows2, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { displayChord } from '@/keys'
 import { useApp, useAppState } from '@/context'
@@ -12,6 +12,8 @@ import type { HostRuntime } from '@/model'
 import { useHostViews, useKeys } from '@/hooks'
 import { StateIcon } from './state-icon'
 import { Tip } from '@/components/ui/tooltip'
+import { ActionMenu, type MenuEntry } from '@/components/ui/menu'
+import { closedShells, isShellTab, shellIdOf, shellProject, shellTabId } from '@/shells'
 
 /** The repo the run of `a` is led from (its root agent's), else its own. */
 function leadRepo(host: HostRuntime | undefined, a: Agent): string {
@@ -40,12 +42,27 @@ export function TabBar() {
   const many = hosts.length > 1
   // This project's tabs: those of the open agent's project (with none open, all of them).
   const open = hostId && agentId ? { hostId, agentId } : undefined
-  const projectOf = (t: TabRef) => agentProject(t.hostId, views.find((v) => v.hostId === t.hostId)?.agents, t.agentId)
+  const allShells = useAppState((s) => s.shells)
+  const shellOf = (t: TabRef) => (isShellTab(t.agentId) ? allShells[t.hostId]?.find((x) => x.id === shellIdOf(t.agentId)) : undefined)
+  const projectOf = (t: TabRef) => {
+    if (!isShellTab(t.agentId)) return agentProject(t.hostId, views.find((v) => v.hostId === t.hostId)?.agents, t.agentId)
+    const sh = shellOf(t)
+    return sh ? shellProject(t.hostId, sh) : undefined
+  }
   const tabs = projectTabs(all, projectOf, open)
   const openAgent = open && views.find((v) => v.hostId === open.hostId)?.agents[open.agentId]
   const runs = useAppState((s) => s.hosts.find((h) => h.info.id === hostId))
   // A new lead goes in the open project (its host and the repo its run is led from).
-  const project = open && openAgent ? { hostId: open.hostId, repo: leadRepo(runs, openAgent) } : undefined
+  const openShellRow = open && shellOf(open)
+  const project = open && openAgent ? { hostId: open.hostId, repo: leadRepo(runs, openAgent) } : open && openShellRow ? { hostId: open.hostId, repo: openShellRow.repo } : undefined
+  // The shells of this project that no tab shows (kept running when their tab closed): the + menu opens them again.
+  const hiddenShells = project ? closedShells(allShells[project.hostId], all, project.hostId, project.repo) : []
+  const newTerminal = () => project && void app.newShell(project.hostId, project.repo)
+  const plusEntries: MenuEntry[] = [
+    { label: 'New lead', onSelect: () => newLead() },
+    { label: 'New terminal', onSelect: newTerminal, disabled: !project },
+    ...(hiddenShells.length > 0 ? (['separator', ...hiddenShells.map((s, i) => ({ label: hiddenShells.length > 1 ? `Open terminal ${i + 1}` : 'Open the running terminal', onSelect: () => app.selectAgent(project!.hostId, shellTabId(s.id)) }))] as MenuEntry[]) : []),
+  ]
   const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true, undefined, project)
   return (
     <div className="flex min-h-9 shrink-0 items-end border-b bg-surface px-1 pt-1">
@@ -62,10 +79,15 @@ export function TabBar() {
     >
       {tabs.map((t) => {
         const view = views.find((v) => v.hostId === t.hostId)
-        const agent = view?.agents[t.agentId]
+        const shellTab = isShellTab(t.agentId)
+        const shells = allShells[t.hostId]
+        const shell = shellTab ? shells?.find((x) => x.id === shellIdOf(t.agentId)) : undefined
+        const agent = shellTab ? undefined : view?.agents[t.agentId]
         const active = t.hostId === hostId && t.agentId === agentId
         const beside = side.some((p) => p.hostId === t.hostId && p.agentId === t.agentId)
-        const label = agent?.name ?? t.agentId
+        // A shell's tab: "Terminal", numbered when the project has several.
+        const nth = shell && shells ? shells.filter((x) => x.repo === shell.repo).findIndex((x) => x.id === shell.id) + 1 : 0
+        const label = shellTab ? (nth > 1 ? `Terminal ${nth}` : 'Terminal') : (agent?.name ?? t.agentId)
         return (
           <div
             key={tabKey(t)}
@@ -95,7 +117,7 @@ export function TabBar() {
             onMouseDown={(e) => {
               if (e.button === 1) e.preventDefault()
             }}
-            style={agent ? hueStyle(agent.repo) : undefined}
+            style={agent ? hueStyle(agent.repo) : shell ? hueStyle(shell.repo) : undefined}
             // The open tab is underlined in its project's hue.
             className={cn(
               'group relative flex max-w-52 min-w-0 shrink-0 items-center self-end rounded-t-md border border-b-0 text-[13px]',
@@ -111,7 +133,7 @@ export function TabBar() {
               onClick={() => app.selectAgent(t.hostId, t.agentId)}
               className="flex min-w-0 items-center gap-1.5 py-1.5 pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-identity"
             >
-              {agent ? <StateIcon agent={agent} className="size-3.5" /> : null}
+              {agent ? <StateIcon agent={agent} className="size-3.5" /> : shellTab ? <SquareTerminal className="size-3.5" /> : null}
               <span className="truncate">{label}</span>
               {many && view && <span className="shrink-0 text-xs text-muted-foreground">{view.hostName}</span>}
             </button>
@@ -140,10 +162,18 @@ export function TabBar() {
       })}
     </div>
     {tabs.length === 0 && <span className="self-center px-2 text-xs text-muted-foreground">No agent open</span>}
-    <Tip label={project ? `New lead in ${repoName(project.repo)}` : 'New lead'}>
-      <Button size="icon" variant="ghost" className="mb-1 ml-1 size-7" aria-label={project ? `New lead in ${repoName(project.repo)}` : 'New lead in this project'} onClick={newLead}>
-        <Plus />
-      </Button>
+    <Tip label={project ? `New in ${repoName(project.repo)}` : 'New lead or terminal'}>
+      <span className="mb-1 ml-1">
+        <ActionMenu
+          entries={plusEntries}
+          align="end"
+          trigger={
+            <Button size="icon" variant="ghost" className="size-7" aria-label={project ? `New in ${repoName(project.repo)}` : 'New in this project'} onClick={() => project && void app.loadShells(project.hostId)}>
+              <Plus />
+            </Button>
+          }
+        />
+      </span>
     </Tip>
     {side.length > 0 && (
       <Tip label={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}>

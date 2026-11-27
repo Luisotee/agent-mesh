@@ -316,7 +316,7 @@ type MeshServiceClient interface {
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
 	// Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
 	// daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
-	// host lists (`ListProjects`).
+	// host knows (a folder of `repos.dir`, or a repo an agent worked in: what `ListProjects` draws on).
 	OpenShell(context.Context, *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error)
 	// The shells that are running (or exited and not yet seen to), oldest first.
 	ListShells(context.Context, *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error)
@@ -1490,7 +1490,7 @@ type MeshServiceHandler interface {
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
 	// Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
 	// daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
-	// host lists (`ListProjects`).
+	// host knows (a folder of `repos.dir`, or a repo an agent worked in: what `ListProjects` draws on).
 	OpenShell(context.Context, *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error)
 	// The shells that are running (or exited and not yet seen to), oldest first.
 	ListShells(context.Context, *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error)

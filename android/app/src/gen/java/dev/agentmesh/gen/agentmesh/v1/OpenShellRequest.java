@@ -69,7 +69,7 @@ public  final class OpenShellRequest extends
   private java.lang.String repo_;
   /**
    * <pre>
-   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
    * </pre>
    *
    * <code>string repo = 2 [json_name = "repo"];</code>
@@ -81,7 +81,7 @@ public  final class OpenShellRequest extends
   }
   /**
    * <pre>
-   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
    * </pre>
    *
    * <code>string repo = 2 [json_name = "repo"];</code>
@@ -94,7 +94,7 @@ public  final class OpenShellRequest extends
   }
   /**
    * <pre>
-   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
    * </pre>
    *
    * <code>string repo = 2 [json_name = "repo"];</code>
@@ -108,7 +108,7 @@ public  final class OpenShellRequest extends
   }
   /**
    * <pre>
-   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
    * </pre>
    *
    * <code>string repo = 2 [json_name = "repo"];</code>
@@ -119,7 +119,7 @@ public  final class OpenShellRequest extends
   }
   /**
    * <pre>
-   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+   * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
    * </pre>
    *
    * <code>string repo = 2 [json_name = "repo"];</code>
@@ -278,7 +278,7 @@ public  final class OpenShellRequest extends
 
     /**
      * <pre>
-     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
      * </pre>
      *
      * <code>string repo = 2 [json_name = "repo"];</code>
@@ -290,7 +290,7 @@ public  final class OpenShellRequest extends
     }
     /**
      * <pre>
-     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
      * </pre>
      *
      * <code>string repo = 2 [json_name = "repo"];</code>
@@ -303,7 +303,7 @@ public  final class OpenShellRequest extends
     }
     /**
      * <pre>
-     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
      * </pre>
      *
      * <code>string repo = 2 [json_name = "repo"];</code>
@@ -318,7 +318,7 @@ public  final class OpenShellRequest extends
     }
     /**
      * <pre>
-     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
      * </pre>
      *
      * <code>string repo = 2 [json_name = "repo"];</code>
@@ -331,7 +331,7 @@ public  final class OpenShellRequest extends
     }
     /**
      * <pre>
-     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one `ListProjects` lists.
+     * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
      * </pre>
      *
      * <code>string repo = 2 [json_name = "repo"];</code>
