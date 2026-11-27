@@ -29,4 +29,15 @@ public interface GetAgentChangesRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAgentBytes();
+
+  /**
+   * <pre>
+   * Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+   * so only when asked.
+   * </pre>
+   *
+   * <code>bool with_ignored = 2 [json_name = "withIgnored"];</code>
+   * @return The withIgnored.
+   */
+  boolean getWithIgnored();
 }

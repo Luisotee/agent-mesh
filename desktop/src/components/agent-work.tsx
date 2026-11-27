@@ -2,7 +2,7 @@ import { Archive, ArchiveRestore, FileCode2 } from 'lucide-react'
 import { useState } from 'react'
 import { archiveAgent, getAgentChanges, getAgentProgress, openInEditor, resumeAgent } from '@/actions'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
-import { archiveAdvice, canArchive, changeSummary, contextMeter, planSummary, STATUS_MARK } from '@/agent-work'
+import { archiveAdvice, canArchive, changeSummary, contextMeter, ignoredLines, planSummary, STATUS_MARK } from '@/agent-work'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useHostState } from '@/context'
@@ -153,7 +153,10 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
   const [busy, setBusy] = useState(false)
   const [sure, setSure] = useState(false)
   const read = usePolled(async () => getAgentChanges(host.client, agent.id), `archive/${host.info.id}/${agent.id}`, 5_000, open)
+  // The ignored files are a walk of the worktree: asked once when the dialog opens, not on its 5 s poll (a very long interval keeps the hook's shape).
+  const ignoredRead = usePolled(async () => getAgentChanges(host.client, agent.id, true), `archive-ignored/${host.info.id}/${agent.id}`, 3_600_000, open)
   const advice = archiveAdvice(read.value)
+  const ignored = ignoredRead.value ? ignoredLines(ignoredRead.value) : { lines: [], more: 0 }
   /** Closing forgets what was ticked and said: the next opening starts as a new question. */
   function close(next: boolean) {
     setOpen(next)
@@ -185,6 +188,17 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
           <div className="flex flex-col gap-3 text-sm">
             {LIVE.includes(agent.state) && <p className="text-xs text-state-needs">It is {agent.state === AgentState.WORKING ? 'working' : 'busy'} now: archiving stops it.</p>}
             {read.value && <p className="text-xs text-muted-foreground">{changeSummary(read.value)}</p>}
+            {ignored.lines.length > 0 && (
+              <div className="text-xs">
+                <p className="text-muted-foreground">Ignored files that go with it, and that git has no copy of:</p>
+                <ul aria-label="Ignored files that will be deleted" className="mt-1 max-h-32 overflow-y-auto font-mono">
+                  {ignored.lines.map((e) => (
+                    <li key={e.path} className="flex justify-between gap-3"><span className="truncate">{e.path}</span><span className="shrink-0 text-muted-foreground">{e.size}</span></li>
+                  ))}
+                  {ignored.more > 0 && <li className="text-muted-foreground">and {ignored.more} more</li>}
+                </ul>
+              </div>
+            )}
             {read.error && !read.value && <p role="alert" className="text-xs text-destructive">Couldn't read the worktree: {read.error}</p>}
             {advice.blocked && <p role="alert" className="text-xs text-destructive">{advice.blocked}</p>}
             {advice.warn && (

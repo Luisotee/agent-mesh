@@ -196,3 +196,8 @@ func SetRoomPoll(d time.Duration) time.Duration {
 	roomPoll = d
 	return old
 }
+
+// LostIn is lostIn: the bytes, files and whether the count stopped early, under a path of a worktree that a restore would not give back.
+func LostIn(ctx context.Context, worktree, rel string, safe func(string) bool) (int64, int, bool) {
+	return lostIn(ctx, worktree, rel, safe)
+}

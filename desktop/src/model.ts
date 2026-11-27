@@ -148,6 +148,8 @@ export interface AppState extends WorkspaceState {
   viewRequests: ViewRequestRow[]
   /** The projects the user pinned in the New workspace dialog, by host id (device-local, with the layout). */
   pins: Record<string, string[]>
+  /** A message an `OpenView` plan names: its card scrolls into view and is marked for a moment, then the Messages tab clears this. */
+  focusMessage?: { hostId: string; id: string }
 }
 
 /** How the sidebar groups the agents: by run (each as a tree from its lead), by repo, or by status bucket. */
@@ -200,6 +202,11 @@ export interface AppModel {
   openUsage(open: boolean): void
   /** Shows what a toast names and takes the toast away. */
   openViewRequest(id: number): void
+  clearFocusMessage(): void
+  /** Mark a message for the Messages panel to show. If no card claims it within 10 s (its messages did not load), it is forgotten. */
+  focusOnMessage(focus: { hostId: string; id: string }): void
+  /** The card for the focused message is showing: its own timer takes over from the 10 s fallback. */
+  claimFocusMessage(): void
   /** Takes a toast away. */
   dismissViewRequest(id: number): void
   /** Pins a project of a host (or unpins it): pinned projects come first in the New workspace dialog. */
@@ -233,7 +240,11 @@ export function typingNow(): boolean {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
 }
 
-/** Shows what an `OpenView` request names: an agent's chat or terminal, the host's settings, or a run (its lead). Does nothing for an agent or run the host doesn't have. */
+/**
+ * Shows what an `OpenView` request names: an agent's chat or terminal, its Messages tab (or a plan in it), the agent a pull request
+ * belongs to (with the side panel, where its pull requests are), the host's settings, or a run (its lead). Does nothing for an
+ * agent or run the host doesn't have.
+ */
 export function showView(app: AppModel, hostId: string, v: ViewRequest): void {
   const host = app.store.getState().hosts.find((h) => h.info.id === hostId)
   if (!host) return
@@ -242,6 +253,19 @@ export function showView(app: AppModel, hostId: string, v: ViewRequest): void {
     case 'agent':
     case 'terminal':
       if (s.agents[v.target]) app.selectAgent(hostId, v.target, v.view === 'agent' ? 'chat' : 'terminal')
+      return
+    case 'messages':
+    case 'plan':
+      if (!s.agents[v.target]) return
+      if (v.view === 'plan' && v.messageId) {
+        app.focusOnMessage({ hostId, id: v.messageId })
+      }
+      app.selectAgent(hostId, v.target, 'messages')
+      return
+    case 'pr':
+      if (!s.agents[v.agentId]) return
+      app.selectAgent(hostId, v.agentId)
+      app.setPanel(true)
       return
     case 'run': {
       const lead = Object.values(s.agents).find((a) => a.runId === v.target && a.role === AgentRole.ROOT)
@@ -287,6 +311,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
   let saved = ''
   let saveTimer: ReturnType<typeof setTimeout> | undefined
+  let focusFallback: ReturnType<typeof setTimeout> | undefined
   const save = () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
@@ -434,6 +459,18 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => ({ viewRequests: s.viewRequests.filter((x) => x.id !== id) }))
       if (r) showView(model, r.hostId, r.request)
     },
+    clearFocusMessage: () => {
+      clearTimeout(focusFallback)
+      set({ focusMessage: undefined })
+    },
+    focusOnMessage: (focus) => {
+      clearTimeout(focusFallback)
+      set({ focusMessage: focus })
+      focusFallback = setTimeout(() => {
+        if (store.getState().focusMessage === focus) set({ focusMessage: undefined })
+      }, 10_000)
+    },
+    claimFocusMessage: () => clearTimeout(focusFallback),
     dismissViewRequest: (id) => set((s) => ({ viewRequests: s.viewRequests.filter((x) => x.id !== id) })),
     togglePin: (hostId, path) =>
       set((s) => {

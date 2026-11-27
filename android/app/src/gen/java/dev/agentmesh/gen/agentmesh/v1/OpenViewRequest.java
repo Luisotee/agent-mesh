@@ -71,7 +71,9 @@ public  final class OpenViewRequest extends
   private java.lang.String view_;
   /**
    * <pre>
-   * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+   * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+   * owns the pull request, with its side panel).
    * </pre>
    *
    * <code>string view = 2 [json_name = "view"];</code>
@@ -83,7 +85,9 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+   * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+   * owns the pull request, with its side panel).
    * </pre>
    *
    * <code>string view = 2 [json_name = "view"];</code>
@@ -96,7 +100,9 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+   * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+   * owns the pull request, with its side panel).
    * </pre>
    *
    * <code>string view = 2 [json_name = "view"];</code>
@@ -110,7 +116,9 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+   * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+   * owns the pull request, with its side panel).
    * </pre>
    *
    * <code>string view = 2 [json_name = "view"];</code>
@@ -121,7 +129,9 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+   * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+   * owns the pull request, with its side panel).
    * </pre>
    *
    * <code>string view = 2 [json_name = "view"];</code>
@@ -138,8 +148,8 @@ public  final class OpenViewRequest extends
   private java.lang.String target_;
   /**
    * <pre>
-   * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-   * (may be empty).
+   * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+   * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
    * </pre>
    *
    * <code>string target = 3 [json_name = "target"];</code>
@@ -151,8 +161,8 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-   * (may be empty).
+   * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+   * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
    * </pre>
    *
    * <code>string target = 3 [json_name = "target"];</code>
@@ -165,8 +175,8 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-   * (may be empty).
+   * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+   * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
    * </pre>
    *
    * <code>string target = 3 [json_name = "target"];</code>
@@ -180,8 +190,8 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-   * (may be empty).
+   * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+   * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
    * </pre>
    *
    * <code>string target = 3 [json_name = "target"];</code>
@@ -192,8 +202,8 @@ public  final class OpenViewRequest extends
   }
   /**
    * <pre>
-   * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-   * (may be empty).
+   * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+   * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
    * </pre>
    *
    * <code>string target = 3 [json_name = "target"];</code>
@@ -419,7 +429,9 @@ public  final class OpenViewRequest extends
 
     /**
      * <pre>
-     * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+     * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+     * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+     * owns the pull request, with its side panel).
      * </pre>
      *
      * <code>string view = 2 [json_name = "view"];</code>
@@ -431,7 +443,9 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+     * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+     * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+     * owns the pull request, with its side panel).
      * </pre>
      *
      * <code>string view = 2 [json_name = "view"];</code>
@@ -444,7 +458,9 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+     * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+     * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+     * owns the pull request, with its side panel).
      * </pre>
      *
      * <code>string view = 2 [json_name = "view"];</code>
@@ -459,7 +475,9 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+     * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+     * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+     * owns the pull request, with its side panel).
      * </pre>
      *
      * <code>string view = 2 [json_name = "view"];</code>
@@ -472,7 +490,9 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+     * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+     * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+     * owns the pull request, with its side panel).
      * </pre>
      *
      * <code>string view = 2 [json_name = "view"];</code>
@@ -488,8 +508,8 @@ public  final class OpenViewRequest extends
 
     /**
      * <pre>
-     * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-     * (may be empty).
+     * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+     * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
      * </pre>
      *
      * <code>string target = 3 [json_name = "target"];</code>
@@ -501,8 +521,8 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-     * (may be empty).
+     * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+     * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
      * </pre>
      *
      * <code>string target = 3 [json_name = "target"];</code>
@@ -515,8 +535,8 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-     * (may be empty).
+     * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+     * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
      * </pre>
      *
      * <code>string target = 3 [json_name = "target"];</code>
@@ -531,8 +551,8 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-     * (may be empty).
+     * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+     * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
      * </pre>
      *
      * <code>string target = 3 [json_name = "target"];</code>
@@ -545,8 +565,8 @@ public  final class OpenViewRequest extends
     }
     /**
      * <pre>
-     * The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-     * (may be empty).
+     * The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+     * "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
      * </pre>
      *
      * <code>string target = 3 [json_name = "target"];</code>

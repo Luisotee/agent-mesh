@@ -24,6 +24,8 @@ public  final class ViewRequest extends
     target_ = "";
     runId_ = "";
     from_ = "";
+    messageId_ = "";
+    agentId_ = "";
   }
   public static final int VIEW_FIELD_NUMBER = 1;
   private java.lang.String view_;
@@ -230,6 +232,140 @@ public  final class ViewRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     from_ = value.toStringUtf8();
+
+  }
+
+  public static final int MESSAGE_ID_FIELD_NUMBER = 5;
+  private java.lang.String messageId_;
+  /**
+   * <pre>
+   * For "plan": the plan message to show (`target` is its author's id).
+   * </pre>
+   *
+   * <code>string message_id = 5 [json_name = "messageId"];</code>
+   * @return The messageId.
+   */
+  @java.lang.Override
+  public java.lang.String getMessageId() {
+    return messageId_;
+  }
+  /**
+   * <pre>
+   * For "plan": the plan message to show (`target` is its author's id).
+   * </pre>
+   *
+   * <code>string message_id = 5 [json_name = "messageId"];</code>
+   * @return The bytes for messageId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getMessageIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(messageId_);
+  }
+  /**
+   * <pre>
+   * For "plan": the plan message to show (`target` is its author's id).
+   * </pre>
+   *
+   * <code>string message_id = 5 [json_name = "messageId"];</code>
+   * @param value The messageId to set.
+   */
+  private void setMessageId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    messageId_ = value;
+  }
+  /**
+   * <pre>
+   * For "plan": the plan message to show (`target` is its author's id).
+   * </pre>
+   *
+   * <code>string message_id = 5 [json_name = "messageId"];</code>
+   */
+  private void clearMessageId() {
+
+    messageId_ = getDefaultInstance().getMessageId();
+  }
+  /**
+   * <pre>
+   * For "plan": the plan message to show (`target` is its author's id).
+   * </pre>
+   *
+   * <code>string message_id = 5 [json_name = "messageId"];</code>
+   * @param value The bytes for messageId to set.
+   */
+  private void setMessageIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    messageId_ = value.toStringUtf8();
+
+  }
+
+  public static final int AGENT_ID_FIELD_NUMBER = 6;
+  private java.lang.String agentId_;
+  /**
+   * <pre>
+   * For "pr": the agent that owns the pull request (`target` is its URL).
+   * </pre>
+   *
+   * <code>string agent_id = 6 [json_name = "agentId"];</code>
+   * @return The agentId.
+   */
+  @java.lang.Override
+  public java.lang.String getAgentId() {
+    return agentId_;
+  }
+  /**
+   * <pre>
+   * For "pr": the agent that owns the pull request (`target` is its URL).
+   * </pre>
+   *
+   * <code>string agent_id = 6 [json_name = "agentId"];</code>
+   * @return The bytes for agentId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAgentIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(agentId_);
+  }
+  /**
+   * <pre>
+   * For "pr": the agent that owns the pull request (`target` is its URL).
+   * </pre>
+   *
+   * <code>string agent_id = 6 [json_name = "agentId"];</code>
+   * @param value The agentId to set.
+   */
+  private void setAgentId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    agentId_ = value;
+  }
+  /**
+   * <pre>
+   * For "pr": the agent that owns the pull request (`target` is its URL).
+   * </pre>
+   *
+   * <code>string agent_id = 6 [json_name = "agentId"];</code>
+   */
+  private void clearAgentId() {
+
+    agentId_ = getDefaultInstance().getAgentId();
+  }
+  /**
+   * <pre>
+   * For "pr": the agent that owns the pull request (`target` is its URL).
+   * </pre>
+   *
+   * <code>string agent_id = 6 [json_name = "agentId"];</code>
+   * @param value The bytes for agentId to set.
+   */
+  private void setAgentIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    agentId_ = value.toStringUtf8();
 
   }
 
@@ -551,6 +687,144 @@ public  final class ViewRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * For "plan": the plan message to show (`target` is its author's id).
+     * </pre>
+     *
+     * <code>string message_id = 5 [json_name = "messageId"];</code>
+     * @return The messageId.
+     */
+    @java.lang.Override
+    public java.lang.String getMessageId() {
+      return instance.getMessageId();
+    }
+    /**
+     * <pre>
+     * For "plan": the plan message to show (`target` is its author's id).
+     * </pre>
+     *
+     * <code>string message_id = 5 [json_name = "messageId"];</code>
+     * @return The bytes for messageId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getMessageIdBytes() {
+      return instance.getMessageIdBytes();
+    }
+    /**
+     * <pre>
+     * For "plan": the plan message to show (`target` is its author's id).
+     * </pre>
+     *
+     * <code>string message_id = 5 [json_name = "messageId"];</code>
+     * @param value The messageId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMessageId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setMessageId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For "plan": the plan message to show (`target` is its author's id).
+     * </pre>
+     *
+     * <code>string message_id = 5 [json_name = "messageId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMessageId() {
+      copyOnWrite();
+      instance.clearMessageId();
+      return this;
+    }
+    /**
+     * <pre>
+     * For "plan": the plan message to show (`target` is its author's id).
+     * </pre>
+     *
+     * <code>string message_id = 5 [json_name = "messageId"];</code>
+     * @param value The bytes for messageId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMessageIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setMessageIdBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * For "pr": the agent that owns the pull request (`target` is its URL).
+     * </pre>
+     *
+     * <code>string agent_id = 6 [json_name = "agentId"];</code>
+     * @return The agentId.
+     */
+    @java.lang.Override
+    public java.lang.String getAgentId() {
+      return instance.getAgentId();
+    }
+    /**
+     * <pre>
+     * For "pr": the agent that owns the pull request (`target` is its URL).
+     * </pre>
+     *
+     * <code>string agent_id = 6 [json_name = "agentId"];</code>
+     * @return The bytes for agentId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAgentIdBytes() {
+      return instance.getAgentIdBytes();
+    }
+    /**
+     * <pre>
+     * For "pr": the agent that owns the pull request (`target` is its URL).
+     * </pre>
+     *
+     * <code>string agent_id = 6 [json_name = "agentId"];</code>
+     * @param value The agentId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAgentId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAgentId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For "pr": the agent that owns the pull request (`target` is its URL).
+     * </pre>
+     *
+     * <code>string agent_id = 6 [json_name = "agentId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAgentId() {
+      copyOnWrite();
+      instance.clearAgentId();
+      return this;
+    }
+    /**
+     * <pre>
+     * For "pr": the agent that owns the pull request (`target` is its URL).
+     * </pre>
+     *
+     * <code>string agent_id = 6 [json_name = "agentId"];</code>
+     * @param value The bytes for agentId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAgentIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAgentIdBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ViewRequest)
   }
   @java.lang.Override
@@ -571,10 +845,12 @@ public  final class ViewRequest extends
             "target_",
             "runId_",
             "from_",
+            "messageId_",
+            "agentId_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

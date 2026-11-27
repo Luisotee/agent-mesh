@@ -24,7 +24,14 @@ func (d *Daemon) GetAgentChanges(ctx context.Context, req *connect.Request[v1.Ge
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(agentChanges(ctx, a)), nil
+	out := agentChanges(ctx, a)
+	// What archiving would delete, when the caller asks (it walks the worktree): only a worktree on disk has any.
+	if req.Msg.WithIgnored && out.Available {
+		if st, err := os.Stat(a.Worktree); err == nil && st.IsDir() {
+			out.Ignored, out.IgnoredMore = ignoredEntries(ctx, a.Repo, a.Worktree)
+		}
+	}
+	return connect.NewResponse(out), nil
 }
 
 // agentChanges reads an agent's worktree, or, when that is gone (archived), its branch in the repo.
