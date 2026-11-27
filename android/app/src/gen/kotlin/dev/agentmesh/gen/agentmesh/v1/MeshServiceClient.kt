@@ -676,6 +676,41 @@ public class MeshServiceClient(
 
 
   /**
+   *  Take an agent's conversation back to before one of its prompts (Claude Code's Esc Esc, conversation only): the
+   *  daemon writes a copy of its conversation cut before that prompt, under a new session id, and reopens the same
+   *  agent on it. Files, commits and sent mesh messages stay as they are. Refused while the agent works (interrupt it
+   *  first) and for a CLI whose conversation the daemon can't cut. The prompt's text is returned, to edit and send again.
+   */
+  override suspend fun rewindAgent(request: RewindAgentRequest, headers: Headers): ResponseMessage<RewindAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RewindAgent",
+      dev.agentmesh.gen.agentmesh.v1.RewindAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RewindAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
+   *  which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
+   *  file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+   */
+  override suspend fun addAttachment(request: AddAttachmentRequest, headers: Headers): ResponseMessage<AddAttachmentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/AddAttachment",
+      dev.agentmesh.gen.agentmesh.v1.AddAttachmentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.AddAttachmentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
    *  the root of the setup run (`StartSetup`), may call this.
    */
