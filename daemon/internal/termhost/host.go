@@ -619,6 +619,7 @@ func (t *Terminal) waitLoop() {
 	}
 	t.mu.Lock()
 	t.exited, t.exitCode, t.signal, t.exitedAt = true, code, sig, time.Now()
+	t.cancelGrowLocked()
 	frame := &termv1.TermFrame{Frame: &termv1.TermFrame_Exited{Exited: &termv1.Exited{ExitCode: code, Signal: sig}}}
 	for c := range t.clients {
 		t.sendLocked(c, frame)
@@ -670,11 +671,16 @@ func (t *Terminal) cancelGrowLocked() {
 
 // resizeLocked sets the PTY to the smallest attached client's size. A change is a sync boundary: the epoch
 // moves, so an exact reattach from before it gets a repaint instead, and every attached client but `except` is
-// told (`Resized`). It reports whether the size changed. It also ends a growth that was waiting (`growAfterLeaveLocked`):
-// whatever it was waiting for has been decided now.
+// told (`Resized`). It reports whether the size changed. A growth that is waiting out the grace period
+// (`growAfterLeaveLocked`) is ended when the size it recomputes is the current one (the leaver is back) or smaller in a
+// dimension (a client that needs less room decides now), and is left to its timer when the size would only grow: another
+// client's resize or attach must not spend the leaver's grace.
 func (t *Terminal) resizeLocked(except *client) bool {
-	t.cancelGrowLocked()
 	cols, rows := t.wantedSizeLocked()
+	if t.growTimer != nil && cols != 0 && cols >= t.cols && rows >= t.rows && (cols != t.cols || rows != t.rows) {
+		return false
+	}
+	t.cancelGrowLocked()
 	if cols == 0 || (cols == t.cols && rows == t.rows) {
 		return false
 	}
@@ -684,8 +690,8 @@ func (t *Terminal) resizeLocked(except *client) bool {
 
 // growAfterLeaveLocked is what a client leaving does to the size. The terminal can only grow (the leaver was the smallest
 // in width or height, or nothing changes), and a growth is a new epoch, so the leaver's EXACT attach would be stale on its
-// return. A leave that would grow the terminal waits `GrowGrace` for it: the timer runs the resize then, and any resize or
-// attach before it (which recomputes the size from the clients there are) ends the wait. Every client counts, a viewer too:
+// return. A leave that would grow the terminal waits `GrowGrace` for it: the timer runs the resize then. The wait ends sooner when
+// the leaver comes back or a client needs less room (`resizeLocked`), not when another client only resizes larger. Every client counts, a viewer too:
 // a viewer's size is in the minimum, and a phone reconnecting as a viewer loses its place the same way. A dead terminal never
 // resizes, so it needs no wait.
 func (t *Terminal) growAfterLeaveLocked() {
@@ -702,6 +708,7 @@ func (t *Terminal) growAfterLeaveLocked() {
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		if t.growGen == gen && !t.exited {
+			t.growTimer = nil // the wait is over: this resize is the growth itself, not another client's
 			t.resizeLocked(nil)
 		}
 	})

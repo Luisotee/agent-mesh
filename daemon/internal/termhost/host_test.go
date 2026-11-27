@@ -704,7 +704,7 @@ func (f *fixture) size(id string) (cols, rows uint32, epoch uint64) {
 // The smallest client leaving does not grow the terminal at once: for the grace period it stays at that client's size, so the
 // client coming back with an EXACT attach continues (same epoch, no repaint); after the grace the terminal grows, in a new epoch.
 func TestAClientThatLeavesAndComesBackInTheGraceKeepsItsExactAttach(t *testing.T) {
-	f := startHostGrace(t, 600*time.Millisecond)
+	f := startHostGrace(t, 2*time.Second)
 	term := f.spawn("echo")
 	ctx := context.Background()
 	big := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
@@ -731,7 +731,7 @@ func TestAClientThatLeavesAndComesBackInTheGraceKeepsItsExactAttach(t *testing.T
 		t.Fatalf("the return was answered %v, want an exact continue in epoch %d from offset %d", att, epoch, offset)
 	}
 	// Its return ended the wait: well after the grace, the terminal is still 60x20 in the same epoch.
-	time.Sleep(900 * time.Millisecond)
+	time.Sleep(2500 * time.Millisecond)
 	if c, r, e := f.size(term.Id); c != 60 || r != 20 || e != epoch {
 		t.Fatalf("after the return the terminal is %dx%d in epoch %d, want 60x20 in %d (the timer must not grow it)", c, r, e, epoch)
 	}
@@ -758,25 +758,42 @@ func TestAClientThatLeavesAndComesBackInTheGraceKeepsItsExactAttach(t *testing.T
 	}
 }
 
-// A resize or a new client during the grace decides the size on the spot: the wait is over.
-func TestAnAttachInTheGraceEndsTheWait(t *testing.T) {
+// During the grace another client only growing (a new client at a larger size, a window dragged larger) does not spend it: the
+// terminal stays at the leaver's size so its return still continues; a client that needs less room decides at once.
+func TestAnotherClientGrowingInTheGraceDoesNotSpendItButASmallerOneEndsIt(t *testing.T) {
 	f := startHostGrace(t, time.Hour)
 	term := f.spawn("echo")
-	big := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
+	ctx := context.Background()
+	big := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
 	var cb collector
 	cb.next(t, big)
 	small := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 20})
 	var cs collector
 	cs.next(t, small)
+	_, _, epoch := f.size(term.Id)
 	small.Close()
 	time.Sleep(100 * time.Millisecond)
-	if c, _, _ := f.size(term.Id); c != 60 {
-		t.Fatalf("grew to %d inside the grace", c)
-	}
+	// A new client at a larger size and the big one dragged larger: both only grow, so nothing moves.
 	other := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 120, Rows: 40})
 	var co collector
-	at := co.next(t, other).GetAttached()
-	if at.Cols != 100 || at.Rows != 30 {
-		t.Errorf("a new client during the grace got %dx%d, want the smallest of those there, 100x30", at.Cols, at.Rows)
+	if at := co.next(t, other).GetAttached(); at.Cols != 60 || at.Rows != 20 || at.Epoch != epoch {
+		t.Fatalf("a larger client in the grace was attached at %v, want the leaver's 60x20 in epoch %d", at, epoch)
+	}
+	if err := big.Send(ctx, &termv1.TermFrame{Frame: &termv1.TermFrame_Resize{Resize: &termv1.Resize{Cols: 110, Rows: 35}}}); err != nil {
+		t.Fatal(err)
+	}
+	for { // the asker is answered with the size that stands: the leaver's, in the same epoch
+		if r := cb.next(t, big).GetResized(); r != nil && r.Epoch == epoch && r.Cols == 60 && r.Rows == 20 {
+			break
+		}
+	}
+	if c, rr, e := f.size(term.Id); c != 60 || rr != 20 || e != epoch {
+		t.Fatalf("after larger clients the terminal is %dx%d in epoch %d, want 60x20 in %d", c, rr, e, epoch)
+	}
+	// A client that needs less room decides now, whatever the wait.
+	tiny := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 40, Rows: 10})
+	var ct collector
+	if at := ct.next(t, tiny).GetAttached(); at.Cols != 40 || at.Rows != 10 || at.Epoch <= epoch {
+		t.Fatalf("a smaller client was attached at %v, want 40x10 in a later epoch than %d", at, epoch)
 	}
 }
