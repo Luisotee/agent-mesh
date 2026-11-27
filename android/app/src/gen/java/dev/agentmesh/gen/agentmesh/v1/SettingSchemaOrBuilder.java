@@ -124,4 +124,56 @@ public interface SettingSchemaOrBuilder extends
    * @return The restart.
    */
   boolean getRestart();
+
+  /**
+   * <pre>
+   * What a settings screen calls it, in sentence case: "Retire idle agents after".
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The label.
+   */
+  java.lang.String getLabel();
+  /**
+   * <pre>
+   * What a settings screen calls it, in sentence case: "Retire idle agents after".
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The bytes for label.
+   */
+  com.google.protobuf.ByteString
+      getLabelBytes();
+
+  /**
+   * <pre>
+   * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+   * autonomy, Limits and quota or Delivery.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The group.
+   */
+  java.lang.String getGroup();
+  /**
+   * <pre>
+   * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+   * autonomy, Limits and quota or Delivery.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The bytes for group.
+   */
+  com.google.protobuf.ByteString
+      getGroupBytes();
+
+  /**
+   * <pre>
+   * True for a setting that is folded away in its group until asked for: tuning most people never touch.
+   * </pre>
+   *
+   * <code>bool advanced = 7 [json_name = "advanced"];</code>
+   * @return The advanced.
+   */
+  boolean getAdvanced();
 }

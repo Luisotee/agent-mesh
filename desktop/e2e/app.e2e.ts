@@ -279,7 +279,7 @@ test('the theme is a host setting: each of the six redraws the app, live, and an
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Settings' })
   await panel.getByLabel('Filter settings').fill('app.theme')
-  const select = panel.getByRole('combobox', { name: 'Value of app.theme' })
+  const cards = panel.getByRole('radiogroup', { name: 'Value of app.theme' })
   const seen = new Map<string, string>()
   for (const [name, file, bg] of [
     ['Alucard', 'alucard', 'rgb(255, 251, 235)'],
@@ -289,7 +289,7 @@ test('the theme is a host setting: each of the six redraws the app, live, and an
     ['Nord', 'nord', 'rgb(46, 52, 64)'],
     ['Dracula', 'dracula', 'rgb(40, 42, 54)'],
   ] as const) {
-    await select.selectOption(name)
+    await cards.getByRole('radio', { name, exact: true }).click()
     await expect.poll(async () => (await themeOf()).name).toBe(name)
     expect((await themeOf()).bg).toBe(bg)
     seen.set(name, (await themeOf()).density ?? '')
@@ -310,11 +310,14 @@ test('the theme is a host setting: each of the six redraws the app, live, and an
   await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
 })
 
-test('a repo is kept from free models by a switch in the settings, and the host then refuses OpenCode there', async () => {
+test('a repo is kept from free models by a switch in its project settings, opened from the settings screen, and the host then refuses OpenCode there', async () => {
   const { page } = app
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const section = page.getByRole('region', { name: 'Free models by repo' })
-  const box = section.getByRole('checkbox', { name: /May use free models: repo$/ })
+  const panel = page.getByRole('region', { name: 'Settings' })
+  await panel.getByLabel('Filter settings').fill('free models')
+  await panel.getByRole('button', { name: /^Project settings: repo$/ }).click()
+  const dialog = page.getByRole('dialog', { name: /repo settings/ })
+  const box = dialog.getByRole('checkbox', { name: 'Free models allowed' })
   await expect.poll(() => box.isChecked()).toBe(true)
   await page.screenshot({ path: path.join(shots, 'free-models.png') })
   await box.click()
@@ -330,6 +333,7 @@ test('a repo is kept from free models by a switch in the settings, and the host 
   await box.click()
   await expect.poll(() => box.isChecked()).toBe(true)
   await expect.poll(async () => JSON.stringify((await listed())?.value?.kind)).toContain('"values":[]')
+  await dialog.getByRole('button', { name: 'Done' }).click()
   await page.getByRole('button', { name: 'Settings', exact: true }).click() // back to the agents
 })
 
