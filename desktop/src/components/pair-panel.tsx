@@ -153,7 +153,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
           </label>
           {!reachable && (
             <p role="note" className="text-xs text-state-needs">
-              This host has no direct TLS listener, no running Tailscale node and no relay, so a device on another machine can't reach it. Start meshd with <code className="font-mono">--listen</code>, or with <code className="font-mono">--tailscale</code> and log the node in, or with the relay flags.
+              This host has no direct TLS listener, no running Tailscale node and no relay, so a device on another machine can't reach it, and the host refuses to make a link until it has one (it says why). Turn Tailscale on above, or start meshd with <code className="font-mono">--listen</code> or the relay flags; a link for a direct address needs the address typed in.
             </p>
           )}
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}

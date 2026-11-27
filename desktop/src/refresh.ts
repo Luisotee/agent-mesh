@@ -203,6 +203,7 @@ export function hostRefresher(
           schedule()
           return
         // These change an agent the store holds too, so a list of the agents that was on its way is older than them.
+        case 'agentArchived':
         case 'agentReopenRequested':
         case 'agentReopenDropped':
         case 'agentReopened':

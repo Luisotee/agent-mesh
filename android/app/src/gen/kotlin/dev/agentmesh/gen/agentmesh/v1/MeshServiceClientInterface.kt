@@ -396,6 +396,37 @@ public interface MeshServiceClientInterface {
   public suspend fun streamLog(headers: Headers = emptyMap()): ServerOnlyStreamInterface<StreamLogRequest, StreamLogResponse>
 
   /**
+   *  What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+   *  uncommitted work, and commits no remote branch has.
+   */
+  public suspend fun getAgentChanges(request: GetAgentChangesRequest, headers: Headers = emptyMap()): ResponseMessage<GetAgentChangesResponse>
+
+  /**
+   *  An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+   *  its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+   */
+  public suspend fun getAgentProgress(request: GetAgentProgressRequest, headers: Headers = emptyMap()): ResponseMessage<GetAgentProgressResponse>
+
+  /**
+   *  Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+   *  changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+   *  ResumeAgent brings it back: the worktree is made again from the branch.
+   */
+  public suspend fun archiveAgent(request: ArchiveAgentRequest, headers: Headers = emptyMap()): ResponseMessage<ArchiveAgentResponse>
+
+  /**
+   *  Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+   *  path as one argument). The host's own device only: it runs a program on the host's machine.
+   */
+  public suspend fun openInEditor(request: OpenInEditorRequest, headers: Headers = emptyMap()): ResponseMessage<OpenInEditorResponse>
+
+  /**
+   *  Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+   *  manager it restarts itself. The host's own device only.
+   */
+  public suspend fun setTailnet(request: SetTailnetRequest, headers: Headers = emptyMap()): ResponseMessage<SetTailnetResponse>
+
+  /**
    *  Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
    */
   public suspend fun ringAgent(request: RingAgentRequest, headers: Headers = emptyMap()): ResponseMessage<RingAgentResponse>

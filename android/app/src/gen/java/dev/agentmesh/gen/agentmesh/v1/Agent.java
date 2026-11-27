@@ -2384,6 +2384,47 @@ public  final class Agent extends
     adoptedPidStart_ = 0L;
   }
 
+  public static final int ARCHIVED_FIELD_NUMBER = 42;
+  private boolean archived_;
+  /**
+   * <pre>
+   * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+   * recreates the worktree from the branch and clears this.
+   * </pre>
+   *
+   * <code>bool archived = 42 [json_name = "archived"];</code>
+   * @return The archived.
+   */
+  @java.lang.Override
+  public boolean getArchived() {
+    return archived_;
+  }
+  /**
+   * <pre>
+   * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+   * recreates the worktree from the branch and clears this.
+   * </pre>
+   *
+   * <code>bool archived = 42 [json_name = "archived"];</code>
+   * @param value The archived to set.
+   */
+  private void setArchived(boolean value) {
+    
+    archived_ = value;
+  }
+  /**
+   * <pre>
+   * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+   * recreates the worktree from the branch and clears this.
+   * </pre>
+   *
+   * <code>bool archived = 42 [json_name = "archived"];</code>
+   */
+  private void clearArchived() {
+
+    archived_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -4911,6 +4952,49 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+     * recreates the worktree from the branch and clears this.
+     * </pre>
+     *
+     * <code>bool archived = 42 [json_name = "archived"];</code>
+     * @return The archived.
+     */
+    @java.lang.Override
+    public boolean getArchived() {
+      return instance.getArchived();
+    }
+    /**
+     * <pre>
+     * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+     * recreates the worktree from the branch and clears this.
+     * </pre>
+     *
+     * <code>bool archived = 42 [json_name = "archived"];</code>
+     * @param value The archived to set.
+     * @return This builder for chaining.
+     */
+    public Builder setArchived(boolean value) {
+      copyOnWrite();
+      instance.setArchived(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+     * recreates the worktree from the branch and clears this.
+     * </pre>
+     *
+     * <code>bool archived = 42 [json_name = "archived"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearArchived() {
+      copyOnWrite();
+      instance.clearArchived();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -4969,14 +5053,16 @@ public  final class Agent extends
             "reviewBy_",
             "adoptedPid_",
             "adoptedPidStart_",
+            "archived_",
           };
           java.lang.String info =
-              "\u0000)\u0000\u0001\u0001))\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000*\u0000\u0001\u0001**\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
               "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
-              "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208(\u0004)\u0003";
+              "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208(\u0004)\u0003*\u0007" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
