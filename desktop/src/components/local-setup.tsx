@@ -124,7 +124,7 @@ export function LocalSetup({ auto = false, onConnected, onReady }: { auto?: bool
             <ul className="flex flex-col gap-1">
               {c.commands.map((cmd) => (
                 <li key={cmd} className="flex items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-[11px]">{cmd}</code>
+                  <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs">{cmd}</code>
                   <Button size="icon" variant="ghost" aria-label={`Copy ${cmd}`} onClick={() => void copy(cmd)}>
                     {copied === cmd ? <Check /> : <Copy />}
                   </Button>
@@ -148,7 +148,7 @@ export function LocalSetup({ auto = false, onConnected, onReady }: { auto?: bool
                 <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => void fix(c, f)} title={FIX_HINT[f]}>
                   {busy === `${c.id}:${f}` ? 'Working…' : FIX_LABEL[f]}
                 </Button>
-                <span className="max-w-64 text-[10px] text-muted-foreground">{FIX_HINT[f]}</span>
+                <span className="max-w-64 text-xs text-muted-foreground">{FIX_HINT[f]}</span>
               </span>
             ))}
           </div>
