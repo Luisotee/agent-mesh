@@ -59,7 +59,7 @@ func TestSettingsListWithDefaultsAndSchemas(t *testing.T) {
 		t.Fatalf("%v, %v", res, err)
 	}
 	m := setting(t, h, "tiers.claude.mid.model")
-	if m.IsSet || m.UpdatedBy != nil || m.UpdatedAt != nil || m.Schema.Type != "chain" || m.Schema.Summary == "" ||
+	if m.IsSet || m.UpdatedBy != nil || m.UpdatedAt != nil || m.Schema.Type != "chain" || m.Schema.Summary == "" || m.Schema.Label != "Claude, mid tier: models" || m.Schema.Group != "Agents and models" || m.Schema.Advanced ||
 		m.Value.GetListValue().GetValues()[0].GetStringValue() != "sonnet" || m.Default.GetListValue() == nil {
 		t.Errorf("%v", m)
 	}
