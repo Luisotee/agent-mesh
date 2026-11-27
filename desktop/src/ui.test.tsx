@@ -7,6 +7,7 @@ import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
+import { addPrompt } from './store'
 import { ChatView } from './components/chat-view'
 import { SettingsPanel } from './components/settings-panel'
 import { CommandPalette } from './components/command-palette'
@@ -1366,6 +1367,20 @@ describe('ChatView', () => {
     expect(c.withdrawPrompt).toHaveBeenCalledTimes(1)
     release({ prompt: create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'two' }) })
     await waitFor(() => expect(box).toHaveValue('two'))
+  })
+
+  it('reads the queue again when it changed while the first listing was out', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    let release: (v: { prompts: QueuedPrompt[] }) => void = () => {}
+    c.listPrompts.mockImplementationOnce(() => new Promise((r) => (release = r)))
+    c.listPrompts.mockResolvedValueOnce({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'old', held: 'working' }), create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'new', held: 'working' })] })
+    render(c.ui)
+    await waitFor(() => expect(c.listPrompts).toHaveBeenCalledTimes(1))
+    act(() => c.host.store.setState(addPrompt(create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'new' }))))
+    release({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'old' })] })
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    await waitFor(() => expect(within(list).getByText('old')).toBeInTheDocument())
+    expect(c.listPrompts).toHaveBeenCalledTimes(2)
   })
 
   it('a taken-back prompt that was typed meanwhile says so', async () => {

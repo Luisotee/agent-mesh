@@ -245,20 +245,31 @@ const (
 	interruptPoll  = 150 * time.Millisecond
 	// escCooldown is how long after an Esc no second one is sent unless the agent showed activity since.
 	escCooldown = 10 * time.Second
+	// escGrace is how long after an Esc the interrupted turn's own last hooks may still come in: activity in it doesn't
+	// count as a new turn.
+	escGrace = 3 * time.Second
 )
 
 func (d *Daemon) noteEsc(agentID string) {
 	d.rt.mu.Lock()
 	defer d.rt.mu.Unlock()
-	d.rt.lastEsc[agentID] = time.Now()
+	d.rt.lastEsc[agentID] = d.now()
 }
 
-// escSettling reports whether an Esc was sent to the agent less than escCooldown ago with no activity reported since.
+func (d *Daemon) clearEsc(agentID string) {
+	d.rt.mu.Lock()
+	defer d.rt.mu.Unlock()
+	delete(d.rt.lastEsc, agentID)
+}
+
+// escSettling reports whether an Esc whose effect wasn't seen yet (a confirmed stop clears it) was sent to the agent
+// less than escCooldown ago with no activity reported since (past escGrace: a late hook of the turn it interrupted is
+// not a new turn).
 func (d *Daemon) escSettling(a *v1.Agent) bool {
 	d.rt.mu.Lock()
 	defer d.rt.mu.Unlock()
 	at, ok := d.rt.lastEsc[a.Id]
-	if !ok || time.Since(at) >= escCooldown || (a.LastActivity != nil && a.LastActivity.AsTime().After(at)) {
+	if !ok || d.now().Sub(at) >= escCooldown || (a.LastActivity != nil && a.LastActivity.AsTime().After(at.Add(escGrace))) {
 		delete(d.rt.lastEsc, a.Id)
 		return false
 	}
@@ -334,19 +345,24 @@ func (d *Daemon) InterruptAgent(ctx context.Context, req *connect.Request[v1.Int
 			// An Esc went in moments ago and nothing has happened since: it may still be stopping the turn, and a
 			// second Esc at the prompt it leaves would open Claude's rewind menu. Look again instead of sending one.
 			if out.Stopped = d.atIdleScreen(ctx, a); out.Stopped {
+				d.clearEsc(a.Id)
 				if err := d.recordInterrupted(ctx, a.Id); err != nil {
 					d.log.Warn("recording an interrupted turn", "agent", a.Name, "err", err)
 				}
 			}
 			break
 		}
-		d.noteEsc(a.Id)
 		if _, err := d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
 			Data: []byte("\x1b")})); err != nil {
+			if !writeDidNotHappen(err) {
+				d.noteEsc(a.Id) // it may have gone in: no second one for a while
+			}
 			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("sending Esc to %s's terminal: %w", a.Name, err))
 		}
+		d.noteEsc(a.Id)
 		out.Stopped = d.waitForPrompt(ctx, a)
 		if out.Stopped {
+			d.clearEsc(a.Id) // seen stopped: a later Esc is for a new turn
 			if err := d.recordInterrupted(ctx, a.Id); err != nil {
 				d.log.Warn("recording an interrupted turn", "agent", a.Name, "err", err)
 			}

@@ -7,7 +7,10 @@ func TestTerminalRepliesAreNotTyping(t *testing.T) {
 		"\x1b[I", "\x1b[O", "\x1b[O\x1b[I", // focus out and in
 		"\x1b[12;40R",                  // cursor position
 		"\x1b[?1;2c", "\x1b[>0;276;0c", // device attributes
-		"\x1b[0n",                                                            // status
+		"\x1b[0n",                          // status
+		"\x1b[?1004;1$y", "\x1b[?2026;2$y", // private modes' state (DECRPM)
+		"\x1b[?0u",                                                           // kitty keyboard flags
+		"\x1b[?12;40R",                                                       // extended cursor position
 		"\x1b]11;rgb:2828/2a2a/3636\x07", "\x1b]10;rgb:f8f8/f8f8/f2f2\x1b\\", // colour queries
 	} {
 		if !OnlyReports([]byte(in)) {
@@ -21,6 +24,7 @@ func TestTerminalRepliesAreNotTyping(t *testing.T) {
 		"\x1b[Ia",                // a focus report with a key after it
 		"x\x1b[O",                // a key with a focus report after it
 		"\x1b[200~text\x1b[201~", // a paste
+		"\x1b[97u", "\x1b[13;2u", // kitty keyboard key presses (no "?"): typing
 		"",
 	} {
 		if OnlyReports([]byte(in)) {

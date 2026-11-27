@@ -240,10 +240,15 @@ function useQueue(host: HostRuntime, agentId: string, active: boolean): QueuedPr
   useEffect(() => {
     if (!active) return
     let live = true
-    const asked = host.store.getState().promptTouch[agentId] ?? 0
-    listPrompts(host.client, agentId)
-      .then((res) => live && host.store.setState(setPrompts(agentId, res.prompts, asked)))
-      .catch(() => {})
+    // A listing asked before the queue changed here is stale: ask again (a few times at most) until one isn't.
+    void (async () => {
+      for (let tries = 0; live && tries < 5; tries++) {
+        const asked = host.store.getState().promptTouch[agentId] ?? 0
+        const res = await listPrompts(host.client, agentId).catch(() => undefined)
+        if (!res || !live) return
+        if ((host.store.getState().promptTouch[agentId] ?? 0) === asked) return host.store.setState(setPrompts(agentId, res.prompts, asked))
+      }
+    })()
     return () => {
       live = false
     }
@@ -419,16 +424,15 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return
             const interrupt = parseChord(keys.interrupt)
-            if (e.repeat && (e.key === 'Escape' || e.key === 'ArrowUp')) return
             if (interrupt && working && canStop && matches(e.nativeEvent, interrupt)) {
               e.preventDefault()
-              void stop()
+              if (!e.repeat) void stop() // a held key fires once
               return
             }
             const back = parseChord(keys.recall)
             if (back && !text && hasQueue && matches(e.nativeEvent, back)) {
               e.preventDefault()
-              void recall()
+              if (!e.repeat) void recall()
               return
             }
             if (e.key === 'Enter' && !e.shiftKey) {
