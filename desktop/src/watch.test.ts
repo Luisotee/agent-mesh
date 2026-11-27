@@ -26,6 +26,11 @@ describe('tailLines', () => {
     ])
   })
 
+  it('leaves out what a typed command printed: it is neither the agent speaking nor a tool', () => {
+    const lines = tailLines([e('1', TranscriptKind.USER, { text: '/context' }), e('2', TranscriptKind.COMMAND_OUTPUT, { text: 'Context 12k/200k' })], 10)
+    expect(lines.map((l) => l.who)).toEqual(['you'])
+  })
+
   it('keeps the last lines only, and cuts a long one to the width', () => {
     const lines = tailLines(entries, 2, 50)
     expect(lines.map((l) => l.who)).toEqual(['mesh', 'agent'])

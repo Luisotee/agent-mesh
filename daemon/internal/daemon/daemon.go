@@ -24,6 +24,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/events"
@@ -588,6 +589,11 @@ func (d *Daemon) wireProbes() {
 	if a, err := d.rt.adapters.Get(opencode.Kind); err == nil {
 		if oc, ok := a.(*opencode.Adapter); ok {
 			oc.ProbeDir = d.paths.Probe()
+		}
+	}
+	if a, err := d.rt.adapters.Get(claude.Kind); err == nil {
+		if cl, ok := a.(*claude.Adapter); ok {
+			cl.ProbeDir = d.paths.Probe() // the command list's probe
 		}
 	}
 }

@@ -63,6 +63,9 @@ const (
 	// CliAdapterServicePlanCompactProcedure is the fully-qualified name of the CliAdapterService's
 	// PlanCompact RPC.
 	CliAdapterServicePlanCompactProcedure = "/agentmesh.adapter.v1.CliAdapterService/PlanCompact"
+	// CliAdapterServiceListCommandsProcedure is the fully-qualified name of the CliAdapterService's
+	// ListCommands RPC.
+	CliAdapterServiceListCommandsProcedure = "/agentmesh.adapter.v1.CliAdapterService/ListCommands"
 )
 
 // CliAdapterServiceClient is a client for the agentmesh.adapter.v1.CliAdapterService service.
@@ -88,6 +91,9 @@ type CliAdapterServiceClient interface {
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
 	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
+	// ListCommands lists the commands the CLI accepts at its prompt for an agent in `cwd`, for the composer's `/`
+	// completion. An adapter without it has none (the daemon answers `supported: false`).
+	ListCommands(context.Context, *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error)
 }
 
 // NewCliAdapterServiceClient constructs a client for the agentmesh.adapter.v1.CliAdapterService
@@ -161,6 +167,12 @@ func NewCliAdapterServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(cliAdapterServiceMethods.ByName("PlanCompact")),
 			connect.WithClientOptions(opts...),
 		),
+		listCommands: connect.NewClient[v1.ListCommandsRequest, v1.ListCommandsResponse](
+			httpClient,
+			baseURL+CliAdapterServiceListCommandsProcedure,
+			connect.WithSchema(cliAdapterServiceMethods.ByName("ListCommands")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -176,6 +188,7 @@ type cliAdapterServiceClient struct {
 	measureContext *connect.Client[v1.MeasureContextRequest, v1.MeasureContextResponse]
 	readTranscript *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
 	planCompact    *connect.Client[v1.PlanCompactRequest, v1.PlanCompactResponse]
+	listCommands   *connect.Client[v1.ListCommandsRequest, v1.ListCommandsResponse]
 }
 
 // Describe calls agentmesh.adapter.v1.CliAdapterService.Describe.
@@ -228,6 +241,11 @@ func (c *cliAdapterServiceClient) PlanCompact(ctx context.Context, req *connect.
 	return c.planCompact.CallUnary(ctx, req)
 }
 
+// ListCommands calls agentmesh.adapter.v1.CliAdapterService.ListCommands.
+func (c *cliAdapterServiceClient) ListCommands(ctx context.Context, req *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error) {
+	return c.listCommands.CallUnary(ctx, req)
+}
+
 // CliAdapterServiceHandler is an implementation of the agentmesh.adapter.v1.CliAdapterService
 // service.
 type CliAdapterServiceHandler interface {
@@ -252,6 +270,9 @@ type CliAdapterServiceHandler interface {
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// PlanCompact says how to compact a stopped conversation headless, before it is reopened.
 	PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error)
+	// ListCommands lists the commands the CLI accepts at its prompt for an agent in `cwd`, for the composer's `/`
+	// completion. An adapter without it has none (the daemon answers `supported: false`).
+	ListCommands(context.Context, *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error)
 }
 
 // NewCliAdapterServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -321,6 +342,12 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 		connect.WithSchema(cliAdapterServiceMethods.ByName("PlanCompact")),
 		connect.WithHandlerOptions(opts...),
 	)
+	cliAdapterServiceListCommandsHandler := connect.NewUnaryHandler(
+		CliAdapterServiceListCommandsProcedure,
+		svc.ListCommands,
+		connect.WithSchema(cliAdapterServiceMethods.ByName("ListCommands")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/agentmesh.adapter.v1.CliAdapterService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CliAdapterServiceDescribeProcedure:
@@ -343,6 +370,8 @@ func NewCliAdapterServiceHandler(svc CliAdapterServiceHandler, opts ...connect.H
 			cliAdapterServiceReadTranscriptHandler.ServeHTTP(w, r)
 		case CliAdapterServicePlanCompactProcedure:
 			cliAdapterServicePlanCompactHandler.ServeHTTP(w, r)
+		case CliAdapterServiceListCommandsProcedure:
+			cliAdapterServiceListCommandsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -390,4 +419,8 @@ func (UnimplementedCliAdapterServiceHandler) ReadTranscript(context.Context, *co
 
 func (UnimplementedCliAdapterServiceHandler) PlanCompact(context.Context, *connect.Request[v1.PlanCompactRequest]) (*connect.Response[v1.PlanCompactResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.PlanCompact is not implemented"))
+}
+
+func (UnimplementedCliAdapterServiceHandler) ListCommands(context.Context, *connect.Request[v1.ListCommandsRequest]) (*connect.Response[v1.ListCommandsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.adapter.v1.CliAdapterService.ListCommands is not implemented"))
 }
