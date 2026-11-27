@@ -298,8 +298,11 @@ export function setDevices(devices: Device[]): Partial<HostState> {
   return { devices }
 }
 
-/** The host's answer to ListWaiting, which replaces the last one. */
-export function setWaiting(waiting: WaitingRow[]): Partial<HostState> {
+const sameWaiting = (a: WaitingRow[], b: WaitingRow[]) => a.length === b.length && a.every((w, i) => w.agentId === b[i]!.agentId && w.kind === b[i]!.kind && w.forUser === b[i]!.forUser && w.message?.id === b[i]!.message?.id)
+
+/** The host's answer to ListWaiting, which replaces the last one (and changes nothing when it says the same: what reads the lists is not redrawn for each poll). */
+export function setWaiting(waiting: WaitingRow[], last?: WaitingRow[]): Partial<HostState> {
+  if (last && sameWaiting(waiting, last)) return {}
   return { waiting: waiting.filter((w) => w.forUser), waitingAll: waiting }
 }
 

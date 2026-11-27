@@ -44,7 +44,7 @@ afterAll(async () => {
 async function makeLink(page: Page, directUrl: string, deviceName: string): Promise<string> {
   const screen = page.getByRole('region', { name: 'Pair a device' })
   if (!(await screen.isVisible())) {
-    await page.getByRole('button', { name: 'New', exact: true }).click()
+    await page.getByRole('button', { name: 'Hosts' }).click()
     await page.getByRole('menuitem', { name: 'Pair a device' }).click()
   }
   await screen.waitFor()

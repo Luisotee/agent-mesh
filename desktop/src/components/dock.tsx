@@ -1,10 +1,11 @@
 import { ChevronDown, ChevronUp, Columns2, Eye, X } from 'lucide-react'
 import { AnimatePresence, m } from 'motion/react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Chip, Chips } from '@/components/ui/chip'
 import { useApp, useAppState } from '@/context'
+import { isActive } from '@/active'
 import { activityMs, ago, dockTiles, sentLabel, treeTiles, type Tile } from '@/dock'
 import { ROLE_LABEL, repoName, statusSentence } from '@/derive'
 import { useHostViews, useNow } from '@/hooks'
@@ -35,7 +36,18 @@ export function Dock() {
   const runId = useMemo(() => views.find((v) => v.hostId === hostId)?.agents[agentId ?? '']?.runId, [views, hostId, agentId])
   const all = useMemo(() => dockTiles(views, { newTiles, dismissed }, now), [views, newTiles, dismissed, now])
   const shown = useMemo(() => treeTiles(all, hostId && runId ? { hostId, runId } : undefined), [all, hostId, runId])
-  const tiles = shown.map((t) => t.tile)
+  // Only what is live shows; the idle ones rest behind a count (a lead and the open agent always show). A tile whose
+  // agent is idle stays while a reviewer or asker folded into it works. Asking for the resting ones holds for this run
+  // only: another run or host starts folded again.
+  const scope = `${hostId ?? ''}/${runId ?? ''}`
+  const [asked, setAsked] = useState({ scope: '', on: false })
+  const showResting = asked.on && asked.scope === scope
+  // A folded helper counts as it would on its own tile: working, or waiting on an answer, or the open agent.
+  const waits = new Set(all.filter((t) => t.waiting).map((t) => t.agent.id))
+  const live = shown.filter(({ tile: t, helpers }) => isActive(t.agent, { waiting: t.waiting, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }) || helpers.some((h) => isActive(h, { waiting: waits.has(h.id), keep: t.hostId === hostId && h.id === agentId })))
+  const resting = shown.reduce((n, t) => n + (live.includes(t) ? 0 : 1 + t.helpers.length), 0)
+  const listed = showResting ? shown : live
+  const tiles = listed.map((t) => t.tile)
   const fresh = tiles.filter((t) => t.isNew).length
   const needs = tiles.filter((t) => t.agent.needsInput > 0).length
   return (
@@ -46,6 +58,11 @@ export function Dock() {
           <span className="text-[13px] font-semibold">Live</span>
         </Button>
         <span className="text-xs text-muted-foreground">{tiles.length} {runId ? 'in this run' : tiles.length === 1 ? 'lead' : 'leads'}</span>
+        {(resting > 0 || showResting) && (
+          <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs text-muted-foreground" aria-pressed={showResting} onClick={() => setAsked({ scope, on: !showResting })}>
+            {showResting ? 'Hide resting' : `Show ${resting} resting`}
+          </Button>
+        )}
         {needs > 0 && <Badge className="border-state-needs text-state-needs">{needs} need you</Badge>}
         {fresh > 0 && <Badge className="border-primary text-primary">{fresh} new</Badge>}
         {!open && badge > 0 && <Badge role="status" className="border-primary text-primary">{badge} started</Badge>}
@@ -57,7 +74,7 @@ export function Dock() {
         <ul aria-label="Agents in the dock" className="flex gap-2 overflow-x-auto px-3 pt-1 pb-2.5">
           {tiles.length === 0 && <li className="list-none py-3 text-xs text-muted-foreground">{runId ? 'Nothing in this run is live.' : 'No live leads.'}</li>}
           <AnimatePresence initial={false}>
-            {shown.map(({ tile: t, helpers }) => (
+            {listed.map(({ tile: t, helpers }) => (
               <DockTile key={t.key} tile={t} helpers={helpers} now={now} many={hosts.length > 1} selected={t.hostId === hostId && t.agent.id === agentId} />
             ))}
           </AnimatePresence>
