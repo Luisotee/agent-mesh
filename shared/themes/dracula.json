@@ -2,7 +2,7 @@
   "name": "Dracula",
   "dark": true,
   "font": {
-    "sans": "Inter",
+    "sans": "Geist",
     "mono": "JetBrains Mono"
   },
   "density": "compact",
@@ -30,7 +30,22 @@
     "state-idle": "#6272a4",
     "state-done": "#50fa7b",
     "state-failed": "#ff5555",
-    "state-unknown": "#f1fa8c"
+    "state-unknown": "#f1fa8c",
+    "hue-1": "#ff79c6",
+    "hue-2": "#bd93f9",
+    "hue-3": "#8be9fd",
+    "hue-4": "#50fa7b",
+    "hue-5": "#ffb86c",
+    "hue-6": "#f1fa8c",
+    "hue-7": "#ff6e6e",
+    "hue-8": "#a4b8ff",
+    "vendor-claude": "#d97757",
+    "vendor-gemini": "#a58be0",
+    "vendor-openai": "#f8f8f2",
+    "vendor-copilot": "#f8f8f2",
+    "vendor-opencode": "#f8f8f2",
+    "vendor-deepseek": "#6b84ff",
+    "glow": "#ffb86c"
   },
   "terminal": {
     "background": "#21222c",

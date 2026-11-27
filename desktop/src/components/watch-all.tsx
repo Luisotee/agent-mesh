@@ -10,6 +10,8 @@ import { joinWaiting, repoName, ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import { useHostViews, useNow } from '@/hooks'
 import { cn } from '@/lib/utils'
+import { hueStyle } from '@/hue'
+import { Chip, Chips } from '@/components/ui/chip'
 import type { HostRuntime } from '@/model'
 import type { HostState } from '@/store'
 import { fromTail } from '@/transcript'
@@ -98,11 +100,11 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
   const last = activityMs(a)
   const needs = a.state === AgentState.NEEDS_INPUT
   return (
-    <li aria-label={`${a.name} in the grid`} className={cn('flex min-h-48 flex-col rounded-lg border bg-card', (needs || bucket === 'needs') && 'border-state-needs', bucket === 'failed' && 'border-destructive')}>
+    <li aria-label={`${a.name} in the grid`} style={hueStyle(a.repo)} className={cn('flex min-h-48 flex-col rounded-lg border border-t-2 border-t-identity bg-card', (needs || bucket === 'needs') && 'border-glow shadow-[0_0_0_3px] shadow-glow/25', bucket === 'failed' && 'border-destructive')}>
       <header className="flex items-center gap-1.5 border-b px-3 py-2">
         <StateIcon agent={a} />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{a.name}</span>
-        <VendorIcon kind={a.kind} model={a.model} className="text-muted-foreground" />
+        <VendorIcon kind={a.kind} model={a.model} />
         <Badge>{ROLE_LABEL[a.role]}</Badge>
         <Button size="icon" variant="ghost" className="size-6" aria-label={`Pin ${a.name} as a split`} title="Show beside the open agent" onClick={() => app.pinSplit(tile.hostId, a.id)}>
           <Columns2 className="size-3.5" />
@@ -114,11 +116,14 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
         onClick={() => app.selectAgent(tile.hostId, a.id, a.state === AgentState.NEEDS_INPUT && a.needsInput > 0 && !waiting.has(a.id) ? 'terminal' : bucket === 'needs' && waiting.has(a.id) ? 'messages' : undefined)}
         className="flex min-h-0 flex-1 flex-col gap-1 p-3 text-left outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className="truncate text-xs text-muted-foreground">
-          {repoName(a.repo)}{many ? ` · ${tile.hostName}` : ''}{tile.run ? ` · ${tile.run.title || tile.run.id}` : ''} · {BUCKET_LABEL[bucket].toLowerCase()}
-        </span>
+        <Chips>
+          <Chip>{repoName(a.repo)}</Chip>
+          {many && <Chip>{tile.hostName}</Chip>}
+          {tile.run && <Chip>{tile.run.title || tile.run.id}</Chip>}
+          <Chip>{BUCKET_LABEL[bucket]}</Chip>
+        </Chips>
         <span className="truncate text-xs">{tile.activity ? `Working: ${tile.activity}` : statusSentence(a)}</span>
-        <ul aria-label="Recent" className="mt-1 flex flex-col gap-1 text-[12px] leading-snug">
+        <ul aria-label="Recent" className="mt-1 flex flex-col gap-1 text-xs leading-snug">
           {tail.lines.map((l) => (
             <li key={l.id} className={cn('line-clamp-2', l.who === 'tools' && 'text-muted-foreground', l.who === 'you' && 'text-primary', l.who === 'mesh' && 'text-muted-foreground italic')}>
               {WHO[l.who] && <span className="mr-1 font-semibold">{WHO[l.who]}:</span>}
@@ -128,11 +133,11 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
           {tail.loaded && tail.lines.length === 0 && !tail.error && <li className="text-muted-foreground">Nothing said yet.</li>}
           {tail.error && <li className="text-muted-foreground">{tail.error}</li>}
         </ul>
-        <span className="mt-auto pt-1 text-[11px] text-muted-foreground">{last ? ago(last, now + tile.clockSkewMs) : ''}</span>
+        <span className="mt-auto pt-1 text-xs text-muted-foreground">{last ? ago(last, now + tile.clockSkewMs) : ''}</span>
       </button>
       {host && asks.map((w) => (
         <section key={w.message!.id} aria-label={`${w.kind === 'plan' ? 'Plan' : 'Question'} from ${a.name}`} className="flex flex-col gap-2 border-t border-state-needs p-3">
-          <p className="line-clamp-6 text-[12px] leading-snug whitespace-pre-line">{w.message!.body}</p>
+          <p className="line-clamp-6 text-xs leading-snug whitespace-pre-line">{w.message!.body}</p>
           <AnswerForm host={host} message={w.message!} />
         </section>
       ))}

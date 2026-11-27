@@ -1,6 +1,7 @@
 import { Columns2, Rows2, X } from 'lucide-react'
 import { useApp, useAppState } from '@/context'
 import { cn } from '@/lib/utils'
+import { hueStyle } from '@/hue'
 import { MAX_SIDE_PANES, tabKey } from '@/workspace'
 import { useHostViews } from '@/hooks'
 import { StateIcon } from './state-icon'
@@ -37,7 +38,12 @@ export function TabBar() {
               app.setDragTab(t)
             }}
             onDragEnd={() => app.setDragTab(undefined)}
-            className={cn('group flex max-w-52 min-w-0 items-center rounded-t-md border border-b-0 text-[13px]', active ? 'bg-background text-foreground' : 'border-transparent text-muted-foreground hover:bg-accent')}
+            style={agent ? hueStyle(agent.repo) : undefined}
+            // The open tab is underlined in its project's hue.
+            className={cn(
+              'group relative flex max-w-52 min-w-0 items-center rounded-t-md border border-b-0 text-[13px]',
+              active ? 'bg-background text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-identity' : 'border-transparent text-muted-foreground hover:bg-accent',
+            )}
           >
             <button
               type="button"
@@ -46,11 +52,11 @@ export function TabBar() {
               data-beside={beside ? 'true' : undefined}
               title={many && view ? `${label} on ${view.hostName}` : label}
               onClick={() => app.selectAgent(t.hostId, t.agentId)}
-              className="flex min-w-0 items-center gap-1.5 py-1.5 pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-w-0 items-center gap-1.5 py-1.5 pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-identity"
             >
               {agent ? <StateIcon agent={agent} className="size-3.5" /> : null}
               <span className="truncate">{label}</span>
-              {many && view && <span className="shrink-0 text-[10px] text-muted-foreground">{view.hostName}</span>}
+              {many && view && <span className="shrink-0 text-xs text-muted-foreground">{view.hostName}</span>}
             </button>
             {!active && !beside && side.length < MAX_SIDE_PANES && (
               <button

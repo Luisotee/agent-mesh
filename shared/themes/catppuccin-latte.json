@@ -2,8 +2,8 @@
   "name": "Catppuccin Latte",
   "dark": false,
   "font": {
-    "sans": "Inter",
-    "mono": "Fira Code"
+    "sans": "Geist",
+    "mono": "JetBrains Mono"
   },
   "density": "comfortable",
   "tokens": {
@@ -13,7 +13,7 @@
     "card": "#f7f8fb",
     "popover": "#ffffff",
     "muted": "#ccd0da",
-    "muted-foreground": "#6c6f85",
+    "muted-foreground": "#5c5f77",
     "border": "#bcc0cc",
     "input": "#bcc0cc",
     "ring": "#8839ef",
@@ -30,7 +30,22 @@
     "state-idle": "#9ca0b0",
     "state-done": "#40a02b",
     "state-failed": "#d20f39",
-    "state-unknown": "#df8e1d"
+    "state-unknown": "#df8e1d",
+    "hue-1": "#8839ef",
+    "hue-2": "#b4237a",
+    "hue-3": "#b84505",
+    "hue-4": "#8a5a0e",
+    "hue-5": "#2f7d1f",
+    "hue-6": "#117075",
+    "hue-7": "#1e66f5",
+    "hue-8": "#5464d8",
+    "vendor-claude": "#c15f3c",
+    "vendor-gemini": "#6b4fbb",
+    "vendor-openai": "#4c4f69",
+    "vendor-copilot": "#4c4f69",
+    "vendor-opencode": "#4c4f69",
+    "vendor-deepseek": "#3756e8",
+    "glow": "#b84505"
   },
   "terminal": {
     "background": "#e6e9ef",

@@ -2,8 +2,8 @@
   "name": "Nord",
   "dark": true,
   "font": {
-    "sans": "Inter",
-    "mono": "Cascadia Code"
+    "sans": "Geist",
+    "mono": "JetBrains Mono"
   },
   "density": "comfortable",
   "tokens": {
@@ -30,7 +30,22 @@
     "state-idle": "#616e88",
     "state-done": "#a3be8c",
     "state-failed": "#bf616a",
-    "state-unknown": "#ebcb8b"
+    "state-unknown": "#ebcb8b",
+    "hue-1": "#88c0d0",
+    "hue-2": "#81a1c1",
+    "hue-3": "#8fbcbb",
+    "hue-4": "#a3be8c",
+    "hue-5": "#ebcb8b",
+    "hue-6": "#d08770",
+    "hue-7": "#d57f87",
+    "hue-8": "#b48ead",
+    "vendor-claude": "#d97757",
+    "vendor-gemini": "#a58be0",
+    "vendor-openai": "#eceff4",
+    "vendor-copilot": "#eceff4",
+    "vendor-opencode": "#eceff4",
+    "vendor-deepseek": "#6b84ff",
+    "glow": "#d08770"
   },
   "terminal": {
     "background": "#2e3440",

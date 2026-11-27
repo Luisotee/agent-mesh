@@ -85,6 +85,15 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
       if (el.clientWidth > 0 && el.clientHeight > 0) f.fit()
     }
     refit()
+    // The bundled mono font loads after the first paint; xterm measured its cells with a fallback until then.
+    let live = true
+    void document.fonts?.load(`13px ${monoStack(activeTheme)}`).then(() => {
+      if (!live) return
+      // xterm measures again only when the option changes, so it is set to another value and back.
+      t.options.fontFamily = 'monospace'
+      t.options.fontFamily = monoStack(activeTheme)
+      refit()
+    }, () => {})
     session.start()
     const ro = new ResizeObserver(refit)
     ro.observe(el)
@@ -95,6 +104,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
       refit()
     })
     return () => {
+      live = false
       offTheme()
       ro.disconnect()
       session.dispose()
