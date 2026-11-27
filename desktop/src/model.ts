@@ -420,7 +420,7 @@ export function createAppModel(api: DesktopApi): AppModel {
           void model.loadShells(rt.info.id)
         }
         // An agent the host forgot (its run was deleted): the tabs and panes that showed it go.
-        else if (s.synced && Object.keys(prev.agents).some((id) => !(id in s.agents))) {
+        else if (s.synced && s.agents !== prev.agents && Object.keys(prev.agents).some((id) => !(id in s.agents))) {
           const patch = pruneHost(store.getState(), rt.info.id, s.agents)
           if (patch) set(patch)
         }
