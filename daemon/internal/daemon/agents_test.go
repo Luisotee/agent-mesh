@@ -538,6 +538,11 @@ func TestAnAgentWhoseTerminalVanishedIsMarkedLost(t *testing.T) {
 	run := startRun(t, h.device.Mesh, "")
 	a := h.spawn(run.Id, gitRepo(t), "gone", "")
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	// What a restart brings back by itself is restart_test.go's: here the agent stays lost.
+	if _, err := h.device.Mesh.SetSetting(context.Background(), connect.NewRequest(&v1.SetSettingRequest{
+		Meta: meta(""), Key: "restart.resume", Value: val(t, false)})); err != nil {
+		t.Fatal(err)
+	}
 	h.stop()
 	// The terminal host dies with the daemon down (a reboot): its terminals are gone.
 	stopTermHost(t, state)

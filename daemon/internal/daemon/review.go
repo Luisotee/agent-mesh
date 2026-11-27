@@ -606,6 +606,8 @@ func writeAnswers(a *v1.Ask) error {
 			b.WriteString(strings.TrimSpace(m.Text) + "\n")
 		case strings.TrimSpace(m.Text) != "":
 			fmt.Fprintf(&b, "**%s:** %s\n", m.Type, strings.TrimSpace(m.Text))
+		case m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_LOST:
+			b.WriteString(lostLine(m) + "\n")
 		default:
 			fmt.Fprintf(&b, "No answer: %s\n", m.Line)
 		}
@@ -617,12 +619,19 @@ func writeAnswers(a *v1.Ask) error {
 }
 
 // summary is the one message the caller gets when a collected ask finishes.
+// lostLine says of a member whose process ended before it answered that its answer is not coming, and what to do.
+func lostLine(m *v1.AskMember) string {
+	return fmt.Sprintf("LOST, its answer is not coming: %s `mesh resume %s` brings it back, or ask again", m.Line, m.Name)
+}
+
 func (d *Daemon) summary(r store.Reader, a *v1.Ask) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[mesh answers %s] %d of %d reviewers answered: %s at %s\n", a.Id, answered(a), len(a.Members), a.Pr, short(a.Head))
 	for _, m := range a.Members {
 		if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED {
 			fmt.Fprintf(&b, "- %s (%s): answered\n", m.Name, m.Kind)
+		} else if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_LOST {
+			fmt.Fprintf(&b, "- %s (%s): %s\n", m.Name, m.Kind, lostLine(m))
 		} else {
 			fmt.Fprintf(&b, "- %s (%s): no answer: %s\n", m.Name, m.Kind, m.Line)
 		}
