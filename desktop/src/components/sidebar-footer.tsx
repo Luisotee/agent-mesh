@@ -109,7 +109,7 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
           </span>
           <ul aria-label="Quota" className="flex flex-col gap-1">
             {s.lines.map((l) => (
-              <Tip key={l.label} label={lineTip(l, q.reserve)}>
+              <Tip key={l.title} label={lineTip(l, q.reserve)}>
                 <li className="grid grid-cols-[minmax(0,3.25rem)_1fr_2.5rem] items-center gap-2 text-xs">
                   <span className="truncate text-muted-foreground">{l.label}</span>
                   <Meter label={`${s.name} ${l.label}`} value={l.used} tone={toneOf(l)} mark={q.reserve} />
