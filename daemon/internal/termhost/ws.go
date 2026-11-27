@@ -139,7 +139,7 @@ func (t *Terminal) attach(c *client, a *termv1.Attach) {
 		t.sendLocked(c, frameOf(&termv1.Screen{Epoch: t.epoch, Offset: end, Data: t.screen.Repaint()}))
 	}
 	t.sendLocked(c, frameOf(&termv1.ReplayDone{Offset: end}))
-	if mode == termv1.AttachMode_ATTACH_MODE_EXACT {
+	if mode == termv1.AttachMode_ATTACH_MODE_EXACT && !t.exited { // a dead terminal keeps its size and epoch
 		t.resizeLocked(nil) // its size counts from here; if it moves the terminal, every client is told, this one after its replay
 	}
 	if t.exited {

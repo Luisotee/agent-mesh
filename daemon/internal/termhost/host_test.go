@@ -502,12 +502,15 @@ func TestAResizeThatMovesNothingIsAnsweredWithTheCurrentSizeInTheSameEpoch(t *te
 			}
 		}
 	}
+	var start *termv1.Resized
 	for _, want := range [][2]uint32{{100, 30}, {140, 40}, {120, 30}} {
 		resize(want[0], want[1])
 		r := answer()
-		if r.Cols != 100 || r.Rows != 30 || r.Epoch != at.Epoch || r.Offset != at.Offset {
-			t.Errorf("a resize to %dx%d was answered %v, want 100x30 in epoch %d from offset %d", want[0], want[1], r, at.Epoch, at.Offset)
+		// Where the epoch started: not B's Attached offset (the ring's end when B attached, after output the program may have written since).
+		if r.Cols != 100 || r.Rows != 30 || r.Epoch != at.Epoch || r.Offset > at.Offset || (start != nil && r.Offset != start.Offset) {
+			t.Errorf("a resize to %dx%d was answered %v, want 100x30 in epoch %d from the epoch's start (%v, not after %d)", want[0], want[1], r, at.Epoch, start, at.Offset)
 		}
+		start = r
 	}
 	// A is told nothing for a resize that moved nothing: its size and epoch are as they were.
 	for _, fr := range ca.frames {
@@ -532,7 +535,7 @@ func TestAnExactReattachAtAnotherSizeContinuesAndIsToldTheSizeAfterTheReplay(t *
 	var col collector
 	s.Ready(ctx)
 	s.Input(ctx, []byte("one\n"))
-	col.until(t, s, "got:one")
+	col.until(t, s, "got:one\r\r\n") // the whole line, its newline too: an offset taken before its newline would leave bytes to replay
 	s.Close()
 	epoch, offset := col.epoch, col.offset
 
@@ -548,6 +551,40 @@ func TestAnExactReattachAtAnotherSizeContinuesAndIsToldTheSizeAfterTheReplay(t *
 	r := col2.next(t, s2).GetResized()
 	if r == nil || r.Cols != 120 || r.Rows != 40 || r.Epoch <= epoch || r.Offset != offset {
 		t.Errorf("after ReplayDone came %v, want Resized 120x40 in an epoch after %d from offset %d", r, epoch, offset)
+	}
+}
+
+// A dead terminal keeps its size and epoch: an exact attach to it, at another size, is replayed and told it exited, nothing more.
+func TestAnExactAttachToAnExitedTerminalDoesNotResizeIt(t *testing.T) {
+	f := startHost(t)
+	ctx := context.Background()
+	term := f.spawn("exit3")
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		res, _ := f.c.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		if res.Msg.Terminals[0].Exited {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never exited")
+		}
+	}
+	probe := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 80, Rows: 24})
+	var cp collector
+	at := cp.next(t, probe).GetAttached()
+	s := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_EXACT, Epoch: at.Epoch, Offset: at.Offset, Cols: 33, Rows: 9})
+	var col collector
+	first := col.next(t, s).GetAttached()
+	if first.Mode != termv1.AttachMode_ATTACH_MODE_EXACT || first.Epoch != at.Epoch {
+		t.Fatalf("attached %v, want an exact continue in epoch %d", first, at.Epoch)
+	}
+	for {
+		fr := col.next(t, s)
+		if fr.GetResized() != nil {
+			t.Fatalf("an exited terminal was resized: %v", fr)
+		}
+		if fr.GetExited() != nil {
+			break
+		}
 	}
 }
 
