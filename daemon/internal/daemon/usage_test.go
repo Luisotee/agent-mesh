@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -651,5 +652,63 @@ func TestWarmUsageSkipsAgyWhenQuotaStopDisabledAndRunInvalid(t *testing.T) {
 	}
 	if agyUsageCalls.Load() != 0 {
 		t.Errorf("ReadAgyUsage called %d times with quota_stop=100, want 0", agyUsageCalls.Load())
+	}
+}
+
+// An agy model at the reserve is told once per window even when each reading words the reset differently (the
+// estimate of when it resets then moves from pass to pass): the lead had the same alert every half hour.
+func TestAnAgyReserveAlertIsSentOncePerWindowWhateverTheResetEstimate(t *testing.T) {
+	ctx := context.Background()
+	var reads atomic.Int32
+	var spent atomic.Bool // the agent is started while the model has quota left
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.ReserveEvery = 40 * time.Millisecond
+		c.Usage = &daemon.UsageOps{
+			DisableClaudeNetwork: true,
+			ReadAgyUsage: func(context.Context) (string, error) {
+				n := int(reads.Add(1))
+				left := 80
+				if spent.Load() {
+					left = 2
+				}
+				return fmt.Sprintf("Gemini 4 Hydrogen\tHydrogen\t%d%%\t%dh%dm\n", left, 3+n%2, (n*17)%60), nil
+			},
+			ReadAgyModels: func(context.Context) (string, error) {
+				return "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n", nil
+			},
+		}
+	})
+	run := startRun(t, w.device.Mesh, "")
+	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead := w.waitState(leadRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "agy-h", Kind: "agy", Model: "hydrogen", Effort: "high", Role: v1.AgentRole_AGENT_ROLE_WORKER}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	spent.Store(true)
+	_ = os.Remove(statedir.Paths{Dir: w.state}.AgyUsage())
+	waitFor(t, "an agy reserve alert", func() bool { return w.infoTo(t, lead, "[mesh alert reserve agy-") != nil })
+	for i := 0; i < 8; i++ { // several passes, each with a new reading
+		time.Sleep(80 * time.Millisecond)
+		_ = os.Remove(statedir.Paths{Dir: w.state}.AgyUsage())
+	}
+	msgs, err := w.d.Store().Read(ctx).Inbox(lead.Id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, m := range msgs {
+		if strings.Contains(m.Body, "[mesh alert reserve agy-") {
+			n++
+		}
+	}
+	if n != 1 || reads.Load() < 3 {
+		t.Errorf("%d agy reserve alerts over %d readings, want 1", n, reads.Load())
 	}
 }

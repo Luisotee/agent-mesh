@@ -1033,7 +1033,14 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 				if readingAt.IsZero() {
 					readingAt = now
 				}
-				dedupeKey, expiresAt := agyAlertKeyAndExpiry(hit.label, hit.resets, readingAt, now)
+				_, expiresAt := agyAlertKeyAndExpiry(hit.label, hit.resets, readingAt, now)
+				// Once per model and window: the reset is read as a span from each reading ("in 4h"), so the minute it
+				// resolves to drifts from reading to reading and a key made of it was new at every pass. The alert is
+				// held until the first estimate of the reset, and at least the cooldown.
+				dedupeKey := "agy:" + hit.label + ":" + hit.model
+				if min := now.Add(reserveAlertCooldown); expiresAt.Before(min) {
+					expiresAt = min
+				}
 				resetPart := ""
 				if hit.resets != "" {
 					resetPart = ", resets " + hit.resets

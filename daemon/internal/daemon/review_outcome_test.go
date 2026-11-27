@@ -99,6 +99,20 @@ func TestAWorkersDoneCarriesOneOutcomeLinePerPR(t *testing.T) {
 			t.Errorf("after the root's verdict: %s", got)
 		}
 	})
+	t.Run("a reviewer that answered with no findings is judged by an all-zero verdict", func(t *testing.T) {
+		a := startAuthor(t, "")
+		a.answeredRound(t)
+		reviewer := filepath.Base(a.pr.repo) + "-review-7-claude"
+		if got := a.doneNaming7(t); !strings.Contains(got, "answered and has no verdict recorded") {
+			t.Fatalf("before the verdict: %s", got)
+		}
+		if err := a.verdictFull(t, a.asWorker, reviewer, 0, 0, 0, 0, 0); err != nil {
+			t.Fatalf("an all-zero verdict: %v", err)
+		}
+		if got := a.doneNaming7(t); strings.Contains(got, "no verdict recorded") || !strings.Contains(got, "0 finding(s)") {
+			t.Errorf("after the verdict: %s", got)
+		}
+	})
 	t.Run("declined blocking is at most disagree and other", func(t *testing.T) {
 		a := startAuthor(t, "")
 		a.answeredRound(t)

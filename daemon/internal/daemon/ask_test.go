@@ -540,7 +540,6 @@ func TestAVerdictIsRecordedOnTheReviewersNewestRoundAndChecked(t *testing.T) {
 	round := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"})
 	claude := round.Agents[0]
 	for _, bad := range []*v1.RecordVerdictRequest{
-		{Pr: "7", Reviewer: claude.Name},                        // no counts
 		{Pr: "7", Reviewer: claude.Name, Agree: 1, Blocking: 2}, // more blocking than agreed or useful
 		{Pr: "7", Reviewer: claude.Name, Agree: -1, Other: 2},   // negative
 		{Reviewer: claude.Name, Agree: 1},                       // no PR
