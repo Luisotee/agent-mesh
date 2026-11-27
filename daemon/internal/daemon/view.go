@@ -121,13 +121,15 @@ func (d *Daemon) OpenView(ctx context.Context, req *connect.Request[v1.OpenViewR
 	default:
 		return nil, invalid("view must be agent, terminal, settings or run")
 	}
-	if IsAgent(actor.Class) {
-		if err := d.views.allow(actor.Id, d.now()); err != nil {
-			return nil, err
-		}
-	}
 	out := &v1.OpenViewResponse{}
 	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceOpenViewProcedure, out, func(*store.Tx) error {
+		// Counted here, not before: a replay of an applied request (the same mutation id) returns its first answer
+		// without running this, so a retry is never limited and never uses up the agent's turn.
+		if IsAgent(actor.Class) {
+			if err := d.views.allow(actor.Id, d.now()); err != nil {
+				return err
+			}
+		}
 		out.Delivered = int32(d.bus.PublishView(frame))
 		return nil
 	})

@@ -311,6 +311,17 @@ describe('an agent asking to show a view', () => {
     offerView(model, 'h1', req('agent', 'd'), false)
     expect(model.store.getState().viewRequests.map((r) => r.request.target)).toEqual(['b', 'c', 'd'])
   })
+
+  it('drops a removed host\'s toasts, and keeps another host\'s', async () => {
+    const { model, host } = fixture()
+    const other = { ...host, info: { ...host.info, id: 'h2' } } as HostRuntime
+    ;(host as unknown as { stop: () => void }).stop = () => {}
+    model.store.setState({ hosts: [host, other] })
+    offerView(model, 'h1', req('agent', 'a'), false)
+    offerView(model, 'h2', req('agent', 'b'), false)
+    await model.removeHost('h1')
+    expect(model.store.getState().viewRequests.map((r) => r.hostId)).toEqual(['h2'])
+  })
 })
 
 describe('dragging a tab to an edge of the main pane', () => {

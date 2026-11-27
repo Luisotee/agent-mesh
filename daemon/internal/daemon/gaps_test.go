@@ -316,6 +316,26 @@ func TestAnAgentCannotSetOpenViewsAndAskingForViewsIsRateLimited(t *testing.T) {
 	}
 }
 
+// A retry of an applied request (the same mutation id) gets its first answer and uses up none of the agent's turns.
+func TestARetriedOpenViewIsNotLimited(t *testing.T) {
+	w := startPR(t)
+	ctx := context.Background()
+	root := w.as(w.rootTok)
+	open := func(mid string) error {
+		_, err := root.OpenView(ctx, connect.NewRequest(&v1.OpenViewRequest{Meta: meta(mid), View: "settings"}))
+		return err
+	}
+	if err := open("same"); err != nil {
+		t.Fatal(err)
+	}
+	if err := open("same"); err != nil {
+		t.Errorf("a replay within the wait: %v", err)
+	}
+	if err := open("other"); connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Errorf("a new request within the wait: %v", err)
+	}
+}
+
 func TestOpenViewLooksForTheTargetInsideTheRunNamed(t *testing.T) {
 	w := startPR(t)
 	ctx := context.Background()

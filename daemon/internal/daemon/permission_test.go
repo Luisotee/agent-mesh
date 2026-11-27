@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
@@ -269,6 +270,45 @@ func TestAPromptWhoseParentStoppedMeanwhileIsNotHeld(t *testing.T) {
 	}
 	if time.Since(start) > 10*time.Second {
 		t.Errorf("the prompt was held %s for a parent that nobody told", time.Since(start))
+	}
+}
+
+// A write that fails before the prompt is listed (the request ends between the parent's read and the write) lists
+// nothing, so the handler has no decision to wait for and returns at once, with nothing left listed. The handler is
+// called directly: through the client, a canceled request never reaches it.
+func TestAPromptWhoseWriteFailsBeforeItIsListedReturnsAtOnce(t *testing.T) {
+	w := startReviews(t)
+	w.set(t, "permission.wait", 60)
+	wk := w.worker(t, "wk")
+	actor := &v1.Actor{Class: v1.ActorClass_ACTOR_CLASS_WORKER, Id: wk.Id, Name: wk.Name, RunId: wk.RunId}
+	t.Cleanup(func() { daemon.OnPermissionPlanned(nil) })
+	for name, arrange := range map[string]func(cancel context.CancelFunc){
+		"the request ends before the write":     func(cancel context.CancelFunc) { daemon.OnPermissionPlanned(cancel) },
+		"the request was canceled at the start": func(cancel context.CancelFunc) { daemon.OnPermissionPlanned(nil); cancel() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(auth.WithActor(context.Background(), actor))
+			defer cancel()
+			arrange(cancel)
+			done := make(chan struct{})
+			start := time.Now()
+			go func() {
+				defer close(done)
+				res, err := w.d.RequestPermission(ctx, connect.NewRequest(&v1.RequestPermissionRequest{Tool: "Bash", Summary: "ls"}))
+				if err == nil && res.Msg.Decision != "" {
+					t.Errorf("a decision from nobody: %v", res.Msg)
+				}
+			}()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatalf("the handler was still waiting after %s", time.Since(start))
+			}
+			res, err := w.asRoot.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+			if err != nil || len(res.Msg.Permissions) != 0 {
+				t.Errorf("listed: %v, %v", res, err)
+			}
+		})
 	}
 }
 

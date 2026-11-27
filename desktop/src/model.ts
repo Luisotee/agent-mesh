@@ -396,7 +396,7 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => {
         const hosts = s.hosts.filter((h) => h.info.id !== id)
         const { [id]: _pins, ...pins } = s.pins
-        return { ...forgetHost(s, id), pins, hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
+        return { ...forgetHost(s, id), pins, viewRequests: s.viewRequests.filter((r) => r.hostId !== id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
       })
       recount()
       configure()

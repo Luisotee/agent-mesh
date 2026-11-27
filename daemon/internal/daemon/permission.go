@@ -288,6 +288,7 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 		permissionPlannedHook()
 	}
 	var told *v1.Message
+	listed := false // set where the prompt is added: a failure before that lists nothing, so nothing will be sent on p.ch
 	// The prompt is listed, and "asked" said, in the same write that tells the parent, and only when it does: a decision can
 	// come only once it is listed, and its own event waits for this write to commit, so "asked" always comes first; a write
 	// that fails or finds the parent stopped lists nothing, so nothing can be decided into the void.
@@ -300,14 +301,17 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 			return err
 		}
 		d.perms.add(p)
+		listed = true
 		_, err = tx.AppendEvent(&v1.Event{RunId: p.RunId, AgentId: p.AgentId, Payload: &v1.Event_PermissionChanged{
 			PermissionChanged: &v1.PermissionChanged{Id: p.Id, AgentName: p.AgentName, State: "asked"}}})
 		return err
 	}); err != nil {
-		// Listed before the commit failed: a decision may have been taken in between, and is not dropped.
-		if _, pending := d.perms.take(p.Id); !pending {
-			dec := <-p.ch
-			return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason}), nil
+		// Listed before the commit failed: a decision may have been taken in between, and is not dropped. A
+		// failure before it was listed (a canceled request, a read or tell error) has nothing to wait for.
+		if listed {
+			if _, pending := d.perms.take(p.Id); !pending {
+				return d.decided(ctx, p, none), nil
+			}
 		}
 		return none, nil
 	}
@@ -328,11 +332,21 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 	// Out of time: take the prompt back. If it is already gone, a decision (or the end of the prompt) has been
 	// taken and is on its way: wait for it, so the parent's answer is not lost.
 	if _, pending := d.perms.take(p.Id); !pending {
-		dec := <-p.ch
-		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason}), nil
+		return d.decided(ctx, p, none), nil
 	}
 	d.permissionEvent(ctx, &p.PendingPermission, "ended")
 	return none, nil
+}
+
+// decided returns the decision that has been taken for a prompt, and is on its way on p.ch; the caller going away
+// first (its context ends) gives up the wait and answers `none`.
+func (d *Daemon) decided(ctx context.Context, p *pendingPermission, none *connect.Response[v1.RequestPermissionResponse]) *connect.Response[v1.RequestPermissionResponse] {
+	select {
+	case dec := <-p.ch:
+		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason})
+	case <-ctx.Done():
+		return none
+	}
 }
 
 // DecidePermission answers a pending prompt: the agent's parent, or a device.
