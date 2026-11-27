@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -58,6 +58,9 @@ export const stopAgent = (c: MeshClient, agent: string) => c.stopAgent({ meta: m
 
 /** Stops an agent's process on purpose and keeps its conversation: a task or an answer to it brings it back. */
 export const retireAgent = (c: MeshClient, agent: string) => c.retireAgent({ meta: meta(), agent })
+
+/** Stops a run: every agent in it is retired and the run is closed; a clean worktree goes, one with changes stays. */
+export const stopRun = (c: MeshClient, runId: string) => c.stopRun({ meta: meta(), runId })
 
 /** Rings an agent that has unread messages again (the host says why when it can't). */
 export const ringAgent = (c: MeshClient, agent: string) => c.ringAgent({ meta: meta(), agent })

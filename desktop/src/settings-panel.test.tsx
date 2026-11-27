@@ -10,13 +10,13 @@ import { AgentSchema, SettingSchema$ as SettingDescriptor, SettingSchemaSchema, 
 import { createAppModel, type HostRuntime } from './model'
 import { createHostStore } from './store'
 
-const setting = (key: string, type: string, def: unknown, value: unknown = def, o: { choices?: string[]; isSet?: boolean; summary?: string; restart?: boolean } = {}): Setting =>
+const setting = (key: string, type: string, def: unknown, value: unknown = def, o: { choices?: string[]; isSet?: boolean; summary?: string; restart?: boolean; label?: string; group?: string; advanced?: boolean } = {}): Setting =>
   create(SettingDescriptor, {
     key,
     value: fromJson(ValueSchema, value as never),
     default: fromJson(ValueSchema, def as never),
     isSet: o.isSet ?? false,
-    schema: create(SettingSchemaSchema, { type, summary: o.summary ?? `about ${key}`, choices: o.choices ?? [], restart: o.restart ?? false }),
+    schema: create(SettingSchemaSchema, { type, summary: o.summary ?? `about ${key}`, choices: o.choices ?? [], restart: o.restart ?? false, label: o.label ?? '', group: o.group ?? '', advanced: o.advanced ?? false }),
   })
 
 function fixture(list: Setting[]) {
@@ -58,63 +58,97 @@ describe('SettingsPanel', () => {
     expect(document.querySelector('[data-setting="min_free_mb"]')).toHaveTextContent('needs a restart')
   })
 
-  it('offers the desktop\'s themes for app.theme, and keeps a name the host set that this build lacks', async () => {
-    const { ui, client } = fixture([setting('app.theme', 'string', 'Dracula', 'Solarized', { isSet: true })])
+  it('shows the themes as cards, the one the host set marked, and a name this build lacks listed too', async () => {
+    const { ui, client } = fixture([setting('app.theme', 'string', 'Dracula', 'Solarized', { isSet: true, label: 'Theme', group: 'Appearance' })])
     render(ui)
-    const select = screen.getByRole('combobox', { name: 'Value of app.theme' })
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Solarized', 'Dracula', 'Alucard', 'Catppuccin Latte', 'Catppuccin Mocha', 'Nord', 'Tokyo Night'])
-    await userEvent.selectOptions(select, 'Nord')
+    const cards = screen.getByRole('radiogroup', { name: 'Value of app.theme' })
+    expect(within(cards).getAllByRole('radio').map((o) => o.textContent)).toEqual(['Solarized', 'Dracula', 'Alucard', 'Catppuccin Latte', 'Catppuccin Mocha', 'Nord', 'Tokyo Night'])
+    expect(within(cards).getByRole('radio', { name: 'Solarized' })).toBeChecked()
+    await userEvent.click(within(cards).getByRole('radio', { name: 'Nord' }))
     await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
     expect(sentValue(client)).toMatchObject({ key: 'app.theme', value: 'Nord' })
   })
 
-  it('lists the repos agents work in as switches on repos.no_free_models, and writes the whole list', async () => {
-    const { ui, client, store } = fixture([setting('repos.no_free_models', 'strings', [], ['/w/old'], { isSet: true })])
-    store.setState({ agents: { a1: create(AgentSchema, { id: 'a1', repo: '/w/shop-api' }), a2: create(AgentSchema, { id: 'a2', repo: '/w/web' }) } })
+  const grouped = () => [
+    setting('app.theme', 'string', 'Dracula', 'Dracula', { label: 'Theme', group: 'Appearance', choices: [] }),
+    setting('quota_stop', 'percent', 90, 90, { label: 'Stop starting agents at quota', group: 'Limits and quota', summary: 'percent of quota used at which nothing new starts' }),
+    setting('compact.agy', 'int', 100000, 100000, { label: 'Compact an agy conversation at', group: 'Limits and quota', advanced: true }),
+    setting('app.keys.palette', 'shortcut', 'Mod+Shift+P', 'Mod+Shift+P', { label: 'Command palette', group: 'Shortcuts' }),
+  ]
+
+  it('lists a group at a time from a nav with counts, labels first and the key as small type', async () => {
+    const { ui } = fixture(grouped())
     render(ui)
-    const section = screen.getByRole('region', { name: 'Free models by repo' })
-    // The repos agents work in, and a listed folder no agent works in (so it can be taken off).
-    expect(within(section).getByRole('checkbox', { name: 'May use free models: shop-api' })).toBeChecked()
-    expect(within(section).getByRole('checkbox', { name: 'May use free models: old' })).not.toBeChecked()
-    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: shop-api' }))
-    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
-    expect(sentValue(client)).toMatchObject({ key: 'repos.no_free_models', value: ['/w/old', '/w/shop-api'] })
+    const nav = screen.getByRole('navigation', { name: 'Setting groups' })
+    expect(within(nav).getAllByRole('button').map((b) => b.textContent)).toEqual(['Appearance1', 'Shortcuts1', 'Limits and quota2'])
+    // The first group shows; another opens from the nav.
+    expect(document.querySelector('[data-setting="app.theme"]')).not.toBeNull()
+    expect(document.querySelector('[data-setting="quota_stop"]')).toBeNull()
+    await userEvent.click(within(nav).getByRole('button', { name: /Limits and quota/ }))
+    const row = document.querySelector('[data-setting="quota_stop"]') as HTMLElement
+    expect(within(row).getByText('Stop starting agents at quota')).toBeInTheDocument()
+    expect(within(row).getByText('quota_stop')).toBeInTheDocument()
   })
 
-  it('reads the listed folders as the host does: no duplicate row for a ~ or trailing-slash spelling', async () => {
-    const { ui, client, store } = fixture([setting('repos.no_free_models', 'strings', [], ['~/projects/shop', '/w/web/', '/w/gone', '/w/gone/'], { isSet: true })])
+  it('folds the advanced settings of a group, and shows them when a search names one', async () => {
+    const { ui } = fixture(grouped())
+    render(ui)
+    await userEvent.click(within(screen.getByRole('navigation', { name: 'Setting groups' })).getByRole('button', { name: /Limits and quota/ }))
+    expect(document.querySelector('[data-setting="compact.agy"]')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: /Advanced/ }))
+    expect(document.querySelector('[data-setting="compact.agy"]')).not.toBeNull()
+  })
+
+  it('searches every group by label, description and key', async () => {
+    const { ui } = fixture(grouped())
+    render(ui)
+    await userEvent.type(screen.getByLabelText('Filter settings'), 'compact')
+    expect(document.querySelector('[data-setting="compact.agy"]')).not.toBeNull()
+    expect(document.querySelector('[data-setting="quota_stop"]')).toBeNull()
+    await userEvent.clear(screen.getByLabelText('Filter settings'))
+    await userEvent.type(screen.getByLabelText('Filter settings'), 'nothing new starts')
+    expect(document.querySelector('[data-setting="quota_stop"]')).not.toBeNull()
+    expect(document.querySelectorAll('[data-setting]')).toHaveLength(1)
+  })
+
+  it('lists the shortcuts as a table with the action and the keys, and the palette\'s query opens it', async () => {
+    const { ui } = fixture(grouped())
+    render(ui)
+    await userEvent.type(screen.getByLabelText('Filter settings'), 'app.keys')
+    const row = document.querySelector('[data-setting="app.keys.palette"]') as HTMLElement
+    expect(within(row).getByText('Command palette')).toBeInTheDocument()
+    expect(row).toHaveTextContent('Ctrl+Shift+P')
+  })
+
+  it('copies the key, and shows Reset to default only on a setting that was set', async () => {
+    const write = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: write }, configurable: true })
+    const { ui, client } = fixture([
+      setting('quota_stop', 'percent', 90, 80, { isSet: true, label: 'Stop starting agents at quota', group: 'Limits and quota' }),
+      setting('idle_retire', 'seconds', 300, 300, { label: 'Retire idle agents after', group: 'Agents and models' }),
+    ])
+    render(ui)
+    await userEvent.type(screen.getByLabelText('Filter settings'), 'a')
+    await userEvent.click(screen.getByRole('button', { name: 'Copy quota_stop' }))
+    expect(write).toHaveBeenCalledWith('quota_stop')
+    expect(screen.getAllByRole('button', { name: /^Reset / }).map((b) => b.textContent?.trim())).toEqual(['Reset to default'])
+    await userEvent.click(screen.getByRole('button', { name: 'Reset quota_stop' }))
+    expect(client.resetSetting).toHaveBeenCalledWith(expect.objectContaining({ key: 'quota_stop' }))
+  })
+
+  it('shows the per-repo lists as links to each project\'s settings, with the folders only the lists name', async () => {
+    const { ui, store } = fixture([
+      setting('repos.no_free_models', 'strings', [], ['/w/old', '~/projects/shop'], { isSet: true, label: 'Repos kept from free models', group: 'Projects and autonomy' }),
+      setting('repos.user_merges', 'strings', [], [], { label: 'Repos where I merge', group: 'Projects and autonomy' }),
+      setting('editor.command', 'string', 'code', 'code', { label: 'Editor command', group: 'Projects and autonomy' }),
+    ])
     store.setState({ agents: { a1: create(AgentSchema, { id: 'a1', repo: '/home/u/projects/shop' }), a2: create(AgentSchema, { id: 'a2', repo: '/w/web' }) } })
     render(ui)
-    const section = screen.getByRole('region', { name: 'Free models by repo' })
-    expect(within(section).getAllByRole('checkbox').map((c) => c.getAttribute('aria-label'))).toEqual(['May use free models: shop', 'May use free models: web', 'May use free models: gone'])
-    expect(within(section).getAllByRole('checkbox').map((c) => (c as HTMLInputElement).checked)).toEqual([false, false, false]) // all three are listed
-    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: shop' }))
-    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
-    expect(sentValue(client)).toMatchObject({ value: ['/w/web/', '/w/gone', '/w/gone/'] }) // the spelling is gone, nothing added
-  })
-
-  it('builds a second quick toggle on the list as last written, before the host\'s change arrives', async () => {
-    const { ui, client, store } = fixture([setting('repos.no_free_models', 'strings', [], [], { isSet: false })])
-    store.setState({ agents: { a1: create(AgentSchema, { id: 'a1', repo: '/w/a' }), a2: create(AgentSchema, { id: 'a2', repo: '/w/b' }) } })
-    render(ui)
-    const section = screen.getByRole('region', { name: 'Free models by repo' })
-    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: a' }))
-    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
-    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: b' })) // the list in the store is still empty
-    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(2))
-    expect(sentValue(client, 1)).toMatchObject({ value: ['/w/a', '/w/b'] })
-  })
-
-  it('takes a repo off the list, and shows the host\'s refusal', async () => {
-    const { ui, client } = fixture([setting('repos.no_free_models', 'strings', [], ['/w/a', '/w/b'], { isSet: true })])
-    client.setSetting.mockRejectedValueOnce(new Error('[invalid_argument] nope'))
-    render(ui)
-    const section = screen.getByRole('region', { name: 'Free models by repo' })
-    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: a' }))
-    await waitFor(() => expect(section).toHaveTextContent('nope'))
-    await userEvent.click(within(section).getByRole('checkbox', { name: 'May use free models: a' }))
-    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(2))
-    expect(sentValue(client, 1)).toMatchObject({ value: ['/w/b'] })
+    const links = within(document.querySelector('[data-setting="per-project"]') as HTMLElement)
+    expect(links.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Project settings: shop', 'Project settings: web', 'Project settings: old'])
+    // The raw lists are not rows; the other settings of the group are.
+    expect(document.querySelector('[data-setting="repos.no_free_models"]')).toBeNull()
+    expect(document.querySelector('[data-setting="editor.command"]')).not.toBeNull()
   })
 
   it('sets a bool at once, with a mutation id', async () => {

@@ -45,6 +45,16 @@ func ClassOf(role v1.AgentRole) v1.ActorClass {
 	return v1.ActorClass_ACTOR_CLASS_UNSPECIFIED
 }
 
+// restrictedViewer is the agent id whose own text-bearing events are all an actor may read: an asker or a reviewer
+// (read-only, short-lived, and may run on a third-party model, so the run's other messages are not theirs to read:
+// ListMessages withholds them from every agent but the root too). Empty: the actor sees the run's events whole.
+func restrictedViewer(actor *v1.Actor) string {
+	if actor != nil && (actor.Class == v1.ActorClass_ACTOR_CLASS_ASKER || actor.Class == v1.ActorClass_ACTOR_CLASS_REVIEWER) {
+		return actor.Id
+	}
+	return ""
+}
+
 func notFound(format string, args ...any) error {
 	return connect.NewError(connect.CodeNotFound, fmt.Errorf(format, args...))
 }
@@ -875,7 +885,7 @@ func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.Su
 	// (requireHostDevice).
 	deviceEvents := actor != nil && actor.Id == localDeviceID
 	isDevice := actor != nil && !IsAgent(actor.Class)
-	return d.bus.ServeFor(sctx, msg, deviceEvents, isDevice, d.stopping, stream.Send)
+	return d.bus.ServeFor(sctx, msg, deviceEvents, isDevice, restrictedViewer(actor), d.stopping, stream.Send)
 }
 
 // parseWaitUntil reads a wait's `until`: a duration from now (`45m`) or an RFC 3339 time, in the future. It is
