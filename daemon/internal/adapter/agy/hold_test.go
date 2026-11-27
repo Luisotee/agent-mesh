@@ -35,3 +35,25 @@ func TestAgyModelsIsNotRunWhileHeld(t *testing.T) {
 		t.Error("agy was not run when free")
 	}
 }
+
+// `agy models` that answers clears the login record (agy is logged in); one that is held, or fails, does not.
+func TestAgyModelsAnsweringClearsTheLoginRecord(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "agy")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf 'gemini-4-neon-high\\tGemini 4 Neon (High)\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{"HOME": dir, "PATH": os.Getenv("PATH")}
+	cleared := 0
+	held := true
+	a := New()
+	a.Hold = func() bool { return held }
+	a.LoginCleared = func() { cleared++ }
+	if _, err := a.listModelsDirect(context.Background(), bin, env, true); err == nil || cleared != 0 {
+		t.Fatalf("held: err %v, cleared %d", err, cleared)
+	}
+	held = false
+	if _, err := a.listModelsDirect(context.Background(), bin, env, true); err != nil || cleared != 1 {
+		t.Fatalf("answered: err %v, cleared %d", err, cleared)
+	}
+}

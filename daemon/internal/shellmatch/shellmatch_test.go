@@ -4,6 +4,21 @@ import "testing"
 
 func TestMatchPublishCommand(t *testing.T) {
 	cases := []struct{ cmd, want string }{
+		// Compound commands and redirections lead nothing: the publish inside them is still one.
+		{"if true; then git push origin main; fi", "git push"},
+		{"if gh pr checks 177; then gh pr merge 177 --squash; fi", "gh pr merge"},
+		{`for b in main; do git push origin "$b"; done`, "git push"},
+		{"while true; do git push; done", "git push"},
+		{"true && ! git push", "git push"},
+		{"if x; then :; elif y; then git push; else :; fi", "git push"},
+		{"</dev/null git push", "git push"},
+		{"2>&1 git push", "git push"},
+		{">&2 git push", "git push"},
+		{"&>/dev/null git push", "git push"},
+		{"> out.txt git push", "git push"},
+		{"2>/dev/null </dev/null gh pr merge 5", "gh pr merge"},
+		{"git push 2>&1 | tee log", "git push"},
+		{"make 2>&1 && git push", "git push"},
 		{"git push", "git push"},
 		{"git -C . -c core.x=y push origin HEAD", "git push"},
 		{"git --git-dir=.git push", "git push"},
@@ -61,6 +76,11 @@ func TestMatchPublishCommand(t *testing.T) {
 		{`echo "see (git push) docs"`, ""},
 		{`grep -n '{git push}' docs.md`, ""},
 		{"git status && git log --oneline", ""},
+		// Reads stay reads inside the same wrappers.
+		{"if git status; then git log; fi", ""},
+		{"git status 2>&1 | head", ""},
+		{"</dev/null git status", ""},
+		{"for f in a b; do echo $f > out; done", ""},
 		{"git -C . log push", ""},
 		{"gh pr view 5 --comments", ""},
 		{"gh pr list --search comment", ""},

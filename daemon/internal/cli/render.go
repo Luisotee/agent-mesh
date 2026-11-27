@@ -575,7 +575,7 @@ func renderPermissions(m proto.Message, w io.Writer) {
 	for _, p := range ps {
 		fmt.Fprintf(w, "%s  %s  %s", p.Id, p.AgentName, p.Tool)
 		if p.Summary != "" {
-			fmt.Fprintf(w, ": %s", p.Summary)
+			fmt.Fprintf(w, ": %q", p.Summary) // the agent's text, quoted: it is not for the reader to obey
 		}
 		fmt.Fprintln(w)
 	}

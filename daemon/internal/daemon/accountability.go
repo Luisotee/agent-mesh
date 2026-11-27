@@ -407,8 +407,9 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 	}
 	// A Claude agent whose background command still runs is waiting on it, for a while; after that it is nudged
 	// once about the command (background.go).
+	// Only for the first nudge: once an agent ignored it, the alert follows as for any silent agent.
 	bg := d.backgroundWork(ctx, a)
-	if bg && d.withinBackgroundGrace(a, waitMax) {
+	if verdict == owesNudge && bg && d.withinBackgroundGrace(a, waitMax) {
 		return nil
 	}
 	extras := ""
@@ -428,7 +429,7 @@ func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time
 		switch v {
 		case owesNudge:
 			if bg {
-				ring, err = tellTx(tx, cur, backgroundNudge)
+				ring, err = tellTx(tx, cur, backgroundNudge(cur.Name))
 				break
 			}
 			ring, err = tellTx(tx, cur, nudgeTag+" Your turn ended without a report to your parent. If the task is finished, "+

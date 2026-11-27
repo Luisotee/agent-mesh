@@ -859,7 +859,7 @@ func TestRenderPermissionsAndUsageNotes(t *testing.T) {
 	var out strings.Builder
 	renderPermissions(&v1.ListPermissionsResponse{Permissions: []*v1.PendingPermission{
 		{Id: "p1", AgentName: "repo-wk", Tool: "Bash", Summary: "rm -rf build"}, {Id: "p2", AgentName: "repo-w2", Tool: "Write"}}}, &out)
-	for _, want := range []string{"p1  repo-wk  Bash: rm -rf build", "p2  repo-w2  Write\n"} {
+	for _, want := range []string{`p1  repo-wk  Bash: "rm -rf build"`, "p2  repo-w2  Write\n"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("renderPermissions missing %q in:\n%s", want, out.String())
 		}

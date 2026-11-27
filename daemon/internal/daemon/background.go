@@ -27,10 +27,12 @@ var backgroundGrace = 30 * time.Minute
 
 // backgroundNudge is the nudge of an agent that ended a turn with a background command still running, past the
 // grace.
-const backgroundNudge = nudgeTag + " Your turn ended without a report to your parent, and a background command you started still runs. " +
-	"If you are waiting on it, declare that now: `mesh send parent --type wait --body \"<what>\"` (a wait ends when something wakes you: " +
-	"if you end that turn still waiting, declare a fresh wait first). If you are not, stop it. If the task is finished, run `mesh inbox`, " +
-	"then report it: `mesh send parent --type done --body @$(mesh dir)/reports/<your name>.md`."
+func backgroundNudge(name string) string {
+	return nudgeTag + " Your turn ended without a report to your parent, and a background command you started still runs. " +
+		"If you are waiting on it, declare that now: `mesh send parent --type wait --body \"<what>\"` (a wait ends when something wakes you: " +
+		"if you end that turn still waiting, declare a fresh wait first). If you are not, stop it. If the task is finished, run `mesh inbox`, " +
+		"then report it: `mesh send parent --type done --body @$(mesh dir)/reports/" + name + ".md`."
+}
 
 // hasBackgroundCommand reports whether the process tree under pid holds a Claude background command.
 func hasBackgroundCommand(table []proc.Info, pid int) bool {

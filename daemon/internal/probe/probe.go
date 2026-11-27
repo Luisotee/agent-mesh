@@ -59,7 +59,7 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 		return nil, err
 	}
 	opened := filepath.Join(dir, "opened")
-	script := "#!/bin/sh\n: > '" + opened + "'\nexit 1\n"
+	script := "#!/bin/sh\n: > '" + strings.ReplaceAll(opened, "'", `'\''`) + "'\nexit 1\n" // a ' in the path is closed, escaped, reopened
 	for _, name := range openers {
 		if err := os.WriteFile(filepath.Join(stubs, name), []byte(script), 0o700); err != nil {
 			return nil, err

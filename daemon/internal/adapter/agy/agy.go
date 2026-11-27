@@ -64,6 +64,8 @@ type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
 	// LoginNeeded is called when a probe of the CLI found it wants a login (the daemon records it).
 	LoginNeeded func()
+	// LoginCleared is called when `agy models` ran and answered: agy is logged in (the daemon forgets a login record).
+	LoginCleared func()
 	// Hold, when it says true, keeps `agy models` from being run (the daemon: an agy found on PATH whose token file is missing).
 	Hold func() bool
 	// ProbeDir is where the probe's stub openers are made (internal/probe); empty means the temp dir.
@@ -384,6 +386,9 @@ func (a *Adapter) listModelsDirect(ctx context.Context, bin string, env map[stri
 		}
 	}
 	if err == nil && hasParsedID(string(out)) {
+		if a.LoginCleared != nil {
+			a.LoginCleared()
+		}
 		if cacheFile != "" {
 			_ = os.MkdirAll(filepath.Dir(cacheFile), 0o700)
 			_ = fsutil.WriteAtomic(cacheFile, out, 0o600)

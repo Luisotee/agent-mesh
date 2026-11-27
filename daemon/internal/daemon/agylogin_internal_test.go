@@ -268,7 +268,44 @@ func TestTheAgyAdaptersModelsAreHeldWhileALoginIsRecorded(t *testing.T) {
 		t.Error("`agy models` is not held while a login is recorded")
 	}
 	ag.LoginNeeded()
+	d.noteAgyLogin()
+	ag.LoginCleared()
+	if _, hold := d.agyLoginState(now); hold {
+		t.Error("`agy models` answering does not clear the login record")
+	}
 	if ag.ProbeDir != d.paths.Probe() {
 		t.Errorf("ProbeDir = %q, want %q", ag.ProbeDir, d.paths.Probe())
+	}
+}
+
+// The user logs in (the token file changes): the old record is stale. No note, no alert, no hold, until a fresh probe
+// of agy fails again; and a probe that does fail writes a fresh record.
+func TestARecordFromBeforeTheLoginSaysNothing(t *testing.T) {
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	d, lead := loginWorld(t, func() time.Time { return now })
+	d.noteAgyLogin()
+	if since, hold := d.agyLoginState(now); since.IsZero() || !hold {
+		t.Fatalf("a fresh record: since %v, hold %v", since, hold)
+	}
+	dir := filepath.Join(d.usageEnv("HOME"), ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "antigravity-oauth-token"), []byte("{}"), 0o600); err != nil { // the login
+		t.Fatal(err)
+	}
+	if since, hold := d.agyLoginState(now); !since.IsZero() || hold {
+		t.Errorf("after the login: since %v, hold %v, want none", since, hold)
+	}
+	d.agyLoginAlertPass(context.Background())
+	if n := loginAlerts(t, d, lead); n != 0 {
+		t.Errorf("the root was told %d times of a login that is done", n)
+	}
+	if d.agyHeld() {
+		t.Error("agy is held after the login")
+	}
+	d.noteAgyLogin() // a fresh probe fails again
+	if since, _ := d.agyLoginState(now); since.IsZero() {
+		t.Error("a fresh failure is not recorded")
 	}
 }

@@ -65,7 +65,7 @@ func TestAWorkerWithABackgroundCommandRunningIsNotNudged(t *testing.T) {
 // A background command the agent forgot (a dev server, a watcher) is not waited on for hours: past the grace
 // from the agent's last activity it is nudged once, with a nudge that names the command, though it still runs.
 func TestAWorkerWithAForgottenBackgroundCommandIsNudgedOnceAboutIt(t *testing.T) {
-	old := daemon.SetBackgroundGrace(4 * time.Second)
+	old := daemon.SetBackgroundGrace(14 * time.Second)
 	t.Cleanup(func() { daemon.SetBackgroundGrace(old) })
 	stop := filepath.Join(t.TempDir(), "stop")
 	w := startReviews(t, func(c *daemon.AgentConfig) {
@@ -96,8 +96,26 @@ func TestAWorkerWithAForgottenBackgroundCommandIsNudgedOnceAboutIt(t *testing.T)
 	if !found {
 		t.Errorf("the nudge does not name the background command: %v", in)
 	}
-	time.Sleep(3 * time.Second)
+	if !strings.Contains(in[len(in)-1].Body, "reports/"+wk.Name+".md") && !anyContains(in, "reports/"+wk.Name+".md") {
+		t.Errorf("the nudge does not carry the agent's name: %v", in)
+	}
+	// The worker ignores it: the silent alert follows nudge_after after its turn ends, not another grace (14 s)
+	// later because that turn moved its last activity.
+	nudgedAt := time.Now()
+	waitFor(t, "the silent alert to the root", func() bool { return w.infoTo(t, w.lead, "[mesh alert silent") != nil })
+	if d := time.Since(nudgedAt); d > 10*time.Second {
+		t.Errorf("the silent alert came %s after the nudge: the grace held it again", d)
+	}
 	if n := w.nudges(t, wk); n != 1 {
 		t.Errorf("nudged %d times about one command, want once", n)
 	}
+}
+
+func anyContains(msgs []*v1.Message, s string) bool {
+	for _, m := range msgs {
+		if strings.HasPrefix(m.Body, "[mesh nudge]") && strings.Contains(m.Body, s) {
+			return true
+		}
+	}
+	return false
 }

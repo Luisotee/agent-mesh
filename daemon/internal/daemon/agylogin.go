@@ -86,7 +86,8 @@ var agyAlertPlannedHook func()
 const agyLoginAlertKey = "login-agy"
 
 // agyLoginState reads the record: when the probe tried, and whether meshd should still leave agy alone (it is
-// recent and the token file is as it was).
+// recent and the token file is as it was). A record whose token file changed since (the user logged in) is
+// stale: it says nothing (a zero time), so no note and no alert follow it until a fresh probe fails.
 func (d *Daemon) agyLoginState(now time.Time) (since time.Time, hold bool) {
 	b, err := os.ReadFile(d.paths.AgyLoginNeeded())
 	if err != nil {
@@ -94,10 +95,10 @@ func (d *Daemon) agyLoginState(now time.Time) (since time.Time, hold bool) {
 	}
 	first, sig, _ := strings.Cut(string(b), "\n")
 	since, err = time.Parse(time.RFC3339, strings.TrimSpace(first))
-	if err != nil {
+	if err != nil || sig != d.agyTokenSig() {
 		return time.Time{}, false
 	}
-	return since, now.Sub(since) < agyLoginRetry && sig == d.agyTokenSig()
+	return since, now.Sub(since) < agyLoginRetry
 }
 
 // agyLoginAlertPass tells the root of each open run that has an agy agent that agy needs a login, once while it

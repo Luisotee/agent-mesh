@@ -141,3 +141,17 @@ func TestAProbeSweepsStubDirectoriesLeftByAKilledMeshd(t *testing.T) {
 		}
 	}
 }
+
+// A single quote in the stub directory's path (it is the state dir's) doesn't break the stub: the attempt is still
+// recorded, and the path is not run as shell.
+func TestAProbeWithAQuoteInItsDirectoryStillCatchesTheBrowser(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "it's; touch pwned #", "probe")
+	_, err := Run(context.Background(), Spec{Bin: cli(t, `xdg-open https://example.invalid/login; sleep 30`), Dir: base, Timeout: 20 * time.Second})
+	if !errors.Is(err, ErrLoginNeeded) {
+		t.Fatalf("err = %v, want ErrLoginNeeded", err)
+	}
+	if _, err := os.Stat("pwned"); err == nil {
+		t.Error("the path was run as shell")
+		os.Remove("pwned")
+	}
+}

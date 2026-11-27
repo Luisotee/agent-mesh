@@ -533,7 +533,8 @@ var RunFolders = statedir.RunFolders
 func (d *Daemon) wireProbes() {
 	if a, err := d.rt.adapters.Get(agy.Kind); err == nil {
 		if ag, ok := a.(*agy.Adapter); ok {
-			ag.LoginNeeded = d.noteAgyLogin // a probe of agy that tried to open a login is recorded
+			ag.LoginNeeded = d.noteAgyLogin   // a probe of agy that tried to open a login is recorded
+			ag.LoginCleared = d.clearAgyLogin // and a `agy models` that answered clears it
 			ag.ProbeDir = d.paths.Probe()
 			ag.Hold = d.agyHeld // and agy is not run while it needs a login, or while an agy on PATH has no token file
 		}
