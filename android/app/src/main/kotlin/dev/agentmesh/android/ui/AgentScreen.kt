@@ -79,6 +79,7 @@ fun AgentScreen(
     // The draft lives here, so switching to the terminal and back keeps it (the chat leaves composition), and in the
     // device's prefs, so leaving the screen or the app does too: a moment after typing stops, and cleared when it is sent.
     val prefs = LocalContainer.current.prefs
+    val actionScope = androidx.compose.runtime.rememberCoroutineScope()
     val draft = rememberTextFieldState(remember(runtime.hostId, agentId) { prefs.draft(runtime.hostId, agentId) })
     LaunchedEffect(draft, runtime.hostId, agentId) {
         snapshotFlow { draft.text.toString() }.drop(1).debounce(400).collect { prefs.setDraft(runtime.hostId, agentId, it) }
@@ -144,7 +145,7 @@ fun AgentScreen(
                 label = "chat-or-terminal",
             ) { showTerminal ->
                 if (showTerminal) TerminalTab(runtime, agentId, Modifier.fillMaxSize())
-                else ChatTab(runtime, agentId, Modifier.fillMaxSize(), openTerminal = { terminal = true }, draftState = draft)
+                else ChatTab(runtime, agentId, Modifier.fillMaxSize(), openTerminal = { terminal = true }, draftState = draft, actionScope = actionScope)
             }
         }
         if (details) DetailsSheet(

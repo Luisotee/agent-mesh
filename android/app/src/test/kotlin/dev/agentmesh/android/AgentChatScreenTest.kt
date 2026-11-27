@@ -323,6 +323,31 @@ class AgentChatScreenTest {
         compose.onNodeWithTag("prompt").assertTextContains("try this", substring = true)
     }
 
+    @Test fun `a refused send still puts its text back after the view was left for the terminal and came back`() {
+        fresh()
+        api.failPrompt = RuntimeException("its input box holds a draft")
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("do not lose me")
+        compose.onNodeWithTag("send").performClick()
+        compose.onNodeWithTag("terminal-toggle").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("terminal-toggle").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("prompt").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("prompt").assertTextContains("do not lose me", substring = true)
+    }
+
+    @Test fun `a text typed while a refused send was out stays after the one that comes back`() {
+        fresh()
+        api.failPrompt = RuntimeException("no")
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("step 1")
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("prompt-error").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("prompt").assertTextContains("step 1", substring = true)
+    }
+
     @Test fun `a read-only device sees the queue but not the buttons to change it`() {
         fresh()
         api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later"))

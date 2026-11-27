@@ -14,6 +14,7 @@ import dev.agentmesh.gen.agentmesh.v1.AgentPhase
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import dev.agentmesh.gen.agentmesh.v1.Message
 import dev.agentmesh.gen.agentmesh.v1.MessageType
@@ -172,7 +173,8 @@ class HostRuntime(
      */
     suspend fun prompt(agentId: String, text: String): QueuedPrompt? {
         val api = connectedApi()
-        return scope.async { api.promptAgent(agentId, text)?.also(::noteQueued) }.await()
+        // A failure reaches the caller only: the runtime's scope is not cancelled by it (a scope without a supervisor would be).
+        return scope.async(SupervisorJob(scope.coroutineContext[Job])) { api.promptAgent(agentId, text)?.also(::noteQueued) }.await()
     }
 
     /** A prompt the host answered as queued, shown before its event arrives. */

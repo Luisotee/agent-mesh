@@ -139,9 +139,12 @@ fun promptRefusal(agent: Agent, readOnly: Boolean): String = when {
 fun ChatTab(
     runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier, openTerminal: () -> Unit = {},
     draftState: TextFieldState = rememberTextFieldState(),
+    /** Where a send and a take-back run: the screen's, which outlives this view (the terminal toggle leaves it), so a refusal can still put the text back. */
+    actionScope: kotlinx.coroutines.CoroutineScope? = null,
 ) {
-    val scope = rememberCoroutineScope()
-    val sync = remember(runtime, agentId) { ChatSync(scope, runtime::api, agentId) }
+    val ownScope = rememberCoroutineScope()
+    val scope = actionScope ?: ownScope
+    val sync = remember(runtime, agentId) { ChatSync(ownScope, runtime::api, agentId) }
     DisposableEffect(sync) { onDispose { sync.stop() } }
     val host by runtime.state.collectAsStateWithLifecycleCompat()
     val agent = host.agents[agentId] ?: return
@@ -206,6 +209,8 @@ fun ChatTab(
     // header is item 0, so the last entry is item `entries.size`.
     val last = entries.lastOrNull()
     val queued = host.prompts[agentId].orEmpty()
+    // What a take-back said (the host refused, or the prompt was already typed): here, not in the queue, which may be gone by then.
+    var queueNote by remember { mutableStateOf("") }
     // The queue stands under the conversation as one more item: the end is that, when there is a queue.
     val tail = entries.size + if (queued.isNotEmpty()) 1 else 0
     val lastChat = entries.lastOrNull { it is Entry.Chat }
@@ -287,7 +292,7 @@ fun ChatTab(
                     }
                 }
             }
-            if (queued.isNotEmpty()) item(key = "queued", contentType = "queued") { QueuedList(runtime, agentId, queued, canTake = !readOnly, canFill = promptRefusal(agent, readOnly).isEmpty(), scope, draftState) }
+            if (queued.isNotEmpty()) item(key = "queued", contentType = "queued") { QueuedList(runtime, agentId, queued, canTake = !readOnly, canFill = promptRefusal(agent, readOnly).isEmpty(), scope, draftState) { queueNote = it } }
         }
         if (working && agent.stateDetail.isNotEmpty()) {
             Text(
@@ -295,7 +300,8 @@ fun ChatTab(
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
-        PromptComposer(runtime, agent, readOnly, connected, draftState, hue, onSent = sync::afterSend, openTerminal = openTerminal)
+        if (queueNote.isNotEmpty()) Text(queueNote, Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("queued-error"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        PromptComposer(runtime, agent, readOnly, connected, draftState, hue, scope, onSent = sync::afterSend, openTerminal = openTerminal)
     }
 }
 
@@ -321,26 +327,35 @@ private fun TextFieldState.fill(text: String) {
     }
 }
 
+/** Puts a prompt that was not sent back in the box, ahead of what was typed since. */
+private fun TextFieldState.restore(text: String) {
+    edit {
+        val cur = asCharSequence().toString()
+        val joined = if (cur.isBlank()) text else text + "\n\n" + cur.trimStart()
+        replace(0, length, joined)
+        selection = TextRange(joined.length)
+    }
+}
+
 /** The prompts that wait to be typed, under the conversation: dimmed bubbles that say what they wait for, each taken back to edit or dropped. */
 @Composable
-private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<QueuedPrompt>, canTake: Boolean, canFill: Boolean, scope: kotlinx.coroutines.CoroutineScope, draft: TextFieldState) {
-    var error by remember { mutableStateOf("") }
+private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<QueuedPrompt>, canTake: Boolean, canFill: Boolean, scope: kotlinx.coroutines.CoroutineScope, draft: TextFieldState, note: (String) -> Unit) {
     var busy by remember { mutableStateOf(false) }
     fun take(p: QueuedPrompt, edit: Boolean) {
         if (busy) return
         busy = true
-        error = ""
+        note("")
         scope.launch {
             try {
                 val got = runtime.connectedApi().withdrawPrompt(agentId, p.id)
                 runtime.noteWithdrawn(agentId, p.id)
                 // Taken back into the box. A prompt the host typed just before is no longer there to take.
-                if (edit && got != null) draft.fill(got.text) else if (edit) error = "It was already sent."
+                if (edit && got != null) draft.fill(got.text) else if (edit) note("It was already sent.")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // Typing it had started: it is not withdrawn, and the host says so.
-                error = say(e)
+                note(say(e))
             } finally {
                 busy = false
             }
@@ -363,19 +378,17 @@ private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<Queu
                 }
             }
         }
-        if (error.isNotEmpty()) Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("queued-error"))
     }
 }
 
 @Composable
 private fun PromptComposer(
-    runtime: HostRuntime, agent: Agent, readOnly: Boolean, connected: Boolean, draft: TextFieldState, hue: Color,
+    runtime: HostRuntime, agent: Agent, readOnly: Boolean, connected: Boolean, draft: TextFieldState, hue: Color, scope: kotlinx.coroutines.CoroutineScope,
     onSent: () -> Unit, openTerminal: () -> Unit,
 ) {
     var busy by remember { mutableStateOf(false) }
     var stopping by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
     val why = promptRefusal(agent, readOnly)
     val atPrompt = agent.state == AgentState.AGENT_STATE_NEEDS_INPUT
     // Quiet for a while, a working agent shows as unknown: it may still be at work, so Stop stays. Only Claude Code's
@@ -384,7 +397,8 @@ private fun PromptComposer(
     val canStop = agent.kind == "claude"
     val blank = draft.text.isBlank()
     // Not at a prompt: Esc there would deny or dismiss the dialog the agent waits on, not stop a turn.
-    val asStop = working && !atPrompt && canStop && blank && why.isEmpty()
+    // Not while a send is in flight: the box is empty then, and a second tap on the same spot must not stop the turn.
+    val asStop = working && !atPrompt && canStop && blank && !busy && why.isEmpty()
     fun send() {
         val body = draft.text.toString().trim()
         if (body.isEmpty() || busy) return
@@ -401,7 +415,7 @@ private fun PromptComposer(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                draft.fill(body)
+                draft.restore(body)
                 error = say(e)
             } finally {
                 busy = false
