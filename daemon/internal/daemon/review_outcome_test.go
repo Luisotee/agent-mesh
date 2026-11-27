@@ -2,14 +2,17 @@ package daemon_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -256,15 +259,27 @@ func TestTheBriefShowsAWorkersReviewOutcomeInOneWord(t *testing.T) {
 		}
 		return res.Msg.Text
 	}
-	if strings.Contains(brief(), "reviews:") {
-		t.Errorf("a review word for a worker with no PR: %s", brief())
+	// `mesh prs` says the same word as the brief, on the worker's row.
+	prsWord := func() string {
+		t.Helper()
+		res, err := a.asRoot.ListPullRequests(context.Background(), connect.NewRequest(&v1.ListPullRequestsRequest{RunId: a.run.Id, Agent: a.worker.Id}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Msg.Agents) != 1 {
+			t.Fatalf("rows: %v", res.Msg.Agents)
+		}
+		return res.Msg.Agents[0].Reviews
+	}
+	if strings.Contains(brief(), "reviews:") || prsWord() != "" {
+		t.Errorf("a review word for a worker with no PR: %s / %q", brief(), prsWord())
 	}
 	a.pr.push(t, "the feature")
 	a.commit(t)
 	// Working, not done: an open PR with no round yet is no news.
 	a.recordPR(t, 7, a.pr.url(), "open", "", a.worker.Branch)
-	if b := brief(); strings.Contains(b, "reviews:") {
-		t.Errorf("a review word before the worker's done: %s", b)
+	if b := brief(); strings.Contains(b, "reviews:") || prsWord() != "" {
+		t.Errorf("a review word before the worker's done: %s / %q", b, prsWord())
 	}
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" opened")
 	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
@@ -272,22 +287,83 @@ func TestTheBriefShowsAWorkersReviewOutcomeInOneWord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b := brief(); !strings.Contains(b, "reviews: running") {
-		t.Errorf("a round collecting: %s", b)
+	if b := brief(); !strings.Contains(b, "reviews: running") || prsWord() != "running" {
+		t.Errorf("a round collecting: %s / %q", b, prsWord())
 	}
 	a.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "findings")
 	waitFor(t, "the round to finish", func() bool {
 		k, _ := a.d.Store().Read(context.Background()).GetAsk(res.Ask.Id)
 		return k.Status == v1.AskStatus_ASK_STATUS_FINISHED
 	})
-	if b := brief(); !strings.Contains(b, "reviews: needs you") {
-		t.Errorf("an answer nobody judged: %s", b)
+	if b := brief(); !strings.Contains(b, "reviews: needs you") || prsWord() != "needs you" {
+		t.Errorf("an answer nobody judged: %s / %q", b, prsWord())
 	}
 	if err := a.verdictFull(t, a.asWorker, filepath.Base(a.pr.repo)+"-review-7-claude", 1, 0, 0, 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if b := brief(); !strings.Contains(b, "reviews: settled") {
-		t.Errorf("a judged round: %s", b)
+	if b := brief(); !strings.Contains(b, "reviews: settled") || prsWord() != "settled" {
+		t.Errorf("a judged round: %s / %q", b, prsWord())
+	}
+}
+
+// A SETTLED line says how many commits the PR has past the head its last round reviewed: the worker pushes its
+// fixes just before the `done`, which is what the lead has no other way to see.
+func TestASettledLineCountsCommitsAfterTheLastReviewedHead(t *testing.T) {
+	var prJSON atomic.Value // the fake PR's gh answer: its file, gone when GitHub "can't be read"
+	a := startAuthor(t, "", func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true, RunGH: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			f, _ := prJSON.Load().(string)
+			return os.ReadFile(f)
+		}}
+	})
+	prJSON.Store(a.pr.json)
+	a.answeredRound(t)
+	reviewer := filepath.Base(a.pr.repo) + "-review-7-claude"
+	if err := a.verdictFull(t, a.asWorker, reviewer, 1, 0, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	const after = "commit(s) after the last reviewed head"
+	if got := a.doneNaming7(t); !strings.Contains(got, "SETTLED") || strings.Contains(got, after) {
+		t.Errorf("the head is the reviewed one: %s", got)
+	}
+	fixOne := a.pr.push(t, "fix one")
+	fixTwo := a.pr.push(t, "fix two")
+	got := a.doneNaming7(t)
+	if !strings.Contains(got, "SETTLED") || !strings.Contains(got, "; 2 "+after) {
+		t.Errorf("two fixes pushed after the round: %s", got)
+	}
+	// A read of GitHub records the PR's head in its row (what the next case falls back on).
+	if _, err := a.asRoot.ListPullRequests(context.Background(), connect.NewRequest(&v1.ListPullRequestsRequest{RunId: a.run.Id, Agent: a.worker.Id, Refresh: true})); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := a.d.Store().Read(context.Background()).AgentPRs(a.worker.Id); len(rows) != 1 || rows[0].Head != fixTwo {
+		t.Errorf("the row's head: %v, want %s", rows, fixTwo)
+	}
+	// GitHub can't be read: the head recorded in the PR's row is the one compared. A head that is not past the
+	// reviewed one (a rewritten branch) is counted as unknown, never as none.
+	if err := os.Remove(a.pr.json); err != nil {
+		t.Fatal(err)
+	}
+	row := func(head string) {
+		t.Helper()
+		err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: a.worker.Id, Url: a.pr.url(), Number: 7, State: "open", Source: "report", HeadRef: a.worker.Branch, Head: head})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	row(fixOne)
+	if got := a.doneNaming7(t); !strings.Contains(got, "; 1 "+after) {
+		t.Errorf("the row's head, one past the reviewed: %s", got)
+	}
+	row(strings.TrimSpace(gitOut(t, a.pr.repo, "rev-parse", "main")))
+	if got := a.doneNaming7(t); !strings.Contains(got, "head is not the last reviewed head (commits after it, count unknown)") {
+		t.Errorf("a head that is not past the reviewed one: %s", got)
+	}
+	row("")
+	if got := a.doneNaming7(t); strings.Contains(got, "after the last reviewed head") || !strings.Contains(got, "SETTLED") {
+		t.Errorf("a row with no head says nothing: %s", got)
 	}
 }
 

@@ -225,4 +225,26 @@ public interface PullRequestOrBuilder extends
    * @return The feedbackResumes.
    */
   int getFeedbackResumes();
+
+  /**
+   * <pre>
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   * </pre>
+   *
+   * <code>string head = 15 [json_name = "head"];</code>
+   * @return The head.
+   */
+  java.lang.String getHead();
+  /**
+   * <pre>
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   * </pre>
+   *
+   * <code>string head = 15 [json_name = "head"];</code>
+   * @return The bytes for head.
+   */
+  com.google.protobuf.ByteString
+      getHeadBytes();
 }

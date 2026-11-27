@@ -212,7 +212,7 @@ func checksWord(rollup []map[string]any) string {
 
 func (g ghPRState) record(agentID, source string, at time.Time) *v1.PullRequest {
 	return &v1.PullRequest{AgentId: agentID, Url: g.URL, Number: g.Number, State: strings.ToLower(g.State), Draft: g.IsDraft,
-		Checks: checksWord(g.Rollup), Source: source, CheckedAt: timestamppb.New(at), HeadRef: g.HeadRef}
+		Checks: checksWord(g.Rollup), Source: source, CheckedAt: timestamppb.New(at), HeadRef: g.HeadRef, Head: g.HeadRefOid}
 }
 
 // ghDir is where gh runs for an agent: its worktree while that exists, else its repo.
@@ -569,10 +569,16 @@ func (d *Daemon) pullRequests(ctx, ghCtx context.Context, r store.Reader, runID 
 				}
 			}
 		}
-		if rep, err := lastReport(r, a); err != nil {
+		rep, err := lastReport(r, a)
+		if err != nil {
 			return nil, err
-		} else if rep != nil && rep.Type == v1.MessageType_MESSAGE_TYPE_DONE || len(prs) == 0 {
+		}
+		done := rep != nil && rep.Type == v1.MessageType_MESSAGE_TYPE_DONE
+		if done || len(prs) == 0 {
 			row.Evidence = workEvidence(ctx, a)
+		}
+		if done { // before it, an open PR with no round yet is no news (reviewWord)
+			row.Reviews = d.reviewWord(r, a)
 		}
 		out = append(out, row)
 	}

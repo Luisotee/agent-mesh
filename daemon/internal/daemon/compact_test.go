@@ -535,7 +535,9 @@ func TestAFollowUpRoundCompactsAFinishedWorkerBeforeTheMessageRings(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		waitFor(t, "the follow-up delivered", func() bool { return w.delivered(t, worker.Id, m.Msg.Message.Id) })
+		// The ring waits for the live compaction (up to CompactTimeout, 10 s, which a loaded host can nearly use up), so
+		// the wait carries that and a margin: 15 s timed out once at load 8.
+		waitForWithin(t, 45*time.Second, "the follow-up delivered", func() bool { return w.delivered(t, worker.Id, m.Msg.Message.Id) })
 		readInbox(t, asWorker)
 		return m.Msg.Message
 	}

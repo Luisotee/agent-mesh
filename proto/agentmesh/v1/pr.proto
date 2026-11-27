@@ -36,6 +36,9 @@ message PullRequest {
   string failing_head = 13;
   // How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
   int32 feedback_resumes = 14;
+  // The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+  // with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+  string head = 15;
 }
 
 // WorkEvidence is what a worker's branch and worktree show of its work, for a worker with no PR.
@@ -61,6 +64,9 @@ message AgentPullRequests {
   repeated string reviewing = 5;
   // GitHub could not be read for this agent the last time: an empty list means unknown, not none.
   bool read_failed = 6;
+  // What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+  // "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+  string reviews = 7;
 }
 
 message ListPullRequestsRequest {

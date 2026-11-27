@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -375,8 +376,8 @@ func hasBranchWork(ctx context.Context, a *v1.Agent) bool {
 // reviewer that did not answer, an answer with no verdict, a blocking finding the author declined, a relay not done,
 // failing or pending checks, or a PR the worker opened and asked nothing on, all make it NEEDS YOU. A worker whose
 // parent runs its reviews gets none.
-func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWork bool) string {
-	outs := d.reviewOutcomes(r, self, body, hasWork)
+func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, facts gitFacts) string {
+	outs := d.reviewOutcomes(r, self, body, facts)
 	if len(outs) == 0 {
 		return ""
 	}
@@ -387,13 +388,78 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 	return "\n\n" + strings.Join(lines, "\n")
 }
 
+// gitFacts is what a `done`'s outcome lines need that only git or GitHub can say, read before the store write (a
+// write runs no git): whether the worker's branch has commits, and by PR key how many commits the PR's head has past
+// the head its newest review round covered (-1: the head differs and the count can't be told).
+type gitFacts struct {
+	hasWork bool
+	after   map[string]int
+}
+
+// commitsAfterReview reads, for each PR of the worker's that it asked a round on, the commits the PR's head has past
+// the head that round reviewed. The head is the one GitHub says now (the recorded row's is the last read's: a fix pushed
+// just before the `done` is what this is for), the row's when GitHub can't be read.
+func (d *Daemon) commitsAfterReview(ctx context.Context, self *v1.Agent) map[string]int {
+	r := d.store.Read(ctx)
+	asks, err := r.RunAsks(self.RunId)
+	if err != nil {
+		return nil
+	}
+	reviewed := map[string]*v1.Ask{} // the worker's newest round on each PR
+	for _, a := range asks {
+		if a.Kind != v1.AskKind_ASK_KIND_REVIEW || a.CallerId != self.Id || a.Pr == "" || a.Head == "" {
+			continue
+		}
+		if k := prKey(a.Pr); reviewed[k] == nil || a.CreatedAt.AsTime().After(reviewed[k].CreatedAt.AsTime()) {
+			reviewed[k] = a
+		}
+	}
+	if len(reviewed) == 0 {
+		return nil
+	}
+	recorded := map[string]*v1.PullRequest{}
+	if prs, err := r.AgentPRs(self.Id); err == nil {
+		for _, p := range prs {
+			recorded[prKey(p.Url)] = p
+		}
+	}
+	gctx, cancel := context.WithTimeout(ctx, briefGitHubWait)
+	defer cancel()
+	out := map[string]int{}
+	for k, a := range reviewed {
+		p := recorded[k] // none yet for a PR no reader has refreshed
+		if p != nil && p.State != "open" {
+			continue
+		}
+		head := ""
+		if p != nil {
+			head = p.Head
+		}
+		if v, err := d.viewPR(gctx, self, a.Pr); err == nil && v.HeadRefOid != "" {
+			head = v.HeadRefOid
+		}
+		if head == "" || head == a.Head {
+			continue
+		}
+		n := -1
+		if c, err := git(ctx, ghDir(self), "rev-list", "--count", a.Head+".."+head); err == nil {
+			if v, err := strconv.Atoi(c); err == nil && v > 0 {
+				n = v
+			}
+		}
+		out[k] = n
+	}
+	return out
+}
+
 // outcome is one PR's review outcome: its line, and its state (settled, running: only a round still collecting,
 // or needs you).
 type outcome struct{ line, state string }
 
 // reviewOutcomes is the outcome of each PR a worker's `done` (body) concerns, in order; none for a worker whose
 // parent runs its reviews.
-func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, hasWork bool) []outcome {
+func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, facts gitFacts) []outcome {
+	hasWork := facts.hasWork
 	if self.Role != v1.AgentRole_AGENT_ROLE_WORKER || d.reviewByOf(r, self) == reviewByRoot {
 		return nil
 	}
@@ -465,7 +531,7 @@ func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, has
 			return
 		}
 		done[k] = true
-		l, st := d.reviewOutcome(r, self, prNumberOf(u), u, byPR[k], recorded[k])
+		l, st := d.reviewOutcome(r, self, prNumberOf(u), u, byPR[k], recorded[k], facts.after[k])
 		outs = append(outs, outcome{l, st})
 	}
 	for _, u := range urls {
@@ -497,7 +563,7 @@ func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, has
 // with no PR or round to speak of. The caller asks only after the worker's `done`: before it, an open PR with no
 // round yet is no news.
 func (d *Daemon) reviewWord(r store.Reader, a *v1.Agent) string {
-	outs := d.reviewOutcomes(r, a, "", false)
+	outs := d.reviewOutcomes(r, a, "", gitFacts{})
 	if len(outs) == 0 {
 		return ""
 	}
@@ -515,7 +581,7 @@ func (d *Daemon) reviewWord(r store.Reader, a *v1.Agent) string {
 
 // reviewOutcome is the line for one PR of a worker: SETTLED with what the reviews came to, or NEEDS YOU with what is
 // open. rounds are the asks the worker made of it (none: the rounds others asked are named), p its recorded row.
-func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url string, rounds []*v1.Ask, p *v1.PullRequest) (string, string) {
+func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url string, rounds []*v1.Ask, p *v1.PullRequest, after int) (string, string) {
 	head := "[mesh reviews] PR #" + number + ": "
 	checks := "checks none"
 	if p != nil && p.Checks != "" {
@@ -619,8 +685,15 @@ func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url strin
 	if steps > 0 {
 		what = fmt.Sprintf("relay, %d step(s)", steps)
 	}
-	return head + fmt.Sprintf("SETTLED: %s (%s); %d finding(s): %d agreed, %d other, %d disagreed (%d blocking declined); %s",
-		what, strings.Join(kinds, ", "), findings, agreed, other, disagreed, declinedBlocking, checks), "settled"
+	late := ""
+	switch {
+	case after > 0:
+		late = fmt.Sprintf("; %d commit(s) after the last reviewed head", after)
+	case after < 0:
+		late = "; the PR's head is not the last reviewed head (commits after it, count unknown)"
+	}
+	return head + fmt.Sprintf("SETTLED: %s (%s); %d finding(s): %d agreed, %d other, %d disagreed (%d blocking declined); %s%s",
+		what, strings.Join(kinds, ", "), findings, agreed, other, disagreed, declinedBlocking, checks, late), "settled"
 }
 
 // relayHasFindings tells whether the relay's latest step left findings the author used (agreed with, or found
