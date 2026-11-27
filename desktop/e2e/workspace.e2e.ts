@@ -74,7 +74,7 @@ test('the live dock: a tile per agent, a new worker pops in without taking focus
 
   // What the worker runs shows live in its tile: /hold leaves a tool running (an ephemeral frame, no state event).
   const panel = page.getByRole('article', { name: 'repo-fix' })
-  await panel.getByRole('button', { name: 'Terminal' }).click()
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'CLI' }).click()
   await expect.poll(() => panel.getByTestId('terminal-status').innerText(), { timeout: 20_000 }).toBe('Live')
   await panel.getByTestId('terminal').click()
   await page.keyboard.type('/hold')
@@ -171,7 +171,7 @@ test('the chat view: the conversation as blocks, a prompt typed from the compose
   const tabs = page.getByRole('tablist', { name: 'Open agents' })
   await tabs.getByRole('tab', { name: /repo-lead/ }).click()
   const panel = page.getByRole('article', { name: 'repo-lead' })
-  if (await panel.getByRole('region', { name: 'Terminal' }).isVisible()) await panel.getByRole('button', { name: 'Terminal' }).click()
+  if (await panel.getByRole('region', { name: 'Terminal' }).isVisible()) await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Chat' }).click()
   await panel.getByRole('region', { name: 'Chat' }).waitFor({ state: 'visible' })
   await panel.getByText('Nothing said yet.').waitFor()
 

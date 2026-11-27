@@ -67,7 +67,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   // Open the worker, message it from the UI, and the daemon has it, from the device.
   await workerRow.click()
   const panel = page.getByRole('article', { name: 'repo-fix' })
-  await panel.getByRole('button', { name: 'Menu of repo-fix' }).click()
+  await page.getByRole('toolbar', { name: 'Open agent' }).getByRole('button', { name: 'Menu of repo-fix' }).click()
   await page.getByRole('menuitem', { name: 'Send a message…' }).click()
   const send = page.getByRole('dialog', { name: 'Message repo-fix' })
   await send.getByLabel('Message', { exact: true }).fill('please look at the typo')
@@ -79,10 +79,10 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   expect(sent?.from?.name).toBeTruthy()
 
   // Stopping an agent from the UI ends its process; the tree shows it stopped, from the daemon's exit event.
-  await panel.getByRole('button', { name: 'Menu of repo-fix' }).click()
+  await page.getByRole('toolbar', { name: 'Open agent' }).getByRole('button', { name: 'Menu of repo-fix' }).click()
   await page.getByRole('menuitem', { name: 'Stop…' }).click()
   await page.getByRole('button', { name: 'Stop repo-fix' }).click()
-  await expect.poll(() => panel.getByTestId('agent-status').innerText(), { timeout: 20_000 }).toBe('Stopped')
+  await expect.poll(() => panel.getByTestId('chat-status').textContent().then((t) => t ?? ''), { timeout: 20_000 }).toBe('Stopped')
 
   await page.screenshot({ path: path.join(shots, 'lead-agent-view.png') })
 
@@ -123,9 +123,9 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   await page.getByRole('button', { name: 'Hide the side panel' }).click().catch(() => {})
   await openFromSidebar(page, 'repo-lead')
   const panel = page.getByRole('article', { name: 'repo-lead' })
-  await panel.getByRole('button', { name: 'Terminal' }).click()
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'CLI' }).click()
   // The toggle shows the terminal in the chat's place; the hidden chat is not in the a11y tree.
-  await expect.poll(() => panel.getByRole('button', { name: 'Terminal' }).getAttribute('aria-pressed')).toBe('true')
+  await expect.poll(() => page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'CLI' }).getAttribute('aria-pressed')).toBe('true')
   await panel.getByRole('region', { name: 'Terminal' }).waitFor({ state: 'visible' })
   expect(await panel.getByRole('region', { name: 'Chat' }).count()).toBe(0)
   const status = panel.getByTestId('terminal-status')
@@ -142,10 +142,10 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   // A permission prompt: the sidebar says it needs you, and answering in the terminal clears it.
   await page.keyboard.type('/ask')
   await page.keyboard.press('Enter')
-  await expect.poll(() => panel.getByTestId('agent-status').innerText(), { timeout: 20_000 }).toContain('Needs you')
+  await expect.poll(() => panel.getByTestId('chat-status').textContent().then((t) => t ?? ''), { timeout: 20_000 }).toContain('Needs you')
   await page.keyboard.type('y')
   await page.keyboard.press('Enter')
-  await expect.poll(() => panel.getByTestId('agent-status').innerText(), { timeout: 20_000 }).toContain('Idle')
+  await expect.poll(() => panel.getByTestId('chat-status').textContent().then((t) => t ?? ''), { timeout: 20_000 }).toContain('Idle')
   await page.screenshot({ path: path.join(shots, 'terminal.png') })
 
   // The daemon restarts; the terminal host and its program keep running, the stream comes back by offset

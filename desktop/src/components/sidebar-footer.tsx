@@ -1,20 +1,15 @@
 import { Plus, Server, Settings } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { getUsage, listProjects } from '@/actions'
+import { getUsage } from '@/actions'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { Field } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
 import { ActionMenu, type MenuEntry } from '@/components/ui/menu'
 import { Meter, type MeterTone } from '@/components/ui/meter'
 import { Tip } from '@/components/ui/tooltip'
 import { useApp, useAppState, useHostState, useSelectedHost } from '@/context'
-import type { Project } from '@/gen/agentmesh/v1/mesh_pb'
 import { displayChord } from '@/keys'
 import type { HostRuntime } from '@/model'
 import { usePolled } from '@/polled'
 import { useKeys } from '@/hooks'
-import { rankProjects } from '@/projects'
 import { quotaRows, resetText, type QuotaRow } from '@/usage'
 import { AddHostDialog, RemoveHostDialog } from './host-dialogs'
 import { ActivityBell } from './activity-list'
@@ -29,13 +24,11 @@ export function SidebarFooter() {
   const keys = useKeys(hosts)
   const mayPair = useHostState(host ?? hosts[0]!, (s) => !!host && s.conn.kind === 'ready' && canPair(host.store))
   const [adding, setAdding] = useState(false)
-  const [project, setProject] = useState(false)
   const [removing, setRemoving] = useState<HostRuntime>()
   const fixed = app.api.hosts.fixed
   const many = hosts.length > 1
   const plus: MenuEntry[] = [
     { label: 'New lead', onSelect: () => app.openWorkspace(true), disabled: !host },
-    { label: 'Add a project…', onSelect: () => setProject(true), disabled: !host },
     ...(fixed ? [] : [{ label: 'Connect a host…', onSelect: () => setAdding(true) }]),
     { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !mayPair },
   ]
@@ -62,7 +55,6 @@ export function SidebarFooter() {
       </div>
       {!fixed && <AddHostDialog open={adding} onOpenChange={setAdding} />}
       {removing && <RemoveHostDialog host={removing} open onOpenChange={(o) => !o && setRemoving(undefined)} />}
-      {host && project && <AddProjectDialog host={host} onClose={() => setProject(false)} />}
     </footer>
   )
 }
@@ -117,48 +109,5 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
         ))}
       </ul>
     </button>
-  )
-}
-
-/** Adds a project to the sidebar with no run in it yet: it is pinned there (device-local) until unpinned. */
-function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose: () => void }) {
-  const app = useApp()
-  const [query, setQuery] = useState('')
-  const pinned = useAppState((s) => s.pins[host.info.id]) ?? []
-  const list = usePolled(async () => (await listProjects(host.client)).projects, `projects/${host.info.id}`, 60_000)
-  const shown = rankProjects(list.value ?? [], query, pinned).filter((p) => !pinned.includes(p.path)).slice(0, 8)
-  const add = (p: Pick<Project, 'path'>) => {
-    app.togglePin(host.info.id, p.path, true)
-    onClose()
-  }
-  /** Enter: the path typed when it is one (a project of the list by that exact path, or a new one), else the best match. */
-  const pick = (): Pick<Project, 'path'> | undefined => {
-    const typed = query.trim()
-    const exact = (list.value ?? []).find((p) => p.path === typed)
-    if (exact) return exact
-    if (typed.startsWith('/')) return { path: typed }
-    return shown[0]
-  }
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent title="Add a project" description={`A project on ${host.info.name} to keep in the sidebar, pinned, before any run works in it.`}>
-        <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); const p = pick(); if (p) add(p) }}>
-          <Field label="Project">
-            <Input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A name, or a path on the host" />
-          </Field>
-          {list.error && !list.value && <p role="alert" className="text-xs text-destructive">Couldn't list the host's projects: {list.error}</p>}
-          <ul aria-label="Projects" className="flex flex-col">
-            {shown.map((p) => (
-              <li key={p.path}>
-                <button type="button" onClick={() => add(p)} className="flex w-full flex-col rounded-md px-2 py-1.5 text-left hover:bg-accent">
-                  <span className="text-[13px] font-medium">{p.name}</span>
-                  <span className="truncate font-mono text-xs text-muted-foreground">{p.path}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </form>
-      </DialogContent>
-    </Dialog>
   )
 }

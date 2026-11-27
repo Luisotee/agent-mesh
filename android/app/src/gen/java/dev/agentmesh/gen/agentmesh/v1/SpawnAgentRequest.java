@@ -1064,6 +1064,47 @@ public  final class SpawnAgentRequest extends
 
   }
 
+  public static final int PLAIN_FIELD_NUMBER = 16;
+  private boolean plain_;
+  /**
+   * <pre>
+   * A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+   * plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 16 [json_name = "plain"];</code>
+   * @return The plain.
+   */
+  @java.lang.Override
+  public boolean getPlain() {
+    return plain_;
+  }
+  /**
+   * <pre>
+   * A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+   * plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 16 [json_name = "plain"];</code>
+   * @param value The plain to set.
+   */
+  private void setPlain(boolean value) {
+    
+    plain_ = value;
+  }
+  /**
+   * <pre>
+   * A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+   * plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 16 [json_name = "plain"];</code>
+   */
+  private void clearPlain() {
+
+    plain_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2223,6 +2264,49 @@ public  final class SpawnAgentRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+     * plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+     * </pre>
+     *
+     * <code>bool plain = 16 [json_name = "plain"];</code>
+     * @return The plain.
+     */
+    @java.lang.Override
+    public boolean getPlain() {
+      return instance.getPlain();
+    }
+    /**
+     * <pre>
+     * A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+     * plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+     * </pre>
+     *
+     * <code>bool plain = 16 [json_name = "plain"];</code>
+     * @param value The plain to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlain(boolean value) {
+      copyOnWrite();
+      instance.setPlain(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+     * plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+     * </pre>
+     *
+     * <code>bool plain = 16 [json_name = "plain"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlain() {
+      copyOnWrite();
+      instance.clearPlain();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SpawnAgentRequest)
   }
   @java.lang.Override
@@ -2255,11 +2339,12 @@ public  final class SpawnAgentRequest extends
             "execTier_",
             "mcp_",
             "reviews_",
+            "plain_",
           };
           java.lang.String info =
-              "\u0000\u000f\u0000\u0001\u0001\u000f\u000f\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
               "\u0208\u0003\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n" +
-              "\u0208\u000b\u0208\f\u0007\r\u0208\u000e\u021a\u000f\u0208";
+              "\u0208\u000b\u0208\f\u0007\r\u0208\u000e\u021a\u000f\u0208\u0010\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
