@@ -3,8 +3,9 @@ package daemon
 // Pull requests per agent (bin/mesh's pr_states, report_prs, waiting_rows and work_evidence; design §13). A change
 // worker owns the PRs of its branch (`gh pr list --head`) and the ones its `done` names. Their last state is kept in
 // SQLite (`agent_prs`), read again from GitHub at most every prTTL (prRetryTTL after a failed read) and only when a
-// reader asks (`mesh prs`, the brief, an alert's evidence): there is no timer. A change of state or checks is an
-// event of the run's log, never a message.
+// reader asks (`mesh prs`, the brief, an alert's evidence) or the feedback watch looks (prfeedback.go, every
+// `prs.watch_every`, only at workers with an open PR). A change of state or checks is an event of the run's log,
+// never a message.
 
 import (
 	"context"
@@ -164,10 +165,12 @@ type ghPRState struct {
 	Rollup     []map[string]any `json:"statusCheckRollup"`
 }
 
+// failedOutcomes are the conclusions and states of a check that count as failing.
+var failedOutcomes = map[string]bool{"FAILURE": true, "ERROR": true, "TIMED_OUT": true, "CANCELLED": true, "ACTION_REQUIRED": true, "STARTUP_FAILURE": true}
+
 // checksWord folds `gh`'s statusCheckRollup to one word: failing, pending or pass ("" with no checks). A check run
 // has a status and a conclusion; a commit status only a state.
 func checksWord(rollup []map[string]any) string {
-	failed := map[string]bool{"FAILURE": true, "ERROR": true, "TIMED_OUT": true, "CANCELLED": true, "ACTION_REQUIRED": true, "STARTUP_FAILURE": true}
 	str := func(c map[string]any, k string) string { s, _ := c[k].(string); return strings.ToUpper(s) }
 	seen := map[string]bool{}
 	for _, c := range rollup {
@@ -182,7 +185,7 @@ func checksWord(rollup []map[string]any) string {
 		switch {
 		case !done:
 			seen["pending"] = true
-		case failed[outcome]:
+		case failedOutcomes[outcome]:
 			seen["failing"] = true
 		default:
 			seen["pass"] = true
@@ -343,6 +346,9 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		for _, p := range found {
 			o := prev[prKey(p.Url)]
 			delete(prev, prKey(p.Url))
+			if o != nil { // the watch's cursors are not GitHub's to say (prfeedback.go)
+				p.FeedbackCursor, p.FailingHead, p.FeedbackResumes = o.FeedbackCursor, o.FailingHead, o.FeedbackResumes
+			}
 			if err := tx.PutAgentPR(p); err != nil { // also moves its read time on; the user's hold is set on it there
 				return err
 			}

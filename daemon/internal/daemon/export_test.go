@@ -194,3 +194,6 @@ func CopyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes in
 func LostIn(ctx context.Context, worktree, rel string, safe func(string) bool) (int64, int, bool) {
 	return lostIn(ctx, worktree, rel, safe)
 }
+
+// PRFeedbackPass runs the feedback watch once (it runs every `prs.watch_every` in a daemon).
+func (d *Daemon) PRFeedbackPass(ctx context.Context) { d.prFeedbackPass(ctx) }
