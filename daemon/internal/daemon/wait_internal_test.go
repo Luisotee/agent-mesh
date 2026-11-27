@@ -12,10 +12,12 @@ import (
 
 func TestEvalLineIsTheCommandTheUserTyped(t *testing.T) {
 	for in, want := range map[string]string{
-		"source /h/.claude/shell-snapshots/s.sh 2>/dev/null || true && eval 'make test'": "make test",
-		`source /h/.claude/shell-snapshots/s.sh && eval "go test ./... -run X"`:          "go test ./... -run X",
-		"source /h/.claude/shell-snapshots/s.sh && eval 'echo it'\\''s' < /dev/null":     "echo it's",
-		"source /h/.claude/shell-snapshots/s.sh":                                         "",
+		"source /h/.claude/shell-snapshots/s.sh && eval 'make test' < /dev/null && pwd -P >| '/tmp/x y-cwd'":   "make test",
+		`source /h/.claude/shell-snapshots/s.sh && eval "echo \"hi\" there" < /dev/null && pwd -P >| "/tmp/c"`: `echo "hi" there`,
+		"source /h/.claude/shell-snapshots/s.sh 2>/dev/null || true && eval 'make test'":                       "make test",
+		`source /h/.claude/shell-snapshots/s.sh && eval "go test ./... -run X"`:                                "go test ./... -run X",
+		"source /h/.claude/shell-snapshots/s.sh && eval 'echo it'\\''s' < /dev/null":                           "echo it's",
+		"source /h/.claude/shell-snapshots/s.sh":                                                               "",
 	} {
 		if got := evalLine(in); got != want {
 			t.Errorf("evalLine(%q) = %q, want %q", in, got, want)
@@ -58,6 +60,20 @@ func TestWaitFromNamesWhatAnIdleAgentWaitsOn(t *testing.T) {
 		got := waitFrom(w, "lead", tc.msgs)
 		if got.Kind != tc.kind || got.From != tc.from || got.Detail != tc.det {
 			t.Errorf("%s: %v from %q detail %q, want %v from %q detail %q", tc.name, got.Kind, got.From, got.Detail, tc.kind, tc.from, tc.det)
+		}
+	}
+	// A lead has no parent: its questions, plans, waits and reports go to the user.
+	root := &v1.Agent{Id: "R", Name: "root"}
+	toUser := func(typ v1.MessageType) *v1.Message {
+		return &v1.Message{Id: "u", Type: typ, From: &v1.Actor{Id: root.Id}, ToId: "user", Body: "which one?"}
+	}
+	for typ, want := range map[v1.MessageType]v1.AgentWaitKind{
+		v1.MessageType_MESSAGE_TYPE_QUESTION: v1.AgentWaitKind_AGENT_WAIT_KIND_ANSWER,
+		v1.MessageType_MESSAGE_TYPE_WAIT:     v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED,
+		v1.MessageType_MESSAGE_TYPE_DONE:     v1.AgentWaitKind_AGENT_WAIT_KIND_REPORTED,
+	} {
+		if got := waitFrom(root, "user", []*v1.Message{toUser(typ)}); got.Kind != want || got.From != "user" {
+			t.Errorf("a lead's %v to the user: %v from %q, want %v", typ, got.Kind, got.From, want)
 		}
 	}
 	if got := waitFrom(w, "lead", []*v1.Message{wait}); got.Until == nil || !got.Until.AsTime().Equal(until.AsTime()) {

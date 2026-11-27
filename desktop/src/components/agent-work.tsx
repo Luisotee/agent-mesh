@@ -1,5 +1,5 @@
 import { Archive, ArchiveRestore, FileCode2 } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { archiveAgent, getAgentChanges, getAgentProgress, openInEditor, resumeAgent } from '@/actions'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 import { archiveAdvice, canArchive, changeSummary, contextMeter, ignoredLines, planSummary, STATUS_MARK } from '@/agent-work'
@@ -39,11 +39,9 @@ export function useAgentWait(host: HostRuntime, agent: Agent | undefined, active
   const idle = agent?.state === AgentState.IDLE
   const id = agent?.id ?? ''
   // What was read in an earlier idle stretch is another read: the key moves on when the agent leaves idle.
-  const left = useRef(0)
-  const wasIdle = useRef(idle)
-  if (wasIdle.current && !idle) left.current++
-  wasIdle.current = idle
-  const got = usePolled(async () => (await getAgentProgress(host.client, id)).wait, `${host.info.id}/${id}/wait/${left.current}`, 15_000, active && idle && !agent?.archived, String(agent?.state))
+  const [left, setLeft] = useState(0)
+  useEffect(() => { if (!idle) setLeft((n) => n + 1) }, [idle])
+  const got = usePolled(async () => (await getAgentProgress(host.client, id)).wait, `${host.info.id}/${id}/wait/${left}`, 15_000, active && idle && !agent?.archived, String(agent?.state))
   return idle ? got.value : undefined
 }
 

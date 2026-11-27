@@ -70,16 +70,38 @@ func evalLine(script string) string {
 		return ""
 	}
 	cmd := strings.TrimSpace(script[i+len("eval "):])
-	if n := len(cmd); n >= 2 && (cmd[0] == '\'' || cmd[0] == '"') {
-		if end := strings.LastIndexByte(cmd, cmd[0]); end > 0 {
-			quote := cmd[0]
-			cmd = cmd[1:end]
-			if quote == '\'' { // a quote inside a single-quoted string is written '\''
-				cmd = strings.ReplaceAll(cmd, `'\''`, `'`)
-			}
-		}
+	if len(cmd) >= 2 && (cmd[0] == '\'' || cmd[0] == '"') {
+		cmd = unquoteFirst(cmd)
 	}
 	return strings.TrimSpace(cmd)
+}
+
+// unquoteFirst is the text of the shell string `s` opens with, to its closing quote (what follows, the `< /dev/null` and
+// the cwd plumbing, is left out): a single-quoted string writes a quote inside it as '\” and holds a backslash as itself,
+// a double-quoted one escapes a quote or a backslash with a backslash. An unclosed string is taken whole.
+func unquoteFirst(s string) string {
+	q := s[0]
+	var b strings.Builder
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case q == '\'' && c == '\'':
+			if strings.HasPrefix(s[i:], `'\''`) {
+				b.WriteByte('\'')
+				i += 3
+				continue
+			}
+			return b.String()
+		case q == '"' && c == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\'):
+			b.WriteByte(s[i+1])
+			i++
+		case q == '"' && c == '"':
+			return b.String()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // backgroundWork reports whether a Claude agent has a background command running.

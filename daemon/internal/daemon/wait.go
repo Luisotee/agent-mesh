@@ -34,13 +34,17 @@ func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
 // waitFrom reads the wait off the run's messages: the newest one that settles it, scanning from the end. A task or an
 // answer to the agent ends every wait before it; a message of the agent to its parent starts the one it names.
 func waitFrom(a *v1.Agent, parent string, msgs []*v1.Message) *v1.AgentWait {
+	to := a.ParentId // a lead has no parent: what it sends up goes to the user
+	if to == "" {
+		to = userRecipient
+	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		switch {
 		case m.ToId == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
 			// What it was told last: nothing it sent before this is still open.
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
-		case m.From.GetId() != a.Id || m.ToId != a.ParentId:
+		case m.From.GetId() != a.Id || m.ToId != to:
 			continue
 		case m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
 			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED, Detail: statusLine(m.Body), From: parent, Until: m.WaitUntil}
