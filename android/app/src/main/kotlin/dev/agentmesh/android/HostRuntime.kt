@@ -36,6 +36,7 @@ import dev.agentmesh.android.store.HostRefresher
 import dev.agentmesh.android.store.LogLine
 import dev.agentmesh.android.store.MAX_LOG
 import dev.agentmesh.android.store.applyFrame
+import dev.agentmesh.android.store.applyShell
 import dev.agentmesh.android.store.withSettings
 import dev.agentmesh.gen.agentmesh.v1.Cursor
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
@@ -164,6 +165,35 @@ class HostRuntime(
             val list = try { awaitApi().listPrompts(agentId) } catch (e: CancellationException) { throw e } catch (e: Exception) { return }
             if ((_state.value.promptTouch[agentId] ?: 0) == asked) { _state.update { withPrompts(it, agentId, list, asked) }; return }
         }
+    }
+
+    /**
+     * Reads the host's project shells (`ListShells`). A `ShellChange` frame that arrives while the answer is out makes it older
+     * than what is held, so it is asked again (a few times), and the last answer stands.
+     */
+    suspend fun refreshShells() {
+        repeat(3) { attempt ->
+            val asked = _state.value.shellTouch
+            val list = try { awaitApi().listShells() } catch (e: CancellationException) { throw e } catch (e: Exception) { log("couldn't list the host's shells: ${e.message ?: e.javaClass.simpleName}"); return }
+            if (_state.value.shellTouch == asked || attempt == 2) { _state.update { it.copy(shells = list) }; return }
+        }
+    }
+
+    /** The shells this phone opened (in memory): their terminal is sized to the phone's view; another client's shell is watched at its size. */
+    val phoneShells: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** Starts a shell in [repo] and shows it at once (its `ShellChange` frame brings it too, and is the same shell). */
+    suspend fun openShell(repo: String): dev.agentmesh.gen.agentmesh.v1.Shell {
+        val shell = connectedApi().openShell(repo)
+        phoneShells.add(shell.id)
+        _state.update { applyShell(it, dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder().setShell(shell).build()).let { s -> if (s.shells == null) s.copy(shells = listOf(shell)) else s } }
+        return shell
+    }
+
+    /** Ends a shell: gone from the list at once. */
+    suspend fun closeShell(id: String) {
+        connectedApi().closeShell(id)
+        _state.update { s -> s.copy(shells = s.shells?.filter { it.id != id }) }
     }
 
     /**
@@ -361,6 +391,8 @@ class HostRuntime(
         if (frame.hasSnapshot() || frame.hasResumed()) {
             refresher.synced()
             _synced.tryEmit(Unit)
+            // The shells are the host's to list (a frame for one is never replayed).
+            scope.launch { refreshShells() }
         }
     }
 

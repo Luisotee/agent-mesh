@@ -67,6 +67,13 @@ data class HostState(
     val promptsDone: Set<String> = emptySet(),
     /** How many times each agent's queue changed here: a listing asked before a change is older than what we hold. */
     val promptTouch: Map<String, Int> = emptyMap(),
+    /**
+     * The host's project shells (`ListShells`, read after a snapshot) kept by `ShellChange` frames: null until the host
+     * answered. An ended shell stays, marked exited, until the next listing: a screen showing it keeps its last output.
+     */
+    val shells: List<dev.agentmesh.gen.agentmesh.v1.Shell>? = null,
+    /** How many `ShellChange` frames arrived: a listing asked before one is older than what we hold. */
+    val shellTouch: Int = 0,
     /** How many snapshots arrived: what an event carries can have been missed across one, so a screen reads again. */
     val snapshots: Int = 0,
     val cursor: Cursor? = null,
@@ -111,7 +118,19 @@ fun applyFrame(s: HostState, frame: Frame): HostState = when (frame.frameCase) {
             if (frame.activity.hasTime()) it.setLastActivity(frame.activity.time)
         }
     }
+    // A project shell opened or ended: ephemeral, like an activity frame (never replayed), so the list is read again after a snapshot.
+    SubscribeEventsResponse.FrameCase.SHELL -> applyShell(s, frame.shell)
     else -> s
+}
+
+/** A `ShellChange`: an opened shell joins the list, an ended one stays marked exited. A list not read yet is left to its read, which is told to ask again. */
+fun applyShell(s: HostState, c: dev.agentmesh.gen.agentmesh.v1.ShellChange): HostState {
+    val touched = s.copy(shellTouch = s.shellTouch + 1)
+    val shell = if (c.hasShell()) c.shell else return touched
+    val list = s.shells ?: return touched
+    val next = if (c.closed) list.map { if (it.id == shell.id) it.toBuilder().setExited(true).build() else it }
+    else list.filter { it.id != shell.id } + shell
+    return touched.copy(shells = next)
 }
 
 private fun applyEvent(s: HostState, e: Event): HostState {

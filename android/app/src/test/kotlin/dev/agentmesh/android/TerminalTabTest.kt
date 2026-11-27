@@ -192,42 +192,40 @@ class TerminalTabTest {
         assertEquals(listOf(false), api.ticketInputs)
     }
 
-    @Test fun `a device that may type has a Keyboard switch, and with it on asks for the input right and shows the key row`() {
+    @Test fun `a device that may type opens with its keyboard on and the key row showing, and Hide lets go of it`() {
         val first = FakeSocket().also { api.sockets += it }
         val rt = runtime(dev.agentmesh.gen.agentmesh.v1.ActorClass.ACTOR_CLASS_DEVICE)
         show(rt)
         compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
-        live(first, input = false)
-        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onAllNodesWithTag("read-only").assertCountEquals(0)
-        compose.onAllNodesWithTag("key-row").assertCountEquals(0)
-        assertEquals(listOf(false), api.ticketInputs)
-        // The keyboard opens a stream of its own, with the input right (the first is let go).
-        val second = FakeSocket().also { api.sockets += it }
-        compose.onNodeWithTag("keyboard-toggle").performClick()
-        compose.waitUntil(5_000) { api.tickets.size >= 2 }
-        assertEquals(listOf(false, true), api.ticketInputs)
-        live(second, input = true)
+        // It asks for the input right at once: a terminal that only watches is the exception.
+        assertEquals(listOf(true), api.ticketInputs)
+        live(first, input = true)
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live · typing")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithTag("read-only").assertCountEquals(0)
         compose.onNodeWithTag("key-row").assertIsDisplayed()
         // Keys go out as input frames, and the size is still not ours to set.
         compose.onNodeWithTag("key-Esc").performClick()
-        compose.onNodeWithTag("key-↑").performClick()
-        compose.waitUntil(5_000) { second.sent.count { it.hasInput() } >= 2 }
-        val typed = second.sent.filter { it.hasInput() }.map { it.input.data.toStringUtf8() }
+        compose.onNodeWithTag("key-↑").performScrollTo().performClick()
+        compose.waitUntil(5_000) { first.sent.count { it.hasInput() } >= 2 }
+        val typed = first.sent.filter { it.hasInput() }.map { it.input.data.toStringUtf8() }
         assertEquals(listOf("\u001B", "\u001B[A"), typed)
-        assertEquals(0, second.sent.first().attach.cols)
-        assertTrue(second.sent.none { it.hasResize() })
+        assertEquals(0, first.sent.first().attach.cols)
+        assertTrue(first.sent.none { it.hasResize() })
+        // ^C is one tap, and does not need the sticky Ctrl.
+        compose.onNodeWithTag("key-^C").performScrollTo().performClick()
+        compose.waitUntil(5_000) { first.sent.count { it.hasInput() } >= 3 }
+        assertEquals("\u0003", first.sent.filter { it.hasInput() }[2].input.data.toStringUtf8())
         // Ctrl is sticky for one key: Ctrl then "/" is sent as itself (no control code), and the next key has no Ctrl.
-        compose.onNodeWithTag("key-ctrl").performClick()
+        compose.onNodeWithTag("key-ctrl").performScrollTo().performClick()
         compose.onNodeWithTag("key-→").performScrollTo().performClick()
         compose.onNodeWithTag("key-→").performScrollTo().performClick()
-        runCatching { compose.waitUntil(2_000) { second.sent.count { it.hasInput() } >= 4 } }.onFailure { throw AssertionError("inputs so far: ${second.sent.filter { f -> f.hasInput() }.map { f -> f.input.data.toStringUtf8().replace("\u001B", "ESC") }}") }
-        assertEquals(listOf("\u001B[1;5C", "\u001B[C"), second.sent.filter { it.hasInput() }.map { it.input.data.toStringUtf8() }.drop(2))
+        runCatching { compose.waitUntil(2_000) { first.sent.count { it.hasInput() } >= 5 } }.onFailure { throw AssertionError("inputs so far: ${first.sent.filter { f -> f.hasInput() }.map { f -> f.input.data.toStringUtf8().replace("\u001B", "ESC") }}") }
+        assertEquals(listOf("\u001B[1;5C", "\u001B[C"), first.sent.filter { it.hasInput() }.map { it.input.data.toStringUtf8() }.drop(3))
         // Hide puts the keyboard away: back to watching, with a ticket that asks for no input.
         compose.onNodeWithTag("key-hide").performScrollTo().performClick()
-        compose.waitUntil(5_000) { api.tickets.size >= 3 }
-        assertEquals(listOf(false, true, false), api.ticketInputs)
+        compose.waitForIdle()
+        compose.waitUntil(5_000) { api.tickets.size >= 2 }
+        assertEquals(listOf(true, false), api.ticketInputs)
     }
 
     @Test fun `a host that did not let this device type says so, and the keys do nothing`() {
@@ -236,25 +234,17 @@ class TerminalTabTest {
         show(rt)
         compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
         live(first, input = false)
-        val second = FakeSocket().also { api.sockets += it }
-        compose.onNodeWithTag("keyboard-toggle").performClick()
-        compose.waitUntil(5_000) { api.tickets.size >= 2 }
-        live(second, input = false)
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("The host didn't let this device type")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("key-Esc").assertIsNotEnabled()
-        assertTrue(second.sent.none { it.hasInput() })
+        assertTrue(first.sent.none { it.hasInput() })
     }
 
     @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
     @Test fun `the keyboard's Enter and Backspace take the sticky Alt like every other key`() {
         val rt = runtime(dev.agentmesh.gen.agentmesh.v1.ActorClass.ACTOR_CLASS_DEVICE)
-        val first = FakeSocket().also { api.sockets += it }
+        val second = FakeSocket().also { api.sockets += it }
         show(rt)
         compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
-        live(first, input = false)
-        val second = FakeSocket().also { api.sockets += it }
-        compose.onNodeWithTag("keyboard-toggle").performClick()
-        compose.waitUntil(5_000) { api.tickets.size >= 2 }
         live(second, input = true)
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live · typing")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("key-alt").performClick()
@@ -270,13 +260,9 @@ class TerminalTabTest {
     @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
     @Test fun `what the soft keyboard commits is typed once each, however fast they come, and Ctrl is used up by the first`() {
         val rt = runtime(dev.agentmesh.gen.agentmesh.v1.ActorClass.ACTOR_CLASS_DEVICE)
-        val first = FakeSocket().also { api.sockets += it }
+        val second = FakeSocket().also { api.sockets += it }
         show(rt)
         compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
-        live(first, input = false)
-        val second = FakeSocket().also { api.sockets += it }
-        compose.onNodeWithTag("keyboard-toggle").performClick()
-        compose.waitUntil(5_000) { api.tickets.size >= 2 }
         live(second, input = true)
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live · typing")).fetchSemanticsNodes().isNotEmpty() }
         fun typed() = second.sent.filter { it.hasInput() }.joinToString("") { it.input.data.toStringUtf8() }
@@ -297,7 +283,7 @@ class TerminalTabTest {
         val first = FakeSocket().also { api.sockets += it }
         show(rt)
         compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
-        live(first, input = false)
+        live(first, input = true)
         compose.waitUntil(5_000) { compose.onAllNodes(hasContentDescription("fake claude", substring = true)).fetchSemanticsNodes().isNotEmpty() }
         val canvas = { compose.onNode(hasContentDescription("Terminal", substring = true)) }
         // The first touch starts the canvas's gesture handlers: they must follow what changes later.
@@ -310,8 +296,8 @@ class TerminalTabTest {
         val second = FakeSocket().also { api.sockets += it }
         compose.onNodeWithTag("keyboard-toggle").performClick()
         compose.waitUntil(5_000) { api.tickets.size >= 2 }
-        live(second, input = true)
-        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live · typing")).fetchSemanticsNodes().isNotEmpty() }
+        live(second, input = false)
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live")).fetchSemanticsNodes().isNotEmpty() }
         canvas().performTouchInput { longClick(androidx.compose.ui.geometry.Offset(30f, 10f)) }
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("copy").fetchSemanticsNodes().isNotEmpty() }
     }

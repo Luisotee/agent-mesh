@@ -455,4 +455,32 @@ class TermClientTest {
         // Starting on a left half takes it as well.
         assertEquals("界b", screen.selectedText(Selection(CellPos(3, r), CellPos(5, r))))
     }
+
+    private class ShellRig(scope: TestScope, size: (() -> Pair<Int, Int>?)?) {
+        val api = RecordingApi()
+        val screen = TermScreen()
+        val client = TermClient(scope.backgroundScope, "sh1", { api }, screen, baseMs = 500, maxMs = 10_000, input = true, shell = true, size = size)
+        fun socket() = FakeSocket().also { api.sockets += it }
+    }
+
+    @Test fun `a shell takes its own ticket, and the phone's size when it sized the shell`() = runTest {
+        val r = ShellRig(this) { 52 to 30 }; val s = r.socket()
+        r.client.start(); runCurrent()
+        assertEquals(listOf("sh1"), r.api.shellTickets); assertTrue(r.api.tickets.isEmpty())
+        assertEquals(listOf(true), r.api.shellTicketInputs)
+        assertEquals(52, s.sent.first().attach.cols); assertEquals(30, s.sent.first().attach.rows)
+        // A resize is only for a client that types, once it does.
+        assertTrue(!r.client.resize(50, 20))
+        granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(r.client.resize(50, 20))
+        assertEquals(50, s.sent.last().resize.cols); assertEquals(20, s.sent.last().resize.rows)
+    }
+
+    @Test fun `a shell the phone did not size attaches at size 0 and never resizes, like an agent's terminal`() = runTest {
+        val r = ShellRig(this, null); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertEquals(0, s.sent.first().attach.cols); assertEquals(0, s.sent.first().attach.rows)
+        assertTrue(!r.client.resize(50, 20))
+        assertTrue(s.sent.none { it.frameCase == TermFrame.FrameCase.RESIZE })
+    }
 }

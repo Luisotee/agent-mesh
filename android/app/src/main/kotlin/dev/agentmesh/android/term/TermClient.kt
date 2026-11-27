@@ -70,6 +70,14 @@ class TermClient(
     private val hostReady: () -> Boolean = { true },
     /** Ask the host for the input right: for a keyboard that is up, on a device that may type. */
     private val input: Boolean = false,
+    /** [agentId] is a project shell's id (`ListShells`), not an agent's: its stream is another ticket. */
+    private val shell: Boolean = false,
+    /**
+     * The size of this device's view in columns and rows, for a terminal the phone itself sized (a shell it opened), or null
+     * (an agent's terminal, or a shell of the desktop's): the attach then carries size 0 and never a resize, so the phone never
+     * shrinks a terminal somebody else is using. Read at each attach.
+     */
+    private val size: (() -> Pair<Int, Int>?)? = null,
 ) {
     private val _state = MutableStateFlow<TermState>(TermState.Attaching)
     val state: StateFlow<TermState> get() = _state
@@ -84,6 +92,16 @@ class TermClient(
         val sock = socket ?: return false
         if (!_typing.value || data.isEmpty()) return false
         return sock.send(TermFrame.newBuilder().setInput(Input.newBuilder().setData(com.google.protobuf.ByteString.copyFrom(data))).build())
+    }
+
+    /**
+     * The view's size changed (the keyboard came up, a rotation, a pinch): tells a terminal this phone sizes. Only a client that
+     * types may resize, so it waits for that and is not sent otherwise; false when nothing was sent.
+     */
+    fun resize(cols: Int, rows: Int): Boolean {
+        if (size == null || !_typing.value) return false
+        val sock = socket ?: return false
+        return sock.send(TermFrame.newBuilder().setResize(dev.agentmesh.gen.agentmesh.term.v1.Resize.newBuilder().setCols(cols).setRows(rows)).build())
     }
 
     private var job: Job? = null
@@ -169,13 +187,14 @@ class TermClient(
         val client = api()
         if (_state.value == TermState.WaitingForHost) _state.value = TermState.Attaching
         _typing.value = false
-        val path = client.openTerminal(agentId, input)
+        val path = if (shell) client.openShellTerminal(agentId, input) else client.openTerminal(agentId, input)
         val sock = client.connectTerminal(path)
         socket = sock
         try {
             val attach = Attach.newBuilder()
                 .setMode(if (repaint || !haveScreen) AttachMode.ATTACH_MODE_REPAINT else AttachMode.ATTACH_MODE_EXACT)
-                .setEpoch(epoch).setOffset(offset) // size 0: ours to ask nothing of
+                .setEpoch(epoch).setOffset(offset) // size 0 unless the phone sizes this terminal (below): ours to ask nothing of
+            size?.invoke()?.let { (c, r) -> attach.setCols(c).setRows(r) }
             sock.send(TermFrame.newBuilder().setAttach(attach).build())
             for (ev in sock.events) {
                 when (ev) {

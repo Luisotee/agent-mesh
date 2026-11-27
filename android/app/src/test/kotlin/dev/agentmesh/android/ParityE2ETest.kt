@@ -115,4 +115,37 @@ class ParityE2ETest {
         assertTrue(api.listProjects().any { it.path.endsWith("shop-api") })
         Unit
     }
+
+    @Test fun `a shell opened from the phone runs on the real host, at the phone's size, takes what is typed and ends when closed`() = runBlocking {
+        val d = daemon!!
+        val repo = d.repo("shop-api")
+        // The host opens a shell only in a folder it knows: one an agent worked in.
+        val run = d.ctl("start-run", "--title", "shell").getValue("run").jsonObject.getValue("id").jsonPrimitive.content
+        withContext(Dispatchers.IO) { d.ctl("spawn", "--run-id", run, "--repo", repo.path, "--slug", "fix", "--kind", "claude", "--role", "worker", "--model", "haiku") }
+        val api = api()
+        val shell = api.openShell(repo.path)
+        assertTrue(api.listShells().any { it.id == shell.id && it.repo.endsWith("shop-api") })
+        val dispatcher = Dispatchers.Default.limitedParallelism(1)
+        val screen = TermScreen()
+        val client = TermClient(CoroutineScope(dispatcher), shell.id, { api }, screen, input = true, shell = true, size = { 70 to 20 })
+        client.start()
+        try {
+            withTimeout(30_000) { while (!client.typing.value) delay(50) }
+            // The phone attached with its own size, and the shell has it (it is the only client).
+            assertEquals(70 to 20, withContext(dispatcher) { screen.cols to screen.rows })
+            // The sum is computed by the shell: its answer is on screen, which the typed line (the multiplication) is not.
+            assertTrue(client.type("echo phone-shell-\$((6*7))\r".toByteArray()))
+            val seen = { runBlocking { withContext(dispatcher) { screen.visibleText() } } }
+            try { withTimeout(20_000) { while ("phone-shell-42" !in withContext(dispatcher) { screen.visibleText() }) delay(50) } }
+            catch (e: kotlinx.coroutines.TimeoutCancellationException) { throw AssertionError("the shell's answer never came; its screen:\n${seen()}") }
+            // The keyboard came up: the view is shorter, and the terminal follows.
+            assertTrue(client.resize(70, 12))
+            withTimeout(20_000) { while (withContext(dispatcher) { screen.rows } != 12) delay(50) }
+            api.closeShell(shell.id)
+            withTimeout(20_000) { while (client.state.value != TermState.Ended && client.state.value !is TermState.Exited) delay(50) }
+            assertTrue(api.listShells().none { it.id == shell.id })
+        } finally {
+            client.stop()
+        }
+    }
 }

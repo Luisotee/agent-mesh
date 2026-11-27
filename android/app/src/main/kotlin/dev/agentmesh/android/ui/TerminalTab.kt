@@ -81,23 +81,37 @@ fun termSentence(s: TermState): String = when (s) {
  * It attaches while this tab shows and lets go when it doesn't.
  */
 @Composable
-fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier) {
+fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier, shell: Boolean = false, phoneSized: Boolean = false) {
     val scope = rememberCoroutineScope()
     val host by runtime.state.collectAsStateWithLifecycleCompat()
     val canType = !isReadOnlyDevice(host)
-    var keyboard by rememberSaveable(agentId) { mutableStateOf(false) }
+    // A device that may type types: the terminal opens with its keyboard on (the soft keyboard and the key row), and Hide in the
+    // key row, or the Keyboard chip, turns it off: back to watching.
+    var keyboard by rememberSaveable(agentId) { mutableStateOf(canType) }
     val typingOn = canType && keyboard
     val screen = remember(agentId) { TermScreen() }
+    // A terminal the phone sizes (a shell it opened) is attached at the size of this view, and told when it changes.
+    var viewport by remember(agentId) { mutableStateOf<Pair<Int, Int>?>(null) }
     // Another client when the keyboard flips: the input right is asked for with the ticket, so the stream is opened again.
     val client = remember(agentId, typingOn) {
-        TermClient(scope, agentId, { runtime.awaitApi() }, screen, hostReady = { runtime.state.value.conn is ConnState.Ready }, input = typingOn)
+        TermClient(
+            scope, agentId, { runtime.awaitApi() }, screen, hostReady = { runtime.state.value.conn is ConnState.Ready }, input = typingOn, shell = shell,
+            size = if (phoneSized && typingOn) ({ viewport }) else null,
+        )
     }
-    DisposableEffect(client) {
-        client.start()
+    // A terminal the phone sizes waits for its first measure, so the first attach carries the view's size (a later change is a resize).
+    val measured = !(phoneSized && typingOn) || viewport != null
+    DisposableEffect(client, measured) {
+        if (measured) client.start()
         onDispose { client.stop() }
     }
     val state by client.state.collectAsStateWithLifecycleCompat()
     val typing by client.typing.collectAsStateWithLifecycleCompat()
+    // The size it was attached at is the view's then: a change after (and a view that was measured late) is sent once it types.
+    LaunchedEffect(client, viewport, typing) {
+        val v = viewport ?: return@LaunchedEffect
+        if (typing) { kotlinx.coroutines.delay(150); client.resize(v.first, v.second) }
+    }
     // A selection names cells of one screen: a repaint (the desktop resized the terminal, the keyboard flipped) makes another.
     var selection by remember(screen) { mutableStateOf<Selection?>(null) }
     LaunchedEffect(screen.resets) { selection = null }
@@ -130,7 +144,10 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            TerminalCanvas(screen, LocalMeshTheme.current.terminal, selection = selection, onSelection = { selection = it }, onTap = { if (typingOn) showKeyboard++ })
+            TerminalCanvas(
+                screen, LocalMeshTheme.current.terminal, selection = selection, onSelection = { selection = it }, onTap = { if (typingOn) showKeyboard++ },
+                phoneSized = phoneSized && typingOn, onViewport = { c, r -> viewport = c to r },
+            )
             if (state is TermState.Failed) {
                 Button(onClick = client::retry, modifier = Modifier.align(Alignment.Center).testTag("terminal-retry")) { Text("Try again") }
             }
@@ -149,6 +166,7 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
                 ctrl = ctrl, alt = alt, onCtrl = { ctrl = it }, onAlt = { alt = it }, enabled = typing,
                 onKey = { k -> send(KeyEncoder.key(k, ctrl, alt, screen.cursorKeysApplication)) },
                 onChar = { c -> send(KeyEncoder.text(c, ctrl, alt)) },
+                onControl = { l -> send(KeyEncoder.text(l, ctrl = true, alt = alt)) },
                 onPaste = { paste(context)?.let { send(screen.pasteBytes(it)) } },
                 onHide = { keyboard = false },
             )
