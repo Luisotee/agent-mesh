@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
