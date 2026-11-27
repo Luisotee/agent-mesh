@@ -230,6 +230,7 @@ func (h *Host) hangUpAll() {
 	for _, t := range terms {
 		t.closeClients("shutdown")
 		if !t.isExited() {
+			proc.SignalSession(t.pid, t.tty, syscall.SIGHUP)
 			proc.SignalGroup(t.pid, t.startTicks, t.tty, syscall.SIGHUP)
 		}
 	}
@@ -237,6 +238,7 @@ func (h *Host) hangUpAll() {
 		select {
 		case <-t.done:
 		case <-time.After(2 * time.Second):
+			proc.SignalSession(t.pid, t.tty, syscall.SIGKILL)
 			proc.SignalGroup(t.pid, t.startTicks, t.tty, syscall.SIGKILL)
 		}
 		t.ptmx.Close()
@@ -339,8 +341,9 @@ func (h *Host) ListTerminals(context.Context, *connect.Request[termv1.ListTermin
 	return connect.NewResponse(out), nil
 }
 
-// KillTerminal signals a terminal's process group, checking its start time first. Signal 0 is SIGTERM, then
-// SIGKILL after the grace period if it is still running.
+// KillTerminal signals a terminal's process group, checking its start time first, and the processes of its session
+// outside that group (a shell's background jobs). Signal 0 is SIGTERM, then SIGKILL after the grace period if it is
+// still running.
 func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillTerminalRequest]) (*connect.Response[termv1.KillTerminalResponse], error) {
 	t := h.get(req.Msg.Id)
 	if t == nil {
@@ -352,6 +355,7 @@ func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillT
 		if sig == 0 {
 			sig = syscall.SIGKILL
 		}
+		proc.SignalSession(t.pid, t.tty, sig)
 		proc.SignalGroup(t.pid, t.startTicks, t.tty, sig)
 		return connect.NewResponse(&termv1.KillTerminalResponse{}), nil
 	}
@@ -361,11 +365,16 @@ func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillT
 			select {
 			case <-t.done:
 			case <-time.After(h.cfg.KillGrace):
+				proc.SignalSession(t.pid, t.tty, syscall.SIGKILL)
 				proc.SignalGroup(t.pid, t.startTicks, t.tty, syscall.SIGKILL)
 			}
 		}()
 	}
-	if err := proc.SignalGroup(t.pid, t.startTicks, t.tty, sig); err != nil && !errors.Is(err, proc.ErrGone) {
+	// The shell's background jobs have groups of their own: they get it too, as the hangup of a closed terminal window does,
+	// and first: once the shell is gone its session has no terminal (tty_nr 0), and the jobs can no longer be told by it.
+	proc.SignalSession(t.pid, t.tty, sig)
+	err := proc.SignalGroup(t.pid, t.startTicks, t.tty, sig)
+	if err != nil && !errors.Is(err, proc.ErrGone) {
 		return nil, err
 	}
 	return connect.NewResponse(&termv1.KillTerminalResponse{}), nil
