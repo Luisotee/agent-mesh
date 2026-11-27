@@ -55,7 +55,8 @@ step "go vet"
 (cd "$daemon_dir" && go vet ./...)
 
 step "go test -race"
-(cd "$daemon_dir" && go test -race -count=1 ./...)
+# The daemon package alone runs about 8 to 10 minutes under -race (more on a loaded host): past go test's default 10-minute timeout.
+(cd "$daemon_dir" && go test -race -count=1 -timeout 30m ./...)
 
 if [ -z "${SKIP_PYTEST:-}" ]; then
   step "python suite"
