@@ -99,6 +99,33 @@ func SignalGroup(pid int, startTicks, tty uint64, sig syscall.Signal) error {
 	return nil
 }
 
+// SignalSession signals the processes of the session pid leads that run on terminal tty and are not in the leader's own
+// process group: a shell's background jobs, which a shell with job control puts in groups of their own. Ending a terminal
+// reaches them this way and not only through the shell passing the signal on: a bash that gets SIGHUP in the moment after
+// it ran a command (before it is back at its prompt) was seen to exit without telling its jobs. Call it before signalling
+// the group: once the leader has gone the session has no terminal any more (tty_nr 0) and nothing matches. The kernel
+// doesn't reuse a pid that names a live session, so a session of this pid on this terminal is ours.
+func SignalSession(pid int, tty uint64, sig syscall.Signal) {
+	if pid <= 1 || tty == 0 {
+		return
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	sid, term := strconv.Itoa(pid), strconv.FormatUint(tty, 10)
+	for _, e := range entries {
+		p, err := strconv.Atoi(e.Name())
+		if err != nil || p <= 1 {
+			continue
+		}
+		// fields: state, ppid, pgrp, session, tty_nr
+		if f, err := stat(p); err == nil && f[3] == sid && f[4] == term && f[2] != sid {
+			_ = syscall.Kill(p, sig)
+		}
+	}
+}
+
 // Signal signals one process, after checking pid is still the recorded process.
 func Signal(pid int, startTicks uint64, sig syscall.Signal) error {
 	if pid <= 1 || !Same(pid, startTicks) {

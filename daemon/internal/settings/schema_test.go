@@ -188,17 +188,53 @@ func TestAShortcutIsAKeyChord(t *testing.T) {
 }
 
 func TestASchemaRefusesABadTable(t *testing.T) {
-	ok := Leaf{Key: "a", Type: Bool, Default: true, Summary: "s"}
+	ok := Leaf{Key: "a", Type: Bool, Default: true, Summary: "s", Label: "A", Group: GroupAgents}
 	for name, ls := range map[string][]Leaf{
-		"duplicate":        {ok, ok},
-		"no summary":       {{Key: "a", Type: Bool, Default: true}},
-		"default fails":    {{Key: "a", Type: Percent, Default: 200.0, Summary: "s"}},
-		"unknown type":     {{Key: "a", Type: "nope", Default: true, Summary: "s"}},
-		"key with a space": {{Key: "a b", Type: Bool, Default: true, Summary: "s"}},
-		"empty key":        {{Key: "", Type: Bool, Default: true, Summary: "s"}},
+		"duplicate":         {ok, ok},
+		"no summary":        {{Key: "a", Type: Bool, Default: true}},
+		"default fails":     {{Key: "a", Type: Percent, Default: 200.0, Summary: "s", Label: "A", Group: GroupAgents}},
+		"unknown type":      {{Key: "a", Type: "nope", Default: true, Summary: "s", Label: "A", Group: GroupAgents}},
+		"key with a space":  {{Key: "a b", Type: Bool, Default: true, Summary: "s", Label: "A", Group: GroupAgents}},
+		"no label":          {{Key: "a", Type: Bool, Default: true, Summary: "s", Group: GroupAgents}},
+		"lower-case label":  {{Key: "a", Type: Bool, Default: true, Summary: "s", Label: "retire idle agents", Group: GroupAgents}},
+		"label with a stop": {{Key: "a", Type: Bool, Default: true, Summary: "s", Label: "Retire idle agents.", Group: GroupAgents}},
+		"no group":          {{Key: "a", Type: Bool, Default: true, Summary: "s", Label: "A"}},
+		"unknown group":     {{Key: "a", Type: Bool, Default: true, Summary: "s", Label: "A", Group: "Misc"}},
+		"empty key":         {{Key: "", Type: Bool, Default: true, Summary: "s", Label: "A", Group: GroupAgents}},
 	} {
 		if _, err := NewSchema(ls); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestEveryLeafHasALabelAndAGroupAndTheScreenHasEachGroup(t *testing.T) {
+	s := Default()
+	used := map[string]int{}
+	labels := map[string]string{}
+	for _, k := range s.Keys("") {
+		l, _ := s.Lookup(k)
+		used[l.Group]++
+		if other, dup := labels[l.Label]; dup {
+			t.Errorf("%s and %s are both labelled %q", k, other, l.Label)
+		}
+		labels[l.Label] = k
+	}
+	for _, g := range Groups {
+		if used[g] == 0 {
+			t.Errorf("no setting is in the group %s", g)
+		}
+	}
+	if l, _ := s.Lookup("tiers.agy.mid.model"); l.Label != "Agy, mid tier: models" || l.Advanced {
+		t.Errorf("a tier's model = %+v", l)
+	}
+	if l, _ := s.Lookup("tiers.claude.top.note"); !l.Advanced {
+		t.Errorf("a tier's note is advanced: %+v", l)
+	}
+	if l, _ := s.Lookup("app.keys.tab_3"); l.Group != GroupShortcuts || l.Label != "Go to the third tab" {
+		t.Errorf("a tab shortcut = %+v", l)
+	}
+	if l, _ := s.Lookup("app.theme"); l.Group != GroupAppearance || l.Advanced {
+		t.Errorf("the theme = %+v", l)
 	}
 }

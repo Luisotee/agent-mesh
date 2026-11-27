@@ -22,6 +22,8 @@ public  final class SettingSchema extends
     type_ = "";
     summary_ = "";
     choices_ = emptyProtobufList();
+    label_ = "";
+    group_ = "";
   }
   public static final int TYPE_FIELD_NUMBER = 1;
   private java.lang.String type_;
@@ -382,6 +384,183 @@ public  final class SettingSchema extends
   private void clearRestart() {
 
     restart_ = false;
+  }
+
+  public static final int LABEL_FIELD_NUMBER = 5;
+  private java.lang.String label_;
+  /**
+   * <pre>
+   * What a settings screen calls it, in sentence case: "Retire idle agents after".
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The label.
+   */
+  @java.lang.Override
+  public java.lang.String getLabel() {
+    return label_;
+  }
+  /**
+   * <pre>
+   * What a settings screen calls it, in sentence case: "Retire idle agents after".
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @return The bytes for label.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getLabelBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(label_);
+  }
+  /**
+   * <pre>
+   * What a settings screen calls it, in sentence case: "Retire idle agents after".
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @param value The label to set.
+   */
+  private void setLabel(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    label_ = value;
+  }
+  /**
+   * <pre>
+   * What a settings screen calls it, in sentence case: "Retire idle agents after".
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   */
+  private void clearLabel() {
+
+    label_ = getDefaultInstance().getLabel();
+  }
+  /**
+   * <pre>
+   * What a settings screen calls it, in sentence case: "Retire idle agents after".
+   * </pre>
+   *
+   * <code>string label = 5 [json_name = "label"];</code>
+   * @param value The bytes for label to set.
+   */
+  private void setLabelBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    label_ = value.toStringUtf8();
+
+  }
+
+  public static final int GROUP_FIELD_NUMBER = 6;
+  private java.lang.String group_;
+  /**
+   * <pre>
+   * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+   * autonomy, Limits and quota or Delivery.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The group.
+   */
+  @java.lang.Override
+  public java.lang.String getGroup() {
+    return group_;
+  }
+  /**
+   * <pre>
+   * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+   * autonomy, Limits and quota or Delivery.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The bytes for group.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getGroupBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(group_);
+  }
+  /**
+   * <pre>
+   * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+   * autonomy, Limits and quota or Delivery.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @param value The group to set.
+   */
+  private void setGroup(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    group_ = value;
+  }
+  /**
+   * <pre>
+   * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+   * autonomy, Limits and quota or Delivery.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   */
+  private void clearGroup() {
+
+    group_ = getDefaultInstance().getGroup();
+  }
+  /**
+   * <pre>
+   * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+   * autonomy, Limits and quota or Delivery.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @param value The bytes for group to set.
+   */
+  private void setGroupBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    group_ = value.toStringUtf8();
+
+  }
+
+  public static final int ADVANCED_FIELD_NUMBER = 7;
+  private boolean advanced_;
+  /**
+   * <pre>
+   * True for a setting that is folded away in its group until asked for: tuning most people never touch.
+   * </pre>
+   *
+   * <code>bool advanced = 7 [json_name = "advanced"];</code>
+   * @return The advanced.
+   */
+  @java.lang.Override
+  public boolean getAdvanced() {
+    return advanced_;
+  }
+  /**
+   * <pre>
+   * True for a setting that is folded away in its group until asked for: tuning most people never touch.
+   * </pre>
+   *
+   * <code>bool advanced = 7 [json_name = "advanced"];</code>
+   * @param value The advanced to set.
+   */
+  private void setAdvanced(boolean value) {
+    
+    advanced_ = value;
+  }
+  /**
+   * <pre>
+   * True for a setting that is folded away in its group until asked for: tuning most people never touch.
+   * </pre>
+   *
+   * <code>bool advanced = 7 [json_name = "advanced"];</code>
+   */
+  private void clearAdvanced() {
+
+    advanced_ = false;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.SettingSchema parseFrom(
@@ -851,6 +1030,189 @@ public  final class SettingSchema extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What a settings screen calls it, in sentence case: "Retire idle agents after".
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @return The label.
+     */
+    @java.lang.Override
+    public java.lang.String getLabel() {
+      return instance.getLabel();
+    }
+    /**
+     * <pre>
+     * What a settings screen calls it, in sentence case: "Retire idle agents after".
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @return The bytes for label.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getLabelBytes() {
+      return instance.getLabelBytes();
+    }
+    /**
+     * <pre>
+     * What a settings screen calls it, in sentence case: "Retire idle agents after".
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @param value The label to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLabel(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setLabel(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What a settings screen calls it, in sentence case: "Retire idle agents after".
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLabel() {
+      copyOnWrite();
+      instance.clearLabel();
+      return this;
+    }
+    /**
+     * <pre>
+     * What a settings screen calls it, in sentence case: "Retire idle agents after".
+     * </pre>
+     *
+     * <code>string label = 5 [json_name = "label"];</code>
+     * @param value The bytes for label to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLabelBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setLabelBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+     * autonomy, Limits and quota or Delivery.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @return The group.
+     */
+    @java.lang.Override
+    public java.lang.String getGroup() {
+      return instance.getGroup();
+    }
+    /**
+     * <pre>
+     * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+     * autonomy, Limits and quota or Delivery.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @return The bytes for group.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getGroupBytes() {
+      return instance.getGroupBytes();
+    }
+    /**
+     * <pre>
+     * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+     * autonomy, Limits and quota or Delivery.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @param value The group to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGroup(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setGroup(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+     * autonomy, Limits and quota or Delivery.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearGroup() {
+      copyOnWrite();
+      instance.clearGroup();
+      return this;
+    }
+    /**
+     * <pre>
+     * The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+     * autonomy, Limits and quota or Delivery.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @param value The bytes for group to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGroupBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setGroupBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * True for a setting that is folded away in its group until asked for: tuning most people never touch.
+     * </pre>
+     *
+     * <code>bool advanced = 7 [json_name = "advanced"];</code>
+     * @return The advanced.
+     */
+    @java.lang.Override
+    public boolean getAdvanced() {
+      return instance.getAdvanced();
+    }
+    /**
+     * <pre>
+     * True for a setting that is folded away in its group until asked for: tuning most people never touch.
+     * </pre>
+     *
+     * <code>bool advanced = 7 [json_name = "advanced"];</code>
+     * @param value The advanced to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAdvanced(boolean value) {
+      copyOnWrite();
+      instance.setAdvanced(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * True for a setting that is folded away in its group until asked for: tuning most people never touch.
+     * </pre>
+     *
+     * <code>bool advanced = 7 [json_name = "advanced"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAdvanced() {
+      copyOnWrite();
+      instance.clearAdvanced();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SettingSchema)
   }
   @java.lang.Override
@@ -871,10 +1233,13 @@ public  final class SettingSchema extends
             "summary_",
             "choices_",
             "restart_",
+            "label_",
+            "group_",
+            "advanced_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u021a\u0004\u0007";
+              "\u0000\u0007\u0000\u0000\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u021a\u0004\u0007\u0005\u0208\u0006\u0208\u0007\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

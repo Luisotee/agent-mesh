@@ -403,6 +403,18 @@ class ParityScreensTest {
         compose.onNodeWithText("2 keyboard shortcuts", substring = true).assertIsDisplayed()
     }
 
+    @Test fun `a setting is listed by the host's label, and by its key on a host that sends none`() {
+        fun setting(key: String, label: String) = Setting.newBuilder().setKey(key).setSchema(SettingSchema.newBuilder().setType("string").setSummary("s-$key").setLabel(label)).build()
+        api = RecordingApi().apply { settings = listOf(setting("app.theme", "Theme"), setting("editor.command", "")) }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        show { HostSettingsScreen(rt) {} }
+        waitForText("Theme")
+        compose.onNodeWithText("Theme").assertIsDisplayed()
+        compose.onAllNodesWithText("app.theme").assertCountEquals0()
+        compose.onNodeWithText("editor.command").assertIsDisplayed()
+    }
+
     // ── What the round-1 review found ──
 
     @Test fun `a resync on a connection that stays up lists what waits again`() {
