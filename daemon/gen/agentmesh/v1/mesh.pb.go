@@ -909,7 +909,8 @@ type SpawnAgentRequest struct {
 	// such as "playwright" for a frontend worker. A Claude agent only, and only while the claude.lean setting is on
 	// (else every server loads already).
 	Mcp []string `protobuf:"bytes,14,rep,name=mcp,proto3" json:"mcp,omitempty"`
-	// Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+	// Who runs the review rounds of this worker's PR: "worker", "relay" (the worker runs them as a relay, for a risky PR)
+	// or "root"; empty means the `review.by` setting.
 	Reviews       string `protobuf:"bytes,15,opt,name=reviews,proto3" json:"reviews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4848,7 +4849,7 @@ type ApproveAgentRequest struct {
 	Body string `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`
 	// Why this tier, recorded on the reopen.
 	Why string `protobuf:"bytes,8,opt,name=why,proto3" json:"why,omitempty"`
-	// Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+	// Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
 	Reviews       string `protobuf:"bytes,9,opt,name=reviews,proto3" json:"reviews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

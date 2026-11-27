@@ -528,7 +528,8 @@ export type SpawnAgentRequest = Message<"agentmesh.v1.SpawnAgentRequest"> & {
   mcp: string[];
 
   /**
-   * Who runs the review rounds of this worker's PR: "worker" or "root"; empty means the `review.by` setting.
+   * Who runs the review rounds of this worker's PR: "worker", "relay" (the worker runs them as a relay, for a risky PR)
+   * or "root"; empty means the `review.by` setting.
    *
    * @generated from field: string reviews = 15;
    */
@@ -2400,7 +2401,7 @@ export type ApproveAgentRequest = Message<"agentmesh.v1.ApproveAgentRequest"> & 
   why: string;
 
   /**
-   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
    *
    * @generated from field: string reviews = 9;
    */

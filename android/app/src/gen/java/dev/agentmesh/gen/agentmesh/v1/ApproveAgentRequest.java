@@ -455,7 +455,7 @@ public  final class ApproveAgentRequest extends
   private java.lang.String reviews_;
   /**
    * <pre>
-   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
    * </pre>
    *
    * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -467,7 +467,7 @@ public  final class ApproveAgentRequest extends
   }
   /**
    * <pre>
-   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
    * </pre>
    *
    * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -480,7 +480,7 @@ public  final class ApproveAgentRequest extends
   }
   /**
    * <pre>
-   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
    * </pre>
    *
    * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -494,7 +494,7 @@ public  final class ApproveAgentRequest extends
   }
   /**
    * <pre>
-   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
    * </pre>
    *
    * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -505,7 +505,7 @@ public  final class ApproveAgentRequest extends
   }
   /**
    * <pre>
-   * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+   * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
    * </pre>
    *
    * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -1058,7 +1058,7 @@ public  final class ApproveAgentRequest extends
 
     /**
      * <pre>
-     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
      * </pre>
      *
      * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -1070,7 +1070,7 @@ public  final class ApproveAgentRequest extends
     }
     /**
      * <pre>
-     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
      * </pre>
      *
      * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -1083,7 +1083,7 @@ public  final class ApproveAgentRequest extends
     }
     /**
      * <pre>
-     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
      * </pre>
      *
      * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -1098,7 +1098,7 @@ public  final class ApproveAgentRequest extends
     }
     /**
      * <pre>
-     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
      * </pre>
      *
      * <code>string reviews = 9 [json_name = "reviews"];</code>
@@ -1111,7 +1111,7 @@ public  final class ApproveAgentRequest extends
     }
     /**
      * <pre>
-     * Who runs the review rounds of this worker's PR from now on: "worker" or "root"; empty leaves it as it is.
+     * Who runs the review rounds of this worker's PR from now on: "worker", "relay" or "root"; empty leaves it as it is.
      * </pre>
      *
      * <code>string reviews = 9 [json_name = "reviews"];</code>

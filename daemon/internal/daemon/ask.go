@@ -283,7 +283,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		return nil, err
 	}
 	r := d.store.Read(ctx)
-	if err := d.workerGuard(ctx, r, actor, pr); err != nil {
+	if err := d.workerGuard(ctx, r, actor, pr, false); err != nil {
 		return nil, err
 	}
 	if err := d.workerCeiling(r, actor, m.Meta, pr, m.Size); err != nil {
@@ -381,7 +381,7 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 		return nil, err
 	}
 	r := d.store.Read(ctx)
-	if err := d.workerGuard(ctx, r, actor, pr); err != nil {
+	if err := d.workerGuard(ctx, r, actor, pr, relay != nil); err != nil {
 		return nil, err
 	}
 	if err := d.workerCeiling(r, actor, m.Meta, pr, m.Size); err != nil {
@@ -843,11 +843,14 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 	if m.Pr == "" || m.Reviewer == "" {
 		return nil, invalid("name the pull request and the reviewer")
 	}
-	if m.Agree < 0 || m.Other < 0 || m.Disagree < 0 || m.Blocking < 0 {
+	if m.Agree < 0 || m.Other < 0 || m.Disagree < 0 || m.Blocking < 0 || m.DeclinedBlocking < 0 {
 		return nil, invalid("counts can't be negative")
 	}
 	if m.Agree == 0 && m.Other == 0 && m.Disagree == 0 {
 		return nil, invalid("give at least one of agree, other and disagree: how many of the reviewer's findings you agreed with, found otherwise useful, and disagreed with")
+	}
+	if m.DeclinedBlocking > m.Disagree+m.Other {
+		return nil, invalid("declined_blocking (%d) can't be more than disagree + other (%d): a declined finding is one you disagreed with or found otherwise useful but did not fix", m.DeclinedBlocking, m.Disagree+m.Other)
 	}
 	if m.Blocking > m.Agree+m.Other {
 		return nil, invalid("blocking (%d) can't be more than agree + other (%d): a blocking finding is one you agreed with or found useful", m.Blocking, m.Agree+m.Other)
@@ -884,7 +887,7 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 					tier = a.ExecTier
 				}
 				v := &v1.Verdict{Reviewer: mem.Name, Kind: mem.Kind, Model: mem.Model, Tier: tier, Agree: m.Agree, Other: m.Other,
-					Disagree: m.Disagree, Blocking: m.Blocking, At: timestamppb.New(tx.Now()), Judge: judge}
+					Disagree: m.Disagree, Blocking: m.Blocking, DeclinedBlocking: m.DeclinedBlocking, At: timestamppb.New(tx.Now()), Judge: judge}
 				kept := ask.Verdicts[:0]
 				for _, old := range ask.Verdicts {
 					if old.Reviewer != mem.Name {

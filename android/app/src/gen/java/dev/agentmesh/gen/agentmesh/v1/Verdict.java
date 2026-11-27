@@ -464,6 +464,47 @@ public  final class Verdict extends
 
   }
 
+  public static final int DECLINED_BLOCKING_FIELD_NUMBER = 11;
+  private int declinedBlocking_;
+  /**
+   * <pre>
+   * How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+   * is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 11 [json_name = "declinedBlocking"];</code>
+   * @return The declinedBlocking.
+   */
+  @java.lang.Override
+  public int getDeclinedBlocking() {
+    return declinedBlocking_;
+  }
+  /**
+   * <pre>
+   * How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+   * is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 11 [json_name = "declinedBlocking"];</code>
+   * @param value The declinedBlocking to set.
+   */
+  private void setDeclinedBlocking(int value) {
+    
+    declinedBlocking_ = value;
+  }
+  /**
+   * <pre>
+   * How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+   * is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 11 [json_name = "declinedBlocking"];</code>
+   */
+  private void clearDeclinedBlocking() {
+
+    declinedBlocking_ = 0;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Verdict parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1021,6 +1062,49 @@ public  final class Verdict extends
       return this;
     }
 
+    /**
+     * <pre>
+     * How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+     * is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+     * </pre>
+     *
+     * <code>int32 declined_blocking = 11 [json_name = "declinedBlocking"];</code>
+     * @return The declinedBlocking.
+     */
+    @java.lang.Override
+    public int getDeclinedBlocking() {
+      return instance.getDeclinedBlocking();
+    }
+    /**
+     * <pre>
+     * How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+     * is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+     * </pre>
+     *
+     * <code>int32 declined_blocking = 11 [json_name = "declinedBlocking"];</code>
+     * @param value The declinedBlocking to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDeclinedBlocking(int value) {
+      copyOnWrite();
+      instance.setDeclinedBlocking(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+     * is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+     * </pre>
+     *
+     * <code>int32 declined_blocking = 11 [json_name = "declinedBlocking"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDeclinedBlocking() {
+      copyOnWrite();
+      instance.clearDeclinedBlocking();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Verdict)
   }
   @java.lang.Override
@@ -1048,10 +1132,12 @@ public  final class Verdict extends
             "blocking_",
             "at_",
             "judge_",
+            "declinedBlocking_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0004\u0006\u0004\u0007\u0004\b\u0004\t\u1009\u0000\n\u0208";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0004\u0006\u0004\u0007\u0004\b\u0004\t\u1009\u0000" +
+              "\n\u0208\u000b\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
