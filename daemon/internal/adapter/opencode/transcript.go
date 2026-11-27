@@ -21,12 +21,15 @@ import (
 // only grows at its end), so a page's `start_offset` is the first message it shows and `end_offset` the rowid after the
 // last. An assistant message is shown once it is finished, because its parts change in place while the model works
 // (a tool call goes from pending to completed): the last message of a session that has no `time.completed` yet is the
-// one being written, and is left for a later read.
+// one being written, and is left for a later read, unless it was last touched more than `quiet` ago (an aborted
+// reply never gets a `time.completed`).
 
 const (
 	capTranscript = transcript.Cap
 	// maxMessages is how many messages one forward read, or one batch of a backward read, covers.
 	maxMessages = 100
+	// quiet is how long a reply must be untouched before it is taken as ended without a `time.completed`.
+	quiet = 2 * time.Minute
 	// maxBackMessages bounds a backward read that goes on looking for entries.
 	maxBackMessages = 1000
 )
@@ -89,9 +92,11 @@ func readTranscript(db *sql.DB, session string, offset int64, backward bool) ([]
 	// limit is where a read stops: past the last message, or before it while it is being written.
 	limit := maxRow.Int64 + 1
 	var lastData string
-	if err := db.QueryRow(`SELECT data FROM message WHERE rowid = ?`, maxRow.Int64).Scan(&lastData); err == nil {
+	var touched int64
+	if err := db.QueryRow(`SELECT data, time_updated FROM message WHERE rowid = ?`, maxRow.Int64).Scan(&lastData, &touched); err == nil {
 		var last chatMessage
-		if json.Unmarshal([]byte(lastData), &last) == nil && last.Role == "assistant" && last.Time.Completed == 0 {
+		if json.Unmarshal([]byte(lastData), &last) == nil && last.Role == "assistant" && last.Time.Completed == 0 &&
+			time.Since(time.UnixMilli(touched)) < quiet {
 			limit = maxRow.Int64
 		}
 	}

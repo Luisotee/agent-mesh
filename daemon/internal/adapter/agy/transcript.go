@@ -24,7 +24,9 @@ import (
 // what the user typed (field 19, text in 2); type 15, a model turn (field 20: the reply in 1, its thinking in 3, which
 // is left out); and type 132, a tool run (field 5.4 names the call and holds its JSON arguments, field 140.2.1 the
 // output). Types 17, 23 and 101 (compaction bookkeeping, system notices) are left out. A step with status 1 or 2 is
-// still running (its output changes in place): when it is the last step it is left for a later read.
+// still running (its output changes in place): when it is the last step and the file was written in the last
+// minutes it is left for a later read (a turn that was interrupted leaves its step so, and is shown once the file
+// has been quiet that long).
 
 const (
 	capTranscript = transcript.Cap
@@ -33,8 +35,10 @@ const (
 	statusPending, statusRunning  = 1, 2
 	// statusFailed and statusDenied are the statuses of a step that ended without its result.
 	statusDenied, statusFailed = 4, 6
-	maxSteps                   = 200
-	maxBackSteps               = 2000
+	// quiet is how long a file must be unwritten before its last running step is taken as ended.
+	quiet        = 2 * time.Minute
+	maxSteps     = 200
+	maxBackSteps = 2000
 )
 
 // toolSummaryKeys are agy's tools' arguments that say what a call is about, in the order they are tried.
@@ -53,7 +57,11 @@ func (a *Adapter) ReadTranscript(_ context.Context, req *connect.Request[adapter
 		return connect.NewResponse(&adapterv1.ReadTranscriptResponse{AtStart: true}), nil
 	}
 	defer db.Close()
-	entries, start, end, atStart, err := readSteps(db, m.Offset, m.Backward)
+	live := false
+	if st, err := os.Stat(filepath.Join(dir, m.SessionId+".db")); err == nil {
+		live = time.Since(st.ModTime()) < quiet
+	}
+	entries, start, end, atStart, err := readSteps(db, m.Offset, m.Backward, live)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -75,7 +83,7 @@ type chatStep struct {
 	payload []byte
 }
 
-func readSteps(db *sql.DB, offset int64, backward bool) ([]*agentmeshv1.TranscriptEntry, int64, int64, bool, error) {
+func readSteps(db *sql.DB, offset int64, backward, live bool) ([]*agentmeshv1.TranscriptEntry, int64, int64, bool, error) {
 	var last sql.NullInt64
 	var lastStatus sql.NullInt64
 	if err := db.QueryRow(`SELECT idx, status FROM steps ORDER BY idx DESC LIMIT 1`).Scan(&last, &lastStatus); err != nil && err != sql.ErrNoRows {
@@ -86,7 +94,7 @@ func readSteps(db *sql.DB, offset int64, backward bool) ([]*agentmeshv1.Transcri
 	}
 	// limit is where a read stops: past the last step, or before it while it runs.
 	limit := last.Int64 + 1
-	if lastStatus.Int64 == statusPending || lastStatus.Int64 == statusRunning {
+	if live && (lastStatus.Int64 == statusPending || lastStatus.Int64 == statusRunning) {
 		limit = last.Int64
 	}
 	var first int64

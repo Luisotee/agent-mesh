@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -52,6 +53,9 @@ func seedChat(t *testing.T) (dbPath string) {
 		part("prt_o", "msg_o", `{"type":"text","text":"not ours"}`)
 		// The reply being written: no time.completed on the session's last message.
 		msg("msg_4", "ses_a", `{"role":"assistant","time":{"created":1795085250000}}`)
+		if _, err := db.Exec(`UPDATE message SET time_updated = ? WHERE id = 'msg_4'`, time.Now().UnixMilli()); err != nil {
+			t.Fatal(err)
+		}
 		part("prt_4", "msg_4", `{"type":"text","text":"half an ans"}`)
 	})
 	return dbPath
@@ -109,6 +113,17 @@ func TestTranscriptReadsOnWhenTheReplyFinishes(t *testing.T) {
 	more := readChat(t, db, first.EndOffset, false)
 	if got := kinds(more.Entries); got != "ASSISTANT:half an ans" {
 		t.Errorf("after it finished: %s", got)
+	}
+}
+
+func TestAnAbortedReplyIsShownOnceItIsLongQuiet(t *testing.T) {
+	db := seedChat(t)
+	if _, err := openForTest(t, db).Exec(`UPDATE message SET time_updated = ? WHERE id = 'msg_4'`, time.Now().Add(-time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	res := readChat(t, db, 0, false)
+	if got := kinds(res.Entries); !strings.HasSuffix(got, "ASSISTANT:half an ans") || res.EndOffset != 6 {
+		t.Errorf("an hour-old unfinished reply: %s (end %d)", got, res.EndOffset)
 	}
 }
 

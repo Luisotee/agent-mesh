@@ -196,8 +196,15 @@ func (d *Daemon) opencodeDBPathForCost() string {
 // never reads the machine's own Copilot sessions).
 func (d *Daemon) copilotEnvForCost() map[string]string {
 	env := d.costEnv()
-	if testing.Testing() && env["COPILOT_HOME"] == "" && env["HOME"] == "" {
-		return nil
+	if testing.Testing() {
+		if env["COPILOT_HOME"] == "" && env["HOME"] == "" {
+			return nil
+		}
+		return env
+	}
+	// A Copilot agent's own COPILOT_HOME (agentEnv passes it on) is where its sessions are written.
+	if v, ok := os.LookupEnv("COPILOT_HOME"); ok && env["COPILOT_HOME"] == "" {
+		env["COPILOT_HOME"] = v
 	}
 	return env
 }

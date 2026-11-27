@@ -3,9 +3,11 @@ package agy
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -123,6 +125,19 @@ func TestTranscriptShowsTheConversation(t *testing.T) {
 	writeChat(t, dir, "c1", seeds)
 	if more := readChat(t, dir, "c1", res.EndOffset, false); shown(more.Entries) != "TOOL_CALL:run_commandsleep 100 | TOOL_RESULT:" {
 		t.Errorf("after the step finished: %s", shown(more.Entries))
+	}
+}
+
+func TestAStepLeftRunningByAnInterruptedTurnIsShownOnceTheFileIsQuiet(t *testing.T) {
+	dir := t.TempDir()
+	writeChat(t, dir, "c1", chatSteps())
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, "c1.db"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	res := readChat(t, dir, "c1", 0, false)
+	if !strings.HasSuffix(shown(res.Entries), "TOOL_CALL:run_commandsleep 100") || res.EndOffset != 9 {
+		t.Errorf("a quiet file's running step: %s (end %d)", shown(res.Entries), res.EndOffset)
 	}
 }
 
