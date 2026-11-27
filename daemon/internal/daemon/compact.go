@@ -161,8 +161,8 @@ func (d *Daemon) requestResumeCompaction(tx *store.Tx, a *v1.Agent, spec reviveS
 	if mode == "" {
 		mode = "auto"
 	}
-	if mode == "no" || !d.rt.adapters.HasCapability(a.Kind, capContext) {
-		return nil
+	if mode == "no" || a.Plain || !d.rt.adapters.HasCapability(a.Kind, capContext) {
+		return nil // a plain agent's conversation is the user's to compact
 	}
 	readOnly := adapter.ReadOnly(a.Role) || isReadOnlyTask(spec.taskText)
 	pc := &v1.PendingCompaction{Id: ids.New("c", 10), Why: "resume", Focus: spec.focus, RequestedAt: tsOf(tx.Now())}

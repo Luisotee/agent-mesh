@@ -62,6 +62,7 @@ public  final class Event extends
     RUN_RENAMED(39),
     PERMISSION_CHANGED(40),
     AGENT_ARCHIVED(41),
+    USER_NOTICE(42),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -109,6 +110,7 @@ public  final class Event extends
         case 39: return RUN_RENAMED;
         case 40: return PERMISSION_CHANGED;
         case 41: return AGENT_ARCHIVED;
+        case 42: return USER_NOTICE;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -2073,6 +2075,56 @@ public  final class Event extends
    */
   private void clearAgentArchived() {
     if (payloadCase_ == 41) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int USER_NOTICE_FIELD_NUMBER = 42;
+  /**
+   * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+   */
+  @java.lang.Override
+  public boolean hasUserNotice() {
+    return payloadCase_ == 42;
+  }
+  /**
+   * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.UserNotice getUserNotice() {
+    if (payloadCase_ == 42) {
+       return (dev.agentmesh.gen.agentmesh.v1.UserNotice) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.UserNotice.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+   */
+  private void setUserNotice(dev.agentmesh.gen.agentmesh.v1.UserNotice value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 42;
+  }
+  /**
+   * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+   */
+  private void mergeUserNotice(dev.agentmesh.gen.agentmesh.v1.UserNotice value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 42 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.UserNotice.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.UserNotice.newBuilder((dev.agentmesh.gen.agentmesh.v1.UserNotice) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 42;
+  }
+  /**
+   * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+   */
+  private void clearUserNotice() {
+    if (payloadCase_ == 42) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -4090,6 +4142,54 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+     */
+    @java.lang.Override
+    public boolean hasUserNotice() {
+      return instance.hasUserNotice();
+    }
+    /**
+     * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.UserNotice getUserNotice() {
+      return instance.getUserNotice();
+    }
+    /**
+     * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+     */
+    public Builder setUserNotice(dev.agentmesh.gen.agentmesh.v1.UserNotice value) {
+      copyOnWrite();
+      instance.setUserNotice(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+     */
+    public Builder setUserNotice(
+        dev.agentmesh.gen.agentmesh.v1.UserNotice.Builder builderForValue) {
+      copyOnWrite();
+      instance.setUserNotice(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+     */
+    public Builder mergeUserNotice(dev.agentmesh.gen.agentmesh.v1.UserNotice value) {
+      copyOnWrite();
+      instance.mergeUserNotice(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+     */
+    public Builder clearUserNotice() {
+      copyOnWrite();
+      instance.clearUserNotice();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -4148,15 +4248,16 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.RunRenamed.class,
             dev.agentmesh.gen.agentmesh.v1.PermissionChanged.class,
             dev.agentmesh.gen.agentmesh.v1.AgentArchived.class,
+            dev.agentmesh.gen.agentmesh.v1.UserNotice.class,
           };
           java.lang.String info =
-              "\u0000\'\u0001\u0001\u0001)\'\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
+              "\u0000(\u0001\u0001\u0001*(\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
               "\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b<\u0000" +
               "\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000" +
               "\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019" +
               "<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000" +
               " <\u0000!<\u0000\"<\u0000#<\u0000$<\u0000%<\u0000&<\u0000\'<\u0000(<\u0000)<\u0000" +
-              "";
+              "*<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

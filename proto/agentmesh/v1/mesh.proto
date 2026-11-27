@@ -1299,6 +1299,9 @@ message SpawnAgentRequest {
   // Who runs the review rounds of this worker's PR: "worker", "relay" (the worker runs them as a relay, for a risky PR)
   // or "root"; empty means the `review.by` setting.
   string reviews = 15;
+  // A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+  // plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+  bool plain = 16;
 }
 
 message SpawnAgentResponse {
@@ -1456,7 +1459,8 @@ message StopAgentResponse {
 
 message SendMessageRequest {
   RequestMeta meta = 1;
-  // An agent id or name, or "parent" for the caller's parent.
+  // An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+  // question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
   string to = 2;
   MessageType type = 3;
   string body = 4;
@@ -1569,6 +1573,10 @@ message Waiting {
   Message message = 4;
   // For a prompt, why the agent is stopped (its state detail).
   string detail = 5;
+  // The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+  // the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+  // view and Activity still show it.
+  bool for_user = 6;
 }
 
 message SubscribeEventsRequest {

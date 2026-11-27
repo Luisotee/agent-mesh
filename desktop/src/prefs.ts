@@ -30,7 +30,7 @@ export function jsonOf(s: Setting | undefined): unknown {
 export const DEFAULT_PREFS: AppPrefs = {
   notifyEnabled: true,
   notifySound: true,
-  notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed', 'error']),
+  notifyEvents: new Set(['input', 'plan', 'question', 'report', 'failed', 'error', 'finished', 'ready']),
   closeToTray: false,
   dockNewAgents: 'dock',
   theme: 'Dracula',
