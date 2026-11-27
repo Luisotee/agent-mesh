@@ -6,7 +6,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { openTerminal } from '@/actions'
+import { openShellTerminal, openTerminal } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { HostRuntime } from '@/model'
@@ -44,10 +44,10 @@ export function termStatus(s: TermState): string {
 }
 
 /**
- * An agent's terminal: xterm.js on the terminal stream. The session (src/terminal/session.ts) speaks the protocol;
+ * An agent's terminal, or a project shell's (`shellId`: the same stream, another ticket): xterm.js on the terminal stream. The session (src/terminal/session.ts) speaks the protocol;
  * this wires it to xterm, sizes the terminal to its box, and adds search and links.
  */
-export function TerminalView({ host, agentId, active }: { host: HostRuntime; agentId: string; active: boolean }) {
+export function TerminalView({ host, agentId = '', shellId = '', active }: { host: HostRuntime; agentId?: string; shellId?: string; active: boolean }) {
   const box = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal>(null)
   const search = useRef<SearchAddon>(null)
@@ -91,7 +91,7 @@ export function TerminalView({ host, agentId, active }: { host: HostRuntime; age
     const tell = (cols: number, rows: number) => (sent = clampSize(cols, rows))
     const session = new TerminalSession({
       ticket: async () => {
-        const r = await openTerminal(host.client, agentId, true)
+        const r = shellId ? await openShellTerminal(host.client, shellId, true) : await openTerminal(host.client, agentId, true)
         return { path: r.path, input: r.input }
       },
       socket: (path, onEvent) => host.openSocket(path, onEvent),
@@ -148,7 +148,7 @@ export function TerminalView({ host, agentId, active }: { host: HostRuntime; age
       search.current = null
       refitRef.current = undefined
     }
-  }, [host, agentId])
+  }, [host, agentId, shellId])
 
   useEffect(() => {
     if (active) {

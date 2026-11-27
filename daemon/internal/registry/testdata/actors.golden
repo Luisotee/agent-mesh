@@ -144,6 +144,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
+  /agentmesh.v1.MeshService/CloseShell
   /agentmesh.v1.MeshService/CreatePairing
   /agentmesh.v1.MeshService/CreateWorktree
   /agentmesh.v1.MeshService/DecidePermission
@@ -171,10 +172,12 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListShells
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenAgent
   /agentmesh.v1.MeshService/OpenInEditor
+  /agentmesh.v1.MeshService/OpenShell
   /agentmesh.v1.MeshService/OpenTerminal
   /agentmesh.v1.MeshService/OpenView
   /agentmesh.v1.MeshService/PromptAgent
@@ -229,6 +232,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/ListPullRequests
   /agentmesh.v1.MeshService/ListRuns
   /agentmesh.v1.MeshService/ListSettings
+  /agentmesh.v1.MeshService/ListShells
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal

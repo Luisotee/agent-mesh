@@ -52,6 +52,9 @@ func startReopen(t *testing.T, tweaks ...func(*daemon.AgentConfig)) *reopenWorld
 	w.argvLog = filepath.Join(root, "argv.jsonl")
 	w.agentsHarness = w.restart(t)
 	t.Cleanup(func() { stopTermHost(t, w.state) })
+	// A review round that finds the host full is refused at once here: the default waits 5 minutes for room, which
+	// only the tests of that wait want.
+	w.set(t, "review.wait_room", 0)
 	return w
 }
 

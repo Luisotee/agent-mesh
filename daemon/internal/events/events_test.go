@@ -331,3 +331,37 @@ func TestActivityFramesQueuedDuringTheSnapshotAreDropped(t *testing.T) {
 		}
 	}
 }
+
+// An `OpenView` asked for right after an app got its snapshot is told to it, however soon it comes: the app can
+// act on the snapshot before the stream's loop has run (the frames that queued during the snapshot are drained
+// there), and a view dropped there left a caller waiting on a toast that never came.
+func TestAViewPublishedWhileTheSnapshotIsBeingSentIsNotDropped(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "x.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	bus := New(s)
+	s.OnCommit = bus.Publish
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got := make(chan string, 4)
+	go bus.ServeFor(ctx, &v1.SubscribeEventsRequest{Activity: true}, true, true, nil, func(f *v1.SubscribeEventsResponse) error {
+		if f.GetSnapshot() != nil {
+			// What the app does with its snapshot, before the server's next line runs.
+			bus.PublishView(&v1.ViewRequest{View: "messages", Target: "a1"})
+		}
+		if v := f.GetView(); v != nil {
+			got <- v.Target
+		}
+		return nil
+	})
+	select {
+	case target := <-got:
+		if target != "a1" {
+			t.Errorf("view target %q", target)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the view published while the snapshot was sent was dropped")
+	}
+}

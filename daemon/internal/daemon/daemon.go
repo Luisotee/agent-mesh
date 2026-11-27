@@ -214,6 +214,7 @@ func New(cfg Config) (*Daemon, error) {
 	d.notify = d.deliverSoon
 	d.bus.AgentView = d.view
 	d.mux.HandleFunc("/v1/term/{agent}", d.serveTerminal)
+	d.mux.HandleFunc("/v1/shell/{id}", d.serveShell)
 	if d.daemonID, err = d.loadDaemonID(); err != nil {
 		return nil, err
 	}

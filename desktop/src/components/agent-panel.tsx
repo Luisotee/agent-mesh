@@ -19,6 +19,8 @@ import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
 import { ChatView } from './chat-view'
 import { TerminalView } from './terminal-view'
+import { ShellPanel } from './shell-panel'
+import { isShellTab } from '@/shells'
 
 const live = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
 
@@ -27,7 +29,12 @@ const live = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentSta
  * is one line: its state, name and model, the toggle, and a menu (send a message, details, stop). What the overview
  * listed is the side panel's Details now.
  */
-export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId: string; /** The view and how to change it, for a pane beside the main one (the main pane's is the app's). */ view?: { tab: AgentTab; setTab(t: AgentTab): void } }) {
+export function AgentPanel(props: { host: HostRuntime; agentId: string; view?: { tab: AgentTab; setTab(t: AgentTab): void } }) {
+  // A project shell's tab is shown by the same panes as an agent's.
+  return isShellTab(props.agentId) ? <ShellPanel host={props.host} agentId={props.agentId} /> : <AgentBody {...props} />
+}
+
+function AgentBody({ host, agentId, view }: { host: HostRuntime; agentId: string; /** The view and how to change it, for a pane beside the main one (the main pane's is the app's). */ view?: { tab: AgentTab; setTab(t: AgentTab): void } }) {
   const agent = useHostState(host, (s) => s.agents[agentId])
   const synced = useHostState(host, (s) => s.synced)
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))

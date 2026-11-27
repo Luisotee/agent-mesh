@@ -658,6 +658,13 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		argv = append(argv, "-s", m.ResumeSessionId)
 		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env}), nil
 	}
+	if adapter.ReadOnly(m.Role) {
+		// An asker or a reviewer can sit on a PR head nobody trusted: its `opencode.json` and `.opencode/` can name
+		// a plugin, an MCP server, a formatter or a command that runs code, and set permissions. 1.19.6 drops all
+		// of the project's config under this variable (`opencode debug config`: plugin, mcp, command, formatter and
+		// permission come back empty); the mesh's own config comes by OPENCODE_CONFIG_CONTENT, which stays.
+		env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+	}
 	if adapter.ReadOnly(m.Role) || m.DenyEdits {
 		perm, err := PermissionJSON(m.Cwd, m.Repo, env["AGENT_MESH_RUN_DIR"], !adapter.ReadOnly(m.Role))
 		if err != nil {
