@@ -643,12 +643,18 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		return nil, err
 	}
 	cfg["permission"] = perm
-	if !m.Standalone && (adapter.ReadOnly(m.Role) || m.DenyEdits) {
-		// The hook that closes what the bash patterns can't see (a bare redirect: readOnlyBash). It is a file of the
-		// installed share; a meshd with no share has no protocol for its agents either, so it is no real launch.
-		if share := env["AGENT_MESH_SHARE"]; filepath.IsAbs(share) {
-			cfg["plugin"] = []string{(&url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Join(share, "opencode", "readonly-guard.js"))}).String()}
+	// The guards are files of the installed share; a meshd with no share has no protocol for its agents either, so it is
+	// no real launch. Every agent's bash refuses a kill by pattern (kill-guard.js); a read-only or planning agent's also
+	// closes what its bash patterns can't see, a bare redirect (readonly-guard.js, `readOnlyBash`).
+	if share := env["AGENT_MESH_SHARE"]; !m.Standalone && filepath.IsAbs(share) {
+		guard := func(name string) string {
+			return (&url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Join(share, "opencode", name))}).String()
 		}
+		plugins := []string{guard("kill-guard.js")}
+		if adapter.ReadOnly(m.Role) || m.DenyEdits {
+			plugins = append(plugins, guard("readonly-guard.js"))
+		}
+		cfg["plugin"] = plugins
 	}
 	cfgBytes, err := json.Marshal(cfg)
 	if err != nil {
@@ -789,9 +795,11 @@ func lookupSessionDB(db *sql.DB, cwd, repo string, notBefore time.Time) string {
 
 // SessionInfo summarizes the latest state of an OpenCode session since a turn boundary.
 type SessionInfo struct {
-	SessionID     string
-	Status        string // "", "working", "idle", "limited", "error"
-	MessageID     string
+	SessionID string
+	Status    string // "", "working", "idle", "limited", "error"
+	MessageID string
+	// LastRole is the newest message's role ("user" while the reply to it has no row yet).
+	LastRole      string
 	CreatedAt     time.Time
 	CompletedAt   time.Time
 	HasModelReply bool
@@ -886,6 +894,7 @@ func InspectSession(dbPath, sessionID, cwd, repo, model string, since, notBefore
 		return out, nil
 	}
 	out.MessageID = lastID
+	out.LastRole = lastMsg.Role
 	created := lastMsg.Time.Created
 	if created == 0 {
 		created = lastAt

@@ -28,12 +28,12 @@ func plan(t *testing.T, m *adapterv1.PlanLaunchRequest) *adapterv1.PlanLaunchRes
 func TestPlanLaunchChoosesTheSessionAndReopensIt(t *testing.T) {
 	first := plan(t, &adapterv1.PlanLaunchRequest{Binary: "/bin/copilot", Model: "auto", Effort: "medium"})
 	if first.SessionId != "new-session" ||
-		!slices.Equal(first.Argv, []string{"/bin/copilot", "--session-id", "new-session", "--model", "auto", "--auto-tier", "intelligence"}) {
+		!slices.Equal(first.Argv, []string{"/bin/copilot", "--deny-tool=shell(pkill:*)", "--deny-tool=shell(killall:*)", "--deny-tool=shell(killall5:*)", "--session-id", "new-session", "--model", "auto", "--auto-tier", "intelligence"}) {
 		t.Fatalf("first launch: %+v", first)
 	}
 	again := plan(t, &adapterv1.PlanLaunchRequest{Model: "gpt-5", Effort: "high", ResumeSessionId: "old", SkipPermissions: true})
 	if again.SessionId != "old" ||
-		!slices.Equal(again.Argv, []string{"copilot", "--session-id", "old", "--model", "gpt-5", "--reasoning-effort", "high", "--yolo"}) {
+		!slices.Equal(again.Argv, []string{"copilot", "--deny-tool=shell(pkill:*)", "--deny-tool=shell(killall:*)", "--deny-tool=shell(killall5:*)", "--session-id", "old", "--model", "gpt-5", "--reasoning-effort", "high", "--yolo"}) {
 		t.Fatalf("reopen: %+v", again)
 	}
 }
@@ -55,8 +55,28 @@ func TestPlanLaunchDeniesWriteAndPublishingForReadOnlyAndPlanningAgents(t *testi
 			t.Errorf("%s: --yolo before the deny rules: %v", name, argv)
 		}
 	}
-	if argv := plan(t, &adapterv1.PlanLaunchRequest{Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Model: "auto"}).Argv; strings.Contains(strings.Join(argv, " "), "deny-tool") {
+	// An executing worker is denied no write and no publishing, only the kill by pattern every agent is.
+	argv := plan(t, &adapterv1.PlanLaunchRequest{Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Model: "auto"}).Argv
+	if strings.Contains(strings.Join(argv, " "), "deny-tool=write") || strings.Contains(strings.Join(argv, " "), "git push") {
 		t.Errorf("an executing worker was denied: %v", argv)
+	}
+}
+
+func TestPlanLaunchDeniesAKillByPatternToEveryAgent(t *testing.T) {
+	for name, m := range map[string]*adapterv1.PlanLaunchRequest{
+		"worker": {Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Model: "auto"},
+		"root":   {Role: agentmeshv1.AgentRole_AGENT_ROLE_ROOT, Model: "auto", SkipPermissions: true},
+		"asker":  {Role: agentmeshv1.AgentRole_AGENT_ROLE_ASKER, Model: "auto"},
+	} {
+		argv := plan(t, m).Argv
+		for _, rule := range []string{"--deny-tool=shell(pkill:*)", "--deny-tool=shell(killall:*)"} {
+			if !slices.Contains(argv, rule) {
+				t.Errorf("%s: no %s in %v", name, rule, argv)
+			}
+		}
+		if i, j := slices.Index(argv, "--yolo"), slices.Index(argv, "--deny-tool=shell(pkill:*)"); i >= 0 && j > i {
+			t.Errorf("%s: --yolo before the kill rules: %v", name, argv)
+		}
 	}
 }
 
