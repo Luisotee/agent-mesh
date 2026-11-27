@@ -58,6 +58,10 @@ func (p *pusher) decide(r store.Reader, e *v1.Event, lookup func(string) *v1.Age
 				p.runOf(a.RunId).finished = false // the lead has work again: its next finish is news
 			}
 		case v1.AgentState_AGENT_STATE_IDLE:
+			// Only a turn that ended: an agent coming up to its first prompt (STARTING) or back from unknown is no finish.
+			if ch.From != v1.AgentState_AGENT_STATE_WORKING {
+				return nil
+			}
 			switch {
 			case a.Role == v1.AgentRole_AGENT_ROLE_ROOT:
 				if n := d.runFinished(r, p.runOf(a.RunId), a); n != nil {

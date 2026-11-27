@@ -213,6 +213,15 @@ func TestAPlainAgentEndingATurnIsFinished(t *testing.T) {
 	h.seedAgent(run.Id, "p-plain", "scratch", "", v1.AgentRole_AGENT_ROLE_WORKER)
 	h.seedAgent(run.Id, "p-lead", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
 	h.seedAgent(run.Id, "p-w", "fix", "p-lead", v1.AgentRole_AGENT_ROLE_WORKER)
+	// Coming up to the first prompt is no finish, for a plain agent or a lead.
+	setState(t, h, "p-plain", v1.AgentState_AGENT_STATE_STARTING)
+	setState(t, h, "p-plain", v1.AgentState_AGENT_STATE_IDLE)
+	setState(t, h, "p-lead", v1.AgentState_AGENT_STATE_STARTING)
+	setState(t, h, "p-lead", v1.AgentState_AGENT_STATE_IDLE)
+	time.Sleep(200 * time.Millisecond)
+	if got := userNotices(t, h, run.Id); len(got) != 0 {
+		t.Fatalf("agents coming up made notices: %+v", got)
+	}
 	setState(t, h, "p-w", v1.AgentState_AGENT_STATE_WORKING)
 	setState(t, h, "p-w", v1.AgentState_AGENT_STATE_IDLE)
 	setState(t, h, "p-plain", v1.AgentState_AGENT_STATE_WORKING)
