@@ -265,12 +265,12 @@ class MessagesTest {
         assertEquals(0, compose.onAllNodesWithText("message number 300").fetchSemanticsNodes().size)
     }
 
-    @Test fun `an empty tab says Loading until the run's history is in, and offers a retry when the load gave up`() {
+    @Test fun `an empty tab shows a skeleton until the run's history is in, and offers a retry when the load gave up`() {
         val rt = runtime(retryMs = 5)
         rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
         show(rt)
         compose.waitForIdle()
-        compose.onNodeWithText("Loading…").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Loading the messages").assertIsDisplayed()
         // The loads gave up.
         api.failListings = 100
         rt.loadMessages()

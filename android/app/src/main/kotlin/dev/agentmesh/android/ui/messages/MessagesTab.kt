@@ -1,5 +1,8 @@
 package dev.agentmesh.android.ui.messages
 
+import dev.agentmesh.android.ui.motionItem
+import dev.agentmesh.android.ui.SkeletonRows
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -75,8 +78,9 @@ fun MessagesTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
         val known = state.synced && (runId == null || runId in state.messagesLoaded || state.runs[runId]?.status != RunStatus.RUN_STATUS_OPEN)
         if (list.isEmpty()) {
             Column(Modifier.weight(1f).padding(16.dp)) {
-                Text(
-                    when { failed -> "Couldn't load the messages."; known -> "No messages yet."; else -> "Loading…" },
+                if (!failed && !known) SkeletonRows("Loading the messages", Modifier.testTag("messages-loading"))
+                else Text(
+                    if (failed) "Couldn't load the messages." else "No messages yet.",
                     color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (failed) TextButton(onClick = runtime::reloadMessages, Modifier.testTag("reload-messages")) { Text("Try again") }
@@ -84,7 +88,7 @@ fun MessagesTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("messages"), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
                 items(list, key = { it.id }, contentType = { it.type }) { m ->
-                    MessageCard(runtime, m, agentId, open = m.id in pending, skewMs = state.clockSkewMs, canAnswer = !dev.agentmesh.android.ui.chat.isReadOnlyDevice(state))
+                    Box(motionItem()) { MessageCard(runtime, m, agentId, open = m.id in pending, skewMs = state.clockSkewMs, canAnswer = !dev.agentmesh.android.ui.chat.isReadOnlyDevice(state)) }
                 }
                 if (failed) item(key = "load-failed") {
                     TextButton(onClick = runtime::reloadMessages, Modifier.testTag("reload-messages")) { Text("Older messages didn't load. Try again") }

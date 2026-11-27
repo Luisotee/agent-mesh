@@ -6,7 +6,7 @@ The app is a client of the daemon (`daemon/`). Everything it does to a host is a
 
 ## What the first version does
 
-Hosts (several, each with routes tried in order), a connection per host with a banner and a log, runs and agents live from the event stream (each run a tree from its lead, state icons whose shape differs by state, a plain status sentence), the host's settings generated from its schema, and six themes (Dracula by default, chosen per device). A read-only terminal per agent, plans, questions and reports, and notifications (`TODO.md` lists what's next).
+Hosts (several, each with routes tried in order), a connection per host with a banner and a log, runs and agents live from the event stream (each run a tree from its lead, state icons whose shape differs by state, a plain status sentence), the host's settings generated from its schema, and six themes (Dracula by default, chosen per device) in the desktop's look: bundled Geist and JetBrains Mono, a colour per project, vendor marks in their brand colours, syntax-coloured code blocks, skeleton loading and motion that stands still when the system asks for none. A read-only terminal per agent, plans, questions and reports, and notifications (`TODO.md` lists what's next).
 
 ## The terminal
 

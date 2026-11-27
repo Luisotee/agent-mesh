@@ -230,7 +230,7 @@ class ParityScreensTest {
         compose.onNodeWithTag("view-status").performClick()
         for (b in listOf("Needs", "Failed", "Working", "Idle")) compose.onNodeWithTag("bucket-$b").assertIsDisplayed()
         compose.onAllNodesWithTag("bucket-Done").assertCountEquals0()
-        compose.onNodeWithText("NEEDS YOU (1)").assertIsDisplayed()
+        compose.onNodeWithText("Needs you (1)").assertIsDisplayed()
         compose.onNodeWithTag("open-dock").performClick()
         compose.onNodeWithTag("open-usage").performClick()
         assertEquals(1, dock); assertEquals(1, usage)
@@ -245,7 +245,7 @@ class ParityScreensTest {
         val rt = host(agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead"), agent("w1", parent = "lead", name = "shop-fix").toBuilder().setPhase(dev.agentmesh.gen.agentmesh.v1.AgentPhase.AGENT_PHASE_PLANNING).build())
         show { HostScreen(rt, {}, { _, _ -> }, {}, {}) }
         waitForText("shop-fix sent a plan")
-        compose.onNodeWithText("WAITING ON YOU (1)").assertIsDisplayed()
+        compose.onNodeWithText("Waiting on you (1)").assertIsDisplayed()
         // Opening the row shows the plan and its Approve.
         compose.onNodeWithText("shop-fix sent a plan").performClick()
         compose.onNodeWithText("Change the typo in README").assertIsDisplayed()
