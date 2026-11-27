@@ -52,7 +52,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   const run = nav.getByRole('listitem', { name: 'e2e run' })
   const lead = run.getByRole('button', { name: 'e2e run, lead repo-lead' })
   await lead.waitFor({ timeout: 20_000 })
-  await expect.poll(() => lead.innerText(), { timeout: 20_000 }).toContain('Idle, waiting for a message')
+  await expect.poll(() => lead.innerText(), { timeout: 20_000 }).toContain('Idle, waiting for you')
 
   // A worker the lead starts (with the lead's own token, as an agent would) joins the tree under it, live.
   const leadId = await agentId('repo-lead')
