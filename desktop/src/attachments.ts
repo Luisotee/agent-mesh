@@ -40,7 +40,7 @@ export function attachName(f: { name: string; type: string }): string {
 export function pastedFiles(data: DataTransfer | null): File[] {
   const files = [...(data?.files ?? [])]
   if (files.length === 0) return []
-  if (data!.getData('text/plain') && files.every((f) => f.type in IMAGE_TYPES)) return []
+  if (data!.getData('text/plain') && files.every((f) => Object.hasOwn(IMAGE_TYPES, f.type.toLowerCase()) || isImagePath(f.name))) return []
   return files
 }
 

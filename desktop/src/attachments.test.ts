@@ -60,6 +60,8 @@ describe('attachments', () => {
     const clip = (files: File[], text: string) => ({ files, getData: (t: string) => (t === 'text/plain' ? text : '') }) as unknown as DataTransfer
     expect(pastedFiles(clip([png], ''))).toEqual([png])
     expect(pastedFiles(clip([png], 'alt text'))).toEqual([])
+    expect(pastedFiles(clip([new File(['x'], 'a.PNG', { type: '' })], 'alt text'))).toEqual([])
+    expect(pastedFiles(clip([new File(['x'], 'b', { type: 'constructor' })], 'b'))).toHaveLength(1)
     expect(pastedFiles(clip([doc], 'notes.txt'))).toEqual([doc])
     expect(pastedFiles(clip([], 'text'))).toEqual([])
     expect(pastedFiles(null)).toEqual([])
