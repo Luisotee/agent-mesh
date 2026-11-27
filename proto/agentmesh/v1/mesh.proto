@@ -1232,6 +1232,9 @@ message SpawnAgentRequest {
   // Who runs the review rounds of this worker's PR: "worker", "relay" (the worker runs them as a relay, for a risky PR)
   // or "root"; empty means the `review.by` setting.
   string reviews = 15;
+  // A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+  // plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+  bool plain = 16;
 }
 
 message SpawnAgentResponse {

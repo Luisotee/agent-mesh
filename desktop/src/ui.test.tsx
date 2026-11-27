@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -24,6 +24,7 @@ import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
+import { Notices } from './components/notices'
 import { ShellCloseDialog } from './components/shell-panel'
 import { keyedCommands } from './commands'
 import { Code, ConnectError } from '@connectrpc/connect'
@@ -35,7 +36,7 @@ import { SidebarFooter } from './components/sidebar-footer'
 import { FindBar } from './components/find-bar'
 import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
-import { AppContext, useHostState } from './context'
+import { AppContext, useApp, useHostState } from './context'
 import { messagesOf } from './derive'
 import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
@@ -272,7 +273,13 @@ describe('ProjectSidebar', () => {
 })
 
 describe('AgentPanel', () => {
-  const panel = (wrap: (n: React.ReactNode) => React.ReactElement) => render(wrap(<><AgentPanel host={fixtureHost!} agentId="w1" /><SendMessageDialog /></>))
+  // The agent's menu is on its tab now: the tab bar shows with the agent open.
+  const OpenW1 = () => {
+    const app = useApp()
+    useEffect(() => app.selectAgent('h1', 'w1'), [app])
+    return null
+  }
+  const panel = (wrap: (n: React.ReactNode) => React.ReactElement) => render(wrap(<><OpenW1 /><TabBar /><AgentPanel host={fixtureHost!} agentId="w1" /><SendMessageDialog /></>))
   let fixtureHost: HostRuntime | undefined
   async function openSend() {
     await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
@@ -356,7 +363,7 @@ describe('AgentPanel', () => {
     fixtureHost = host
     host.store.setState((s) => ({ agents: { ...s.agents, w1: agent('w1', { name: 'app-fix', state: AgentState.EXITED, exitCode: 7 }) } }))
     panel(wrap)
-    expect(screen.getByTestId('agent-status')).toHaveTextContent('Exited with code 7')
+    expect(screen.getByTestId('chat-status')).toHaveTextContent('Exited with code 7')
     await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
     expect(await screen.findByRole('menuitem', { name: 'Stop…' })).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeDisabled()
@@ -739,7 +746,7 @@ describe('Dock and TabBar', () => {
     act(() => model.selectAgent('h1', 'o1'))
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['web-lead'])
     await userEvent.click(screen.getByRole('button', { name: 'New in web' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'New lead' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'New lead…' }))
     expect(model.store.getState()).toMatchObject({ workspaceOpen: true, workspaceRepo: '/p/web', workspaceHost: 'h1' })
   })
 
@@ -819,10 +826,11 @@ describe('Splits', () => {
     model.selectAgent('h1', 'lead')
     render(wrap(<><TabBar /><Panes host={host} agentId="lead" /><Dock /></>))
     const tabs = screen.getByRole('tablist', { name: 'Open agents' })
-    await userEvent.click(within(tabs).getByRole('button', { name: 'Show app-fix beside' }))
-    expect(model.store.getState().side).toEqual([{ hostId: 'h1', agentId: 'w1', tab: 'chat' }])
-    // The tab says it is beside, and has no split button now.
+    // The tab's menu (right click) has it; the tab shows no button of its own, so hovering changes nothing.
     expect(within(tabs).queryByRole('button', { name: 'Show app-fix beside' })).toBeNull()
+    fireEvent.contextMenu(within(tabs).getByRole('tab', { name: /app-fix/ }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Show beside' }))
+    expect(model.store.getState().side).toEqual([{ hostId: 'h1', agentId: 'w1', tab: 'chat' }])
     const split = screen.getByRole('region', { name: 'Split pane' })
     expect(within(split).getByRole('article', { name: 'app-fix' })).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Main pane' })).getByRole('article', { name: 'app-lead' })).toBeInTheDocument()
@@ -839,13 +847,9 @@ describe('Splits', () => {
     await userEvent.click(within(split).getByRole('button', { name: 'Make this the main pane' }))
     expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'terminal', side: [{ agentId: 'lead', tab: 'chat' }] })
 
-    // The side panel is the main pane's: a pane's model chip makes its agent the main pane's first.
-    await userEvent.click(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('button', { name: /^Model: / }))
-    expect(model.store.getState()).toMatchObject({ agentId: 'lead', panelOpen: true, side: [{ agentId: 'w1' }] })
-    act(() => {
-      model.focusPane({ hostId: 'h1', agentId: 'w1' })
-      model.setPanel(false)
-    })
+    // A pane's title row names its agent.
+    expect(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('heading', { name: 'app-lead' })).toBeInTheDocument()
+    act(() => model.setPanel(false))
 
     await userEvent.click(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('button', { name: 'Close this pane' }))
     expect(model.store.getState().side).toEqual([])
@@ -1058,18 +1062,34 @@ describe('SidebarFooter', () => {
     const { wrap, model, client } = fixture()
     client.listProjects.mockResolvedValue(create(ListProjectsResponseSchema, { projects: [create(ProjectSchema, { path: '/p/apple', name: 'apple' }), create(ProjectSchema, { path: '/p/app', name: 'app' })] }))
     model.togglePin('h1', '/p/app')
-    render(wrap(<SidebarFooter />))
-    await userEvent.click(screen.getByRole('button', { name: 'New' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Add a project…' }))
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
     await userEvent.type(await screen.findByRole('textbox'), '  /p/app {Enter}')
     expect(model.store.getState().pins).toEqual({ h1: ['/p/app'] })
+  })
+
+  it('checks a path typed with the host and refuses one that is not a repository, saying why, instead of pinning it', async () => {
+    const { wrap, model, client } = fixture()
+    client.listProjects.mockImplementation(async (req: unknown) => {
+      if ((req as { repo?: string }).repo === '/tmp/plain') throw new Error('[invalid_argument] /tmp/plain is not a git repository')
+      if ((req as { repo?: string }).repo === '/p/new') return create(ListProjectsResponseSchema, { projects: [create(ProjectSchema, { path: '/p/new', name: 'new' })] })
+      return create(ListProjectsResponseSchema)
+    })
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
+    await userEvent.type(await screen.findByRole('textbox'), '/tmp/plain{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('/tmp/plain is not a git repository')
+    expect(model.store.getState().pins).toEqual({})
+    await userEvent.clear(screen.getByRole('textbox'))
+    await userEvent.type(screen.getByRole('textbox'), '/p/new{Enter}')
+    await waitFor(() => expect(model.store.getState().pins).toEqual({ h1: ['/p/new'] }))
   })
 
   it('offers New lead, a project, a host and pairing from +, and the host\'s settings from Hosts', async () => {
     const { wrap, model } = fixture()
     render(wrap(<SidebarFooter />))
     await userEvent.click(screen.getByRole('button', { name: 'New' }))
-    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New lead', 'Add a project…', 'Connect a host…', 'Pair a device'])
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New lead', 'Connect a host…', 'Pair a device'])
     await userEvent.click(screen.getByRole('menuitem', { name: 'New lead' }))
     expect(model.store.getState().workspaceOpen).toBe(true)
     await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
@@ -1803,7 +1823,7 @@ describe('Project shells', () => {
     const { client, wrap, model } = shells()
     render(wrap(<TabBar />))
     await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
-    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New lead', 'New terminal'])
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New Claude agent', 'New agy agent', 'New lead…', 'New terminal'])
     await userEvent.click(screen.getByRole('menuitem', { name: 'New terminal' }))
     await waitFor(() => expect(model.store.getState().agentId).toBe('shell:t1'))
     expect(client.openShell).toHaveBeenCalledWith(expect.objectContaining({ repo: '/p/app' }))
@@ -1811,6 +1831,24 @@ describe('Project shells', () => {
     const tabs = screen.getByRole('tablist', { name: 'Open agents' })
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-lead', 'Terminal'])
     expect(model.store.getState().tabs).toContainEqual({ hostId: 'h1', agentId: 'shell:t1' })
+  })
+
+  it('starts a plain agent from the +: a run of its own and a root with no task, flagged plain, whose chat opens; a refusal is a toast', async () => {
+    const { client, wrap, model } = shells()
+    client.startRun.mockResolvedValue({ run: { id: 'r9' } })
+    client.spawnAgent.mockResolvedValue({ agent: { id: 'a9' } })
+    render(wrap(<><TabBar /><Notices /></>))
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'New agy agent' }))
+    await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
+    expect(client.startRun).toHaveBeenCalledWith(expect.objectContaining({ title: 'agy in app' }))
+    expect(client.spawnAgent).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r9', repo: '/p/app', role: AgentRole.ROOT, kind: 'agy', task: '', plain: true }))
+    await waitFor(() => expect(model.store.getState()).toMatchObject({ agentId: 'a9', tab: 'chat' }))
+    act(() => model.selectAgent('h1', 'lead'))
+    client.spawnAgent.mockRejectedValueOnce(new ConnectError('the host is at its agent cap', Code.FailedPrecondition))
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'New Claude agent' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('the host is at its agent cap')
   })
 
   it('asks when a shell tab closes: Keep running closes the tab only and the + menu opens it again; End shell stops it', async () => {
@@ -1844,7 +1882,7 @@ describe('Project shells', () => {
     await act(() => model.loadShells('h1'))
     model.selectAgent('h1', 'shell:t1')
     model.selectAgent('h1', 'shell:t2')
-    render(wrap(<><TabBar /><ShellCloseDialog /></>))
+    render(wrap(<><TabBar /><ShellCloseDialog /><Notices /></>))
     const tabs = screen.getByRole('tablist', { name: 'Open agents' })
     // The shell t1 ended by itself (the host forgot it): closing its tab does not offer to keep it running.
     client.listShells.mockImplementation(async () => create(ListShellsResponseSchema, { shells: [shell('t2')] }))
@@ -1857,7 +1895,7 @@ describe('Project shells', () => {
     })
     await act(() => model.endShell('h1', 't2'))
     expect(model.store.getState().tabs).not.toContainEqual({ hostId: 'h1', agentId: 'shell:t2' })
-    // A New terminal the host refuses says why, in the bar.
+    // A New terminal the host refuses says why, in a toast.
     model.selectAgent('h1', 'lead')
     client.openShell.mockImplementationOnce(async () => {
       throw new ConnectError('20 shells are running: end one first', Code.FailedPrecondition)

@@ -1,4 +1,4 @@
-import { ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server } from 'lucide-react'
+import { Bot, ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server, SquareTerminal } from 'lucide-react'
 import { AnimatePresence, m } from 'motion/react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { MoreButton, RowContextMenu, type MenuEntry } from '@/components/ui/menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
-import { useApp, useAppState, useHostState } from '@/context'
+import { useApp, useAppState, useHostState, useSelectedHost } from '@/context'
 import { canArchive } from '@/agent-work'
 import { githubNote } from '@/buckets'
 import { repoName, ROLE_LABEL, statusSentence } from '@/derive'
@@ -22,7 +22,9 @@ import type { HostRuntime } from '@/model'
 import { buildProjects, helpersLabel, anyWorking, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
 import { vendorOfKind } from '@/vendor'
 import { ArchiveDialog } from './agent-work'
+import { AddProjectDialog } from './add-project'
 import { SidebarFooter } from './sidebar-footer'
+import { cliKinds, cliName } from '@/cli'
 import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
 import { WaitingList } from './waiting-list'
@@ -48,6 +50,8 @@ export function ProjectSidebar() {
   const many = hosts.length > 1
   const keys = useKeys(hosts)
   const loading = side.some((h) => h.loading)
+  const [adding, setAdding] = useState(false)
+  const addHost = useSelectedHost() ?? hosts[0]
   // A rename (F2, the palette) edits the title on the run's lead row: the sidebar unfolds to it, and the project
   // unfolds it in its place. A run with no row to edit on (its project removed from the sidebar) is no rename.
   const renaming = useAppState((s) => s.renaming)
@@ -97,12 +101,20 @@ export function ProjectSidebar() {
         <div className="min-h-0 flex-1 overflow-y-auto pb-3">
           {hosts.map((h) => <HostWaiting key={h.info.id} host={h} many={many} />)}
           {hosts.map((h) => <GithubNote key={h.info.id} host={h} many={many} />)}
-          <h2 className="px-3 pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">Projects</h2>
+          <div className="flex items-center justify-between pr-2 pl-3">
+            <h2 className="pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">Projects</h2>
+            <Tip label="Add a project">
+              <Button size="icon" variant="ghost" className="mt-1.5 size-6" aria-label="Add a project" disabled={!addHost} onClick={() => setAdding(true)}><Plus className="size-4" /></Button>
+            </Tip>
+          </div>
           {loading && projects.length === 0 && <SidebarSkeleton />}
           {!loading && projects.length === 0 && (
             <div className="flex flex-col items-center gap-2 px-4 py-6 text-center text-xs text-muted-foreground">
               <p>No projects yet. Start a lead agent in one to give it work.</p>
-              <Button size="sm" variant="secondary" onClick={() => app.openWorkspace(true)}><Plus /> New lead</Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="secondary" disabled={!addHost} onClick={() => setAdding(true)}><Plus /> Add a project</Button>
+                <Button size="sm" variant="ghost" onClick={() => app.openWorkspace(true)}>New lead</Button>
+              </div>
             </div>
           )}
           <ul className="px-1.5">
@@ -112,6 +124,7 @@ export function ProjectSidebar() {
         </div>
       </nav>
       <SidebarFooter />
+      {adding && addHost && <AddProjectDialog host={addHost} onClose={() => setAdding(false)} />}
     </aside>
   )
 }
@@ -221,9 +234,9 @@ function ProjectItem({ project: p, many, hidden }: { project: ProjectRow; many: 
       {open && (
         <div className="ml-3 border-l border-identity/30 pl-1">
           {empty && (
-            <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-              <span className="flex-1">No runs here yet.</span>
-              {p.repo && p.up && <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => app.openWorkspace(true, undefined, { hostId: p.hostId, repo: p.repo })}><Plus className="size-3.5" /> New lead</Button>}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1">No runs here yet.</span>
+              {p.repo && p.up && <EmptyProjectActions hostId={p.hostId} repo={p.repo} />}
             </div>
           )}
           <ul>
@@ -244,6 +257,25 @@ function ProjectItem({ project: p, many, hidden }: { project: ProjectRow; many: 
         </div>
       )}
     </li>
+  )
+}
+
+/**
+ * What a project with no run offers: a plain agent on the host's first CLI (the + of the tab bar lists the others), a lead, or a
+ * terminal. An error is a toast.
+ */
+function EmptyProjectActions({ hostId, repo }: { hostId: string; repo: string }) {
+  const app = useApp()
+  const fail = (e: unknown) => app.notify(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e), 'error')
+  const kind = () => cliKinds(hostOf(app, hostId)?.store.getState().settings ?? {})[0] ?? 'claude'
+  return (
+    <span className="flex shrink-0 gap-0.5">
+      <Tip label={`A plain ${cliName(kind())} agent, like claude in a terminal`}>
+        <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => void app.newAgent(hostId, repo, kind()).catch(fail)}><Bot className="size-3.5" /> Agent</Button>
+      </Tip>
+      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => app.openWorkspace(true, undefined, { hostId, repo })}><Plus className="size-3.5" /> Lead</Button>
+      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => void app.newShell(hostId, repo).catch(fail)}><SquareTerminal className="size-3.5" /> Terminal</Button>
+    </span>
   )
 }
 

@@ -231,6 +231,9 @@ func (d *Daemon) ResetRoot(ctx context.Context, req *connect.Request[v1.ResetRoo
 		if IsAgent(tx.Actor.Class) && tx.Actor.Id != root.Id {
 			return denied("only the run's root resets itself")
 		}
+		if root.Plain {
+			return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s is a plain agent, the user's own conversation: the mesh never resets it (type /clear in its chat)", root.Name))
+		}
 		run, err := tx.GetRun(runID)
 		if err != nil {
 			return err
@@ -674,7 +677,7 @@ func (h hintInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 			return res, err
 		}
 		root, gerr := h.d.store.Read(ctx).GetAgent(actor.Id)
-		if gerr != nil || root.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+		if gerr != nil || root.Role != v1.AgentRole_AGENT_ROLE_ROOT || root.Plain {
 			return res, err
 		}
 		line, failure := h.d.rootHint(ctx, root, hintAboutToWait[req.Spec().Procedure])
@@ -752,7 +755,7 @@ func (d *Daemon) autoReset(ctx context.Context) {
 			continue
 		}
 		root, liveWorker, err := d.runRootAndWorkers(r, run.Id)
-		if err != nil || !liveWorker || root.PendingReset != nil || root.PendingReopen != nil || stopped(root) || root.TerminalId == "" ||
+		if err != nil || !liveWorker || root.Plain || root.PendingReset != nil || root.PendingReopen != nil || stopped(root) || root.TerminalId == "" ||
 			!takesDoorbell(root.State) || !d.rt.adapters.HasCapability(root.Kind, capContext) {
 			continue
 		}

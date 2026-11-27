@@ -4,9 +4,13 @@ import { Button } from '@/components/ui/button'
 import { Tip } from '@/components/ui/tooltip'
 import { useApp, useAppState } from '@/context'
 import { cn } from '@/lib/utils'
-import type { HostRuntime } from '@/model'
+import type { AgentTab, HostRuntime } from '@/model'
 import { tabKey, type Edge } from '@/workspace'
 import { AgentPanel } from './agent-panel'
+import { StateIcon } from './state-icon'
+import { ViewSwitch } from './view-switch'
+import { useHostState } from '@/context'
+import { isShellTab } from '@/shells'
 
 /**
  * The main pane split: the open agent and the panes the user pinned beside it, next to each other or stacked. Each
@@ -30,23 +34,38 @@ export function Panes({ host, agentId }: { host: HostRuntime; agentId?: string }
         const h = hosts.find((x) => x.info.id === p.hostId)
         return (
           <section key={tabKey(p)} aria-label="Split pane" className="flex min-h-0 min-w-0 flex-1 basis-0 flex-col bg-background">
-            <header className="flex items-center justify-end gap-1 border-b px-2 py-0.5">
-              <Tip label="Make this the main pane">
-                <Button size="icon" variant="ghost" className="size-6" aria-label="Make this the main pane" onClick={() => app.focusPane(p)}>
-                  <Maximize2 className="size-3.5" />
-                </Button>
-              </Tip>
-              <Tip label="Close this pane (its tab stays open)">
-                <Button size="icon" variant="ghost" className="size-6" aria-label="Close this pane" onClick={() => app.unsplit(p)}>
-                  <X className="size-3.5" />
-                </Button>
-              </Tip>
-            </header>
+            {h && <PaneTitle host={h} agentId={p.agentId} tab={p.tab} setTab={(t) => app.setPaneTab(p, t)} onMain={() => app.focusPane(p)} onClose={() => app.unsplit(p)} />}
             {h ? <AgentPanel key={p.agentId} host={h} agentId={p.agentId} view={{ tab: p.tab, setTab: (t) => app.setPaneTab(p, t) }} /> : <p className="p-6 text-sm text-muted-foreground">That host is gone.</p>}
           </section>
         )
       })}
     </div>
+  )
+}
+
+/**
+ * A split pane's title row: its agent's state and name, its Chat | CLI switch, and the buttons that make it the main pane or
+ * close it. The tab bar's switch acts on the main pane only, so each pane beside it carries its own.
+ */
+function PaneTitle({ host, agentId, tab, setTab, onMain, onClose }: { host: HostRuntime; agentId: string; tab: AgentTab; setTab: (t: AgentTab) => void; onMain: () => void; onClose: () => void }) {
+  const agent = useHostState(host, (s) => s.agents[agentId])
+  const shell = isShellTab(agentId)
+  return (
+    <header className="flex min-w-0 items-center gap-1.5 border-b px-2 py-0.5">
+      {agent && <StateIcon agent={agent} className="size-3.5 shrink-0" />}
+      <h2 className="min-w-0 flex-1 truncate text-[13px] font-medium">{shell ? 'Terminal' : (agent?.name ?? agentId)}</h2>
+      {!shell && <ViewSwitch host={host} agentId={agentId} tab={tab} setTab={setTab} />}
+      <Tip label="Make this the main pane">
+        <Button size="icon" variant="ghost" className="size-6" aria-label="Make this the main pane" onClick={onMain}>
+          <Maximize2 className="size-3.5" />
+        </Button>
+      </Tip>
+      <Tip label="Close this pane (its tab stays open)">
+        <Button size="icon" variant="ghost" className="size-6" aria-label="Close this pane" onClick={onClose}>
+          <X className="size-3.5" />
+        </Button>
+      </Tip>
+    </header>
   )
 }
 

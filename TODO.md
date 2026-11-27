@@ -21,6 +21,8 @@ Open work, kept short on purpose: whoever picks a task up works out the details.
 - [ ] OpenCode stall alert: live-check on a dev meshd (`README.md`, "Live checks") that `part.time_updated` moves while a part streams, not only when it ends: if it moves only at the end, one long streaming part older than `opencode.stall_after` (900 s, raised from 600 as a hedge) gives a false `[mesh alert stalled <id>]`. The columns exist in the real `opencode.db`; the streaming behaviour was not run (no real OpenCode run).
 - [ ] agy: a `Stop` with `continuationActive: true` that ends on a non-limit error is read as activity (a limit error is LIMITED): capture one by hand (`scripts/capture-agy-hooks.sh`) to see whether agy goes on after such an error; if not, it is `TurnFailed`.
 
+- [ ] Android follows the desktop UI feedback (2026-11-27, `runs/r2lscbp/plans/agent-mesh-ui-feedback.md`; desktop first): a "New agent" in the add menu per CLI the host has (a plain agent: `SpawnAgent.plain`, a root with no task that the host never resets or briefs; the drawer already has an add for projects and leads, and tabs, split panes and the tab bar's view switch are desktop-only). Later PRs of that plan add their lines here: the agent's wait words and the PR sections, the context meter with the reset marks, the model picker by the composer, live agents only in the tree strip, the quota footer per provider with the reserve tick.
+
 ## From the Orca / Paseo comparison (2026-11-24)
 
 Ideas from comparing agent-mesh with stablyai/orca and getpaseo/paseo. Paseo was trialled and dropped (design, "Alternatives considered"): agent-mesh gets its own apps instead.
