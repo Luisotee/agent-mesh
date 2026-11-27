@@ -491,7 +491,10 @@ func HooksJSON(agentID string, hookArgv []string, deny bool, denyPaths ...string
 		}
 	} else {
 		preArgv := append(append([]string{}, hookArgv...), "PreToolUse")
-		preCmd := fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || exit 0; %s >/dev/null 2>&1; exit 0`,
+		// Nothing the hook prints passes but its refusal of a kill by pattern: any other output, or a hook that fails,
+		// lets the tool run.
+		preCmd := fmt.Sprintf(`[ "$AGENT_MESH_AGENT" = %s ] || exit 0; out=$(%s 2>/dev/null); `+
+			`case "$out" in '{"decision":"deny"'*) printf '%%s\n' "$out";; esac; exit 0`,
 			adapter.ShellQuote(agentID), adapter.ShellQuote(preArgv...))
 		preGroup = hookGroup{
 			Matcher: "*",
@@ -659,6 +662,19 @@ func EvaluatePreToolUse(raw []byte, fallbackCwd string, denyPaths []string, deny
 				return true, fmt.Sprintf("read-only/planning agent may not run %q", pub)
 			}
 		}
+	}
+	return false, ""
+}
+
+// EvaluatePatternKill checks an agy PreToolUse payload for a kill by pattern (`pkill`, `killall`, `kill $(pgrep …)`),
+// which every agent is refused, not only a read-only one: it fails open, so a payload it can't read passes.
+func EvaluatePatternKill(raw []byte) (bool, string) {
+	var p preToolPayload
+	if json.Unmarshal(raw, &p) != nil || strings.ToLower(p.ToolCall.Name) != "run_command" {
+		return false, ""
+	}
+	if what := shellmatch.MatchPatternKill(extractCommand(p.ToolCall.Args)); what != "" {
+		return true, shellmatch.KillAdvice(what)
 	}
 	return false, ""
 }

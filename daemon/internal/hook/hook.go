@@ -90,9 +90,9 @@ func Run(o Options) error {
 	// --disallowedTools rules) the publish commands.
 	checked := o.Event == "PreToolUse" && (o.Kind == agy.Kind && (len(o.DenyPaths) > 0 || o.DenyPublish) ||
 		o.Kind == claude.Kind && o.DenyPublish)
+	var deny bool
+	var reason string
 	if checked {
-		var deny bool
-		var reason string
 		if o.Kind == agy.Kind {
 			deny, reason = agy.EvaluatePreToolUse(payload, o.Cwd, o.DenyPaths, o.DenyPublish)
 		} else {
@@ -104,16 +104,25 @@ func Run(o Options) error {
 		case oversize:
 			deny, reason = true, fmt.Sprintf("read-only/planning agent: the tool call is over %d bytes, too large to check", MaxPayload)
 		}
-		if deny && o.Stdout != nil {
-			if o.Kind == claude.Kind {
-				o.Stdout.Write(claude.DenyJSON(reason))
-			} else {
-				b, _ := json.Marshal(struct {
-					Decision string `json:"decision"`
-					Reason   string `json:"reason"`
-				}{"deny", reason})
-				o.Stdout.Write(append(b, '\n'))
-			}
+	}
+	// A kill by pattern is refused for every agent of the mesh (not for a person's own session: CheckOnly). Unlike
+	// the rules above it fails open: a payload it can't read (a truncated one too) is let through.
+	if !deny && preTool && !o.CheckOnly {
+		if o.Kind == agy.Kind {
+			deny, reason = agy.EvaluatePatternKill(payload)
+		} else {
+			deny, reason = claude.EvaluatePatternKill(payload)
+		}
+	}
+	if deny && o.Stdout != nil {
+		if o.Kind == claude.Kind {
+			o.Stdout.Write(claude.DenyJSON(reason))
+		} else {
+			b, _ := json.Marshal(struct {
+				Decision string `json:"decision"`
+				Reason   string `json:"reason"`
+			}{"deny", reason})
+			o.Stdout.Write(append(b, '\n'))
 		}
 	}
 	if readErr != nil {

@@ -361,10 +361,12 @@ func guardPlugins(t *testing.T, env map[string]string) []string {
 }
 
 // A bare redirect is no command to OpenCode 1.19.6, so no bash pattern sees it: the launch of every agent whose bash is fenced
-// loads the guard that refuses a `>`, and no other agent gets it.
+// loads the guard that refuses a `>`, and no other agent gets it. Every agent but a standalone session loads the guard
+// that refuses a kill by pattern.
 func TestAReadOnlyOrPlanningLaunchLoadsTheRedirectGuard(t *testing.T) {
 	share := filepath.Join(shortdir.New(t), "share")
-	want := []string{"file://" + share + "/opencode/readonly-guard.js"}
+	kill := "file://" + share + "/opencode/kill-guard.js"
+	want := []string{kill, "file://" + share + "/opencode/readonly-guard.js"}
 	for _, c := range []struct {
 		name       string
 		role       agentmeshv1.AgentRole
@@ -380,8 +382,15 @@ func TestAReadOnlyOrPlanningLaunchLoadsTheRedirectGuard(t *testing.T) {
 		{"a standalone session", agentmeshv1.AgentRole_AGENT_ROLE_ASKER, false, true, false},
 	} {
 		got := guardPlugins(t, planLaunchEnv(t, c.role, c.denyEdits, c.standalone, share))
-		if c.guarded && !reflect.DeepEqual(got, want) || !c.guarded && len(got) != 0 {
-			t.Errorf("%s: plugin = %v", c.name, got)
+		wantHere := []string{kill}
+		if c.guarded {
+			wantHere = want
+		}
+		if c.standalone {
+			wantHere = nil
+		}
+		if !reflect.DeepEqual(got, wantHere) && len(got)+len(wantHere) > 0 {
+			t.Errorf("%s: plugin = %v, want %v", c.name, got, wantHere)
 		}
 	}
 	if got := guardPlugins(t, planLaunchEnv(t, agentmeshv1.AgentRole_AGENT_ROLE_ASKER, false, false, "")); len(got) != 0 {
@@ -421,5 +430,49 @@ func TestTheRedirectGuardRefusesABashCommandWithARedirect(t *testing.T) {
 	want := map[string]bool{"bare": true, "append": true, "stderr": true, "piped": true, "plain": false, "other": false, "none": false}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("refused %v, want %v", got, want)
+	}
+}
+
+// The kill guard itself, run by Node when it is there: a bash command that kills by pattern is refused, a kill of a
+// PID one holds and any other call pass.
+func TestTheKillGuardRefusesAKillByPattern(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("no node to run the guard with")
+	}
+	file, err := filepath.Abs("../../../share/opencode/kill-guard.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := []string{`pkill -f "sleep 30"`, `killall node`, `echo x; pkill sleep`, `sudo pkill x`, `timeout 5 pkill x`,
+		`bash -c "pkill x"`, `/usr/bin/killall5 -9`, `kill $(pgrep -f sleep)`, "kill `pidof node`", `pgrep -f x | xargs kill`,
+		`ps aux | grep sleep | awk '{print $2}' | xargs kill`, `(pkill x)`}
+	passed := []string{`kill 1234`, `kill -9 $!`, `kill $(cat pidfile)`, `kill $(pgrep -P $$)`, `pgrep -P 5 | xargs kill`,
+		`pgrep -f sleep`, `grep pkill notes.md`, `echo "no pkill"`, `man killall`, `ls -la`, `go test ./...`}
+	script := `import(process.argv[1]).then(async (m) => {
+  const hook = (await m.KillGuard())["tool.execute.before"]
+  const refused = async (tool, args) => { try { await hook({ tool }, { args }); return false } catch { return true } }
+  const out = { other: await refused("edit", { command: "pkill x" }), none: await refused("bash", {}) }
+  for (const c of JSON.parse(process.argv[2])) out[c] = await refused("bash", { command: c })
+  console.log(JSON.stringify(out))
+})`
+	all, _ := json.Marshal(append(append([]string{}, refused...), passed...))
+	res, err := exec.Command(node, "--input-type=module", "-e", script, "file://"+file, string(all)).Output()
+	if err != nil {
+		t.Fatalf("node: %v: %s", err, res)
+	}
+	var got map[string]bool
+	if err := json.Unmarshal(res, &got); err != nil {
+		t.Fatalf("%s: %v", res, err)
+	}
+	for _, c := range refused {
+		if !got[c] {
+			t.Errorf("%q passed", c)
+		}
+	}
+	for _, c := range append(passed, "other", "none") {
+		if got[c] {
+			t.Errorf("%q was refused", c)
+		}
 	}
 }
