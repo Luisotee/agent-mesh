@@ -38,7 +38,7 @@ export function Dock() {
   const shown = useMemo(() => treeTiles(all, hostId && runId ? { hostId, runId } : undefined), [all, hostId, runId])
   // Only what is live shows; the idle ones rest behind a count (a lead and the open agent always show).
   const [showResting, setShowResting] = useState(false)
-  const live = shown.filter(({ tile: t }) => isActive(t.agent, { waiting: t.waiting, open: t.hostId === hostId && t.agent.id === agentId }))
+  const live = shown.filter(({ tile: t }) => isActive(t.agent, { waiting: t.waiting, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }))
   const resting = shown.length - live.length
   const listed = showResting ? shown : live
   const tiles = listed.map((t) => t.tile)

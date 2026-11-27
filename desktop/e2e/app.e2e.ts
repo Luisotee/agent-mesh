@@ -81,7 +81,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   // Stopping an agent from the UI ends its process; the tree shows it stopped, from the daemon's exit event.
   await page.getByRole('toolbar', { name: 'Open agent' }).getByRole('button', { name: 'Menu of repo-fix' }).click()
   await page.getByRole('menuitem', { name: 'Shut down…' }).click()
-  await page.getByRole('button', { name: 'Stop repo-fix' }).click()
+  await page.getByRole('button', { name: 'Shut down repo-fix' }).click()
   await expect.poll(() => panel.getByTestId('chat-status').textContent().then((t) => t ?? ''), { timeout: 20_000 }).toBe('Stopped')
 
   await page.screenshot({ path: path.join(shots, 'lead-agent-view.png') })

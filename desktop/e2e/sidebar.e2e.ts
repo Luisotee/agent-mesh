@@ -56,6 +56,10 @@ test('the sidebar shows the project, its run as the lead and the worker under it
   await lead.click()
   const side = page.getByRole('complementary', { name: 'Side panel' })
   const tree = side.getByRole('list', { name: 'Agent tree' })
+  // The idle worker rests behind a count (the tree lists live agents); a worker still starting is in it.
+  const resting = side.getByRole('button', { name: /^\d+ resting$/ })
+  await resting.or(tree.getByRole('button', { name: /repo-fix/ })).first().waitFor()
+  if (await resting.isVisible()) await resting.click()
   await tree.getByRole('button', { name: /repo-fix/ }).waitFor()
   await expect.poll(() => side.getByRole('region', { name: 'Run total' }).innerText(), { timeout: 20_000 }).toContain('$0.00')
   expect(await side.getByRole('region', { name: 'Pull requests' }).innerText()).toContain('None yet')

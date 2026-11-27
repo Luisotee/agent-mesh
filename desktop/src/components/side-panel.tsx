@@ -124,7 +124,7 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const waits = useMemo(() => new Set([...waitingAll, ...waiting].map((w) => w.agentId)), [waitingAll, waiting])
   if (!row) return null
   // Live agents only; the idle and finished ones rest behind a count. A parent of a live agent stays, so the tree keeps its shape.
-  const live = (a: Agent) => isActive(a, { waiting: waits.has(a.id), open: a.id === agent.id })
+  const live = (a: Agent) => isActive(a, { waiting: waits.has(a.id), keep: a.id === agent.id })
   const workerLive = (w: WorkerRow): boolean => live(w.agent) || w.helpers.some(live) || w.workers.some(workerLive)
   const shown = (w: WorkerRow) => showResting || workerLive(w)
   const item = (a: Agent, depth: number) => (
