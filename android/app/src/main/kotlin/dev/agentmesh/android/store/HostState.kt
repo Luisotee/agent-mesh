@@ -1,6 +1,7 @@
 package dev.agentmesh.android.store
 
 import dev.agentmesh.gen.agentmesh.v1.Agent
+import dev.agentmesh.gen.agentmesh.v1.AgentPullRequests
 import dev.agentmesh.gen.agentmesh.v1.AgentState
 import dev.agentmesh.gen.agentmesh.v1.Cursor
 import dev.agentmesh.gen.agentmesh.v1.Event
@@ -9,6 +10,7 @@ import dev.agentmesh.gen.agentmesh.v1.Message
 import dev.agentmesh.gen.agentmesh.v1.Run
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import dev.agentmesh.gen.agentmesh.v1.Setting
+import dev.agentmesh.gen.agentmesh.v1.Waiting
 import dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse
 
 /** The state of a host's connection, as the user sees it. */
@@ -46,6 +48,13 @@ data class HostState(
     val messagesFailed: Set<String> = emptySet(),
     /** When messages we hadn't loaded yet were delivered: applied when the page that holds them arrives. */
     val earlyDeliveries: Map<String, com.google.protobuf.Timestamp> = emptyMap(),
+    /**
+     * What waits on the user, as the host says (`ListWaiting`, read again when an event could change it); null until the
+     * host first answered, or when it can't (an older daemon): the screens then derive it from the messages.
+     */
+    val waiting: List<Waiting>? = null,
+    /** Each change worker's pull requests (`ListPullRequests`) by agent id: read at connect and every minute, and kept by `PullRequestChanged`. */
+    val pullRequests: Map<String, AgentPullRequests> = emptyMap(),
     /** The host's settings with their schemas, by key. */
     val settings: Map<String, Setting> = emptyMap(),
     val cursor: Cursor? = null,
@@ -74,6 +83,16 @@ fun applyFrame(s: HostState, frame: Frame): HostState = when (frame.frameCase) {
     }
     SubscribeEventsResponse.FrameCase.RESUMED -> s.copy(synced = true)
     SubscribeEventsResponse.FrameCase.EVENT -> applyEvent(s, frame.event)
+    // What a working agent is running now: it changes the agent's state detail and no event is written for it. Never
+    // replayed and not stored, so a resume or a snapshot is what the last event said.
+    SubscribeEventsResponse.FrameCase.ACTIVITY -> {
+        val a = s.agents[frame.activity.agentId]
+        if (a == null || a.state != AgentState.AGENT_STATE_WORKING) s
+        else s.withAgent(a.id) {
+            it.setStateDetail(frame.activity.detail)
+            if (frame.activity.hasTime()) it.setLastActivity(frame.activity.time)
+        }
+    }
     else -> s
 }
 
@@ -143,6 +162,11 @@ private fun applyEvent(s: HostState, e: Event): HostState {
         Event.PayloadCase.RUN_STOPPED -> s.runs[e.runId]?.let { r ->
             next.copy(runs = s.runs + (r.id to r.toBuilder().setStatus(RunStatus.RUN_STATUS_CLOSED).build()))
         } ?: next
+        // A PR's state or checks changed: it replaces what we hold for it (or is added), so the buckets follow a merge at once.
+        Event.PayloadCase.PULL_REQUEST_CHANGED -> if (e.pullRequestChanged.hasPullRequest()) {
+            val pr = e.pullRequestChanged.pullRequest
+            next.copy(pullRequests = s.pullRequests + (pr.agentId to withPullRequest(s.pullRequests[pr.agentId], pr)))
+        } else next
         Event.PayloadCase.AGENT_PHASE_CHANGED -> next.withAgent(e.agentId) { it.setPhase(e.agentPhaseChanged.to) }
         // An asker or reviewer given a change task is a worker from now on (daemon takeChange).
         Event.PayloadCase.AGENT_ROLE_CHANGED -> next.withAgent(e.agentId) { it.setRole(e.agentRoleChanged.to) }
@@ -172,3 +196,17 @@ private const val MAX_EARLY = 200
 
 /** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */
 fun withSettings(s: HostState, list: List<Setting>): HostState = s.copy(settings = list.associateBy { it.key })
+
+/** [mine] (or a new entry for the agent) with [pr] replacing the PR of its url, or added. */
+fun withPullRequest(mine: AgentPullRequests?, pr: dev.agentmesh.gen.agentmesh.v1.PullRequest): AgentPullRequests {
+    val b = (mine ?: AgentPullRequests.newBuilder().setAgentId(pr.agentId).build()).toBuilder()
+    val i = b.pullRequestsList.indexOfFirst { it.url == pr.url }
+    if (i >= 0) b.setPullRequests(i, pr) else b.addPullRequests(pr)
+    return b.build()
+}
+
+/** The host's answer to `ListWaiting`, which replaces the last one. */
+fun withWaiting(s: HostState, list: List<Waiting>): HostState = s.copy(waiting = list)
+
+/** The host's answer to `ListPullRequests`, which replaces the last one. */
+fun withPullRequests(s: HostState, list: List<AgentPullRequests>): HostState = s.copy(pullRequests = list.associateBy { it.agentId })

@@ -1,0 +1,71 @@
+package dev.agentmesh.android
+
+import dev.agentmesh.android.net.ConnectMeshApi
+import dev.agentmesh.android.net.DefaultRouteConnector
+import dev.agentmesh.android.net.Route
+import dev.agentmesh.android.chat.fromTail
+import dev.agentmesh.android.chat.toBlocks
+import dev.agentmesh.gen.agentmesh.v1.TranscriptKind
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
+import org.junit.Before
+import org.junit.Test
+
+/**
+ * The calls of the chat, the dock, the buckets and the usage screen against a real meshd (the fake `claude` in its
+ * PTYs, an isolated HOME and state dir, no real CLI, no network): the generated client and the host agree on the wire.
+ * `CheckModels` is not called: it asks the CLIs the host has for their models.
+ */
+class ParityE2ETest {
+    private var daemon: DaemonHarness? = null
+
+    @Before fun setUp() {
+        assumeTrue("no Go to build the daemon with, or SKIP_E2E is set", DaemonHarness.available)
+        daemon = DaemonHarness.create().also { it.start(transcripts = true) }
+    }
+
+    @After fun tearDown() { daemon?.close() }
+
+    private fun api() = ConnectMeshApi(DefaultRouteConnector().connect(Route.Direct(daemon!!.url)) { daemon!!.token })
+
+    @Test fun `a prompt typed into a real agent shows in its transcript, and the host answers the rest`() = runBlocking {
+        val d = daemon!!
+        val repo = d.repo("shop-api")
+        val run = d.ctl("start-run", "--title", "chat").getValue("run").jsonObject.getValue("id").jsonPrimitive.content
+        val agent = withContext(Dispatchers.IO) {
+            d.ctl("spawn", "--run-id", run, "--repo", repo.path, "--slug", "fix", "--kind", "claude", "--role", "worker", "--model", "haiku")
+                .getValue("agent").jsonObject.getValue("id").jsonPrimitive.content
+        }
+        withTimeout(30_000) {
+            while (withContext(Dispatchers.IO) { d.ctl("agent", "--agent", agent).getValue("agent").jsonObject.getValue("state").jsonPrimitive.content } != "AGENT_STATE_IDLE") delay(100)
+        }
+        val api = api()
+        api.promptAgent(agent, "say hello")
+        // The turn shows in the record the chat reads: what the user typed, then the reply.
+        val kinds = withTimeout(30_000) {
+            var t = fromTail(api.readTranscript(agent, -1, true))
+            while (t.entries.none { it.kind == TranscriptKind.TRANSCRIPT_KIND_USER && "say hello" in it.text }) { delay(200); t = fromTail(api.readTranscript(agent, -1, true)) }
+            toBlocks(t.entries).map { it::class.simpleName }
+        }
+        assertTrue("got $kinds", "User" in kinds)
+
+        // What waits on the user, the agents, the PRs, the quotas and the spend: each answers, and in the shapes the app reads.
+        assertEquals(emptyList<String>(), api.listWaiting().map { it.agentId })
+        assertTrue(api.listAgents().any { it.id == agent })
+        assertEquals(emptyList<String>(), api.listPullRequests(run).flatMap { it.pullRequestsList }.map { it.url })
+        api.getUsage(refresh = false)
+        val cost = api.getCost(since = "24h")
+        assertTrue(cost.scope.isNotEmpty())
+        api.getCost(runId = run)
+        Unit
+    }
+}

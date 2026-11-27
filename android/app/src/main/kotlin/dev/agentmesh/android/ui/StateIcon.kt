@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.gen.agentmesh.v1.AgentState
 
 /** The shape that stands for a state, so colour is never the only difference. */
-enum class StateShape { Spinner, Triangle, Ring, Check, Cross, Dashed, Dot, Pause }
+enum class StateShape { Spinner, Triangle, Ring, Check, Cross, Dashed, Dot, Pause, Gauge }
 
 fun shapeOf(state: AgentState): StateShape = when (state) {
     AgentState.AGENT_STATE_WORKING -> StateShape.Spinner
@@ -37,12 +37,15 @@ fun shapeOf(state: AgentState): StateShape = when (state) {
     AgentState.AGENT_STATE_EXITED -> StateShape.Check
     AgentState.AGENT_STATE_UNKNOWN -> StateShape.Dashed
     AgentState.AGENT_STATE_RETIRED -> StateShape.Pause
+    AgentState.AGENT_STATE_LIMITED -> StateShape.Gauge
+    AgentState.AGENT_STATE_ERROR -> StateShape.Cross
     else -> StateShape.Dot
 }
 
 fun colorOf(state: AgentState, exitCode: Int, detail: String, c: dev.agentmesh.android.theme.StateColors): Color = when (state) {
     AgentState.AGENT_STATE_WORKING -> c.working
-    AgentState.AGENT_STATE_NEEDS_INPUT -> c.needs
+    AgentState.AGENT_STATE_NEEDS_INPUT, AgentState.AGENT_STATE_LIMITED -> c.needs
+    AgentState.AGENT_STATE_ERROR -> c.failed
     AgentState.AGENT_STATE_IDLE -> c.idle
     AgentState.AGENT_STATE_EXITED -> if (exitCode == 0 && detail != "lost") c.done else c.failed
     AgentState.AGENT_STATE_UNKNOWN, AgentState.AGENT_STATE_RETIRED -> c.unknown
@@ -103,6 +106,11 @@ private fun DrawScope.drawShape(shape: StateShape, color: Color, angle: Float) {
             drawCircle(color, radius = box.width / 2, style = stroke)
             val p = Path().apply { moveTo(w * 0.3f, w * 0.52f); lineTo(w * 0.44f, w * 0.66f); lineTo(w * 0.72f, w * 0.36f) }
             drawPath(p, color, style = stroke)
+        }
+        // A ring filled to a bar: a quota at its end.
+        StateShape.Gauge -> {
+            drawCircle(color, radius = box.width / 2, style = stroke)
+            drawLine(color, Offset(w * 0.3f, w * 0.5f), Offset(w * 0.7f, w * 0.5f), strokeWidth = w * 0.14f, cap = StrokeCap.Round)
         }
         StateShape.Cross -> {
             drawCircle(color, radius = box.width / 2, style = stroke)
