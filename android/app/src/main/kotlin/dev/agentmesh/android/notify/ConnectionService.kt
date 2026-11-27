@@ -70,7 +70,6 @@ class ConnectionService : Service() {
         private fun build(context: Context, text: String): Notification =
             NotificationCompat.Builder(context, Notifier.CH_CONNECTION)
                 .setSmallIcon(R.drawable.ic_stat_mesh).setContentTitle("agent-mesh").setContentText(text).setOngoing(true).setSilent(true)
-                .setPriority(NotificationCompat.PRIORITY_MIN).setShowWhen(false)
                 .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
                 .build()
 

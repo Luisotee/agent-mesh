@@ -94,7 +94,7 @@ private fun NotificationSettings() {
         androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
             Text("Stay connected in the background")
             Text(
-                "Keeps hosts connected in the background; Android shows a permanent notification while it does. Off by default: notifications with the app closed come through push (below).",
+                "Keeps your hosts connected so plans, questions and reports notify you with the app closed. Shows a quiet notification while it does.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
