@@ -17,7 +17,7 @@ import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { MessageCard } from './messages-panel'
-import { ContextRing } from './agent-work'
+import { ContextRing, useAgentWait } from './agent-work'
 import { Markdown } from './markdown'
 import { ago } from '@/dock'
 import { useNow } from '@/hooks'
@@ -163,6 +163,7 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
 export function ChatView({ host, agentId, active, onTerminal }: { host: HostRuntime; agentId: string; active: boolean; /** Shows its terminal in the chat's place (the pane's own view). */ onTerminal?: () => void }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
+  const wait = useAgentWait(host, agent, active)
   const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
   const { transcript, loaded, error, sync, loadEarlier, earlierBusy } = useTranscript(host, agentId, agent?.sessionId ?? '', active)
   const blocks = useMemo(() => toBlocks(transcript.entries), [transcript.entries])
@@ -269,7 +270,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         {queued.length > 0 && <QueuedList host={host} agentId={agentId} prompts={queued} readOnly={readOnly} />}
       </div>
       <p role="status" data-testid="chat-status" className="truncate text-xs text-muted-foreground">
-        {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
+        {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent, wait)}
       </p>
       <Composer host={host} agentId={agentId} readOnly={readOnly} active={active} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
     </section>

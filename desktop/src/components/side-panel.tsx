@@ -1,4 +1,4 @@
-import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
+import { CircleCheck, CircleX, Copy, ExternalLink, Hand, LoaderCircle, MessageSquarePlus, PanelRightClose, Terminal, ChevronRight } from 'lucide-react'
 import { MarkdownField } from '@/components/ui/markdown-field'
 import { useMemo, useState } from 'react'
 import { getAgent, getCost, holdPullRequest, sendMessage } from '@/actions'
@@ -71,15 +71,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
   return (
     <>
       <AgentTree host={host} agent={agent} />
-      <Section title="Pull requests" count={prs.length}>
-        {prs.length === 0 ? <p className="text-xs text-muted-foreground">None yet.</p> : (
-          <ul className="space-y-1">
-            {prs.map((p) => (
-              <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
-            ))}
-          </ul>
-        )}
-      </Section>
+      <PullRequests prs={prs} lead={lead} host={host} />
       <Progress host={host} agent={agent} />
       <Changes host={host} agent={agent} />
       <div className="border-b px-3 pb-2.5 empty:hidden"><WorktreeActions key={agent.id} host={host} agent={agent} /></div>
@@ -247,7 +239,39 @@ function CommentBox({ host, pr, onDone }: { host: HostRuntime; pr: PrRow; onDone
   )
 }
 
-const CHECKS_TONE: Record<string, string> = { pass: 'border-state-done text-state-done', failing: 'border-destructive text-destructive', pending: 'border-state-needs text-state-needs' }
+/** A PR's checks as one icon (✓ ✗ ◐) with the word in its hint, so a row says it without a badge of words. */
+const CHECKS: Record<string, { icon: typeof CircleCheck; tone: string; label: string }> = {
+  pass: { icon: CircleCheck, tone: 'text-state-done', label: 'Checks pass' },
+  failing: { icon: CircleX, tone: 'text-destructive', label: 'Checks failing' },
+  pending: { icon: LoaderCircle, tone: 'text-state-needs', label: 'Checks running' },
+}
+
+/**
+ * The open pull requests of the agent (of the whole run for a lead) first, as they are the ones to act on; the merged and
+ * closed ones are folded under a count, since a stack of finished PRs would bury them.
+ */
+function PullRequests({ prs, lead, host }: { prs: PrRow[]; lead: boolean; host: HostRuntime }) {
+  const [showDone, setShowDone] = useState(false)
+  const open = prs.filter((p) => p.state === 'open')
+  const done = prs.filter((p) => p.state !== 'open')
+  const item = (p: PrRow) => <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
+  return (
+    <Section title="Pull requests" count={prs.length}>
+      {prs.length === 0 && <p className="text-xs text-muted-foreground">None yet.</p>}
+      {open.length === 0 && done.length > 0 && <p className="text-xs text-muted-foreground">None open.</p>}
+      {open.length > 0 && <ul aria-label="Open pull requests" className="space-y-1">{open.map(item)}</ul>}
+      {done.length > 0 && (
+        <>
+          <button type="button" aria-expanded={showDone} onClick={() => setShowDone(!showDone)} className="mt-1.5 flex w-full items-center gap-1 rounded text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <ChevronRight className={cn('size-3 transition-transform motion-reduce:transition-none', showDone && 'rotate-90')} />
+            Merged and closed <span className="tabular-nums">{done.length}</span>
+          </button>
+          {showDone && <ul aria-label="Merged and closed pull requests" className="mt-1 space-y-1">{done.map(item)}</ul>}
+        </>
+      )}
+    </Section>
+  )
+}
 
 function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: HostRuntime }) {
   const [commenting, setCommenting] = useState(false)
@@ -271,7 +295,13 @@ function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: 
       >
         <span className="font-medium">#{pr.number}</span>
         <Badge className={cn(pr.state === 'open' && !pr.draft && 'border-primary text-primary')}>{pr.draft && pr.state === 'open' ? 'draft' : pr.state}</Badge>
-        {pr.checks && <Badge className={CHECKS_TONE[pr.checks]}>{pr.checks === 'failing' ? 'checks failing' : `checks ${pr.checks}`}</Badge>}
+        {pr.checks && CHECKS[pr.checks] && (
+          <Tip label={CHECKS[pr.checks]!.label}>
+            <span role="img" aria-label={CHECKS[pr.checks]!.label} className={CHECKS[pr.checks]!.tone}>
+              {(() => { const I = CHECKS[pr.checks]!.icon; return <I className={cn('size-3.5', pr.checks === 'pending' && 'animate-spin motion-reduce:animate-none')} /> })()}
+            </span>
+          </Tip>
+        )}
         {pr.held && <Badge className="border-state-needs text-state-needs">held</Badge>}
         {pr.stale && <Tip label="GitHub couldn't be read the last time: this is what was seen before"><span className="text-muted-foreground">stale</span></Tip>}
         <ExternalLink className="ml-auto size-3 shrink-0 text-muted-foreground" />

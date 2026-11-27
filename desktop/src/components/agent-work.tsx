@@ -8,6 +8,7 @@ import { SkeletonLines } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useHostState } from '@/context'
+import type { AgentWait } from '@/gen/agentmesh/v1/mesh_pb'
 import type { Agent } from '@/gen/agentmesh/v1/types_pb'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
@@ -28,6 +29,17 @@ function Section({ title, count, children }: { title: string; count?: string; ch
       {children}
     </section>
   )
+}
+
+/**
+ * What an idle agent waits on (its background job, a wait it declared, an answer, a message), read from the host while it is
+ * idle and shown: again when its state changes. `undefined` until read, and for an agent that is not idle.
+ */
+export function useAgentWait(host: HostRuntime, agent: Agent | undefined, active: boolean): AgentWait | undefined {
+  const idle = agent?.state === AgentState.IDLE
+  const id = agent?.id ?? ''
+  const got = usePolled(async () => (await getAgentProgress(host.client, id)).wait, `${host.info.id}/${id}/wait`, 15_000, active && idle && !agent?.archived, String(agent?.state))
+  return idle ? got.value : undefined
 }
 
 /** The agent's plan (its todo list), from its CLI's record: for a CLI the host can't read, nothing. Its context is the composer's ring. */

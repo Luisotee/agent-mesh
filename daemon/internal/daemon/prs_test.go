@@ -32,8 +32,10 @@ type prWorld struct {
 	base             string
 
 	mu      sync.Mutex
-	list    []map[string]any // `gh pr list --head`
-	raw     []byte           // when set, the answer to any list call (gh pr list --state open)
+	list    []map[string]any            // `gh pr list --head`
+	byHead  map[string][]map[string]any // the answer for a `--head <branch>` when the test names that branch
+	heads   []string                    // the branches `gh pr list` was asked about, in order
+	raw     []byte                      // when set, the answer to any list call (gh pr list --state open)
 	views   map[string]map[string]any
 	inline  []map[string]any // `gh api repos/…/pulls/N/comments`
 	fail    error
@@ -79,6 +81,17 @@ func startPR(t *testing.T) *prWorld {
 				}
 				if w.raw != nil {
 					return w.raw, nil
+				}
+				for i, a := range args {
+					if a == "--head" && i+1 < len(args) {
+						w.heads = append(w.heads, args[i+1])
+						if l, ok := w.byHead[args[i+1]]; ok {
+							return json.Marshal(l)
+						}
+						if w.byHead != nil {
+							return json.Marshal([]any{})
+						}
+					}
 				}
 				return json.Marshal(w.list)
 			}}}})
@@ -580,5 +593,70 @@ func TestMeshLogShowsAPRChange(t *testing.T) {
 		!strings.Contains(details[1], "#12 open → merged, checks pending → failing") ||
 		!strings.Contains(details[2], "#12 merged, checks failing → none") {
 		t.Errorf("log entries: %q", details)
+	}
+}
+
+func TestAWorkersStackOfBranchesHasItsPRsFoundNotOnlyTheRecordedBranchs(t *testing.T) {
+	w := startPR(t)
+	stem := "mesh/" + w.run.Id + "/fix"
+	// The worker moved on to -2 and -3 itself; the daemon recorded the first. Another agent of the run is `fix-4`: a
+	// branch that is not the worker's, though its name reads like the next one.
+	tips := map[string]string{stem: w.branchTip}
+	for _, b := range []string{stem + "-2", stem + "-3"} {
+		runGit(t, w.repo, "checkout", "-b", b)
+		runGit(t, w.repo, "commit", "--allow-empty", "-m", b)
+		tips[b] = runGit(t, w.repo, "rev-parse", "HEAD")
+	}
+	runGit(t, w.repo, "branch", stem+"-4", w.base)
+	w.harness.seedAgent(w.run.Id, "a-w2", "demo-fix-4", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	w.edit("a-w2", func(a *v1.Agent) { a.Branch = stem + "-4" })
+	w.mu.Lock()
+	w.byHead = map[string][]map[string]any{
+		stem:        {ghPR(1, "MERGED", tips[stem], false)},
+		stem + "-2": {ghPR(2, "MERGED", tips[stem+"-2"], false)},
+		stem + "-3": {ghPR(3, "OPEN", tips[stem+"-3"], false)},
+		stem + "-4": {ghPR(4, "OPEN", w.base, false)},
+	}
+	w.mu.Unlock()
+	rows := w.prs("demo-fix", true)
+	if len(rows) != 1 {
+		t.Fatalf("rows %v", rows)
+	}
+	var numbers []int32
+	for _, p := range rows[0].PullRequests {
+		numbers = append(numbers, p.Number)
+	}
+	if len(numbers) != 3 {
+		t.Errorf("PRs %v, want 1, 2 and 3 (the whole stack)", numbers)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, h := range w.heads {
+		if h == stem+"-4" {
+			t.Errorf("asked GitHub about %s, another agent's branch: %v", h, w.heads)
+		}
+	}
+}
+
+func TestAStackOfBranchesAsksAboutTheNewestEightAtMost(t *testing.T) {
+	w := startPR(t)
+	stem := "mesh/" + w.run.Id + "/fix"
+	for i := 2; i <= 11; i++ {
+		runGit(t, w.repo, "checkout", "-b", stem+"-"+itoa(i))
+		runGit(t, w.repo, "commit", "--allow-empty", "-m", itoa(i))
+	}
+	w.mu.Lock()
+	w.byHead = map[string][]map[string]any{}
+	w.mu.Unlock()
+	w.prs("demo-fix", true)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.heads) != 8 {
+		t.Fatalf("asked about %d branches %v, want the newest 8", len(w.heads), w.heads)
+	}
+	for _, h := range w.heads {
+		if h == stem || h == stem+"-2" {
+			t.Errorf("an old branch %s was asked about: %v", h, w.heads)
+		}
 	}
 }

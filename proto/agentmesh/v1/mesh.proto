@@ -1331,6 +1331,44 @@ message GetAgentProgressResponse {
   int64 context_tokens = 3;
   // The model's context window, as the daemon guesses it from the model's name (200000, or 1000000 for a `1m` model).
   int64 context_window = 4;
+  // What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+  AgentWait wait = 5;
+  // Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+  // its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+  // only. Empty for a plain agent and where `supported` is false.
+  repeated ContextMark marks = 6;
+}
+
+// What an idle agent waits on, first match wins: a background command it started, a wait it declared, an answer to its
+// question or plan, nothing (it reported), or a message.
+enum AgentWaitKind {
+  AGENT_WAIT_KIND_UNSPECIFIED = 0;
+  // A Claude background command is running; `detail` is its command line.
+  AGENT_WAIT_KIND_BACKGROUND = 1;
+  // A `wait` to its parent that no later task or answer followed; `detail` is its body, `until` its deadline if it gave one.
+  AGENT_WAIT_KIND_DECLARED = 2;
+  // Its newest question or plan to its parent has no answer yet; `from` is who must answer, `detail` what it asked.
+  AGENT_WAIT_KIND_ANSWER = 3;
+  // It sent a done or failed for its current task: nothing is owed; `from` is who it reported to.
+  AGENT_WAIT_KIND_REPORTED = 4;
+  // Idle with nothing owed: it waits for a message. `from` is who would send one: its parent, or `user` for a root.
+  AGENT_WAIT_KIND_MESSAGE = 5;
+}
+
+message AgentWait {
+  AgentWaitKind kind = 1;
+  string detail = 2;
+  // A name (the parent's) or `user`.
+  string from = 3;
+  google.protobuf.Timestamp until = 4;
+}
+
+// A point of the context meter where the daemon acts: `tokens` is where, `label` says what happens there in words, `setting`
+// is the host setting that holds it.
+message ContextMark {
+  int64 tokens = 1;
+  string label = 2;
+  string setting = 3;
 }
 
 message ArchiveAgentRequest {

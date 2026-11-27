@@ -889,6 +889,19 @@ describe('SidePanel', () => {
     return f
   }
 
+  it('lists the open pull requests and folds the merged and closed ones under a count', async () => {
+    const { host, wrap } = panelFixture()
+    const pr = (number: number, state: string) => create(PullRequestSchema, { agentId: 'w1', number, url: `https://github.com/o/r/pull/${number}`, state })
+    host.store.setState({ pullRequests: { w1: create(AgentPullRequestsSchema, { agentId: 'w1', pullRequests: [pr(3, 'merged'), pr(12, 'open'), pr(2, 'closed')] }) } })
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    const prs = screen.getByRole('region', { name: 'Pull requests' })
+    expect(within(within(prs).getByRole('list', { name: 'Open pull requests' })).getAllByRole('listitem')).toHaveLength(1)
+    expect(prs).toHaveTextContent('#12')
+    expect(prs).not.toHaveTextContent('#3')
+    await userEvent.click(within(prs).getByRole('button', { name: /Merged and closed/ }))
+    expect(within(within(prs).getByRole('list', { name: 'Merged and closed pull requests' })).getAllByRole('listitem').map((l) => l.textContent?.slice(0, 2))).toEqual(['#3', '#2'])
+  })
+
   it('shows a lead\'s tree first, then its run\'s PRs, and the run total folded to one line', async () => {
     const { host, client, wrap, model } = panelFixture()
     host.store.setState((s) => ({ agents: { ...s.agents, rv: agent('rv', { role: AgentRole.REVIEWER, name: 'rev', parentId: 'w1' }) } }))
@@ -898,7 +911,7 @@ describe('SidePanel', () => {
     expect(within(tree).getByRole('button', { name: /app-lead/ })).toHaveAttribute('aria-current', 'true')
     const prs = screen.getByRole('region', { name: 'Pull requests' })
     expect(prs).toHaveTextContent('#12')
-    expect(prs).toHaveTextContent('checks failing')
+    expect(within(prs).getByRole('img', { name: 'Checks failing' })).toBeInTheDocument()
     expect(prs).toHaveTextContent('app-fix')
     const cost = screen.getByRole('region', { name: 'Run total' })
     await waitFor(() => expect(cost).toHaveTextContent('$7.50'))

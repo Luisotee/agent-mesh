@@ -36,6 +36,14 @@ func backgroundNudge(name string) string {
 
 // hasBackgroundCommand reports whether the process tree under pid holds a Claude background command.
 func hasBackgroundCommand(table []proc.Info, pid int) bool {
+	_, ok := backgroundCommand(table, pid)
+	return ok
+}
+
+// backgroundCommand is the command line of a Claude background command in the process tree under pid, as the user
+// would read it (`make test`), and whether there is one. A command whose line can't be told apart from the snapshot
+// plumbing comes back empty with true.
+func backgroundCommand(table []proc.Info, pid int) (string, bool) {
 	byPID := map[int]proc.Info{}
 	for _, p := range table {
 		byPID[p.PID] = p
@@ -48,21 +56,42 @@ func hasBackgroundCommand(table []proc.Info, pid int) bool {
 		switch base := p.Argv[0][strings.LastIndex(p.Argv[0], "/")+1:]; base {
 		case "bash", "sh", "zsh", "dash":
 			if p.Argv[1] == "-c" && strings.Contains(p.Argv[2], "/shell-snapshots/") {
-				return true
+				return evalLine(p.Argv[2]), true
 			}
 		}
 	}
-	return false
+	return "", false
+}
+
+// evalLine is what a snapshot shell evaluates: the quoted text after its `eval`, with the quotes taken off.
+func evalLine(script string) string {
+	i := strings.Index(script, "eval ")
+	if i < 0 {
+		return ""
+	}
+	cmd := strings.TrimSpace(script[i+len("eval "):])
+	if n := len(cmd); n >= 2 && (cmd[0] == '\'' || cmd[0] == '"') {
+		if end := strings.LastIndexByte(cmd, cmd[0]); end > 0 {
+			cmd = cmd[1:end]
+		}
+	}
+	return strings.TrimSpace(cmd)
 }
 
 // backgroundWork reports whether a Claude agent has a background command running.
 func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
+	_, ok := d.backgroundCommandOf(ctx, a)
+	return ok
+}
+
+// backgroundCommandOf is the command line of the background command a Claude agent has running, and whether it has one.
+func (d *Daemon) backgroundCommandOf(ctx context.Context, a *v1.Agent) (string, bool) {
 	if a.Kind != claude.Kind || a.TerminalId == "" || d.rt.term == nil {
-		return false
+		return "", false
 	}
 	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
 	if err != nil {
-		return false
+		return "", false
 	}
 	pid := 0
 	for _, t := range res.Msg.Terminals {
@@ -71,10 +100,13 @@ func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
 		}
 	}
 	if pid <= 0 {
-		return false
+		return "", false
 	}
 	table, err := d.rt.sys.ProcTable()
-	return err == nil && hasBackgroundCommand(table, pid)
+	if err != nil {
+		return "", false
+	}
+	return backgroundCommand(table, pid)
 }
 
 // withinBackgroundGrace reports whether a running background command is still let run: the agent's last activity
