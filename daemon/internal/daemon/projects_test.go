@@ -196,3 +196,25 @@ func readOnlyDevice(t *testing.T, w *prWorld) agentmeshv1connect.MeshServiceClie
 	}
 	return w.as(red.Msg.DeviceToken)
 }
+
+func TestAQuickListProjectsCheckFetchesNothingAndStillRefusesWhatIsNoRepo(t *testing.T) {
+	w := startPR(t)
+	bare := filepath.Join(filepath.Dir(w.repo), "origin.git")
+	w.setRaw([]byte("[]"))
+	runGit(t, bare, "branch", "fresh", "main")
+	ctx := context.Background()
+	n := w.calls.Load()
+	res, err := w.device.Mesh.ListProjects(ctx, connect.NewRequest(&v1.ListProjectsRequest{Repo: w.repo, Quick: true}))
+	if err != nil || len(res.Msg.Projects) != 1 || res.Msg.Projects[0].Path != w.repo {
+		t.Fatalf("%v, %v", res, err)
+	}
+	if p := res.Msg.Projects[0]; slices.Contains(p.Branches, "origin/fresh") || len(p.PullRequests) != 0 || w.calls.Load() != n {
+		t.Errorf("a quick check fetched or asked GitHub: %v, %d gh calls", p.Branches, w.calls.Load()-n)
+	}
+	if len(res.Msg.Projects[0].Branches) == 0 {
+		t.Errorf("a quick check lists the branches it has: %v", res.Msg.Projects[0])
+	}
+	if _, err := w.device.Mesh.ListProjects(ctx, connect.NewRequest(&v1.ListProjectsRequest{Repo: t.TempDir(), Quick: true})); err == nil {
+		t.Error("a quick check of a folder that is no repo is accepted")
+	}
+}

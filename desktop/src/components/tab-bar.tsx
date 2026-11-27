@@ -19,7 +19,7 @@ import { Tip } from '@/components/ui/tooltip'
 import { ActionMenu, RowContextMenu, type MenuEntry } from '@/components/ui/menu'
 import { ConfirmDialog } from '@/components/ui/confirm'
 import { stopAgent } from '@/actions'
-import { cliKinds, cliName } from '@/cli'
+import { cliKinds, cliName, hostClis } from '@/cli'
 import { rewindUnsupported } from '@/attachments'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 import { ViewSwitch } from './view-switch'
@@ -316,10 +316,11 @@ function PlusMenu({ project, host, newLead }: { project?: { hostId: string; repo
 function ProjectPlus({ project, host, shells, tabs, newLead, label, trigger }: { project: { hostId: string; repo: string }; host: HostRuntime; shells: Shell[] | undefined; tabs: TabRef[]; newLead: () => void; label: string; trigger: React.ReactElement<Record<string, unknown>> }) {
   const app = useApp()
   const settings = useHostState(host, (s) => s.settings)
+  const installed = useHostState(host, (s) => hostClis(s.daemon))
   const hidden = closedShells(shells, tabs, project.hostId, project.repo)
   const fail = (e: unknown) => app.notify(reason(e), 'error')
   const entries: MenuEntry[] = [
-    ...cliKinds(settings).map((kind) => ({ label: `New ${cliName(kind)} agent`, onSelect: () => void app.newAgent(project.hostId, project.repo, kind).catch(fail) })),
+    ...cliKinds(settings, installed).map((kind) => ({ label: `New ${cliName(kind)} agent`, onSelect: () => void app.newAgent(project.hostId, project.repo, kind).catch(fail) })),
     'separator',
     { label: 'New lead…', onSelect: newLead },
     { label: 'New terminal', onSelect: () => void app.newShell(project.hostId, project.repo).catch(fail) },

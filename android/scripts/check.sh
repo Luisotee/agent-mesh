@@ -29,5 +29,10 @@ step "unit tests, lint, debug APK"
 ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
 ls -l app/build/outputs/apk/debug/app-debug.apk
 
+# The release-type APK must at least build (R8 complains about a missing class here, not on the phone); it has not run on a device.
+step "release-type APK (R8, debug-signed)"
+./gradlew --no-daemon assembleRelease
+ls -l app/build/outputs/apk/release/app-release.apk
+
 echo
 echo "android/check.sh: all passed"

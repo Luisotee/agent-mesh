@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -768,4 +769,21 @@ func recvIdle(t *testing.T, stream *connect.ServerStreamForClient[v1.SubscribeEv
 	}
 	sc := f.GetEvent().GetAgentStateChanged()
 	return sc != nil && sc.To == v1.AgentState_AGENT_STATE_IDLE
+}
+
+func TestHelloNamesTheCLIsTheHostCanLaunch(t *testing.T) {
+	state := shortdir.State(t)
+	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) {
+		c.Binaries["agy"] = "/nonexistent/agy"
+		c.LookPath = func(name string) (string, bool) { return "/usr/bin/" + name, name == "copilot" }
+	})
+	t.Cleanup(func() { stopTermHost(t, state) })
+	res, err := h.device.Mesh.Hello(context.Background(), connect.NewRequest(&v1.HelloRequest{}))
+	// claude and opencode by their configured binaries, copilot through the lookup, agy's binary is not there.
+	if want := []string{"claude", "opencode", "copilot"}; err != nil || !slices.Equal(res.Msg.Clis, want) {
+		t.Errorf("clis %v, %v: want %v", res.Msg.GetClis(), err, want)
+	}
+	if !slices.Contains(res.Msg.GetCapabilities(), "clis") {
+		t.Errorf("capabilities %v lack clis: an empty list would read as an older daemon's", res.Msg.GetCapabilities())
+	}
 }
