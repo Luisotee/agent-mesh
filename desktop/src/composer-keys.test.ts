@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { applyEdit, composerKey, type Field, type KeyPress } from './composer-keys'
 
@@ -68,4 +70,33 @@ describe('composerKey', () => {
     expect(press('a|', k('z', { mod: true }))).toBeUndefined()
     expect(press('a|', k('B', { mod: true, shift: true }))).toBeUndefined()
   })
+})
+
+/**
+ * The rules this field shares with Android's `MarkdownEdit.kt` are `shared/markdown-edit/cases.json`, which that app's
+ * `MarkdownEditTest` reads too: a rule changed on one side fails the other. `expected: null` is a key the field leaves
+ * alone, and here that includes Enter, which sends.
+ */
+describe('the shared Markdown cases', () => {
+  const file = path.resolve(import.meta.dirname, '../../shared/markdown-edit/cases.json')
+  const cases = (JSON.parse(readFileSync(file, 'utf8')) as { cases: Array<{ name: string; action: string; input: string; expected: string | null }> }).cases
+  const keyOf: Record<string, KeyPress> = {
+    enter: k('Enter'),
+    tab: k('Tab'),
+    'shift-tab': k('Tab', { shift: true }),
+    bold: k('b', { mod: true }),
+    italic: k('i', { mod: true }),
+    code: k('e', { mod: true }),
+    link: k('k', { mod: true }),
+  }
+  it('has the cases and no action this test does not know', () => {
+    expect(cases.length).toBeGreaterThanOrEqual(20)
+    for (const c of cases) expect(keyOf[c.action], `${c.name}: action ${c.action}`).toBeDefined()
+  })
+  for (const c of cases) {
+    it(c.name, () => {
+      const got = press(c.input, keyOf[c.action]!)
+      expect(got === 'send' ? null : (got ?? null)).toBe(c.expected)
+    })
+  }
 })
