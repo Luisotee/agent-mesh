@@ -96,6 +96,7 @@ func (d *Daemon) CreateWorktree(ctx context.Context, req *connect.Request[v1.Cre
 	if _, err := git(ctx, top, "worktree", "add", "-b", branch, wtPath, baseCommit); err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
+	d.includeInto(ctx, top, wtPath)
 	cleanup := func() {
 		_, _ = git(context.Background(), top, "worktree", "remove", "--force", wtPath)
 		_, _ = git(context.Background(), top, "branch", "-D", branch)

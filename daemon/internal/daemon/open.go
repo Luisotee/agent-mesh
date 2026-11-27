@@ -122,6 +122,7 @@ func (d *Daemon) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgen
 				return nil, failedPrecondition("%v", cerr)
 			}
 			if recreated && branch != "" {
+				d.includeInto(ctx, a.Repo, a.Worktree)
 				notes = append(notes, fmt.Sprintf("the worktree was recreated; remove it with `git worktree remove %s` when done", a.Worktree))
 			}
 		}

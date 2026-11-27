@@ -443,5 +443,16 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.PermissionChanged getPermissionChanged();
 
+  /**
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 41 [json_name = "agentArchived"];</code>
+   * @return Whether the agentArchived field is set.
+   */
+  boolean hasAgentArchived();
+  /**
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 41 [json_name = "agentArchived"];</code>
+   * @return The agentArchived.
+   */
+  dev.agentmesh.gen.agentmesh.v1.AgentArchived getAgentArchived();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }
