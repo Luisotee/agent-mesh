@@ -167,6 +167,22 @@ describe('ProjectSidebar', () => {
     expect(screen.getByRole('listitem', { name: 'app' })).toBeInTheDocument()
   })
 
+  it('copies from a row\'s menu and says so in a toast, or says it could not', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const { wrap } = fixture()
+    render(wrap(<><ProjectSidebar /><Notices /></>))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy path' }))
+    expect(writeText).toHaveBeenCalledWith('/p/app')
+    expect(await within(screen.getByRole('region', { name: 'Notices' })).findByText('Copied the path')).toBeInTheDocument()
+    // Refused (the window lost the focus, or no permission): the toast says so, nothing claims it copied.
+    writeText.mockRejectedValueOnce(new DOMException('Write permission denied.', 'NotAllowedError'))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy path' }))
+    expect(await within(screen.getByRole('region', { name: 'Notices' })).findByText("Couldn't copy the path")).toBeInTheDocument()
+  })
+
   it('renames a run from its menu, and stops an agent only after a confirmation', async () => {
     const { wrap, client } = fixture()
     ;(client as unknown as { renameRun: unknown }).renameRun = vi.fn(async () => ({}))
