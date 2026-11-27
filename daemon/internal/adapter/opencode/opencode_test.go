@@ -124,12 +124,12 @@ func TestPlanLaunchFreshResumeVariantsAndOrderedPermissions(t *testing.T) {
 		t.Errorf("OPENCODE_CONFIG_CONTENT = %s", res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
 	}
 	perm := res.Msg.Env["OPENCODE_PERMISSION"]
-	// Verify edit keys preserve exact order: "*" -> "../*" -> "../../proj/*" (last match wins).
-	iStar := strings.Index(perm, `"*":"deny"`)
-	iUp := strings.Index(perm, `"../*":"allow"`)
-	iRepo := strings.Index(perm, `"../../proj/*":"deny"`)
-	if iStar < 0 || iUp <= iStar || iRepo <= iUp {
+	// Edits: everything denied first, the run folder's outputs allowed after it (no run dir in this env: none).
+	if !strings.HasPrefix(perm, `{"edit":{"*":"deny"`) || strings.Contains(perm, `"../*"`) {
 		t.Fatalf("OPENCODE_PERMISSION edit order wrong: %s", perm)
+	}
+	if !strings.Contains(perm, `"../../proj/*":"deny"`) {
+		t.Errorf("OPENCODE_PERMISSION does not deny the main checkout: %s", perm)
 	}
 	if !strings.Contains(perm, `"git push*":"deny"`) || !strings.Contains(perm, `"gh pr create*":"deny"`) {
 		t.Errorf("OPENCODE_PERMISSION missing bash deny rules: %s", perm)

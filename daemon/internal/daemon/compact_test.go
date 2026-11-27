@@ -328,6 +328,35 @@ func TestACompactionThatCannotBeTypedEndsInsteadOfRetrying(t *testing.T) {
 	}
 }
 
+// Approving a planner that sent no plan: the compaction's focus names no plan file (there is none to keep).
+func TestApproveWithNoPlanCompactsWithoutNamingAPlanFile(t *testing.T) {
+	var log string
+	w := startCompact(t, func(c *daemon.AgentConfig) {
+		log = filepath.Join(filepath.Dir(c.Env["HOME"]), "focus.log")
+		c.Env["FAKECLAUDE_COMPACT_LOG"] = log
+	})
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
+		Tier: "strong", Plan: true, Task: "plan the fix"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := res.Msg.Agent
+	before := w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.size(t, before, 300000, hour, 0)
+	readInbox(t, w.as(w.token(t, worker.Id)))
+	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: worker.Id, Tier: "mid"})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitReopened(t, worker.Id, before.TerminalId)
+	b, _ := os.ReadFile(log)
+	if !strings.Contains(string(b), "plan phase was skipped") || strings.Contains(string(b), "plans") || strings.Contains(string(b), "approved plan") {
+		t.Errorf("typed focus %q: want the skipped-plan focus, naming no plan", b)
+	}
+}
+
 func TestApproveCompactsALivePlannerInItsTerminalBeforeTheReopen(t *testing.T) {
 	var log string
 	w := startCompact(t, func(c *daemon.AgentConfig) {

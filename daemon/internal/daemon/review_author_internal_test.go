@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -79,5 +80,15 @@ func TestPRAuthorKindFindsAWorkerOnAMovedBranch(t *testing.T) {
 	}
 	if got := prAuthorKind(ctx, r, repo, "somebody-elses"); got != "" {
 		t.Errorf("another branch: %q", got)
+	}
+	// The repo is the same directory through a symlink: the author is still found, by either branch.
+	link := filepath.Join(dir, "repo-link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, head := range []string{"mesh/r1/w", "moved-on"} {
+		if got := prAuthorKind(ctx, r, link, head); got != "agy" {
+			t.Errorf("repo through a symlink, %s: %q", head, got)
+		}
 	}
 }

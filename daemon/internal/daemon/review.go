@@ -278,12 +278,12 @@ func prAuthorKind(ctx context.Context, r store.Reader, top, headRef string) stri
 		return ""
 	}
 	for i := len(agents) - 1; i >= 0; i-- {
-		if agents[i].Repo == top && agents[i].Branch == headRef && agents[i].Role == v1.AgentRole_AGENT_ROLE_WORKER {
+		if sameDir(agents[i].Repo, top) && agents[i].Branch == headRef && agents[i].Role == v1.AgentRole_AGENT_ROLE_WORKER {
 			return agents[i].Kind
 		}
 	}
 	for i := len(agents) - 1; i >= 0; i-- {
-		if a := agents[i]; a.Repo == top && a.Role == v1.AgentRole_AGENT_ROLE_WORKER && worktreeBranch(ctx, a) == headRef {
+		if a := agents[i]; sameDir(a.Repo, top) && a.Role == v1.AgentRole_AGENT_ROLE_WORKER && worktreeBranch(ctx, a) == headRef {
 			return a.Kind
 		}
 	}

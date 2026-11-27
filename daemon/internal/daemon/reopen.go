@@ -368,7 +368,8 @@ func lastReport(r store.Reader, a *v1.Agent) (*v1.Message, error) {
 }
 
 // plannerOwesItsPlan reports whether the agent is a planner at work on its plan: in its plan phase, with no report
-// (plan, question, done or failed) since its last task or answer, and either starting, in a turn (WORKING), or idle
+// (plan, question, done or failed) since its last task or answer, and either starting, in a turn (WORKING) or held at a
+// prompt (NEEDS_INPUT: a permission dialog is part of the turn), or idle
 // with that task still unread (it has not seen it yet). A task sent to it now is an addition to the plan it is
 // making. One that finds it idle with its task read and no plan (its turn ended: a silent stop), or after its
 // plan, is not: that is the parent's own choice to skip the plan.
@@ -377,7 +378,8 @@ func plannerOwesItsPlan(r store.Reader, a *v1.Agent) (bool, error) {
 		return false, nil
 	}
 	switch a.State {
-	case v1.AgentState_AGENT_STATE_STARTING, v1.AgentState_AGENT_STATE_WORKING, v1.AgentState_AGENT_STATE_IDLE:
+	case v1.AgentState_AGENT_STATE_STARTING, v1.AgentState_AGENT_STATE_WORKING, v1.AgentState_AGENT_STATE_NEEDS_INPUT,
+		v1.AgentState_AGENT_STATE_IDLE:
 	default:
 		return false, nil
 	}
@@ -528,7 +530,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if out.Reopen, err = requestReopen(tx, a, model, effort, deny, "plan approved", m.Why); err != nil {
 				return err
 			}
-			if err := d.requestApproveCompaction(tx, a, model); err != nil {
+			if err := d.requestApproveCompaction(tx, a, model, skipped); err != nil {
 				return err
 			}
 		}

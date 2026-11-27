@@ -432,7 +432,7 @@ var toolchainDirs = []string{".local/go", "go", ".cache/go-build", ".local/opt",
 // checkout: its untracked files are the user's. OpenCode evaluates the patterns last match wins, so `*` comes
 // first and the allows after it, in the order written here. Always set: the deny holds when the daemon has no
 // share path.
-func (a *Adapter) externalPermission(env map[string]string) (map[string]any, error) {
+func (a *Adapter) externalPermission(env map[string]string, cwd string) (map[string]any, error) {
 	share := ""
 	if s := env["AGENT_MESH_SHARE"]; filepath.IsAbs(s) {
 		share = filepath.ToSlash(filepath.Clean(s))
@@ -455,6 +455,10 @@ func (a *Adapter) externalPermission(env map[string]string) (map[string]any, err
 	if rd := env["AGENT_MESH_RUN_DIR"]; rd != "" {
 		add(rd)
 	}
+	// A TMPDIR other than /tmp is where the agent's tools write too.
+	if t := env["TMPDIR"]; filepath.IsAbs(t) && filepath.Clean(t) != "/" && filepath.Clean(t) != filepath.Clean(home) {
+		add(t)
+	}
 	for _, d := range toolchainDirs {
 		if !filepath.IsAbs(d) {
 			if home == "" {
@@ -468,7 +472,8 @@ func (a *Adapter) externalPermission(env map[string]string) (map[string]any, err
 	}
 	pairs := []orderedKV{{key: "*", val: "deny"}}
 	for _, d := range dirs {
-		pairs = append(pairs, orderedKV{key: d + "/*", val: "allow"}, orderedKV{key: d + "/**", val: "allow"})
+		// The bare directory too: a pattern `d/*` does not match `d` itself.
+		pairs = append(pairs, orderedKV{key: d, val: "allow"}, orderedKV{key: d + "/*", val: "allow"}, orderedKV{key: d + "/**", val: "allow"})
 	}
 	raw, err := marshalOrderedStringMap(pairs)
 	if err != nil {
@@ -481,6 +486,11 @@ func (a *Adapter) externalPermission(env map[string]string) (map[string]any, err
 	}
 	for _, d := range tools {
 		noEdit[d+"/*"], noEdit[d+"/**"] = "deny", "deny"
+		// OpenCode matches an edit's pattern as the path relative to the worktree (`../../x` for a file outside
+		// it), never absolute: the absolute rule above is for a tool that is given an absolute path.
+		if rel, ok := relFrom(cwd, d); ok {
+			noEdit[rel+"/*"], noEdit[rel+"/**"] = "deny", "deny"
+		}
 	}
 	if len(noEdit) > 0 {
 		perm["edit"] = noEdit
@@ -488,38 +498,97 @@ func (a *Adapter) externalPermission(env map[string]string) (map[string]any, err
 	return perm, nil
 }
 
-// PermissionJSON builds `OPENCODE_PERMISSION` for a read-only or planning agent: edits denied in the worktree
-// (`*`) and main checkout (`<rel>/*`) with `../*` (`$(mesh dir)`) allowed, and publish commands denied in bash.
-func PermissionJSON(cwd, repo string) (string, error) {
-	editPairs := []orderedKV{
-		{key: "*", val: "deny"},
-		{key: "../*", val: "allow"},
+// relFrom is d as OpenCode writes a path in an edit's permission pattern: relative to the worktree (cwd).
+func relFrom(cwd, d string) (string, bool) {
+	if cwd == "" || d == "" {
+		return "", false
 	}
-	if cwd != "" && repo != "" {
-		resCwd := resolvePathIncludingMissing(cwd)
-		resRepo := resolvePathIncludingMissing(repo)
-		if resCwd != resRepo {
-			if rel, err := filepath.Rel(resCwd, resRepo); err == nil {
-				editPairs = append(editPairs, orderedKV{key: filepath.ToSlash(rel) + "/*", val: "deny"})
-			}
+	rel, err := filepath.Rel(resolvePathIncludingMissing(cwd), resolvePathIncludingMissing(d))
+	if err != nil {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// readOnlyBash is what a read-only or planning agent may run in bash, as OpenCode patterns (last match wins, so
+// `*` denies first, the allows follow and the denies of the dangerous forms of those come last). OpenCode 1.19.6
+// splits a command line into its simple commands (`&&`, `;`, `|`, `$( )`, backticks, subshells, `<( )`) and asks
+// for each one alone, with the command's own text (the whole text, redirect included, when it is redirected): a
+// command that matches no allow is denied, so `ls; rm x` is refused at `rm x`. A trailing ` *` also matches the
+// command with no arguments. What it can't see: a bare redirect (`> file`, no command) is no command, so it
+// is not asked for at all; TODO.md has it.
+//
+// Not listed on purpose: `sed` (`w` and `e` write and run inside the script), `xargs`, `env`, `sh`, `rm`, `mv`,
+// `cp`, `tee`, `git -C`, `git branch` that is not a `--list`, `git fetch`, and a command with a leading
+// `VAR=value` (its text starts with the variable, which no allow matches).
+var readOnlyBash = func() []orderedKV {
+	var p []orderedKV
+	add := func(act string, pats ...string) {
+		for _, x := range pats {
+			p = append(p, orderedKV{key: x, val: act})
 		}
+	}
+	add("deny", "*")
+	var git []string
+	for _, sub := range []string{"status", "diff", "show", "log", "rev-parse", "ls-files", "ls-tree", "cat-file", "merge-base",
+		"blame", "grep", "show-ref", "shortlog", "describe", "branch --list", "branch --show-current", "branch -a",
+		"branch -r", "branch -vv", "worktree list"} {
+		git = append(git, "git "+sub+" *", "git --no-pager "+sub+" *")
+	}
+	add("allow", git...)
+	add("allow", "gh pr view *", "gh pr diff *", "gh pr checks *", "gh pr list *")
+	add("allow", "ls *", "cat *", "head *", "tail *", "wc *", "grep *", "rg *", "find *", "jq *", "awk *", "cut *", "tr *",
+		"sort *", "diff *", "echo *", "printf *", "pwd", "stat *", "file *", "which *", "basename *", "dirname *",
+		"realpath *", "test *", "[ *")
+	add("allow", "go test *", "go vet *", "go build -o /tmp/*", "go env *", "gofmt -l *", "gofmt -d *", "buf lint *",
+		"buf breaking *", "pnpm typecheck *", "pnpm test *", "pnpm run typecheck *", "pnpm run test *", "uvx pytest *",
+		"mesh *")
+	// The dangerous forms of what is allowed. A `>` is a redirect (or an awk print to a file): `2>&1` goes too.
+	add("deny", "*>*", "*-exec*", "*toolexec*", "*--output*",
+		"find *-delete*", "find *-ok*", "find *-fprint*", "find *-fls*",
+		"awk *system*", "awk *getline*", "awk *|*", "awk *-i *", "awk *-l *",
+		"sort *-o*", "sort *--compress-program*",
+		"rg *--pre=*", "rg *--pre *", "rg *--hostname-bin*",
+		"git grep*-O*", "git grep*--open-files-in-pager*",
+		"git branch*-d*", "git branch*-D*", "git branch*-m*", "git branch*-M*", "git branch*-c*", "git branch*-C*",
+		"git branch*-f*", "git branch*-u*", "git branch*-t*", "git branch*--edit*",
+		"go test*-o *", "go test*-o=*", "go test*-c", "go test*-c *", "go test*profile*", "go test*-trace*",
+		"go test*-outputdir*", "go test*-fuzz*", "go vet*-vettool*", "go env*-w*", "go env*-u*", "go build*/../*",
+		"gofmt*-w*")
+	return p
+}()
+
+// PermissionJSON builds `OPENCODE_PERMISSION` for a read-only or planning agent. Edits: denied everywhere (`*`)
+// but the run folder's `reports/` (and `plans/` for a planner), which OpenCode matches as paths relative to the
+// worktree; and the main checkout, denied after. Bash: only the read-only commands of readOnlyBash, then the
+// publish commands denied.
+func PermissionJSON(cwd, repo, runDir string, planner bool) (string, error) {
+	editPairs := []orderedKV{{key: "*", val: "deny"}}
+	if rel, ok := relFrom(cwd, runDir); ok && filepath.IsAbs(runDir) {
+		editPairs = append(editPairs, orderedKV{key: rel + "/reports/*", val: "allow"})
+		if planner {
+			editPairs = append(editPairs, orderedKV{key: rel + "/plans/*", val: "allow"})
+		}
+	}
+	if rel, ok := relFrom(cwd, repo); ok && rel != "." {
+		editPairs = append(editPairs, orderedKV{key: rel + "/*", val: "deny"})
 	}
 	editRaw, err := marshalOrderedStringMap(editPairs)
 	if err != nil {
 		return "", err
 	}
-	bash := make(map[string]string, len(publishCommands))
+	bashPairs := append([]orderedKV(nil), readOnlyBash...)
 	for _, cmd := range publishCommands {
-		bash[cmd+"*"] = "deny"
+		bashPairs = append(bashPairs, orderedKV{key: cmd + "*", val: "deny"})
 	}
-	doc := struct {
-		Edit json.RawMessage   `json:"edit"`
-		Bash map[string]string `json:"bash"`
-	}{
-		Edit: editRaw,
-		Bash: bash,
+	bashRaw, err := marshalOrderedStringMap(bashPairs)
+	if err != nil {
+		return "", err
 	}
-	b, err := json.Marshal(doc)
+	b, err := json.Marshal(struct {
+		Edit json.RawMessage `json:"edit"`
+		Bash json.RawMessage `json:"bash"`
+	}{editRaw, bashRaw})
 	if err != nil {
 		return "", err
 	}
@@ -567,7 +636,7 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		}
 	}
 	cfg := map[string]any{"agent": map[string]any{agentName: agentCfg}}
-	perm, err := a.externalPermission(env)
+	perm, err := a.externalPermission(env, m.Cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -590,7 +659,7 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env}), nil
 	}
 	if adapter.ReadOnly(m.Role) || m.DenyEdits {
-		perm, err := PermissionJSON(m.Cwd, m.Repo)
+		perm, err := PermissionJSON(m.Cwd, m.Repo, env["AGENT_MESH_RUN_DIR"], !adapter.ReadOnly(m.Role))
 		if err != nil {
 			return nil, err
 		}

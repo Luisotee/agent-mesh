@@ -79,17 +79,17 @@ func TestADirectTaskAddedToAPlannerStillPlanningChangesNoPhase(t *testing.T) {
 	}
 }
 
-// A planner that is starting, or idle with a follow-up task unread, has not begun its plan either: a direct task is an
+// A planner that is starting, held at a permission prompt, or idle with a follow-up task unread, has not begun its plan either: a direct task is an
 // addition to it too, not the end of its plan phase.
 func TestADirectTaskToAPlannerThatHasNotReadItsTaskIsAnAddition(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	for i, state := range []v1.AgentState{v1.AgentState_AGENT_STATE_STARTING, v1.AgentState_AGENT_STATE_IDLE} {
+	for i, state := range []v1.AgentState{v1.AgentState_AGENT_STATE_STARTING, v1.AgentState_AGENT_STATE_NEEDS_INPUT, v1.AgentState_AGENT_STATE_IDLE} {
 		p := w.spawnUnder(t, asLead, "planner-"+string(rune('a'+i)), &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
 		w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
-		if state == v1.AgentState_AGENT_STATE_STARTING {
+		if state != v1.AgentState_AGENT_STATE_IDLE { // starting, or held at a permission prompt mid-plan
 			w.setState(t, p.Id, state)
 		} else {
 			// Idle with a follow-up it has not read (the fake never runs `mesh inbox`): the plan it makes is not begun.
