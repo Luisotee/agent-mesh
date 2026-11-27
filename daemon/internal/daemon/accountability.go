@@ -186,8 +186,9 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	// No deadline of its own: the hold is the full wait_max only if something the daemon can see would wake the
 	// agent (a background command of a Claude agent: its notification). A job started with `nohup … &` sends none,
 	// so a wait on one would sleep for wait_max after the job ended (a root slept 2 h 51 min on its finished gates).
+	unseenHold := false
 	if !wait.IsZero() && waitUntil.IsZero() && w.after > 0 && w.after < waitMax && !now.Before(wait.Add(w.after)) && now.Before(holdEnd) && (w.visible == nil || !w.visible()) {
-		holdEnd = wait.Add(w.after)
+		holdEnd, unseenHold = wait.Add(w.after), true
 	}
 	if !wait.IsZero() && now.Before(holdEnd) && !d.waits.woke(a, wait) {
 		return owesNothing, task, nil
@@ -210,8 +211,8 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 		}
 		return owesAlert, task, nil
 	}
-	if !wait.IsZero() && waitUntil.IsZero() {
-		return owesWaitNudge, task, nil
+	if unseenHold && !d.waits.woke(a, wait) {
+		return owesWaitNudge, task, nil // the hold was cut to wait_unseen: the text says why
 	}
 	return owesNudge, task, nil
 }

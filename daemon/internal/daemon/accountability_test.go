@@ -692,3 +692,27 @@ func TestAWaitNothingCanWakeFromIsNudgedAfterWaitUnseenNotWaitMax(t *testing.T) 
 		})
 	}
 }
+
+// Only a nudge that comes of the wait_unseen hold says nothing could have woken the agent: one for an agent that was
+// woken (activity after its wait) and ended a turn with no report gets the ordinary text.
+func TestAWokenAgentsNudgeIsTheOrdinaryOne(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.setting("accountability.wait_unseen", 600.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	a.taskRead()
+	if _, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, ""); err != nil {
+		t.Fatal(err)
+	}
+	a.pass()                                                             // the wait's baseline
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now().Add(time.Second)) // woken, and idle again with no report
+	time.Sleep(2200 * time.Millisecond)
+	a.pass()
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
+		t.Fatalf("nudges %d, want 1", n)
+	}
+	if n := a.mailOf("a-w1", "[mesh nudge] Your declared wait has run its course"); n != 0 {
+		t.Errorf("a woken agent got the text for an unwoken wait")
+	}
+}

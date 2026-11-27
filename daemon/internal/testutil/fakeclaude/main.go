@@ -646,11 +646,8 @@ func hook(event string, fields map[string]any) []byte {
 	}
 	payload, _ := json.Marshal(body)
 	groups := conf.Hooks[event]
-	for _, f := range []string{"settings.json", "settings.local.json"} {
-		src := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSuffix(f, ".json"), "settings"), ".")
-		if src == "" {
-			src = "project"
-		}
+	for _, file := range []struct{ name, source string }{{"settings.json", "project"}, {"settings.local.json", "local"}} {
+		src, f := file.source, file.name
 		if sources != "" && !slices.Contains(strings.Split(sources, ","), src) {
 			continue
 		}

@@ -10,6 +10,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // A review round counts as one agent against `caps.agents`: its first reviewer has to fit, the others then join
@@ -102,6 +103,50 @@ func TestAReviewRoundOnAFullHostWaitsForRoom(t *testing.T) {
 	}
 	if !noted {
 		t.Errorf("no note that it waited for room: %v", r.res.Msg.Notes)
+	}
+}
+
+// A retry of a round that was cut off while it started (its ask stored, `Starting`) is not held for room: it
+// finds the ask and goes on with the members it left, whatever room there is, and is not told it waited.
+func TestARetryOfAHalfStartedRoundDoesNotWaitForRoom(t *testing.T) {
+	w := startReviews(t)
+	w.pr.push(t, "the feature")
+	req := func() *v1.AskRequest {
+		return &v1.AskRequest{Meta: meta("ask-retry"), Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"}
+	}
+	first, err := w.asRoot.Ask(context.Background(), connect.NewRequest(req()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// As if the first call had been cut off: its ask is still starting.
+	if err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAsk(first.Msg.Ask.Id)
+		if err != nil {
+			return err
+		}
+		a.Starting = true
+		if err := tx.PutAsk(a); err != nil {
+			return err
+		}
+		// ... and its final write, which records the mutation, never happened.
+		_, err = tx.PruneMutations(time.Now().Add(time.Hour), time.Now().Add(time.Hour))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w.set(t, "caps.agents", 1) // the round's own reviewers now fill the host
+	w.set(t, "review.wait_room", 60)
+	began := time.Now()
+	res, err := w.asRoot.Ask(context.Background(), connect.NewRequest(req()))
+	if waited := time.Since(began); waited > 20*time.Second {
+		t.Errorf("the retry took %s: it waited for room (%v)", waited, err)
+	}
+	if err == nil {
+		for _, n := range res.Msg.Notes {
+			if strings.Contains(n, "for room") {
+				t.Errorf("a retry told it waited: %v", res.Msg.Notes)
+			}
+		}
 	}
 }
 
