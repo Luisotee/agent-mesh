@@ -15,6 +15,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -25,9 +26,9 @@ type authorWorld struct {
 	asWorker agentmeshv1connect.MeshServiceClient
 }
 
-func startAuthor(t *testing.T, reviews string) *authorWorld {
+func startAuthor(t *testing.T, reviews string, tweaks ...func(*daemon.AgentConfig)) *authorWorld {
 	t.Helper()
-	w := startReviews(t)
+	w := startReviews(t, tweaks...)
 	worker := w.spawnUnder(t, w.asRoot, "fix", &v1.SpawnAgentRequest{Repo: w.pr.repo, Reviews: reviews})
 	w.pr.headRef = worker.Branch
 	return &authorWorld{reviewWorld: w, worker: worker, asWorker: w.as(w.token(t, worker.Id))}

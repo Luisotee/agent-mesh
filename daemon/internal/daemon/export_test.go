@@ -214,3 +214,6 @@ func SetPermNoticeAfter(d time.Duration) func() {
 	permNoticeAfter = d
 	return func() { permNoticeAfter = old }
 }
+
+// FailingChecks exposes failingChecks.
+func FailingChecks(rollup []map[string]any) []string { return failingChecks(rollup) }

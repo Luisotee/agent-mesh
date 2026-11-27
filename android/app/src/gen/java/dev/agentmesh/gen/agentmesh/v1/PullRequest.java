@@ -26,6 +26,7 @@ public  final class PullRequest extends
     source_ = "";
     headRef_ = "";
     failingHead_ = "";
+    head_ = "";
   }
   private int bitField0_;
   public static final int AGENT_ID_FIELD_NUMBER = 1;
@@ -785,6 +786,78 @@ public  final class PullRequest extends
   private void clearFeedbackResumes() {
 
     feedbackResumes_ = 0;
+  }
+
+  public static final int HEAD_FIELD_NUMBER = 15;
+  private java.lang.String head_;
+  /**
+   * <pre>
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   * </pre>
+   *
+   * <code>string head = 15 [json_name = "head"];</code>
+   * @return The head.
+   */
+  @java.lang.Override
+  public java.lang.String getHead() {
+    return head_;
+  }
+  /**
+   * <pre>
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   * </pre>
+   *
+   * <code>string head = 15 [json_name = "head"];</code>
+   * @return The bytes for head.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHeadBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(head_);
+  }
+  /**
+   * <pre>
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   * </pre>
+   *
+   * <code>string head = 15 [json_name = "head"];</code>
+   * @param value The head to set.
+   */
+  private void setHead(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    head_ = value;
+  }
+  /**
+   * <pre>
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   * </pre>
+   *
+   * <code>string head = 15 [json_name = "head"];</code>
+   */
+  private void clearHead() {
+
+    head_ = getDefaultInstance().getHead();
+  }
+  /**
+   * <pre>
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   * </pre>
+   *
+   * <code>string head = 15 [json_name = "head"];</code>
+   * @param value The bytes for head to set.
+   */
+  private void setHeadBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    head_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.PullRequest parseFrom(
@@ -1680,6 +1753,80 @@ public  final class PullRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+     * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+     * </pre>
+     *
+     * <code>string head = 15 [json_name = "head"];</code>
+     * @return The head.
+     */
+    @java.lang.Override
+    public java.lang.String getHead() {
+      return instance.getHead();
+    }
+    /**
+     * <pre>
+     * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+     * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+     * </pre>
+     *
+     * <code>string head = 15 [json_name = "head"];</code>
+     * @return The bytes for head.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHeadBytes() {
+      return instance.getHeadBytes();
+    }
+    /**
+     * <pre>
+     * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+     * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+     * </pre>
+     *
+     * <code>string head = 15 [json_name = "head"];</code>
+     * @param value The head to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHead(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHead(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+     * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+     * </pre>
+     *
+     * <code>string head = 15 [json_name = "head"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHead() {
+      copyOnWrite();
+      instance.clearHead();
+      return this;
+    }
+    /**
+     * <pre>
+     * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+     * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+     * </pre>
+     *
+     * <code>string head = 15 [json_name = "head"];</code>
+     * @param value The bytes for head to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHeadBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.PullRequest)
   }
   @java.lang.Override
@@ -1711,11 +1858,12 @@ public  final class PullRequest extends
             "feedbackCursor_",
             "failingHead_",
             "feedbackResumes_",
+            "head_",
           };
           java.lang.String info =
-              "\u0000\u000e\u0000\u0001\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u000f\u0000\u0001\u0001\u000f\u000f\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0004\u0004\u0208\u0005\u0007\u0006\u0208\u0007\u0208\b\u1009\u0000\t\u0007" +
-              "\n\u0007\u000b\u0208\f\u1009\u0001\r\u0208\u000e\u0004";
+              "\n\u0007\u000b\u0208\f\u1009\u0001\r\u0208\u000e\u0004\u000f\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
