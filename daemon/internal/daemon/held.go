@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -125,7 +126,36 @@ func (d *Daemon) releaseHeldSoon(afterID string) {
 	})
 }
 
-// scanHeld settles every held task at start: a release the daemon stopped before it finished, or one whose run closed.
+// refusal is an error that says the task can't be sent as it is (an invalid, denied, missing or precondition-failed
+// request, the reserve), as opposed to one that may clear by itself.
+func refusal(err error) bool {
+	switch connect.CodeOf(err) {
+	case connect.CodeInvalidArgument, connect.CodePermissionDenied, connect.CodeNotFound, connect.CodeFailedPrecondition,
+		connect.CodeResourceExhausted, connect.CodeAlreadyExists:
+		return true
+	}
+	return false
+}
+
+// heldSweepEvery is how often every held task is looked at again: one a restart or a busy host left, one whose run
+// closed or whose agent went.
+const heldSweepEvery = time.Minute
+
+// sweepHeld settles every held task now and then, until the daemon stops.
+func (d *Daemon) sweepHeld(ctx context.Context) {
+	t := time.NewTicker(heldSweepEvery)
+	defer t.Stop()
+	for {
+		d.scanHeld(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// scanHeld settles every held task: a release the daemon stopped before it finished, one whose run closed.
 func (d *Daemon) scanHeld(ctx context.Context) {
 	held, err := d.store.Read(ctx).HeldTasks("")
 	if err != nil {
@@ -163,6 +193,10 @@ func (d *Daemon) settleHeld(ctx context.Context, id string) {
 		d.endHeld(ctx, h, "") // the run is over: nobody to tell
 		return
 	}
+	if _, err := r.GetAgent(h.To); errors.Is(err, store.ErrNotFound) {
+		d.endHeld(ctx, h, "the agent it is for is gone")
+		return
+	}
 	o, err := outcomeOf(r, h.RunId, h.After)
 	if err != nil {
 		d.log.Error("reading a held task's dependency", "id", id, "err", err)
@@ -185,6 +219,11 @@ func (d *Daemon) settleHeld(ctx context.Context, id string) {
 		var ce *connect.Error
 		if errors.As(err, &ce) {
 			msg = ce.Message()
+		}
+		if !refusal(err) {
+			// Not a refusal of the task (the host busy, a call that timed out): the row stays and the sweep sends it.
+			d.log.Warn("sending a held task failed; it stays held", "id", h.Id, "err", err)
+			return
 		}
 		d.endHeld(ctx, h, "it was refused when it was due: "+clip(msg, 300))
 		return

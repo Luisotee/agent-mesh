@@ -23,6 +23,11 @@ describe('applyShellChange', () => {
     expect(kept?.map((x) => [x.id, x.exited])).toEqual([['a', false], ['b', true]])
   })
 
+  it('forgets an exited shell once no tab shows it', () => {
+    const s = state({ h1: [shell('a', { exited: true }), shell('b')] })
+    expect(applyShellChange(s, 'h1', change('c', false)).shells?.h1?.map((x) => x.id)).toEqual(['b', 'c'])
+  })
+
   it('leaves a host whose list is not loaded yet to that load, and touches no other host', () => {
     const s = state({ h2: [shell('x')] })
     expect(applyShellChange(s, 'h1', change('b', false))).toEqual({})

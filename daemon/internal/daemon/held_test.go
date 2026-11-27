@@ -237,3 +237,20 @@ func TestAHeldTaskWhoseTaskWasDoneWhileTheDaemonWasDownIsSentAtStart(t *testing.
 	b := h.as(h.token(t, h.b.Id))
 	waitFor(t, "the held task sent at start", func() bool { return hasBody(inbox(t, b), "second") })
 }
+
+func TestAHeldTaskOfAClosedRunIsDroppedAtStart(t *testing.T) {
+	h := startHeld(t)
+	t1 := h.task(t, h.a, h.asA, "first")
+	if _, err := h.hold(t, h.b, t1.Id, "second"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.device.Mesh.StopRun(context.Background(), connect.NewRequest(&v1.StopRunRequest{Meta: meta(""), RunId: h.run.Id})); err != nil {
+		t.Fatal(err)
+	}
+	h.stop()
+	h.agentsHarness = h.restart(t)
+	waitFor(t, "the held task of the closed run dropped", func() bool {
+		l, err := h.device.Mesh.ListHeldTasks(context.Background(), connect.NewRequest(&v1.ListHeldTasksRequest{}))
+		return err == nil && len(l.Msg.Held) == 0
+	})
+}

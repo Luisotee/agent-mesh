@@ -33,5 +33,7 @@ export function applyShellChange<S extends { shells: Record<string, Shell[]>; ta
   if (!c.closed) next = [...list.filter((x) => x.id !== shell.id), shell]
   else if (s.tabs.some((t) => t.hostId === hostId && t.agentId === shellTabId(shell.id))) next = list.map((x) => (x.id === shell.id ? { ...x, exited: true } : x))
   else next = list.filter((x) => x.id !== shell.id)
+  // An exited shell no tab shows any more has nothing left to say.
+  next = next.filter((x) => !x.exited || s.tabs.some((t) => t.hostId === hostId && t.agentId === shellTabId(x.id)))
   return { shells: { ...s.shells, [hostId]: next } } as Partial<S>
 }
