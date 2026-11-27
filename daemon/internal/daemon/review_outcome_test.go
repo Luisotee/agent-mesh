@@ -244,3 +244,43 @@ func TestAWorkerOnARelayRunsItAndIsSettledOnlyWhenItHas(t *testing.T) {
 		t.Errorf("a relay with nothing left: %s", got)
 	}
 }
+
+// The root's brief shows one word of a worker's reviews, so it can run the board without opening a done.
+func TestTheBriefShowsAWorkersReviewOutcomeInOneWord(t *testing.T) {
+	a := startAuthor(t, "")
+	brief := func() string {
+		t.Helper()
+		res, err := a.asRoot.GetBrief(context.Background(), connect.NewRequest(&v1.GetBriefRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Text
+	}
+	if strings.Contains(brief(), "reviews:") {
+		t.Errorf("a review word for a worker with no PR: %s", brief())
+	}
+	a.pr.push(t, "the feature")
+	a.commit(t)
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := brief(); !strings.Contains(b, "reviews: running") {
+		t.Errorf("a round collecting: %s", b)
+	}
+	a.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "findings")
+	waitFor(t, "the round to finish", func() bool {
+		k, _ := a.d.Store().Read(context.Background()).GetAsk(res.Ask.Id)
+		return k.Status == v1.AskStatus_ASK_STATUS_FINISHED
+	})
+	if b := brief(); !strings.Contains(b, "reviews: needs you") {
+		t.Errorf("an answer nobody judged: %s", b)
+	}
+	if err := a.verdictFull(t, a.asWorker, filepath.Base(a.pr.repo)+"-review-7-claude", 1, 0, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if b := brief(); !strings.Contains(b, "reviews: settled") {
+		t.Errorf("a judged round: %s", b)
+	}
+}

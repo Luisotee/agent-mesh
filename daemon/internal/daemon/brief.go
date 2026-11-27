@@ -202,6 +202,9 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			if t := prText(row, rep != nil && rep.Type == v1.MessageType_MESSAGE_TYPE_DONE); t != "" {
 				line += "; " + t
 			}
+			if w := d.reviewWord(r, a); w != "" {
+				line += "; reviews: " + w
+			}
 		}
 		if a.State != v1.AgentState_AGENT_STATE_EXITED && a.State != v1.AgentState_AGENT_STATE_RETIRED {
 			rep, err := lastReport(r, a)

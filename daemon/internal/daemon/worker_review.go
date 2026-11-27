@@ -476,6 +476,21 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 	return "\n\n" + strings.Join(lines, "\n")
 }
 
+// reviewWord is the one word the brief shows of a worker's PR reviews so far: "needs you" when any PR's outcome is
+// NEEDS YOU (a round still collecting says "running"), else "settled"; "" for a worker with no PR or round to speak of.
+func (d *Daemon) reviewWord(r store.Reader, a *v1.Agent) string {
+	f := d.reviewFooter(r, a, "", false)
+	switch {
+	case f == "":
+		return ""
+	case strings.Contains(f, "a round is still collecting"):
+		return "running"
+	case strings.Contains(f, "NEEDS YOU"):
+		return "needs you"
+	}
+	return "settled"
+}
+
 // reviewOutcome is the line for one PR of a worker: SETTLED with what the reviews came to, or NEEDS YOU with what is
 // open. rounds are the asks the worker made of it (none: the rounds others asked are named), p its recorded row.
 func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url string, rounds []*v1.Ask, p *v1.PullRequest) string {
