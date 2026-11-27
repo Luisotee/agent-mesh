@@ -176,7 +176,8 @@ func clampSize(cols, rows uint32) (uint16, uint16) {
 }
 
 // resize applies a client's new size. Only a client with input rights may resize: a viewer's size was set at
-// attach, and a ticket for watching must not shrink every other client's terminal.
+// attach, and a ticket for watching must not shrink every other client's terminal. The asker is always answered with the size
+// that came of it (`Resized`).
 func (t *Terminal) resize(c *client, cols, rows uint32) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -184,7 +185,11 @@ func (t *Terminal) resize(c *client, cols, rows uint32) {
 		return
 	}
 	c.cols, c.rows = clampSize(cols, rows)
-	t.resizeLocked(nil)
+	if !t.resizeLocked(nil) {
+		// Nothing moved (another client is as small, or smaller): say what the size is anyway, in the same epoch, so the client
+		// that asked is not left to guess what its request came to.
+		t.sendLocked(c, frameOf(&termv1.Resized{Epoch: t.epoch, Offset: t.epochAt, Cols: uint32(t.cols), Rows: uint32(t.rows)}))
+	}
 }
 
 func (t *Terminal) canType(c *client) bool {

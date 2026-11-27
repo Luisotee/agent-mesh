@@ -306,6 +306,22 @@ describe('OpenView: messages, a plan and a pull request', () => {
     }
   })
 
+  it("leaves the card's own 3 s mark alone once the card claims the focus, however late the messages loaded", () => {
+    vi.useFakeTimers()
+    try {
+      const { model } = fixture()
+      showView(model, 'h1', create(ViewRequestSchema, { view: 'plan', target: 'w1', messageId: 'm9' }))
+      vi.advanceTimersByTime(9_000)
+      model.claimFocusMessage()
+      vi.advanceTimersByTime(2_000)
+      expect(model.store.getState().focusMessage).toMatchObject({ id: 'm9' })
+      model.clearFocusMessage()
+      expect(model.store.getState().focusMessage).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('names them in the toast', async () => {
     const { model, wrap } = fixture()
     render(wrap(<ViewToasts />))

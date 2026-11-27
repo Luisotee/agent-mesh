@@ -203,6 +203,10 @@ export interface AppModel {
   /** Shows what a toast names and takes the toast away. */
   openViewRequest(id: number): void
   clearFocusMessage(): void
+  /** Mark a message for the Messages panel to show. If no card claims it within 10 s (its messages did not load), it is forgotten. */
+  focusOnMessage(focus: { hostId: string; id: string }): void
+  /** The card for the focused message is showing: its own timer takes over from the 10 s fallback. */
+  claimFocusMessage(): void
   /** Takes a toast away. */
   dismissViewRequest(id: number): void
   /** Pins a project of a host (or unpins it): pinned projects come first in the New workspace dialog. */
@@ -254,12 +258,7 @@ export function showView(app: AppModel, hostId: string, v: ViewRequest): void {
     case 'plan':
       if (!s.agents[v.target]) return
       if (v.view === 'plan' && v.messageId) {
-        const focus = { hostId, id: v.messageId }
-        app.store.setState({ focusMessage: focus })
-        // The card clears it when it shows it; if it never mounts (its messages did not load), it must not fire later.
-        setTimeout(() => {
-          if (app.store.getState().focusMessage === focus) app.clearFocusMessage()
-        }, 10_000)
+        app.focusOnMessage({ hostId, id: v.messageId })
       }
       app.selectAgent(hostId, v.target, 'messages')
       return
@@ -312,6 +311,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
   let saved = ''
   let saveTimer: ReturnType<typeof setTimeout> | undefined
+  let focusFallback: ReturnType<typeof setTimeout> | undefined
   const save = () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
@@ -459,7 +459,18 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => ({ viewRequests: s.viewRequests.filter((x) => x.id !== id) }))
       if (r) showView(model, r.hostId, r.request)
     },
-    clearFocusMessage: () => set({ focusMessage: undefined }),
+    clearFocusMessage: () => {
+      clearTimeout(focusFallback)
+      set({ focusMessage: undefined })
+    },
+    focusOnMessage: (focus) => {
+      clearTimeout(focusFallback)
+      set({ focusMessage: focus })
+      focusFallback = setTimeout(() => {
+        if (store.getState().focusMessage === focus) set({ focusMessage: undefined })
+      }, 10_000)
+    },
+    claimFocusMessage: () => clearTimeout(focusFallback),
     dismissViewRequest: (id) => set((s) => ({ viewRequests: s.viewRequests.filter((x) => x.id !== id) })),
     togglePin: (hostId, path) =>
       set((s) => {

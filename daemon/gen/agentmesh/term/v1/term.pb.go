@@ -1637,12 +1637,14 @@ func (x *Output) GetReplay() bool {
 
 // The terminal's size changed (a client with input rights resized, or attached or left): sent to every attached client,
 // between the output of the old epoch and that of the new, so a client learns the size and the new epoch without a
-// repaint. A client that doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
+// repaint. It is also the answer to a Resize that changed nothing (another client is as small): then it restates the
+// current epoch, its start offset and the size, so the client that asked learns what its request came to. A client that
+// doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
 type Resized struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The epoch the output from `offset` on is in.
 	Epoch uint64 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	// The output offset where the new epoch starts.
+	// The output offset where that epoch starts.
 	Offset        uint64 `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
 	Cols          uint32 `protobuf:"varint,3,opt,name=cols,proto3" json:"cols,omitempty"`
 	Rows          uint32 `protobuf:"varint,4,opt,name=rows,proto3" json:"rows,omitempty"`

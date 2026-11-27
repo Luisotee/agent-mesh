@@ -481,6 +481,7 @@ type Terminal struct {
 	ring       *Ring
 	screen     Screen
 	epoch      uint64
+	epochAt    uint64 // the output offset where the current epoch starts
 	cols, rows uint16
 	clients    map[*client]struct{}
 	exited     bool
@@ -623,8 +624,8 @@ func (t *Terminal) closeClients(reason string) {
 
 // resizeLocked sets the PTY to the smallest attached client's size. A change is a sync boundary: the epoch
 // moves, so an exact reattach from before it gets a repaint instead, and every attached client but `except` is
-// told (`Resized`).
-func (t *Terminal) resizeLocked(except *client) {
+// told (`Resized`). It reports whether the size changed.
+func (t *Terminal) resizeLocked(except *client) bool {
 	var cols, rows uint16
 	for c := range t.clients {
 		if c.cols == 0 || c.rows == 0 {
@@ -638,9 +639,10 @@ func (t *Terminal) resizeLocked(except *client) {
 		}
 	}
 	if cols == 0 || (cols == t.cols && rows == t.rows) {
-		return
+		return false
 	}
 	t.setSizeLocked(cols, rows, except)
+	return true
 }
 
 // setSizeLocked moves the terminal to a size, in a new epoch, and queues a Resized for every attached client but `except`,
@@ -649,11 +651,12 @@ func (t *Terminal) resizeLocked(except *client) {
 func (t *Terminal) setSizeLocked(cols, rows uint16, except *client) {
 	t.cols, t.rows = cols, rows
 	t.epoch++
+	t.epochAt = t.ring.End()
 	t.screen.Resize(int(cols), int(rows))
 	if !t.exited {
 		pty.Setsize(t.ptmx, &pty.Winsize{Cols: cols, Rows: rows})
 	}
-	f := frameOf(&termv1.Resized{Epoch: t.epoch, Offset: t.ring.End(), Cols: uint32(cols), Rows: uint32(rows)})
+	f := frameOf(&termv1.Resized{Epoch: t.epoch, Offset: t.epochAt, Cols: uint32(cols), Rows: uint32(rows)})
 	for c := range t.clients {
 		if c != except {
 			t.sendLocked(c, f)

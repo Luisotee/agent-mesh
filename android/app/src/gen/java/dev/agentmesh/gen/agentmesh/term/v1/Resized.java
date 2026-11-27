@@ -9,7 +9,9 @@ package dev.agentmesh.gen.agentmesh.term.v1;
  * <pre>
  * The terminal's size changed (a client with input rights resized, or attached or left): sent to every attached client,
  * between the output of the old epoch and that of the new, so a client learns the size and the new epoch without a
- * repaint. A client that doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
+ * repaint. It is also the answer to a Resize that changed nothing (another client is as small): then it restates the
+ * current epoch, its start offset and the size, so the client that asked learns what its request came to. A client that
+ * doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
  * </pre>
  *
  * Protobuf type {@code agentmesh.term.v1.Resized}
@@ -64,7 +66,7 @@ public  final class Resized extends
   private long offset_;
   /**
    * <pre>
-   * The output offset where the new epoch starts.
+   * The output offset where that epoch starts.
    * </pre>
    *
    * <code>uint64 offset = 2 [json_name = "offset"];</code>
@@ -76,7 +78,7 @@ public  final class Resized extends
   }
   /**
    * <pre>
-   * The output offset where the new epoch starts.
+   * The output offset where that epoch starts.
    * </pre>
    *
    * <code>uint64 offset = 2 [json_name = "offset"];</code>
@@ -88,7 +90,7 @@ public  final class Resized extends
   }
   /**
    * <pre>
-   * The output offset where the new epoch starts.
+   * The output offset where that epoch starts.
    * </pre>
    *
    * <code>uint64 offset = 2 [json_name = "offset"];</code>
@@ -237,7 +239,9 @@ public  final class Resized extends
    * <pre>
    * The terminal's size changed (a client with input rights resized, or attached or left): sent to every attached client,
    * between the output of the old epoch and that of the new, so a client learns the size and the new epoch without a
-   * repaint. A client that doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
+   * repaint. It is also the answer to a Resize that changed nothing (another client is as small): then it restates the
+   * current epoch, its start offset and the size, so the client that asked learns what its request came to. A client that
+   * doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
    * </pre>
    *
    * Protobuf type {@code agentmesh.term.v1.Resized}
@@ -295,7 +299,7 @@ public  final class Resized extends
 
     /**
      * <pre>
-     * The output offset where the new epoch starts.
+     * The output offset where that epoch starts.
      * </pre>
      *
      * <code>uint64 offset = 2 [json_name = "offset"];</code>
@@ -307,7 +311,7 @@ public  final class Resized extends
     }
     /**
      * <pre>
-     * The output offset where the new epoch starts.
+     * The output offset where that epoch starts.
      * </pre>
      *
      * <code>uint64 offset = 2 [json_name = "offset"];</code>
@@ -321,7 +325,7 @@ public  final class Resized extends
     }
     /**
      * <pre>
-     * The output offset where the new epoch starts.
+     * The output offset where that epoch starts.
      * </pre>
      *
      * <code>uint64 offset = 2 [json_name = "offset"];</code>

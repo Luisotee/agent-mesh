@@ -216,10 +216,11 @@ export class TerminalSession {
         this.attempt = 0
         this.send({ case: 'ready', value: {} })
         {
-          // The view may have been resized while we attached, and a resize before Ready is dropped.
-          const { cols, rows } = this.o.sink.size()
-          if (this.attached?.input && (cols !== this.attachSize.cols || rows !== this.attachSize.rows)) {
-            this.send({ case: 'resize', value: { cols, rows } })
+          // The view may have been resized while we attached, and a resize before Ready is dropped. A viewer's size was set at attach and
+          // the host takes no resize from it, so its size is not even read (the sink notes what it is asked).
+          if (this.attached?.input) {
+            const { cols, rows } = this.o.sink.size()
+            if (cols !== this.attachSize.cols || rows !== this.attachSize.rows) this.send({ case: 'resize', value: { cols, rows } })
           }
         }
         this.o.onState({ kind: 'live', input: !!this.attached?.input })

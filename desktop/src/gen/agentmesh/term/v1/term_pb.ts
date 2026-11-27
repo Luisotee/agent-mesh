@@ -724,7 +724,9 @@ export const OutputSchema: GenMessage<Output> = /*@__PURE__*/
 /**
  * The terminal's size changed (a client with input rights resized, or attached or left): sent to every attached client,
  * between the output of the old epoch and that of the new, so a client learns the size and the new epoch without a
- * repaint. A client that doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
+ * repaint. It is also the answer to a Resize that changed nothing (another client is as small): then it restates the
+ * current epoch, its start offset and the size, so the client that asked learns what its request came to. A client that
+ * doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
  *
  * @generated from message agentmesh.term.v1.Resized
  */
@@ -737,7 +739,7 @@ export type Resized = Message<"agentmesh.term.v1.Resized"> & {
   epoch: bigint;
 
   /**
-   * The output offset where the new epoch starts.
+   * The output offset where that epoch starts.
    *
    * @generated from field: uint64 offset = 2;
    */

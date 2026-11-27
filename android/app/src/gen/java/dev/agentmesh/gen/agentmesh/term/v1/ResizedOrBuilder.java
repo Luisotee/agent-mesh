@@ -22,7 +22,7 @@ public interface ResizedOrBuilder extends
 
   /**
    * <pre>
-   * The output offset where the new epoch starts.
+   * The output offset where that epoch starts.
    * </pre>
    *
    * <code>uint64 offset = 2 [json_name = "offset"];</code>

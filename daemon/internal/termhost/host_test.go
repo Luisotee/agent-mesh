@@ -473,6 +473,54 @@ func TestAResizeIsToldToTheAttachedClientsWithoutARepaint(t *testing.T) {
 	}
 }
 
+// A client that resizes is told the size that came of it, also when another client keeps the terminal as small as it was,
+// in the epoch the terminal is already in: its window then neither blames a size it has now matched, nor misses one it grew past.
+func TestAResizeThatMovesNothingIsAnsweredWithTheCurrentSizeInTheSameEpoch(t *testing.T) {
+	f := startHost(t)
+	term := f.spawn("echo")
+	a := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
+	var ca collector
+	ca.next(t, a)
+	b := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 140, Rows: 40})
+	var cb collector
+	at := cb.next(t, b).GetAttached()
+	if at == nil || at.Cols != 100 || at.Rows != 30 {
+		t.Fatalf("B attached as %v, want the host's 100x30", at)
+	}
+	resize := func(cols, rows uint32) {
+		t.Helper()
+		if err := b.Send(context.Background(), &termv1.TermFrame{Frame: &termv1.TermFrame_Resize{Resize: &termv1.Resize{Cols: cols, Rows: rows}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	answer := func() *termv1.Resized {
+		t.Helper()
+		for {
+			if r := cb.next(t, b).GetResized(); r != nil {
+				return r
+			}
+		}
+	}
+	for _, want := range [][2]uint32{{100, 30}, {140, 40}, {120, 30}} {
+		resize(want[0], want[1])
+		r := answer()
+		if r.Cols != 100 || r.Rows != 30 || r.Epoch != at.Epoch || r.Offset != at.Offset {
+			t.Errorf("a resize to %dx%d was answered %v, want 100x30 in epoch %d from offset %d", want[0], want[1], r, at.Epoch, at.Offset)
+		}
+	}
+	// A is told nothing for a resize that moved nothing: its size and epoch are as they were.
+	for _, fr := range ca.frames {
+		if fr.GetResized() != nil {
+			t.Errorf("A was sent %v for a resize that changed nothing", fr)
+		}
+	}
+	// A resize that does move the host is still one Resized to B, with a new epoch.
+	resize(60, 20)
+	if r := answer(); r.Cols != 60 || r.Rows != 20 || r.Epoch <= at.Epoch {
+		t.Errorf("a shrink was answered %v, want 60x20 in a later epoch than %d", r, at.Epoch)
+	}
+}
+
 func TestSizesAreClampedAndOnlyATyperMayResize(t *testing.T) {
 	f := startHost(t)
 	term := f.spawn("echo")
