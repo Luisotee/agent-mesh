@@ -12,8 +12,8 @@ import type { StoredHost } from './hosts.js'
  * frames through as bytes. It reads none of them.
  */
 
-/** The only path a socket may open: a terminal's stream with its ticket. */
-const TERM_PATH = /^\/v1\/term\/[A-Za-z0-9_-]+\?ticket=[A-Za-z0-9_%.~-]+$/
+/** The only paths a socket may open: an agent's terminal stream or a project shell's, with its ticket. */
+const TERM_PATH = /^\/v1\/(?:term|shell)\/[A-Za-z0-9_-]+\?ticket=[A-Za-z0-9_%.~-]+$/
 
 export function allowedSocketPath(p: unknown): p is string {
   return typeof p === 'string' && p.length < 512 && TERM_PATH.test(p)

@@ -108,6 +108,12 @@ const (
 	// MeshServiceOpenTerminalProcedure is the fully-qualified name of the MeshService's OpenTerminal
 	// RPC.
 	MeshServiceOpenTerminalProcedure = "/agentmesh.v1.MeshService/OpenTerminal"
+	// MeshServiceOpenShellProcedure is the fully-qualified name of the MeshService's OpenShell RPC.
+	MeshServiceOpenShellProcedure = "/agentmesh.v1.MeshService/OpenShell"
+	// MeshServiceListShellsProcedure is the fully-qualified name of the MeshService's ListShells RPC.
+	MeshServiceListShellsProcedure = "/agentmesh.v1.MeshService/ListShells"
+	// MeshServiceCloseShellProcedure is the fully-qualified name of the MeshService's CloseShell RPC.
+	MeshServiceCloseShellProcedure = "/agentmesh.v1.MeshService/CloseShell"
 	// MeshServiceReadTranscriptProcedure is the fully-qualified name of the MeshService's
 	// ReadTranscript RPC.
 	MeshServiceReadTranscriptProcedure = "/agentmesh.v1.MeshService/ReadTranscript"
@@ -308,6 +314,14 @@ type MeshServiceClient interface {
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
+	// daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
+	// host knows (a folder of `repos.dir`, or a repo an agent worked in: what `ListProjects` draws on).
+	OpenShell(context.Context, *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error)
+	// The shells that are running (or exited and not yet seen to), oldest first.
+	ListShells(context.Context, *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error)
+	// End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
+	CloseShell(context.Context, *connect.Request[v1.CloseShellRequest]) (*connect.Response[v1.CloseShellResponse], error)
 	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
 	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
@@ -631,6 +645,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("OpenTerminal")),
 			connect.WithClientOptions(opts...),
 		),
+		openShell: connect.NewClient[v1.OpenShellRequest, v1.OpenShellResponse](
+			httpClient,
+			baseURL+MeshServiceOpenShellProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("OpenShell")),
+			connect.WithClientOptions(opts...),
+		),
+		listShells: connect.NewClient[v1.ListShellsRequest, v1.ListShellsResponse](
+			httpClient,
+			baseURL+MeshServiceListShellsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListShells")),
+			connect.WithClientOptions(opts...),
+		),
+		closeShell: connect.NewClient[v1.CloseShellRequest, v1.CloseShellResponse](
+			httpClient,
+			baseURL+MeshServiceCloseShellProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CloseShell")),
+			connect.WithClientOptions(opts...),
+		),
 		readTranscript: connect.NewClient[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse](
 			httpClient,
 			baseURL+MeshServiceReadTranscriptProcedure,
@@ -926,6 +958,9 @@ type meshServiceClient struct {
 	getBrief          *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
 	reportHook        *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
 	openTerminal      *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	openShell         *connect.Client[v1.OpenShellRequest, v1.OpenShellResponse]
+	listShells        *connect.Client[v1.ListShellsRequest, v1.ListShellsResponse]
+	closeShell        *connect.Client[v1.CloseShellRequest, v1.CloseShellResponse]
 	readTranscript    *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
 	promptAgent       *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
 	listPrompts       *connect.Client[v1.ListPromptsRequest, v1.ListPromptsResponse]
@@ -1129,6 +1164,21 @@ func (c *meshServiceClient) ReportHook(ctx context.Context, req *connect.Request
 // OpenTerminal calls agentmesh.v1.MeshService.OpenTerminal.
 func (c *meshServiceClient) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
 	return c.openTerminal.CallUnary(ctx, req)
+}
+
+// OpenShell calls agentmesh.v1.MeshService.OpenShell.
+func (c *meshServiceClient) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error) {
+	return c.openShell.CallUnary(ctx, req)
+}
+
+// ListShells calls agentmesh.v1.MeshService.ListShells.
+func (c *meshServiceClient) ListShells(ctx context.Context, req *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error) {
+	return c.listShells.CallUnary(ctx, req)
+}
+
+// CloseShell calls agentmesh.v1.MeshService.CloseShell.
+func (c *meshServiceClient) CloseShell(ctx context.Context, req *connect.Request[v1.CloseShellRequest]) (*connect.Response[v1.CloseShellResponse], error) {
+	return c.closeShell.CallUnary(ctx, req)
 }
 
 // ReadTranscript calls agentmesh.v1.MeshService.ReadTranscript.
@@ -1438,6 +1488,14 @@ type MeshServiceHandler interface {
 	ReportHook(context.Context, *connect.Request[v1.ReportHookRequest]) (*connect.Response[v1.ReportHookResponse], error)
 	// A one-time ticket for an agent's terminal WebSocket. Input is granted only with the terminal.input right.
 	OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error)
+	// Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
+	// daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
+	// host knows (a folder of `repos.dir`, or a repo an agent worked in: what `ListProjects` draws on).
+	OpenShell(context.Context, *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error)
+	// The shells that are running (or exited and not yet seen to), oldest first.
+	ListShells(context.Context, *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error)
+	// End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
+	CloseShell(context.Context, *connect.Request[v1.CloseShellRequest]) (*connect.Response[v1.CloseShellResponse], error)
 	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
 	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
@@ -1755,6 +1813,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceOpenTerminalProcedure,
 		svc.OpenTerminal,
 		connect.WithSchema(meshServiceMethods.ByName("OpenTerminal")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceOpenShellHandler := connect.NewUnaryHandler(
+		MeshServiceOpenShellProcedure,
+		svc.OpenShell,
+		connect.WithSchema(meshServiceMethods.ByName("OpenShell")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListShellsHandler := connect.NewUnaryHandler(
+		MeshServiceListShellsProcedure,
+		svc.ListShells,
+		connect.WithSchema(meshServiceMethods.ByName("ListShells")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceCloseShellHandler := connect.NewUnaryHandler(
+		MeshServiceCloseShellProcedure,
+		svc.CloseShell,
+		connect.WithSchema(meshServiceMethods.ByName("CloseShell")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceReadTranscriptHandler := connect.NewUnaryHandler(
@@ -2081,6 +2157,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceReportHookHandler.ServeHTTP(w, r)
 		case MeshServiceOpenTerminalProcedure:
 			meshServiceOpenTerminalHandler.ServeHTTP(w, r)
+		case MeshServiceOpenShellProcedure:
+			meshServiceOpenShellHandler.ServeHTTP(w, r)
+		case MeshServiceListShellsProcedure:
+			meshServiceListShellsHandler.ServeHTTP(w, r)
+		case MeshServiceCloseShellProcedure:
+			meshServiceCloseShellHandler.ServeHTTP(w, r)
 		case MeshServiceReadTranscriptProcedure:
 			meshServiceReadTranscriptHandler.ServeHTTP(w, r)
 		case MeshServicePromptAgentProcedure:
@@ -2302,6 +2384,18 @@ func (UnimplementedMeshServiceHandler) ReportHook(context.Context, *connect.Requ
 
 func (UnimplementedMeshServiceHandler) OpenTerminal(context.Context, *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenTerminal is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) OpenShell(context.Context, *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenShell is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListShells(context.Context, *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListShells is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CloseShell(context.Context, *connect.Request[v1.CloseShellRequest]) (*connect.Response[v1.CloseShellResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CloseShell is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error) {

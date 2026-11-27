@@ -34,33 +34,9 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 	actor := auth.ActorFrom(ctx)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	r := d.store.Read(ctx)
-	used := map[string]time.Time{}
-	agents, err := r.AllAgents()
+	paths, used, inDir, err := d.projectPaths(ctx)
 	if err != nil {
 		return nil, err
-	}
-	for _, a := range agents {
-		if a.Repo != "" {
-			if t := a.CreatedAt.AsTime(); t.After(used[filepath.Clean(a.Repo)]) {
-				used[filepath.Clean(a.Repo)] = t
-			}
-		}
-	}
-	inDir := map[string]bool{}
-	var paths []string
-	dirs, err := d.Setting(r, "repos.dir")
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range dirs.([]any) {
-		for _, p := range gitFolders(expandHome(e.(string))) {
-			inDir[p] = true
-			paths = append(paths, p)
-		}
-	}
-	for p := range used {
-		paths = append(paths, p)
 	}
 	// With `repo`, that one project, by the path the list gives it when it is listed (git's resolved top may differ
 	// through a symlink). A read-only device reads only listed projects, and updates nothing: it gets the refs last
@@ -124,6 +100,39 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 	wg.Wait()
 	// A path that stopped being a repo (git found no branches and no default) is still listed: the folder is there.
 	return connect.NewResponse(&v1.ListProjectsResponse{Projects: out}), nil
+}
+
+// projectPaths are the repos work can start in (the list `ListProjects` shows, before it is sorted and cut): the git
+// folders under the `repos.dir` folders (`inDir`) and every repo an agent worked in, with when each was last used.
+func (d *Daemon) projectPaths(ctx context.Context) (paths []string, used map[string]time.Time, inDir map[string]bool, err error) {
+	r := d.store.Read(ctx)
+	used = map[string]time.Time{}
+	agents, err := r.AllAgents()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, a := range agents {
+		if a.Repo != "" {
+			if t := a.CreatedAt.AsTime(); t.After(used[filepath.Clean(a.Repo)]) {
+				used[filepath.Clean(a.Repo)] = t
+			}
+		}
+	}
+	inDir = map[string]bool{}
+	dirs, err := d.Setting(r, "repos.dir")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for _, e := range dirs.([]any) {
+		for _, p := range gitFolders(expandHome(e.(string))) {
+			inDir[p] = true
+			paths = append(paths, p)
+		}
+	}
+	for p := range used {
+		paths = append(paths, p)
+	}
+	return paths, used, inDir, nil
 }
 
 // gitFolders are the folders directly under dir that are a git repo's top (a `.git` folder, or a file for a worktree).

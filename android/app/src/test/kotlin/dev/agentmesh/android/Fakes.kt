@@ -157,10 +157,40 @@ class RecordingApi : MeshApi {
     val prompts = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String>>())
     @Volatile var failPrompt: Exception? = null
 
-    override suspend fun promptAgent(agent: String, text: String) {
+    /** What a prompt is answered with: set it to make the host queue the next one ("working", "draft" …), null types it at once. */
+    @Volatile var queueNext: String? = null
+    /** What ListPrompts answers, by agent; WithdrawPrompt takes from it. */
+    val queued = java.util.concurrent.ConcurrentHashMap<String, List<dev.agentmesh.gen.agentmesh.v1.QueuedPrompt>>()
+    val withdrawn = java.util.Collections.synchronizedList(mutableListOf<String>())
+    val interrupts = java.util.Collections.synchronizedList(mutableListOf<String>())
+    @Volatile var stopped = true
+    @Volatile var failQueue: Exception? = null
+
+    override suspend fun promptAgent(agent: String, text: String): dev.agentmesh.gen.agentmesh.v1.QueuedPrompt? {
         failPrompt?.let { throw it }
         prompts += agent to text
+        val held = queueNext ?: return null
+        queueNext = null
+        val q = dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.newBuilder().setId("q${prompts.size}").setAgentId(agent).setText(text).setHeld(held).build()
+        queued[agent] = queued[agent].orEmpty() + q
+        return q
     }
+
+    override suspend fun listPrompts(agent: String): List<dev.agentmesh.gen.agentmesh.v1.QueuedPrompt> {
+        failQueue?.let { throw it }
+        return queued[agent].orEmpty()
+    }
+
+    override suspend fun withdrawPrompt(agent: String, promptId: String): dev.agentmesh.gen.agentmesh.v1.QueuedPrompt? {
+        failQueue?.let { throw it }
+        val list = queued[agent].orEmpty()
+        val p = (if (promptId.isEmpty()) list.lastOrNull() else list.firstOrNull { it.id == promptId }) ?: return null
+        queued[agent] = list - p
+        withdrawn += p.id
+        return p
+    }
+
+    override suspend fun interruptAgent(agent: String): Boolean { interrupts += agent; return stopped }
 
     /** What SwitchAgent calls reached the host: agent, tier, model, effort. */
     val switches = java.util.Collections.synchronizedList(mutableListOf<List<String>>())
