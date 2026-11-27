@@ -52,6 +52,28 @@ func (h *agentsHarness) prompt(agent, text string) error {
 	return err
 }
 
+func (h *agentsHarness) prompts(agent string) []*v1.QueuedPrompt {
+	h.t.Helper()
+	res, err := h.device.Mesh.ListPrompts(context.Background(), connect.NewRequest(&v1.ListPromptsRequest{Agent: agent}))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return res.Msg.Prompts
+}
+
+// waitTranscript waits for a user entry with the text in the agent's conversation.
+func (h *agentsHarness) waitTranscript(agent, text string) {
+	h.t.Helper()
+	waitFor(h.t, "the prompt "+text+" in the transcript", func() bool {
+		for _, e := range h.transcript(agent, -1, true).Entries {
+			if e.Kind == v1.TranscriptKind_TRANSCRIPT_KIND_USER && e.Text == text {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func (h *agentsHarness) transcript(agent string, offset int64, backward bool) *v1.ReadTranscriptResponse {
 	h.t.Helper()
 	res, err := h.device.Mesh.ReadTranscript(context.Background(), connect.NewRequest(&v1.ReadTranscriptRequest{Agent: agent, Offset: offset, Backward: backward}))
@@ -127,7 +149,7 @@ func TestAPromptOfSeveralLinesIsOnePrompt(t *testing.T) {
 	}
 }
 
-func TestOnlyADeviceThatMayTypeCanPromptAnAgentAndOnlyWhereTypingIsSafe(t *testing.T) {
+func TestOnlyATypingDevicePromptsAndADraftHoldsTheQueue(t *testing.T) {
 	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_BOX": "1"})
 	ctx := context.Background()
 
@@ -164,27 +186,42 @@ func TestOnlyADeviceThatMayTypeCanPromptAnAgentAndOnlyWhereTypingIsSafe(t *testi
 		}
 	}
 
-	// A draft someone left in the box is not typed after.
+	// A draft someone left in the box is not typed after: the prompt waits in the queue, saying so, until the box is
+	// clear again.
 	h.typeInto(a, "half a thou")
-	waitFor(t, "the draft refused", func() bool {
-		err := h.prompt(a.Id, "hello")
-		return connect.CodeOf(err) == connect.CodeFailedPrecondition && strings.Contains(err.Error(), "draft")
+	res, err := h.device.Mesh.PromptAgent(ctx, connect.NewRequest(&v1.PromptAgentRequest{Meta: meta("p-draft"), Agent: a.Id, Text: "hello"}))
+	if err != nil || res.Msg.Queued == nil {
+		t.Fatalf("a prompt at a draft: %v, %v", res, err)
+	}
+	waitFor(t, "the queue to say it waits for the draft", func() bool {
+		q := h.prompts(a.Id)
+		return len(q) == 1 && q[0].Held == "draft"
 	})
+	h.typeInto(a, "\x15") // the user clears the box
+	waitFor(t, "the queued prompt typed once the box is clear", func() bool { return len(h.prompts(a.Id)) == 0 })
+	h.waitTranscript(a.Id, "hello")
 }
 
-func TestAPromptIsRefusedWhereTheLineWouldAnswerAPromptOrThereIsNoTerminal(t *testing.T) {
+func TestAPromptWaitsOutTheAgentsOwnPrompt(t *testing.T) {
 	h, a := chatDaemon(t, nil)
 	h.typeInto(a, "/ask\r")
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_NEEDS_INPUT)
-	if err := h.prompt(a.Id, "hello"); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "waits at a prompt") {
-		t.Errorf("at a prompt: %v", err)
+	// Typed now it would answer the prompt: it waits for the agent to be back at its own prompt instead.
+	if err := h.prompt(a.Id, "hello"); err != nil {
+		t.Fatalf("at a prompt: %v", err)
+	}
+	if q := h.prompts(a.Id); len(q) != 1 || q[0].Held != "at_prompt" {
+		t.Errorf("queue at a prompt = %v", q)
 	}
 	h.typeInto(a, "y\r")
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	waitFor(t, "the prompt typed after the agent's own prompt was answered", func() bool { return len(h.prompts(a.Id)) == 0 })
+	h.waitTranscript(a.Id, "hello")
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 
 	h.typeInto(a, "/exit\r")
 	h.waitState(a.Id, v1.AgentState_AGENT_STATE_EXITED)
-	if err := h.prompt(a.Id, "hello"); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "exited") {
+	if err := h.prompt(a.Id, "hello again"); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "exited") {
 		t.Errorf("an exited agent: %v", err)
 	}
 	if _, err := h.device.Mesh.PromptAgent(context.Background(), connect.NewRequest(&v1.PromptAgentRequest{Meta: meta("p-none"), Agent: "nobody", Text: "hi"})); connect.CodeOf(err) != connect.CodeNotFound {
@@ -192,7 +229,7 @@ func TestAPromptIsRefusedWhereTheLineWouldAnswerAPromptOrThereIsNoTerminal(t *te
 	}
 }
 
-func TestACLIWithoutARecordAnswersUnsupported(t *testing.T) {
+func TestEveryBuiltInCLIHasAChatView(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "state")
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
@@ -201,9 +238,10 @@ func TestACLIWithoutARecordAnswersUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// agy keeps its conversation in a SQLite file the adapter reads: a chat view, empty until the conversation starts.
 	got := h.transcript(res.Msg.Agent.Id, -1, true)
-	if got.Supported || len(got.Entries) != 0 {
-		t.Errorf("agy has no record we read, but %v", got)
+	if !got.Supported || len(got.Entries) != 0 || !got.AtStart {
+		t.Errorf("agy's chat view = %v", got)
 	}
 	time.Sleep(10 * time.Millisecond)
 }
@@ -276,11 +314,18 @@ func TestARetriedPromptIsTypedOnceAndAnExpiredOneNotAtAll(t *testing.T) {
 }
 
 func TestAPromptIsNotTypedWhereNoEmptyInputBoxIsOnTheScreen(t *testing.T) {
-	// A dropped line leaves a dialog where the box was: its Enter would pick an option.
-	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_DROP": "1", "FAKECLAUDE_DIALOG": "1"})
+	// A dropped line leaves a dialog where the box was: its Enter would pick an option. The prompt waits, saying why.
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_DROP": "1", "FAKECLAUDE_DIALOG": "1", "FAKECLAUDE_INPUT_LOG": filepath.Join(t.TempDir(), "in.log")})
 	h.typeInto(a, "📬 [mesh] dropped\r")
-	waitFor(t, "the refusal", func() bool {
-		err := h.prompt(a.Id, "hello")
-		return connect.CodeOf(err) == connect.CodeFailedPrecondition && strings.Contains(err.Error(), "no empty input box")
+	if err := h.prompt(a.Id, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the queue to say it sees no box", func() bool {
+		q := h.prompts(a.Id)
+		return len(q) == 1 && q[0].Held == "no_box"
 	})
+	time.Sleep(500 * time.Millisecond)
+	if q := h.prompts(a.Id); len(q) != 1 {
+		t.Errorf("a prompt was typed at a dialog: %v", q)
+	}
 }

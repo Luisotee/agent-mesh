@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -385,6 +387,10 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_UNSPECIFIED {
 		return nil, invalid("no message type given")
 	}
+	waitFor, err := parseWaitUntil(req.Msg.Type, req.Msg.Until, d.now())
+	if err != nil {
+		return nil, err
+	}
 	out := &v1.SendMessageResponse{}
 	// A message to a stopped agent resumes it, and a direct task to a planner reopens it without its deny list:
 	// both need its conversation id, found before the write (learnSession).
@@ -661,6 +667,13 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				msgBody += d.reviewFooter(t.Reader, self, req.Msg.Body, hasWork)
 			}
 		}
+		if !waitFor.IsZero() {
+			// Only a wait to its own parent is read by the nudge: a deadline on any other would hold nothing.
+			self, serr := t.Reader.GetAgent(actor.Id)
+			if !IsAgent(actor.Class) || serr != nil || self.ParentId == "" || to.Id != self.ParentId {
+				return invalid("until only applies to a wait to your own parent (mesh send parent --type wait --until 45m)")
+			}
+		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
 			Type: req.Msg.Type, Body: msgBody, CreatedAt: tsOf(t.Now())}
 		if asked != nil && (req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE || req.Msg.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
@@ -672,6 +685,16 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			// Not a report: it asks nothing of its parent, who reads it in the inbox, and rings no doorbell
 			// (PROTOCOL.md, design "A declared wait"). Marked delivered so the doorbell loop never takes it.
 			msg.DeliveredAt = tsOf(t.Now())
+			if !waitFor.IsZero() {
+				// Capped at wait_max from now, as the pass caps it (reportOwed): the stored deadline is what holds.
+				until := waitFor
+				if maxHold, err := d.Setting(t.Reader, "accountability.wait_max"); err == nil {
+					if limit := t.Now().Add(time.Duration(maxHold.(float64) * float64(time.Second))); until.After(limit) {
+						until = limit
+					}
+				}
+				msg.WaitUntil = tsOf(until)
+			}
 		}
 		if err := t.PutMessage(msg); err != nil {
 			return err
@@ -828,4 +851,30 @@ func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.Su
 	deviceEvents := actor != nil && actor.Id == localDeviceID
 	isDevice := actor != nil && !IsAgent(actor.Class)
 	return d.bus.ServeFor(sctx, msg, deviceEvents, isDevice, d.stopping, stream.Send)
+}
+
+// parseWaitUntil reads a wait's `until`: a duration from now (`45m`) or an RFC 3339 time, in the future. It is
+// refused on any other message type; empty is no deadline (the zero time).
+func parseWaitUntil(typ v1.MessageType, until string, now time.Time) (time.Time, error) {
+	until = strings.TrimSpace(until)
+	if until == "" {
+		return time.Time{}, nil
+	}
+	if typ != v1.MessageType_MESSAGE_TYPE_WAIT {
+		return time.Time{}, invalid("until only applies to a wait (--type wait)")
+	}
+	if dur, err := time.ParseDuration(until); err == nil {
+		if dur <= 0 {
+			return time.Time{}, invalid("until %s is not in the future: give a positive duration such as 45m, or a time", strconv.Quote(until))
+		}
+		return now.Add(dur), nil
+	}
+	at, err := time.Parse(time.RFC3339, until)
+	if err != nil {
+		return time.Time{}, invalid("until %s is neither a duration (45m, 2h) nor an RFC 3339 time (2026-11-27T09:00:00Z)", strconv.Quote(until))
+	}
+	if !at.After(now) {
+		return time.Time{}, invalid("until %s is not in the future", strconv.Quote(until))
+	}
+	return at, nil
 }

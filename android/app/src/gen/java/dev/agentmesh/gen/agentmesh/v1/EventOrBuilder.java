@@ -389,34 +389,67 @@ public interface EventOrBuilder extends
   dev.agentmesh.gen.agentmesh.v1.PullRequestChanged getPullRequestChanged();
 
   /**
-   * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   * @return Whether the promptQueued field is set.
+   */
+  boolean hasPromptQueued();
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   * @return The promptQueued.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptQueued getPromptQueued();
+
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   * @return Whether the promptTyped field is set.
+   */
+  boolean hasPromptTyped();
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   * @return The promptTyped.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptTyped getPromptTyped();
+
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   * @return Whether the promptWithdrawn field is set.
+   */
+  boolean hasPromptWithdrawn();
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   * @return The promptWithdrawn.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn getPromptWithdrawn();
+
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 39 [json_name = "runRenamed"];</code>
    * @return Whether the runRenamed field is set.
    */
   boolean hasRunRenamed();
   /**
-   * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 39 [json_name = "runRenamed"];</code>
    * @return The runRenamed.
    */
   dev.agentmesh.gen.agentmesh.v1.RunRenamed getRunRenamed();
 
   /**
-   * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 40 [json_name = "permissionChanged"];</code>
    * @return Whether the permissionChanged field is set.
    */
   boolean hasPermissionChanged();
   /**
-   * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 40 [json_name = "permissionChanged"];</code>
    * @return The permissionChanged.
    */
   dev.agentmesh.gen.agentmesh.v1.PermissionChanged getPermissionChanged();
 
   /**
-   * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 41 [json_name = "agentArchived"];</code>
    * @return Whether the agentArchived field is set.
    */
   boolean hasAgentArchived();
   /**
-   * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 41 [json_name = "agentArchived"];</code>
    * @return The agentArchived.
    */
   dev.agentmesh.gen.agentmesh.v1.AgentArchived getAgentArchived();

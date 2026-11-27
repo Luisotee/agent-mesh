@@ -169,6 +169,9 @@ type runtime struct {
 	held          map[string]*held       // agent id → its doorbell kept back by a human's draft
 	nativeOff     map[string]time.Time   // terminal id → a frame written to its inbox socket wasn't taken: type until then
 	deliverQueued map[string]bool        // agent id → a delivery is queued for it (deliverSoon)
+	promptHeld    map[string]string      // agent id → why its next queued prompt wasn't typed at the last try (prompts.go)
+	promptTyped   map[string]time.Time   // agent id → when a queued prompt was typed and no activity has followed yet (prompts.go)
+	lastEsc       map[string]time.Time   // agent id → when InterruptAgent last sent it Esc (prompts.go)
 	guard         guard
 	sampler       capSampler // what the agents measured (capacity.go)
 	cpus          cpuTracker
@@ -204,7 +207,7 @@ func newRuntime(cfg AgentConfig) (*runtime, error) {
 	}
 	return &runtime{cfg: cfg, adapters: reg, sys: resolveSystemOps(cfg.Sys), lastOutput: map[string]time.Time{}, firstOutput: map[string]time.Time{},
 		tickets: map[string]ticket{}, delivering: map[string]*sync.Mutex{}, launching: map[string]bool{}, introduced: map[string]bool{},
-		rings: map[string]*ring{}, held: map[string]*held{}, nativeOff: map[string]time.Time{}, deliverQueued: map[string]bool{}}, nil
+		rings: map[string]*ring{}, held: map[string]*held{}, nativeOff: map[string]time.Time{}, deliverQueued: map[string]bool{}, promptHeld: map[string]string{}, promptTyped: map[string]time.Time{}, lastEsc: map[string]time.Time{}}, nil
 }
 
 // view is an agent as shown: a working agent long silent reads as unknown.
@@ -450,9 +453,9 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 
 func (d *Daemon) runBackground(ctx context.Context) {
 	if d.rt.term != nil && !d.rt.cfg.NoTerminalWatch {
-		go d.watchTerminals(ctx)
+		d.goBG(func() { d.watchTerminals(ctx) })
 	}
-	go func() {
+	d.goBG(func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
 		var pruned, retired, limited, accounted, reserved, contextTick, sampled time.Time
@@ -475,16 +478,16 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			d.settleStartingAgents(ctx)
 			if pollingOpenCode.CompareAndSwap(false, true) {
 				// Off this loop: readScreen waits up to 3 s per agent, and the spool and the doorbells must not.
-				go func() {
+				d.goBG(func() {
 					defer pollingOpenCode.Store(false)
 					d.pollOpenCode(ctx)
-				}()
+				})
 			}
 			if pollingCopilot.CompareAndSwap(false, true) {
-				go func() {
+				d.goBG(func() {
 					defer pollingCopilot.Store(false)
 					d.pollCopilot(ctx)
-				}()
+				})
 			}
 			d.retryDoorbells(ctx)
 			if now := d.now(); now.Sub(contextTick) >= orDuration(d.rt.cfg.ContextEvery, contextEvery) {
@@ -494,10 +497,10 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
 				// Off this loop: stopping a process waits for it, and the spool and the doorbells must not.
-				go func() {
+				d.goBG(func() {
 					defer retiring.Store(false)
 					d.retireIdle(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(accounted) >= accountEvery {
 				accounted = now
@@ -507,26 +510,26 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			if now := d.now(); now.Sub(limited) >= retireEvery && limiting.CompareAndSwap(false, true) {
 				limited = now
 				// Off this loop, as the retire pass is: a reopen takes the agent's lock and the store's writer.
-				go func() {
+				d.goBG(func() {
 					defer limiting.Store(false)
 					d.limitPass(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(reserved) >= reserveEvery && alertRunning.CompareAndSwap(false, true) {
 				reserved = now
-				go func() {
+				d.goBG(func() {
 					defer alertRunning.Store(false)
 					d.reserveAlertPass(ctx)
 					d.agyLoginAlertPass(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(sampled) >= orDuration(d.rt.cfg.CapacityEvery, capacityEvery) && sampling.CompareAndSwap(false, true) {
 				sampled = now
 				// Off this loop: it reads /proc for every agent's process tree.
-				go func() {
+				d.goBG(func() {
 					defer sampling.Store(false)
 					d.sampleCapacity(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now
@@ -538,7 +541,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			case <-t.C:
 			}
 		}
-	}()
+	})
 }
 
 // Retention of the idempotency records: a hook's is short (it is retried within minutes, and there is one per
@@ -553,6 +556,9 @@ func (d *Daemon) pruneMutations(ctx context.Context) {
 	var pruned int64
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		if _, err := tx.PruneMutations(now.Add(-hookMutationRetention), now.Add(-mutationRetention)); err != nil {
+			return err
+		}
+		if _, err := tx.PrunePrompts(now.Add(-mutationRetention)); err != nil {
 			return err
 		}
 		n, err := tx.PrunePairings(now)

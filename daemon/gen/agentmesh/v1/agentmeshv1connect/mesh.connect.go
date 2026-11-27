@@ -113,6 +113,14 @@ const (
 	MeshServiceReadTranscriptProcedure = "/agentmesh.v1.MeshService/ReadTranscript"
 	// MeshServicePromptAgentProcedure is the fully-qualified name of the MeshService's PromptAgent RPC.
 	MeshServicePromptAgentProcedure = "/agentmesh.v1.MeshService/PromptAgent"
+	// MeshServiceListPromptsProcedure is the fully-qualified name of the MeshService's ListPrompts RPC.
+	MeshServiceListPromptsProcedure = "/agentmesh.v1.MeshService/ListPrompts"
+	// MeshServiceWithdrawPromptProcedure is the fully-qualified name of the MeshService's
+	// WithdrawPrompt RPC.
+	MeshServiceWithdrawPromptProcedure = "/agentmesh.v1.MeshService/WithdrawPrompt"
+	// MeshServiceInterruptAgentProcedure is the fully-qualified name of the MeshService's
+	// InterruptAgent RPC.
+	MeshServiceInterruptAgentProcedure = "/agentmesh.v1.MeshService/InterruptAgent"
 	// MeshServiceCreatePairingProcedure is the fully-qualified name of the MeshService's CreatePairing
 	// RPC.
 	MeshServiceCreatePairingProcedure = "/agentmesh.v1.MeshService/CreatePairing"
@@ -305,8 +313,18 @@ type MeshServiceClient interface {
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
-	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+	// with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
+	// queued (the answer's `queued`) and typed at its next idle. Refused only for an agent with no terminal.
 	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
+	// The prompts the user sent an agent that wait to be typed: sent while it worked, started, waited at a prompt or had
+	// a draft in its box (`PromptAgent` queues them), typed one at a time at its next idle, oldest first.
+	ListPrompts(context.Context, *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error)
+	// Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
+	// once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
+	WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error)
+	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
+	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
+	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -625,6 +643,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("PromptAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		listPrompts: connect.NewClient[v1.ListPromptsRequest, v1.ListPromptsResponse](
+			httpClient,
+			baseURL+MeshServiceListPromptsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListPrompts")),
+			connect.WithClientOptions(opts...),
+		),
+		withdrawPrompt: connect.NewClient[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse](
+			httpClient,
+			baseURL+MeshServiceWithdrawPromptProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("WithdrawPrompt")),
+			connect.WithClientOptions(opts...),
+		),
+		interruptAgent: connect.NewClient[v1.InterruptAgentRequest, v1.InterruptAgentResponse](
+			httpClient,
+			baseURL+MeshServiceInterruptAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("InterruptAgent")),
+			connect.WithClientOptions(opts...),
+		),
 		createPairing: connect.NewClient[v1.CreatePairingRequest, v1.CreatePairingResponse](
 			httpClient,
 			baseURL+MeshServiceCreatePairingProcedure,
@@ -892,6 +928,9 @@ type meshServiceClient struct {
 	openTerminal      *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
 	readTranscript    *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
 	promptAgent       *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
+	listPrompts       *connect.Client[v1.ListPromptsRequest, v1.ListPromptsResponse]
+	withdrawPrompt    *connect.Client[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse]
+	interruptAgent    *connect.Client[v1.InterruptAgentRequest, v1.InterruptAgentResponse]
 	createPairing     *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices       *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice      *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
@@ -1100,6 +1139,21 @@ func (c *meshServiceClient) ReadTranscript(ctx context.Context, req *connect.Req
 // PromptAgent calls agentmesh.v1.MeshService.PromptAgent.
 func (c *meshServiceClient) PromptAgent(ctx context.Context, req *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error) {
 	return c.promptAgent.CallUnary(ctx, req)
+}
+
+// ListPrompts calls agentmesh.v1.MeshService.ListPrompts.
+func (c *meshServiceClient) ListPrompts(ctx context.Context, req *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error) {
+	return c.listPrompts.CallUnary(ctx, req)
+}
+
+// WithdrawPrompt calls agentmesh.v1.MeshService.WithdrawPrompt.
+func (c *meshServiceClient) WithdrawPrompt(ctx context.Context, req *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error) {
+	return c.withdrawPrompt.CallUnary(ctx, req)
+}
+
+// InterruptAgent calls agentmesh.v1.MeshService.InterruptAgent.
+func (c *meshServiceClient) InterruptAgent(ctx context.Context, req *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error) {
+	return c.interruptAgent.CallUnary(ctx, req)
 }
 
 // CreatePairing calls agentmesh.v1.MeshService.CreatePairing.
@@ -1389,8 +1443,18 @@ type MeshServiceHandler interface {
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
-	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+	// with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
+	// queued (the answer's `queued`) and typed at its next idle. Refused only for an agent with no terminal.
 	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
+	// The prompts the user sent an agent that wait to be typed: sent while it worked, started, waited at a prompt or had
+	// a draft in its box (`PromptAgent` queues them), typed one at a time at its next idle, oldest first.
+	ListPrompts(context.Context, *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error)
+	// Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
+	// once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
+	WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error)
+	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
+	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
+	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -1705,6 +1769,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("PromptAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListPromptsHandler := connect.NewUnaryHandler(
+		MeshServiceListPromptsProcedure,
+		svc.ListPrompts,
+		connect.WithSchema(meshServiceMethods.ByName("ListPrompts")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceWithdrawPromptHandler := connect.NewUnaryHandler(
+		MeshServiceWithdrawPromptProcedure,
+		svc.WithdrawPrompt,
+		connect.WithSchema(meshServiceMethods.ByName("WithdrawPrompt")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceInterruptAgentHandler := connect.NewUnaryHandler(
+		MeshServiceInterruptAgentProcedure,
+		svc.InterruptAgent,
+		connect.WithSchema(meshServiceMethods.ByName("InterruptAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceCreatePairingHandler := connect.NewUnaryHandler(
 		MeshServiceCreatePairingProcedure,
 		svc.CreatePairing,
@@ -2003,6 +2085,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceReadTranscriptHandler.ServeHTTP(w, r)
 		case MeshServicePromptAgentProcedure:
 			meshServicePromptAgentHandler.ServeHTTP(w, r)
+		case MeshServiceListPromptsProcedure:
+			meshServiceListPromptsHandler.ServeHTTP(w, r)
+		case MeshServiceWithdrawPromptProcedure:
+			meshServiceWithdrawPromptHandler.ServeHTTP(w, r)
+		case MeshServiceInterruptAgentProcedure:
+			meshServiceInterruptAgentHandler.ServeHTTP(w, r)
 		case MeshServiceCreatePairingProcedure:
 			meshServiceCreatePairingHandler.ServeHTTP(w, r)
 		case MeshServiceListDevicesProcedure:
@@ -2222,6 +2310,18 @@ func (UnimplementedMeshServiceHandler) ReadTranscript(context.Context, *connect.
 
 func (UnimplementedMeshServiceHandler) PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.PromptAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListPrompts(context.Context, *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListPrompts is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.WithdrawPrompt is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.InterruptAgent is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {

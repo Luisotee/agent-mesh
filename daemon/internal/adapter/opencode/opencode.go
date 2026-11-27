@@ -93,7 +93,7 @@ func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeR
 		Kind:             Kind,
 		DisplayName:      "OpenCode",
 		VerifiedVersions: VerifiedVersions,
-		Capabilities:     []string{"session-lookup"},
+		Capabilities:     []string{"session-lookup", capTranscript},
 	}), nil
 }
 
@@ -418,6 +418,21 @@ func marshalOrderedStringMap(pairs []orderedKV) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// sharePermission is the config's `permission` that lets an agent read the installed share folder (the protocol and
+// skills its first doorbell names), which sits outside its worktree: without it OpenCode stops at an "Access external
+// directory" dialog nobody answers. Reads only: the folder's edits are denied, and nothing else is opened. Nil when
+// the daemon has no absolute share path.
+func sharePermission(share string) map[string]any {
+	if !filepath.IsAbs(share) {
+		return nil
+	}
+	share = filepath.ToSlash(filepath.Clean(share))
+	return map[string]any{
+		"external_directory": map[string]string{share + "/*": "allow", share + "/**": "allow"},
+		"edit":               map[string]string{share + "/*": "deny", share + "/**": "deny"},
+	}
+}
+
 // PermissionJSON builds `OPENCODE_PERMISSION` for a read-only or planning agent: edits denied in the worktree
 // (`*`) and main checkout (`<rel>/*`) with `../*` (`$(mesh dir)`) allowed, and publish commands denied in bash.
 func PermissionJSON(cwd, repo string) (string, error) {
@@ -496,9 +511,11 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 			}
 		}
 	}
-	cfgBytes, err := json.Marshal(map[string]any{
-		"agent": map[string]any{agentName: agentCfg},
-	})
+	cfg := map[string]any{"agent": map[string]any{agentName: agentCfg}}
+	if perm := sharePermission(env["AGENT_MESH_SHARE"]); perm != nil {
+		cfg["permission"] = perm
+	}
+	cfgBytes, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -641,6 +658,9 @@ type SessionInfo struct {
 	IsRate        bool
 	Evidence      string
 	ErrorText     string
+	// UpdatedAt is when the open reply (Status "working") last changed: the later of its own row and its newest
+	// part's. A reply that stays open with this unchanged for minutes is stalled. Zero when the DB doesn't say.
+	UpdatedAt time.Time
 }
 
 type opencodeMessage struct {
@@ -737,6 +757,7 @@ func InspectSession(dbPath, sessionID, cwd, repo, model string, since, notBefore
 
 	if lastMsg.Role == "user" || (lastMsg.Role == "assistant" && (lastMsg.Time.Completed == 0 || lastMsg.Finish == "tool-calls") && lastMsg.Error == nil) {
 		out.Status = "working"
+		out.UpdatedAt = replyUpdatedAt(db, lastID)
 		return out, nil
 	}
 	if lastMsg.Role == "assistant" && lastMsg.Error != nil {
@@ -772,6 +793,24 @@ func InspectSession(dbPath, sessionID, cwd, repo, model string, since, notBefore
 		out.Status = "idle"
 	}
 	return out, nil
+}
+
+// replyUpdatedAt is when a message, or any of its parts, last changed, from the DB's time_updated columns; zero when
+// they can't be read (an older schema), so no stall is ever read from a DB that doesn't say.
+func replyUpdatedAt(db *sql.DB, messageID string) time.Time {
+	var ms sql.NullInt64
+	if err := db.QueryRow(`SELECT time_updated FROM message WHERE id = ?`, messageID).Scan(&ms); err != nil || !ms.Valid {
+		return time.Time{}
+	}
+	latest := ms.Int64
+	var pms sql.NullInt64
+	if err := db.QueryRow(`SELECT MAX(time_updated) FROM part WHERE message_id = ?`, messageID).Scan(&pms); err == nil && pms.Valid && pms.Int64 > latest {
+		latest = pms.Int64
+	}
+	if latest <= 0 {
+		return time.Time{} // a row that says 0 says nothing: never a stall of fifty years
+	}
+	return time.UnixMilli(latest)
 }
 
 // ── limits & screen parsing ──

@@ -15,6 +15,7 @@ describe('controlFor', () => {
     expect(controlFor('string', ['dock', 'tab'])).toEqual({ kind: 'select', choices: ['dock', 'tab'] })
     expect(controlFor('mb_or_auto', [])).toEqual({ kind: 'text' })
     expect(controlFor('shortcut', [])).toEqual({ kind: 'shortcut' })
+    expect(controlFor('chat_key', [])).toEqual({ kind: 'shortcut', bare: true })
     expect(controlFor('int_or_auto', [])).toEqual({ kind: 'text' })
   })
   it('falls back to JSON for slots, json and any type it does not know', () => {

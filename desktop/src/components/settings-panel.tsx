@@ -226,7 +226,7 @@ function Field({ host, control, id, value, draft, setDraft, commit, save, busy }
         </label>
       )
     case 'shortcut':
-      return <ShortcutField host={host} id={id} value={typeof value === 'string' ? value : ''} busy={busy} save={save} />
+      return <ShortcutField host={host} id={id} value={typeof value === 'string' ? value : ''} busy={busy} save={save} bare={control.bare} />
     case 'select':
       return (
         <Select aria-label={label} className="max-w-xs" value={draft} disabled={busy} onChange={(e) => void commit(e.target.value)}>

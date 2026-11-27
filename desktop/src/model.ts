@@ -138,6 +138,8 @@ export interface AppState extends WorkspaceState {
   workspaceRun?: string
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
+  /** A queued prompt taken back to edit, for its agent's composer to take (and clear). */
+  composerFill?: { agentId: string; text: string }
   /** The main pane shows the host's quota usage and spend. */
   usageOpen: boolean
   /** The tab being dragged (not kept: it only shows the edges a tab can be dropped on). */

@@ -534,7 +534,8 @@ public class MeshServiceClient(
   /**
    *  Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
    *  a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
-   *  with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+   *  with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
+   *  queued (the answer's `queued`) and typed at its next idle. Refused only for an agent with no terminal.
    */
   override suspend fun promptAgent(request: PromptAgentRequest, headers: Headers): ResponseMessage<PromptAgentResponse> = client.unary(
     request,
@@ -543,6 +544,54 @@ public class MeshServiceClient(
     "agentmesh.v1.MeshService/PromptAgent",
       dev.agentmesh.gen.agentmesh.v1.PromptAgentRequest::class,
       dev.agentmesh.gen.agentmesh.v1.PromptAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  The prompts the user sent an agent that wait to be typed: sent while it worked, started, waited at a prompt or had
+   *  a draft in its box (`PromptAgent` queues them), typed one at a time at its next idle, oldest first.
+   */
+  override suspend fun listPrompts(request: ListPromptsRequest, headers: Headers): ResponseMessage<ListPromptsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListPrompts",
+      dev.agentmesh.gen.agentmesh.v1.ListPromptsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListPromptsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
+   *  once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
+   */
+  override suspend fun withdrawPrompt(request: WithdrawPromptRequest, headers: Headers): ResponseMessage<WithdrawPromptResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/WithdrawPrompt",
+      dev.agentmesh.gen.agentmesh.v1.WithdrawPromptRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.WithdrawPromptResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
+   *  for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
+   */
+  override suspend fun interruptAgent(request: InterruptAgentRequest, headers: Headers): ResponseMessage<InterruptAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/InterruptAgent",
+      dev.agentmesh.gen.agentmesh.v1.InterruptAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.InterruptAgentResponse::class,
       StreamType.UNARY,
     ),
   )

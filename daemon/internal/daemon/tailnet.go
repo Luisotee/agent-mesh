@@ -44,9 +44,7 @@ func (d *Daemon) serveTailnet(ctx context.Context, tlsSrv *http.Server) {
 		msg := what + ": " + err.Error()
 		d.tailnetErr.Store(&msg)
 	}
-	d.bgWG.Add(1)
-	go func() {
-		defer d.bgWG.Done()
+	d.goBG(func() {
 		ln, err := tn.Listen("tcp", fmt.Sprintf(":%d", tn.Port()))
 		if ctx.Err() != nil {
 			// Shutting down: a listener that came too late, or a Listen cut short, is no failure.
@@ -63,7 +61,7 @@ func (d *Daemon) serveTailnet(ctx context.Context, tlsSrv *http.Server) {
 		if err := tlsSrv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
 			failed("serving on the tailnet", err)
 		}
-	}()
+	})
 }
 
 // tailnetDirectURL is the address a pairing link carries for the tailnet node: its IPv4 address (IPv6 when it

@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -95,6 +95,15 @@ export const readTranscript = (c: MeshClient, agent: string, offset: bigint, bac
 
 /** Types a prompt into the agent's running CLI as the user would (the chat composer): one process, one conversation. */
 export const promptAgent = (c: MeshClient, agent: string, text: string) => c.promptAgent({ meta: meta(), agent, text })
+
+/** The prompts sent to an agent's chat that wait to be typed at its next idle, oldest first, with what they wait for. */
+export const listPrompts = (c: MeshClient, agent: string) => c.listPrompts({ agent })
+
+/** Takes back a queued prompt before it is typed (the newest when `promptId` is empty); refused once it is being typed. */
+export const withdrawPrompt = (c: MeshClient, agent: string, promptId = '') => c.withdrawPrompt({ meta: meta(), agent, promptId })
+
+/** Interrupts an agent's turn, as Esc does in its terminal. */
+export const interruptAgent = (c: MeshClient, agent: string) => c.interruptAgent({ meta: meta(), agent })
 
 /** The user's reply to what an agent sent: its plan approved, or a question answered, as an `answer` to its author. */
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)

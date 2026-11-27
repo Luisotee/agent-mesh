@@ -7,6 +7,7 @@ import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
+import { addPrompt } from './store'
 import { ChatView } from './components/chat-view'
 import { SettingsPanel } from './components/settings-panel'
 import { CommandPalette } from './components/command-palette'
@@ -25,7 +26,7 @@ import { RunSidebar } from './components/run-sidebar'
 import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext } from './context'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
@@ -1158,10 +1159,13 @@ describe('ChatView', () => {
       daemon: { capabilities: ['terminals'], actor: { class: o.readOnly ? ActorClass.READ_ONLY_DEVICE : ActorClass.DEVICE } } as never,
     }))
     const readTranscript = o.read ?? vi.fn(async (_req: { offset: bigint; backward: boolean }) => res(tail))
-    const promptAgent = vi.fn(async (_req: unknown) => ({}))
-    Object.assign(f.client, { readTranscript, promptAgent })
+    const promptAgent = vi.fn(async (_req: unknown): Promise<object> => ({}))
+    const listPrompts = vi.fn(async (_req: unknown): Promise<{ prompts: QueuedPrompt[] }> => ({ prompts: [] }))
+    const withdrawPrompt = vi.fn(async (_req: unknown): Promise<object> => ({}))
+    const interruptAgent = vi.fn(async (_req: unknown) => ({ stopped: true }))
+    Object.assign(f.client, { readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent })
     const ui = f.wrap(<ChatView host={f.host} agentId="w1" active panelId="p" tabId="t" />)
-    return { ...f, readTranscript, promptAgent, ui }
+    return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, ui }
   }
 
   it('shows the conversation as blocks, with tool calls folded and the reply as Markdown', async () => {
@@ -1302,10 +1306,97 @@ describe('ChatView', () => {
     expect(asking.model.store.getState().tab).toBe('terminal')
   })
 
+  it('queues what is sent while the agent works, shows it waiting, and Up takes the newest back to edit', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    const queued = create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'after this', held: 'working' })
+    c.promptAgent.mockResolvedValueOnce({ queued })
+    render(c.ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    expect(box).toBeEnabled() // never refused for being busy
+    await userEvent.type(box, 'after this{Enter}')
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    expect(within(list).getByText('after this')).toBeInTheDocument()
+    expect(within(list).getByText(/Sent when it finishes its turn/)).toBeInTheDocument()
+    expect(box).toHaveValue('')
+
+    // Up in the empty box: the newest queued prompt comes back into it, and leaves the queue.
+    c.withdrawPrompt.mockResolvedValueOnce({ prompt: queued })
+    await userEvent.type(box, '{ArrowUp}')
+    await waitFor(() => expect(box).toHaveValue('after this'))
+    expect(c.withdrawPrompt).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', promptId: '' }))
+    expect(screen.queryByRole('region', { name: 'Queued prompts' })).not.toBeInTheDocument()
+  })
+
+  it('stops a working agent with Esc in the composer or the Stop button, and says when it did not stop', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    render(c.ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, '{Escape}')
+    await waitFor(() => expect(c.interruptAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1' })))
+    c.interruptAgent.mockResolvedValueOnce({ stopped: false })
+    await userEvent.click(screen.getByRole('button', { name: 'Stop the agent' }))
+    expect(await screen.findByText(/hasn't stopped yet/)).toBeInTheDocument()
+  })
+
+  it('editing a queued prompt puts it after what is being written, never over it', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    const q = create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'old idea', held: 'working' })
+    c.listPrompts.mockResolvedValue({ prompts: [q] })
+    c.withdrawPrompt.mockResolvedValueOnce({ prompt: q })
+    render(c.ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, 'new thought')
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    await userEvent.click(within(list).getByRole('button', { name: 'Edit the queued prompt' }))
+    await waitFor(() => expect(box).toHaveValue('new thought\n\nold idea'))
+  })
+
+  it('offers no Stop for a CLI whose interrupt key the host doesn\'t know, and Up twice takes back one prompt', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING, kind: 'agy' } })
+    c.listPrompts.mockResolvedValue({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'one', held: 'working' }), create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'two', held: 'working' })] })
+    let release: (v: object) => void = () => {}
+    c.withdrawPrompt.mockImplementationOnce(() => new Promise((r) => (release = r)))
+    render(c.ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await screen.findByRole('region', { name: 'Queued prompts' })
+    expect(screen.queryByRole('button', { name: 'Stop the agent' })).not.toBeInTheDocument()
+    await userEvent.type(box, '{Escape}')
+    expect(c.interruptAgent).not.toHaveBeenCalled()
+    // Two presses while the first take-back is out: one call.
+    await userEvent.type(box, '{ArrowUp}{ArrowUp}')
+    expect(c.withdrawPrompt).toHaveBeenCalledTimes(1)
+    release({ prompt: create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'two' }) })
+    await waitFor(() => expect(box).toHaveValue('two'))
+  })
+
+  it('reads the queue again when it changed while the first listing was out', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    let release: (v: { prompts: QueuedPrompt[] }) => void = () => {}
+    c.listPrompts.mockImplementationOnce(() => new Promise((r) => (release = r)))
+    c.listPrompts.mockResolvedValueOnce({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'old', held: 'working' }), create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'new', held: 'working' })] })
+    render(c.ui)
+    await waitFor(() => expect(c.listPrompts).toHaveBeenCalledTimes(1))
+    act(() => c.host.store.setState(addPrompt(create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'new' }))))
+    release({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'old' })] })
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    await waitFor(() => expect(within(list).getByText('old')).toBeInTheDocument())
+    expect(c.listPrompts).toHaveBeenCalledTimes(2)
+  })
+
+  it('a taken-back prompt that was typed meanwhile says so', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    c.listPrompts.mockResolvedValue({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'late', held: 'working' })] })
+    c.withdrawPrompt.mockRejectedValueOnce(new Error('[failed_precondition] that prompt is no longer waiting: it was typed into app-fix\'s terminal'))
+    render(c.ui)
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    await userEvent.click(within(list).getByRole('button', { name: 'Remove the queued prompt' }))
+    expect(await screen.findByText(/no longer waiting/)).toBeInTheDocument()
+  })
+
   it('tells the user a CLI has no record to read, and still takes prompts', async () => {
     const { ui } = chat({ read: vi.fn(async () => res([], { supported: false })) })
     render(ui)
-    expect(await screen.findByText(/has none we read yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/reads no record of a/)).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeEnabled()
   })
 })
