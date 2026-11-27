@@ -6,7 +6,7 @@ import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
 import { MarkdownField } from '@/components/ui/markdown-field'
 import { loadDraft, saveDraft } from '@/layout'
 import { useApp, useAppState, useHostState } from '@/context'
-import { statusSentence } from '@/derive'
+import { messagesOf, statusSentence } from '@/derive'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 import type { TranscriptEntry } from '@/gen/agentmesh/v1/chat_pb'
 import type { QueuedPrompt } from '@/gen/agentmesh/v1/types_pb'
@@ -15,7 +15,8 @@ import { chatKeys } from '@/prefs'
 import { addPrompt, dropPrompt, setPrompts } from '@/store'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
-import { emptyTranscript, fromTail, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
+import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
+import { MessageCard } from './messages-panel'
 import { Markdown } from './markdown'
 import { hueStyle } from '@/hue'
 import { Tip } from '@/components/ui/tooltip'
@@ -155,12 +156,26 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
  * folded) and a composer that types into the same running process, as typing in its terminal does. The terminal is
  * the other view of the same agent.
  */
-export function ChatView({ host, agentId, active, panelId, tabId }: { host: HostRuntime; agentId: string; active: boolean; panelId: string; tabId: string }) {
+export function ChatView({ host, agentId, active, onTerminal }: { host: HostRuntime; agentId: string; active: boolean; /** Shows its terminal in the chat's place (the pane's own view). */ onTerminal?: () => void }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
   const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
   const { transcript, loaded, error, sync, loadEarlier, earlierBusy } = useTranscript(host, agentId, agent?.sessionId ?? '', active)
   const blocks = useMemo(() => toBlocks(transcript.entries), [transcript.entries])
+  // The agent's mesh messages, as cards where they were sent; read with the run's messages once the chat shows.
+  const runId = agent?.runId
+  const messageLoad = useHostState(host, (s) => (runId ? s.messageLoad[runId] : undefined))
+  const allMessages = useHostState(host, (s) => s.messages)
+  const waiting = useHostState(host, (s) => s.waiting)
+  const mine = useMemo(() => messagesOf(allMessages, agentId), [allMessages, agentId])
+  const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
+  useEffect(() => {
+    if (active && runId) host.loadMessages(runId)
+  }, [active, runId, host])
+  const items = useMemo(
+    () => timeline(blocks, messageLoad === 'loaded' ? mine : undefined, transcript.atStart || !transcript.supported),
+    [blocks, messageLoad, mine, transcript.atStart, transcript.supported],
+  )
   const queued = useQueue(host, agentId, active)
 
   // Scrolling: follow the end while the reader is at it; keep the place when earlier entries come in above.
@@ -189,7 +204,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
 
   if (!agent) return null
   return (
-    <div id={panelId} role="tabpanel" aria-labelledby={tabId} style={hueStyle(agent.repo)} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
+    <section aria-label="Chat" style={hueStyle(agent.repo)} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div
         ref={scroller}
         data-testid="chat"
@@ -222,12 +237,18 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
             {earlierBusy ? 'Loading…' : 'Load earlier'}
           </Button>
         )}
-        {loaded && transcript.supported && blocks.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">Nothing said yet.</p>}
-        {blocks.length > 0 && (
+        {loaded && transcript.supported && items.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">Nothing said yet.</p>}
+        {messageLoad === 'failed' && (
+          <div role="alert" className="flex items-center gap-2 text-xs text-destructive">
+            <span>Couldn't read this run's messages.</span>
+            <Button size="sm" variant="outline" onClick={() => runId && host.loadMessages(runId, true)}>Try again</Button>
+          </div>
+        )}
+        {items.length > 0 && (
           <ol aria-label="Conversation" className="flex flex-col gap-3">
-            {blocks.map((b) => (
+            {items.map((b) => (
               <li key={b.id}>
-                <ChatBlock block={b} />
+                {b.kind === 'message' ? <MessageCard host={host} message={b.message} open={open.has(b.message.id)} /> : <ChatBlock block={b} />}
               </li>
             ))}
           </ol>
@@ -237,8 +258,8 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
       <p role="status" data-testid="chat-status" className="truncate text-xs text-muted-foreground">
         {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
       </p>
-      <Composer host={host} agentId={agentId} readOnly={readOnly} onSent={afterSend} openTerminal={() => app.setTab('terminal')} />
-    </div>
+      <Composer host={host} agentId={agentId} readOnly={readOnly} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
+    </section>
   )
 }
 
@@ -369,7 +390,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   const why = readOnly
     ? 'This device is read-only: it can read the conversation, not type into the agent.'
     : gone
-      ? 'The agent has stopped, so there is no terminal to type into. Message it from the Overview tab to bring it back.'
+      ? 'The agent has stopped, so there is no terminal to type into. Send it a message from its menu (⋯) to bring it back.'
       : ''
   async function send() {
     const body = text.trim()

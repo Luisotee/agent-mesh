@@ -1,101 +1,87 @@
+import { MessageSquare, SquareTerminal } from 'lucide-react'
 import { useState } from 'react'
 import { sendMessage, stopAgent } from '@/actions'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input, Select } from '@/components/ui/input'
+import { Chip } from '@/components/ui/chip'
+import { ConfirmDialog } from '@/components/ui/confirm'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Select } from '@/components/ui/input'
+import { MarkdownField } from '@/components/ui/markdown-field'
+import { MoreButton, type MenuEntry } from '@/components/ui/menu'
+import { Tip } from '@/components/ui/tooltip'
 import { useApp, useAppState, useHostState } from '@/context'
 import { ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
+import { useKeys } from '@/hooks'
+import { displayChord } from '@/keys'
 import type { AgentTab, HostRuntime } from '@/model'
 import { StateIcon } from './state-icon'
-import { ModelControl } from './model-control'
+import { VendorIcon } from './vendor-icon'
 import { ChatView } from './chat-view'
-import { MessagesPanel } from './messages-panel'
 import { TerminalView } from './terminal-view'
 
-const SEND_TYPES: Array<[MessageType, string]> = [
-  [MessageType.TASK, 'Task'],
-  [MessageType.ANSWER, 'Answer'],
-  [MessageType.INFO, 'Info'],
-]
+const live = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
 
-function when(t: Agent['lastActivity']): string {
-  return t ? new Date(Number(t.seconds) * 1000).toLocaleString() : 'never'
-}
-
-/** One agent: where it is, what it is doing, and the actions a person has on it (message it, stop it). */
+/**
+ * One agent: its chat, or its own terminal in its place (the CLI toggle, kept for its prompts and dialogs). The header
+ * is one line: its state, name and model, the toggle, and a menu (send a message, details, stop). What the overview
+ * listed is the side panel's Details now.
+ */
 export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId: string; /** The view and how to change it, for a pane beside the main one (the main pane's is the app's). */ view?: { tab: AgentTab; setTab(t: AgentTab): void } }) {
   const agent = useHostState(host, (s) => s.agents[agentId])
   const synced = useHostState(host, (s) => s.synced)
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
   const app = useApp()
   const mainTab = useAppState((s) => s.tab)
+  const hosts = useAppState((s) => s.hosts)
+  const keys = useKeys(hosts)
+  const [stopping, setStopping] = useState(false)
   const tab = view?.tab ?? mainTab
-  const open = useHostState(host, (s) => s.waiting.filter((w) => w.message && (w.agentId === agentId || w.message.toId === agentId)).length)
-  const parent = useHostState(host, (s) => (agent?.parentId ? s.agents[agent.parentId] : undefined))
+  const setTab = (t: AgentTab) => (view ? view.setTab(t) : app.setTab(t))
   // A restored tab shows before the host's first snapshot: its agent is not missing, only not here yet.
   if (!agent) return <Empty>{synced ? "That agent isn't on this host any more." : 'Connecting to the host…'}</Empty>
-  const facts: Array<[string, string]> = [
-    ['Repository', agent.repo],
-    ['Worktree', agent.worktree],
-    ['Branch', agent.branch],
-    ['CLI', [agent.kind, agent.model, agent.effort].filter(Boolean).join(' · ')],
-    ['Parent', parent ? parent.name : agent.parentId ? agent.parentId : 'started by you'],
-    ['Last activity', when(agent.lastActivity)],
-    ['Session', agent.sessionId || 'none yet'],
-    ['Id', agent.id],
-  ]
   const hasTerminal = canTerminal && !!agent.terminalId
-  // The chat reads the CLI's record, so it is there for a stopped agent too; typing needs the terminal.
-  const tabs: AgentTab[] = hasTerminal ? ['overview', 'messages', 'chat', 'terminal'] : ['overview', 'messages', 'chat']
-  // A tab the agent doesn't have (its terminal went away) falls back to the overview.
-  const shown = tabs.includes(tab) ? tab : 'overview'
+  // The terminal, when the agent has one; else the chat (its terminal went away).
+  const shown: AgentTab = tab === 'terminal' && hasTerminal ? 'terminal' : 'chat'
+  const toggleKey = keys.chat_toggle ? ` (${displayChord(keys.chat_toggle)})` : ''
+  const entries: MenuEntry[] = [
+    { label: 'Send a message…', onSelect: () => app.openMessage({ hostId: host.info.id, agentId: agent.id }) },
+    { label: 'Details', onSelect: () => app.setPanel(true) },
+    { label: 'Model…', onSelect: () => app.showModel() },
+    { label: 'Stop…', onSelect: () => setStopping(true), disabled: !live(agent), destructive: true },
+  ]
   return (
-    <article aria-label={agent.name} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-6">
-      <header className="flex items-start gap-3">
-        <span className="mt-1"><StateIcon agent={agent} className="size-5" /></span>
-        <div className="min-w-0 flex-1">
-          <h1 className="flex items-center gap-2 text-base font-semibold">
-            {agent.name} <Badge>{ROLE_LABEL[agent.role]}</Badge>
-          </h1>
-          <p className="text-sm text-muted-foreground" data-testid="agent-status">{statusSentence(agent)}</p>
-          <ModelControl host={host} agent={agent} className="mt-0.5" />
-        </div>
-        <StopButton host={host} agent={agent} />
-      </header>
-      <div role="tablist" aria-label="Agent views" className="flex gap-1 border-b">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            id={`${agent.id}-tab-${t}`}
-            type="button"
-            role="tab"
-            aria-selected={shown === t}
-            aria-controls={`${agent.id}-panel-${t}`}
-            onClick={() => (view ? view.setTab(t) : app.setTab(t))}
-            className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] capitalize ${shown === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-          >
-            {t}
-            {t === 'messages' && open > 0 && <span className="rounded-full bg-state-needs px-1.5 text-xs leading-4 font-bold text-primary-foreground">{open}</span>}
+    <article aria-label={agent.name} className="flex min-h-0 flex-1 flex-col gap-2 p-3 pt-2">
+      <header className="flex min-w-0 items-center gap-2">
+        <StateIcon agent={agent} className="size-4 shrink-0" />
+        <h1 className="truncate text-[14px] font-semibold">{agent.name}</h1>
+        <Chip>{ROLE_LABEL[agent.role]}</Chip>
+        <Tip label="Change its model">
+          <button type="button" aria-label={`Model: ${agent.model || agent.kind}`} onClick={() => app.showModel()} className="flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <VendorIcon kind={agent.kind} model={agent.model} className="size-3.5" />
+            <span className="truncate">{[agent.model || agent.kind, agent.effort].filter(Boolean).join(' ')}</span>
           </button>
-        ))}
-      </div>
-      <div id={`${agent.id}-panel-overview`} role="tabpanel" aria-labelledby={`${agent.id}-tab-overview`} className="flex flex-col gap-5" hidden={shown !== 'overview'}>
-        <dl className="grid grid-cols-[8rem_1fr] gap-x-4 gap-y-1.5 text-[13px]">
-          {facts.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className="font-mono text-xs break-all">{v}</dd>
-            </div>
-          ))}
-        </dl>
-        <SendForm host={host} agent={agent} />
-      </div>
-      <div id={`${agent.id}-panel-messages`} role="tabpanel" aria-labelledby={`${agent.id}-tab-messages`} hidden={shown !== 'messages'}>
-        <MessagesPanel host={host} agentId={agent.id} active={shown === 'messages'} />
-      </div>
-      <ChatView host={host} agentId={agent.id} active={shown === 'chat'} panelId={`${agent.id}-panel-chat`} tabId={`${agent.id}-tab-chat`} />
-      {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} panelId={`${agent.id}-panel-terminal`} tabId={`${agent.id}-tab-terminal`} />}
+        </Tip>
+        <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground" data-testid="agent-status">{statusSentence(agent)}</p>
+        {hasTerminal && (
+          <Tip label={shown === 'chat' ? `Show its terminal${toggleKey}` : `Back to the chat${toggleKey}`}>
+            <Button size="sm" variant="outline" aria-pressed={shown === 'terminal'} aria-label="Terminal" onClick={() => setTab(shown === 'chat' ? 'terminal' : 'chat')}>
+              {shown === 'chat' ? <SquareTerminal /> : <MessageSquare />} {shown === 'chat' ? 'Terminal' : 'Chat'}
+            </Button>
+          </Tip>
+        )}
+        <MoreButton label={`Menu of ${agent.name}`} entries={entries} />
+      </header>
+      <ChatView host={host} agentId={agent.id} active={shown === 'chat'} onTerminal={() => setTab('terminal')} />
+      {hasTerminal && <TerminalView host={host} agentId={agent.id} active={shown === 'terminal'} />}
+      <ConfirmDialog
+        open={stopping}
+        onOpenChange={setStopping}
+        title={`Stop ${agent.name}?`}
+        description="Its CLI exits. A message to it later brings it back in the same conversation."
+        action={`Stop ${agent.name}`}
+        run={() => stopAgent(host.client, agent.id)}
+      />
     </article>
   )
 }
@@ -104,71 +90,68 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">{children}</div>
 }
 
-function StopButton({ host, agent }: { host: HostRuntime; agent: Agent }) {
-  const [confirm, setConfirm] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  if (agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED) return null
-  async function stop() {
-    if (busy) return
-    setBusy(true)
-    setError('')
-    try {
-      await stopAgent(host.client, agent.id)
-      setConfirm(false)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
+const SEND_TYPES: Array<[MessageType, string]> = [
+  [MessageType.TASK, 'Task'],
+  [MessageType.ANSWER, 'Answer'],
+  [MessageType.INFO, 'Info'],
+]
+
+/**
+ * A mesh message to an agent (a task, an answer, an info), as another agent would send it: unlike the chat's prompt it
+ * reaches a stopped agent too, which it brings back. Opened from an agent's menu.
+ */
+export function SendMessageDialog() {
+  const app = useApp()
+  const to = useAppState((s) => s.messageTo)
+  const host = useAppState((s) => s.hosts.find((h) => h.info.id === to?.hostId))
+  const close = () => app.openMessage(undefined)
   return (
-    <div className="flex flex-col items-end gap-1">
-      {confirm ? (
-        <div className="flex gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setConfirm(false)}>Keep running</Button>
-          <Button size="sm" variant="destructive" disabled={busy} onClick={stop}>Stop {agent.name}</Button>
-        </div>
-      ) : (
-        <Button size="sm" variant="outline" onClick={() => setConfirm(true)}>Stop agent</Button>
-      )}
-      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-    </div>
+    <Dialog open={!!to && !!host} onOpenChange={(o) => !o && close()}>
+      {to && host && <SendForm key={`${to.hostId}/${to.agentId}`} host={host} agentId={to.agentId} onDone={close} />}
+    </Dialog>
   )
 }
 
-function SendForm({ host, agent }: { host: HostRuntime; agent: Agent }) {
+function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: string; onDone: () => void }) {
+  const agent = useHostState(host, (s) => s.agents[agentId])
   const [type, setType] = useState<MessageType>(MessageType.TASK)
   const [body, setBody] = useState('')
-  const [status, setStatus] = useState<{ ok: boolean; text: string }>()
+  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const dead = agent.state === AgentState.EXITED
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
+  async function submit() {
     // Each send has its own mutation id, so a double Enter would send twice: one at a time.
-    if (busy) return
+    if (busy || !body.trim()) return
     setBusy(true)
+    setError('')
     try {
-      await sendMessage(host.client, agent.id, type, body.trim())
-      setBody('')
-      setStatus({ ok: true, text: 'Sent.' })
+      await sendMessage(host.client, agentId, type, body.trim())
+      onDone()
     } catch (err) {
-      setStatus({ ok: false, text: err instanceof Error ? err.message : String(err) })
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
   }
   return (
-    <form onSubmit={submit} className="flex flex-col gap-2 rounded-lg border bg-card p-3" aria-label="Send a message">
-      <h2 className="text-[13px] font-semibold">Message {agent.name}</h2>
-      <div className="flex gap-2">
+    <DialogContent title={`Message ${agent?.name ?? agentId}`} description="A mesh message, as an agent sends one: it reaches the agent at its next turn, and brings a stopped one back.">
+      <form
+        aria-label="Send a message"
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void submit()
+        }}
+      >
         <Select aria-label="Message type" className="w-28" value={type} onChange={(e) => setType(Number(e.target.value))}>
           {SEND_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
-        <Input aria-label="Message" value={body} onChange={(e) => setBody(e.target.value)} placeholder={dead ? 'The agent has exited' : 'Write to the agent'} disabled={dead} />
-        <Button type="submit" disabled={dead || busy || !body.trim()}>Send</Button>
-      </div>
-      {status && <p role={status.ok ? 'status' : 'alert'} className={`text-xs ${status.ok ? 'text-muted-foreground' : 'text-destructive'}`}>{status.text}</p>}
-    </form>
+        <MarkdownField aria-label="Message" autoFocus className="min-h-20" value={body} onValueChange={setBody} placeholder="Write to the agent" />
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onDone}>Cancel</Button>
+          <Button type="submit" disabled={busy || !body.trim()}>Send</Button>
+        </div>
+      </form>
+    </DialogContent>
   )
 }

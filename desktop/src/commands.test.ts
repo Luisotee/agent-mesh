@@ -151,7 +151,7 @@ describe('navigation commands', () => {
     by['app-w2 is waiting in its terminal']!.run()
     expect(model.store.getState()).toMatchObject({ agentId: 'w2', tab: 'terminal' })
     by['app-w1 sent a plan']!.run()
-    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages' })
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'chat' })
   })
 
   it('goes to the next thing that waits, round and round, and moves between tabs', () => {
@@ -209,7 +209,7 @@ describe('filterCommands', () => {
     expect(model.store.getState().tab).toBe('chat')
     expect(buildCommands(model).map((c) => c.title)).not.toContain('Switch the open agent between chat and terminal')
     // The chat is still one press away from the other tabs.
-    model.setTab('overview')
+    model.setTab('chat')
     run.chat_toggle()
     expect(model.store.getState().tab).toBe('chat')
   })

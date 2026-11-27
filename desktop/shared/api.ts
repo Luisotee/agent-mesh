@@ -65,7 +65,7 @@ export interface SocketHandle {
   close(): void
 }
 
-export type AgentTabId = 'overview' | 'messages' | 'terminal'
+export type AgentTabId = 'chat' | 'terminal'
 
 /** A desktop notification the renderer asks main to show. A later one with the same tag replaces the earlier. */
 export interface NoticeWire {

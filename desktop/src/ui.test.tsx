@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
 import { App } from './App'
-import { AgentPanel } from './components/agent-panel'
+import { AgentPanel, SendMessageDialog } from './components/agent-panel'
 import { ConnectionBanner } from './components/connection-banner'
 import { addPrompt } from './store'
 import { ChatView } from './components/chat-view'
@@ -21,14 +21,15 @@ import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
-import { MessagesPanel } from './components/messages-panel'
+import { MessageCard } from './components/messages-panel'
 import { ProjectSidebar } from './components/project-sidebar'
 import { ProjectSettingsDialog } from './components/project-settings'
 import { SidebarFooter } from './components/sidebar-footer'
 import { FindBar } from './components/find-bar'
 import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
-import { AppContext } from './context'
+import { AppContext, useHostState } from './context'
+import { messagesOf } from './derive'
 import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
@@ -194,76 +195,86 @@ describe('ProjectSidebar', () => {
 })
 
 describe('AgentPanel', () => {
-  it('messages the agent with a mutation id and an expiry', async () => {
+  const panel = (wrap: (n: React.ReactNode) => React.ReactElement) => render(wrap(<><AgentPanel host={fixtureHost!} agentId="w1" /><SendMessageDialog /></>))
+  let fixtureHost: HostRuntime | undefined
+  async function openSend() {
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Send a message…' }))
+    return screen.findByRole('dialog', { name: 'Message app-fix' })
+  }
+
+  it('messages the agent from its menu, with a mutation id and an expiry, and closes the dialog', async () => {
     const { host, wrap, client } = fixture()
-    render(wrap(<AgentPanel host={host} agentId="w1" />))
-    await userEvent.type(screen.getByLabelText('Message', { exact: true }), 'look at the typo')
-    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
+    fixtureHost = host
+    panel(wrap)
+    const dialog = await openSend()
+    await userEvent.type(within(dialog).getByLabelText('Message', { exact: true }), 'look at the typo')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1))
     const req = (client.sendMessage.mock.calls[0] as unknown as [{ to: string; type: MessageType; body: string; meta: { mutationId: string; expiresAt: unknown } }])[0]
     expect(req).toMatchObject({ to: 'w1', type: MessageType.TASK, body: 'look at the typo' })
     expect(req.meta.mutationId).toMatch(/^[0-9a-f-]{36}$/)
     expect(req.meta.expiresAt).toBeTruthy()
-    expect(await screen.findByText('Sent.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
-  it('sends once on a double submit, and stops once on a double click', async () => {
+  it('sends once on a double submit, and stops once on a double click, after a confirmation', async () => {
     const { host, wrap, client } = fixture()
+    fixtureHost = host
     let release!: () => void
     client.sendMessage.mockImplementationOnce(() => new Promise((r) => (release = () => r({}))))
-    render(wrap(<AgentPanel host={host} agentId="w1" />))
-    await userEvent.type(screen.getByLabelText('Message', { exact: true }), 'once')
-    const input = screen.getByLabelText('Message', { exact: true })
+    panel(wrap)
+    const dialog = await openSend()
+    const input = within(dialog).getByLabelText('Message', { exact: true })
+    await userEvent.type(input, 'once')
     fireEvent.submit(input.closest('form')!)
     fireEvent.submit(input.closest('form')!)
     release()
-    await screen.findByText('Sent.')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(client.sendMessage).toHaveBeenCalledTimes(1)
 
     let releaseStop!: () => void
     client.stopAgent.mockImplementationOnce(() => new Promise((r) => (releaseStop = () => r({}))))
-    await userEvent.click(screen.getByRole('button', { name: 'Stop agent' }))
-    const confirm = screen.getByRole('button', { name: 'Stop app-fix' })
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Stop…' }))
+    expect(client.stopAgent).not.toHaveBeenCalled()
+    const confirm = await screen.findByRole('button', { name: 'Stop app-fix' })
     fireEvent.click(confirm)
     fireEvent.click(confirm)
     releaseStop()
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledTimes(1))
-  })
-
-  it('stops an agent only after a second click', async () => {
-    const { host, wrap, client } = fixture()
-    render(wrap(<AgentPanel host={host} agentId="w1" />))
-    await userEvent.click(screen.getByRole('button', { name: 'Stop agent' }))
-    expect(client.stopAgent).not.toHaveBeenCalled()
-    await userEvent.click(screen.getByRole('button', { name: 'Stop app-fix' }))
     expect(client.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1' }))
   })
 
-  it('shows a rejected action\'s reason', async () => {
+  it('shows a rejected message\'s reason in the dialog', async () => {
     const { host, wrap, client } = fixture()
+    fixtureHost = host
     client.sendMessage.mockRejectedValueOnce(new Error('permission denied'))
-    render(wrap(<AgentPanel host={host} agentId="w1" />))
-    await userEvent.type(screen.getByLabelText('Message', { exact: true }), 'x')
-    await userEvent.click(screen.getByRole('button', { name: 'Send' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('permission denied')
+    panel(wrap)
+    const dialog = await openSend()
+    await userEvent.type(within(dialog).getByLabelText('Message', { exact: true }), 'x')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('permission denied')
   })
 
-  it('offers no stop or message for an agent that exited', () => {
+  it('offers no stop for an agent that exited, and says why its chat takes no prompt', async () => {
     const { host, wrap } = fixture()
+    fixtureHost = host
     host.store.setState((s) => ({ agents: { ...s.agents, w1: agent('w1', { name: 'app-fix', state: AgentState.EXITED, exitCode: 7 }) } }))
-    render(wrap(<AgentPanel host={host} agentId="w1" />))
+    panel(wrap)
     expect(screen.getByTestId('agent-status')).toHaveTextContent('Exited with code 7')
-    expect(screen.queryByRole('button', { name: 'Stop agent' })).toBeNull()
-    expect(screen.getByLabelText('Message', { exact: true })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
+    expect(await screen.findByRole('menuitem', { name: 'Stop…' })).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeDisabled()
   })
 })
 
 describe('AgentPanel without a terminal', () => {
-  it('shows the overview, messages and chat tabs, and no terminal tab', () => {
+  it('shows the chat, with no terminal toggle', () => {
     const { host, wrap } = fixture()
     render(wrap(<AgentPanel host={host} agentId="w1" />))
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['overview', 'messages', 'chat'])
-    expect(screen.getByLabelText('Message', { exact: true })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Terminal' })).toBeNull()
+    expect(screen.getByRole('region', { name: 'Chat' })).toBeVisible()
   })
 })
 
@@ -430,13 +441,20 @@ const putMessages = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => host
 const waitOn = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) =>
   host.store.setState({ waiting: ms.map((m) => create(WaitingSchema, { kind: m.type === MessageType.PLAN ? WaitingKind.PLAN : WaitingKind.QUESTION, runId: 'r1', agentId: m.from!.id, message: m })) })
 
-describe('MessagesPanel', () => {
+/** The agent's message cards, as its chat shows them (without the conversation around them). */
+function Cards({ host, agentId }: { host: HostRuntime; agentId: string }) {
+  const messages = useHostState(host, (s) => s.messages)
+  const waiting = useHostState(host, (s) => s.waiting)
+  return <ol>{messagesOf(messages, agentId).map((m) => <li key={m.id}><MessageCard host={host} message={m} open={waiting.some((w) => w.message?.id === m.id)} /></li>)}</ol>
+}
+
+describe('MessageCard', () => {
   it('shows a plan awaiting the user and approves it with an answer to its author', async () => {
     const { host, wrap, client } = fixture()
     const plan = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000, '# The plan\n\n- change a\n- change b')
     putMessages(host, plan)
     waitOn(host, plan)
-    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    render(wrap(<Cards host={host} agentId="w1" />))
     const card = screen.getByRole('article', { name: 'Plan from w1' })
     expect(within(card).getByRole('heading', { name: 'The plan' })).toBeInTheDocument()
     expect(within(card).getAllByRole('listitem')).toHaveLength(2)
@@ -457,7 +475,7 @@ describe('MessagesPanel', () => {
     const q1 = msg('q1', MessageType.QUESTION, 'w1', 'lead', 1500, 'Which branch?')
     putMessages(host, p1, q1)
     waitOn(host, p1, q1)
-    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    render(wrap(<Cards host={host} agentId="w1" />))
     const plan = screen.getByRole('form', { name: 'Answer the plan' })
     expect(within(plan).getByRole('button', { name: 'Request changes' })).toBeDisabled()
     await userEvent.type(within(plan).getByLabelText('Changes to ask for'), 'split it in two')
@@ -478,7 +496,7 @@ describe('MessagesPanel', () => {
     const p1 = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000)
     putMessages(host, p1)
     waitOn(host, p1)
-    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    render(wrap(<Cards host={host} agentId="w1" />))
     await userEvent.type(screen.getByLabelText('Changes to ask for'), 'also add tests')
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
     expect(client.sendMessage).not.toHaveBeenCalled()
@@ -491,7 +509,7 @@ describe('MessagesPanel', () => {
     waitOn(host, p1)
     let release!: () => void
     client.sendMessage.mockImplementationOnce(() => new Promise((r) => (release = () => r({}))))
-    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    render(wrap(<Cards host={host} agentId="w1" />))
     const approve = screen.getByRole('button', { name: 'Approve' })
     fireEvent.click(approve)
     fireEvent.click(approve)
@@ -506,7 +524,7 @@ describe('MessagesPanel', () => {
   it('shows reports and failures without a form, a long one collapsed', async () => {
     const { host, wrap } = fixture()
     putMessages(host, msg('d1', MessageType.DONE, 'w1', 'lead', 1000, 'All **done**.'), msg('f1', MessageType.FAILED, 'w1', 'lead', 2000, 'x'.repeat(2000)))
-    render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    render(wrap(<Cards host={host} agentId="w1" />))
     expect(screen.getByRole('article', { name: 'Report from w1' })).toHaveTextContent('All done.')
     expect(screen.queryByRole('form')).toBeNull()
     const failed = screen.getByRole('article', { name: 'Failed from w1' })
@@ -514,29 +532,6 @@ describe('MessagesPanel', () => {
     expect(within(failed).getByRole('button', { name: /Show less/ })).toBeInTheDocument()
   })
 
-  it('asks for the run\'s messages when shown, and shows Loading until they are there, then a retry if they failed', async () => {
-    const { host, wrap } = fixture()
-    host.store.setState({ messageLoad: {} })
-    const { rerender } = render(wrap(<MessagesPanel host={host} agentId="w1" active={false} />))
-    expect(host.loadMessages).not.toHaveBeenCalled() // a tab nobody opened loads nothing
-    expect(screen.getByRole('status', { name: 'Loading messages' })).toBeInTheDocument()
-    rerender(wrap(<MessagesPanel host={host} agentId="w1" active />))
-    expect(host.loadMessages).toHaveBeenCalledWith('r1')
-    putMessages(host, msg('p1', MessageType.DONE, 'w1', 'lead', 1000, 'a report an event brought'))
-    expect(screen.queryByRole('article')).toBeNull() // some of the history isn't all of it
-    host.store.setState({ messageLoad: { r1: 'failed' } })
-    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load")
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(host.loadMessages).toHaveBeenLastCalledWith('r1', true)
-    host.store.setState({ messageLoad: { r1: 'loaded' } })
-    expect(await screen.findByRole('article', { name: 'Report from w1' })).toBeInTheDocument()
-  })
-
-  it('says so when there are no messages', () => {
-    const { host, wrap } = fixture()
-    render(wrap(<MessagesPanel host={host} agentId="w1" />))
-    expect(screen.getByText(/No messages yet/)).toBeInTheDocument()
-  })
 })
 
 describe('Markdown in messages', () => {
@@ -545,7 +540,7 @@ describe('Markdown in messages', () => {
     ;(window as unknown as { desktop: unknown }).desktop = { openExternal }
     const { host, wrap } = fixture()
     putMessages(host, msg('d1', MessageType.DONE, 'w1', 'lead', 1000, 'See [docs](https://example.com/a) and [bad](javascript:alert(1)).\n\n<script>window.x=1</script><img src="https://evil.example/x.png">![alt](https://evil.example/y.png)\n\n| a | b |\n|---|---|\n| 1 | 2 |'))
-    const { container } = render(wrap(<MessagesPanel host={host} agentId="w1" />))
+    const { container } = render(wrap(<Cards host={host} agentId="w1" />))
     await userEvent.click(screen.getByRole('link', { name: 'docs' }))
     expect(openExternal).toHaveBeenCalledWith('https://example.com/a')
     const bad = screen.queryByRole('link', { name: 'bad' })
@@ -571,7 +566,7 @@ describe('WaitingList', () => {
     expect(list).toHaveTextContent('app-fix sent a plan')
     expect(list).toHaveTextContent('app-two needs you in its terminal')
     await userEvent.click(within(list).getByRole('button', { name: /app-fix/ }))
-    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages' })
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'chat' })
     await userEvent.click(within(list).getByRole('button', { name: /app-two/ }))
     expect(model.store.getState()).toMatchObject({ agentId: 'w2', tab: 'terminal' })
   })
@@ -662,7 +657,7 @@ describe('Splits', () => {
     render(wrap(<><TabBar /><Panes host={host} agentId="lead" /><Dock /></>))
     const tabs = screen.getByRole('tablist', { name: 'Open agents' })
     await userEvent.click(within(tabs).getByRole('button', { name: 'Show app-fix beside' }))
-    expect(model.store.getState().side).toEqual([{ hostId: 'h1', agentId: 'w1', tab: 'overview' }])
+    expect(model.store.getState().side).toEqual([{ hostId: 'h1', agentId: 'w1', tab: 'chat' }])
     // The tab says it is beside, and has no split button now.
     expect(within(tabs).queryByRole('button', { name: 'Show app-fix beside' })).toBeNull()
     const split = screen.getByRole('region', { name: 'Split pane' })
@@ -673,13 +668,13 @@ describe('Splits', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Stack the panes' }))
     expect(screen.getByRole('group', { name: 'Panes' }).className).toContain('flex-col')
 
-    // A pane has its own view.
-    await userEvent.click(within(split).getByRole('tab', { name: 'messages' }))
-    expect(model.store.getState().side[0]!.tab).toBe('messages')
-    expect(model.store.getState().tab).toBe('overview')
+    // A pane has its own view (its CLI toggle sets it; jsdom has no terminal to show).
+    act(() => model.setPaneTab({ hostId: 'h1', agentId: 'w1' }, 'terminal'))
+    expect(model.store.getState().side[0]!.tab).toBe('terminal')
+    expect(model.store.getState().tab).toBe('chat')
 
     await userEvent.click(within(split).getByRole('button', { name: 'Make this the main pane' }))
-    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages', side: [{ agentId: 'lead', tab: 'overview' }] })
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'terminal', side: [{ agentId: 'lead', tab: 'chat' }] })
 
     await userEvent.click(within(screen.getByRole('region', { name: 'Split pane' })).getByRole('button', { name: 'Close this pane' }))
     expect(model.store.getState().side).toEqual([])
@@ -1326,15 +1321,17 @@ describe('ChatView', () => {
     const withdrawPrompt = vi.fn(async (_req: unknown): Promise<object> => ({}))
     const interruptAgent = vi.fn(async (_req: unknown) => ({ stopped: true }))
     Object.assign(f.client, { readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent })
-    const ui = f.wrap(<ChatView host={f.host} agentId="w1" active panelId="p" tabId="t" />)
+    const ui = f.wrap(<ChatView host={f.host} agentId="w1" active />)
     return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, ui }
   }
 
-  it('shows the conversation as blocks, with tool calls folded and the reply as Markdown', async () => {
-    const { ui, readTranscript } = chat()
+  it('shows the conversation as blocks, with tool calls folded, the reply as Markdown, and the doorbell until the messages are read', async () => {
+    const { ui, readTranscript, host } = chat()
+    host.store.setState({ messageLoad: {} })
     render(ui)
     const list = await screen.findByRole('list', { name: 'Conversation' })
     expect(readTranscript).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', offset: -1n, backward: true }))
+    expect(host.loadMessages).toHaveBeenCalledWith('r1')
     expect(within(list).getByText(/From the mesh: task from lead/)).toBeInTheDocument()
     expect(within(list).getByText('fix the typo')).toBeInTheDocument()
     expect(within(list).getByText('README.md').tagName).toBe('STRONG')
@@ -1343,6 +1340,16 @@ describe('ChatView', () => {
     expect(tools).toHaveTextContent('README.md:3: typo')
     expect(tools).toHaveTextContent('no such file')
     expect(screen.getByRole('button', { name: 'Load earlier' })).toBeInTheDocument()
+    // The messages are read: the doorbell goes, the message is a card where it was sent, a plan answerable in place.
+    const plan = msg('p1', MessageType.PLAN, 'w1', 'lead', 1000, 'the plan')
+    act(() => {
+      putMessages(host, plan)
+      waitOn(host, plan)
+      host.store.setState({ messageLoad: { r1: 'loaded' } })
+    })
+    expect(within(list).queryByText(/From the mesh/)).toBeNull()
+    const card = await within(list).findByRole('article', { name: 'Plan from w1' })
+    expect(within(card).getByRole('button', { name: 'Approve' })).toBeInTheDocument()
   })
 
   it('reads earlier entries on request and puts them first', async () => {

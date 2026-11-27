@@ -55,7 +55,7 @@ const same = (a: TabRef, b: TabRef) => a.hostId === b.hostId && a.agentId === b.
 
 /**
  * Makes an agent the active tab, opening it if it isn't open. Its view is the one asked for, else the one it was
- * last on, else the overview; the view of the tab being left is kept. Clears the agent's new mark.
+ * last on, else the chat; the view of the tab being left is kept. Clears the agent's new mark.
  */
 export function activate(s: WorkspaceState & Selection, hostId: string, agentId: string, tab?: AgentTab): Partial<WorkspaceState & Selection> {
   const ref = { hostId, agentId }
@@ -63,7 +63,7 @@ export function activate(s: WorkspaceState & Selection, hostId: string, agentId:
   const views = { ...s.views }
   if (s.hostId && s.agentId) views[tabKey({ hostId: s.hostId, agentId: s.agentId })] = s.tab
   const { [key]: _new, ...newTiles } = s.newTiles
-  const shown = tab ?? views[key] ?? 'overview'
+  const shown = tab ?? views[key] ?? 'chat'
   views[key] = shown
   // An agent shown in a pane beside is the main pane's now, not both.
   return { hostId, agentId, tab: shown, tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: s.side.filter((p) => !same(p, ref)), views, newTiles }
@@ -89,8 +89,8 @@ export function closeTab(s: WorkspaceState & Selection, ref: TabRef): Partial<Wo
   const beside = side[0]
   if (beside) return { tabs, views, newTiles, hostId: beside.hostId, agentId: beside.agentId, tab: beside.tab, side: side.slice(1) }
   const next = tabs[i] ?? tabs[i - 1]
-  if (!next) return { tabs, views, newTiles, side, agentId: undefined, tab: 'overview' }
-  return { tabs, views, newTiles, side: side.filter((p) => !same(p, next)), hostId: next.hostId, agentId: next.agentId, tab: views[tabKey(next)] ?? 'overview' }
+  if (!next) return { tabs, views, newTiles, side, agentId: undefined, tab: 'chat' }
+  return { tabs, views, newTiles, side: side.filter((p) => !same(p, next)), hostId: next.hostId, agentId: next.agentId, tab: views[tabKey(next)] ?? 'chat' }
 }
 
 /** The tab `by` places after the active one (wrapping); with none active, the first (or last, going back). */
@@ -142,7 +142,7 @@ export function pinSplit(s: WorkspaceState & Selection, ref: TabRef, tab?: Agent
   if (same(ref, { hostId: s.hostId ?? '', agentId: s.agentId ?? '' }) || s.side.some((p) => same(p, ref)) || s.side.length >= MAX_SIDE_PANES) return {}
   const key = tabKey(ref)
   const { [key]: _new, ...newTiles } = s.newTiles
-  return { tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: [...s.side, { ...ref, tab: tab ?? s.views[key] ?? 'overview' }], newTiles }
+  return { tabs: s.tabs.some((t) => same(t, ref)) ? s.tabs : [...s.tabs, ref], side: [...s.side, { ...ref, tab: tab ?? s.views[key] ?? 'chat' }], newTiles }
 }
 
 /** Takes a pane away from beside the main one; its tab stays open. */

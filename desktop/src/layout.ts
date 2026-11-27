@@ -28,10 +28,11 @@ export interface Layout {
 
 export const LAYOUT_KEY = 'agent-mesh.layout.v1'
 
-const VIEWS: readonly string[] = ['overview', 'messages', 'chat', 'terminal']
+const VIEWS: readonly string[] = ['chat', 'terminal']
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0
-const view = (v: unknown): AgentTab => (VIEWS.includes(v as string) ? (v as AgentTab) : 'overview')
+// The overview and messages views of older versions open as the chat, which holds both now.
+const view = (v: unknown): AgentTab => (VIEWS.includes(v as string) ? (v as AgentTab) : 'chat')
 const ref = (v: unknown): TabRef | undefined => {
   const o = v as Partial<TabRef> | null
   return o && str(o.hostId) && str(o.agentId) ? { hostId: o.hostId, agentId: o.agentId } : undefined
@@ -136,7 +137,7 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
     views: Object.fromEntries(Object.entries(l.views).filter(([k]) => tabs.some((t) => tabKey(t) === k))),
     hostId: active?.hostId,
     agentId: active?.agentId,
-    tab: active?.tab ?? 'overview',
+    tab: active?.tab ?? 'chat',
     side: l.side.filter(mine),
     splitDir: l.splitDir,
     sidebarCollapsed: l.sidebarCollapsed ?? false,
@@ -164,7 +165,7 @@ export function pruneHost(s: LayoutSource, hostId: string, agents: Record<string
   if (s.agentId && gone({ hostId: s.hostId ?? '', agentId: s.agentId })) {
     // The open agent is gone: a pane beside it takes over, else nothing is open (the tabs stay for the user to pick).
     const next = side[0]
-    Object.assign(patch, next ? { hostId: next.hostId, agentId: next.agentId, tab: next.tab, side: side.slice(1) } : { agentId: undefined, tab: 'overview' as AgentTab })
+    Object.assign(patch, next ? { hostId: next.hostId, agentId: next.agentId, tab: next.tab, side: side.slice(1) } : { agentId: undefined, tab: 'chat' as AgentTab })
   }
   return patch
 }

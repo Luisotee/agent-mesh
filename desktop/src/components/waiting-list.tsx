@@ -54,7 +54,7 @@ export function WaitingList({ host, label }: { host: HostRuntime; label?: string
           <li key={`${w.kind}:${w.message?.id ?? w.agent.id}`}>
             <button
               type="button"
-              onClick={() => app.selectAgent(host.info.id, w.agent.id, w.kind === 'input' ? 'terminal' : 'messages')}
+              onClick={() => app.selectAgent(host.info.id, w.agent.id, w.kind === 'input' ? 'terminal' : 'chat')}
               className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
             >
               <span className="mt-0.5">{ICON[w.kind]}</span>

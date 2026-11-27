@@ -1,12 +1,10 @@
 import { CheckCircle2, ChevronDown, ChevronUp, ClipboardList, FileText, MessageCircleQuestion, XCircle } from 'lucide-react'
 import { MarkdownField } from '@/components/ui/markdown-field'
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { answer } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { SkeletonLines } from '@/components/ui/skeleton'
-import { useHostState } from '@/context'
-import { MESSAGE_LABEL, messagesOf } from '@/derive'
+import { MESSAGE_LABEL } from '@/derive'
 import { MessageType, type Message } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { Markdown } from './markdown'
@@ -21,45 +19,6 @@ function stamp(m: Message): string {
   return m.createdAt ? new Date(Number(m.createdAt.seconds) * 1000).toLocaleString() : ''
 }
 
-/**
- * The conversation of one agent: what it sent and was sent, with plans and questions awaiting the user answerable in
- * place. The run's stored messages are read from the host when the tab is first shown (`active`), not at connect.
- */
-export function MessagesPanel({ host, agentId, active = true }: { host: HostRuntime; agentId: string; active?: boolean }) {
-  const messages = useHostState(host, (s) => s.messages)
-  const waiting = useHostState(host, (s) => s.waiting)
-  const runId = useHostState(host, (s) => s.agents[agentId]?.runId)
-  const load = useHostState(host, (s) => (runId ? s.messageLoad[runId] : undefined))
-  const mine = useMemo(() => messagesOf(messages, agentId), [messages, agentId])
-  const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
-  useEffect(() => {
-    if (active && runId) host.loadMessages(runId)
-  }, [active, runId, host])
-  // Events add messages of a run that isn't loaded too, so having some doesn't mean having them all.
-  if (runId && load !== 'loaded') {
-    return load === 'failed' ? (
-      <div role="alert" className="flex flex-col items-start gap-2 py-6 text-xs text-destructive">
-        <p>Couldn't load this run's messages.</p>
-        <Button size="sm" variant="outline" onClick={() => host.loadMessages(runId, true)}>Try again</Button>
-      </div>
-    ) : (
-      <SkeletonLines label="Loading messages" lines={4} className="py-4" />
-    )
-  }
-  if (mine.length === 0) {
-    return <p className="py-6 text-center text-xs text-muted-foreground">No messages yet. Plans, questions and reports of this agent appear here.</p>
-  }
-  return (
-    <ol aria-label="Messages" className="flex flex-col gap-3">
-      {mine.map((m) => (
-        <li key={m.id}>
-          <MessageCard host={host} message={m} open={open.has(m.id)} />
-        </li>
-      ))}
-    </ol>
-  )
-}
-
 const ICON: Partial<Record<MessageType, React.ReactNode>> = {
   [MessageType.PLAN]: <ClipboardList className="size-4 text-primary" />,
   [MessageType.QUESTION]: <MessageCircleQuestion className="size-4 text-state-needs" />,
@@ -67,7 +26,8 @@ const ICON: Partial<Record<MessageType, React.ReactNode>> = {
   [MessageType.FAILED]: <XCircle className="size-4 text-state-failed" />,
 }
 
-function MessageCard({ host, message: m, open }: { host: HostRuntime; message: Message; open: boolean }) {
+/** A mesh message to or from an agent, in its chat: a plan or question waiting on the user is answerable in place. */
+export function MessageCard({ host, message: m, open }: { host: HostRuntime; message: Message; open: boolean }) {
   const long = m.body.length > LONG
   const [expanded, setExpanded] = useState(open)
   const collapsed = long && !expanded && !open

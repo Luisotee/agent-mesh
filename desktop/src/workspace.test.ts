@@ -4,7 +4,7 @@ import type { AgentTab } from './model'
 import { AgentState, type Agent } from './gen/agentmesh/v1/types_pb'
 
 type S = WorkspaceState & { hostId?: string; agentId?: string; tab: AgentTab }
-const base = (o: Partial<S> = {}): S => ({ ...emptyWorkspace(), tab: 'overview', ...o })
+const base = (o: Partial<S> = {}): S => ({ ...emptyWorkspace(), tab: 'chat', ...o })
 const apply = (s: S, patch: Partial<S>): S => ({ ...s, ...patch })
 
 describe('activate', () => {
@@ -19,12 +19,12 @@ describe('activate', () => {
   it('keeps the view each tab was on, unless one is asked for', () => {
     let s = apply(base(), activate(base(), 'h', 'a', 'terminal'))
     s = apply(s, activate(s, 'h', 'b'))
-    expect(s.tab).toBe('overview')
+    expect(s.tab).toBe('chat')
     s = apply(s, activate(s, 'h', 'a'))
     expect(s.tab).toBe('terminal')
-    s = apply(s, activate(s, 'h', 'b', 'messages'))
+    s = apply(s, activate(s, 'h', 'b', 'terminal'))
     s = apply(s, activate(s, 'h', 'a'))
-    expect(s.views['h/b']).toBe('messages')
+    expect(s.views['h/b']).toBe('terminal')
   })
 
   it('clears the new mark of the agent that is looked at', () => {
@@ -34,10 +34,10 @@ describe('activate', () => {
 })
 
 describe('closeTab', () => {
-  const three = (active: string): S => base({ tabs: ['a', 'b', 'c'].map((agentId) => ({ hostId: 'h', agentId })), hostId: 'h', agentId: active, views: { 'h/c': 'messages' } })
+  const three = (active: string): S => base({ tabs: ['a', 'b', 'c'].map((agentId) => ({ hostId: 'h', agentId })), hostId: 'h', agentId: active, views: { 'h/c': 'terminal' } })
 
   it('shows the tab to the right of the one closed, else the left, else none', () => {
-    expect(apply(three('b'), closeTab(three('b'), { hostId: 'h', agentId: 'b' }))).toMatchObject({ agentId: 'c', tab: 'messages' })
+    expect(apply(three('b'), closeTab(three('b'), { hostId: 'h', agentId: 'b' }))).toMatchObject({ agentId: 'c', tab: 'terminal' })
     expect(apply(three('c'), closeTab(three('c'), { hostId: 'h', agentId: 'c' }))).toMatchObject({ agentId: 'b' })
     const one = base({ tabs: [{ hostId: 'h', agentId: 'a' }], hostId: 'h', agentId: 'a' })
     const closed = apply(one, closeTab(one, { hostId: 'h', agentId: 'a' }))
@@ -79,8 +79,8 @@ describe('pruneDismissed', () => {
 
 describe('forgetHost and noteSpawned', () => {
   it('drops a removed host\'s tabs and marks', () => {
-    const s = base({ tabs: [{ hostId: 'h', agentId: 'a' }, { hostId: 'g', agentId: 'a' }], views: { 'h/a': 'terminal', 'g/a': 'messages' }, newTiles: { 'h/a': 1 }, dismissed: { 'h/a': 1 } })
-    expect(forgetHost(s, 'h')).toEqual({ tabs: [{ hostId: 'g', agentId: 'a' }], side: [], views: { 'g/a': 'messages' }, newTiles: {}, dismissed: {} })
+    const s = base({ tabs: [{ hostId: 'h', agentId: 'a' }, { hostId: 'g', agentId: 'a' }], views: { 'h/a': 'terminal', 'g/a': 'terminal' }, newTiles: { 'h/a': 1 }, dismissed: { 'h/a': 1 } })
+    expect(forgetHost(s, 'h')).toEqual({ tabs: [{ hostId: 'g', agentId: 'a' }], side: [], views: { 'g/a': 'terminal' }, newTiles: {}, dismissed: {} })
   })
 
   it('does what the setting says, and never focuses', () => {
@@ -103,8 +103,8 @@ describe('splits', () => {
     let s = apply(open('a'), pinSplit(open('a'), ref('b')))
     expect(s.side).toEqual([{ ...ref('b'), tab: 'terminal' }])
     expect(s.tabs).toEqual([ref('a'), ref('b')])
-    s = apply(s, pinSplit(s, ref('c'), 'messages'))
-    expect(s.side.map((p) => [p.agentId, p.tab])).toEqual([['b', 'terminal'], ['c', 'messages']])
+    s = apply(s, pinSplit(s, ref('c'), 'terminal'))
+    expect(s.side.map((p) => [p.agentId, p.tab])).toEqual([['b', 'terminal'], ['c', 'terminal']])
   })
 
   it('does not pin the main agent, one already beside, or more than the limit', () => {
@@ -118,9 +118,9 @@ describe('splits', () => {
 
   it('takes a pane away without closing its tab, and changes the view of one', () => {
     let s = apply(open('a'), pinSplit(open('a'), ref('b')))
-    s = apply(s, setPaneTab(s, ref('b'), 'messages'))
-    expect(s.side[0]!.tab).toBe('messages')
-    expect(setPaneTab(s, ref('b'), 'messages')).toEqual({})
+    s = apply(s, setPaneTab(s, ref('b'), 'terminal'))
+    expect(s.side[0]!.tab).toBe('terminal')
+    expect(setPaneTab(s, ref('b'), 'terminal')).toEqual({})
     s = apply(s, unsplit(s, ref('b')))
     expect(s.side).toEqual([])
     expect(s.tabs).toHaveLength(2)
@@ -131,7 +131,7 @@ describe('splits', () => {
     s = apply(s, pinSplit(s, ref('c')))
     s = apply(s, focusPane(s, ref('b')))
     expect(s).toMatchObject({ agentId: 'b', tab: 'terminal' })
-    expect(s.side.map((p) => [p.agentId, p.tab])).toEqual([['a', 'chat'], ['c', 'overview']])
+    expect(s.side.map((p) => [p.agentId, p.tab])).toEqual([['a', 'chat'], ['c', 'chat']])
     expect(s.views['h/b']).toBe('terminal')
   })
 

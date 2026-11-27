@@ -1,7 +1,9 @@
 import { create } from '@bufbuild/protobuf'
+import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
-import { emptyTranscript, fromTail, toBlocks, toolsSummary, withEarlier, withLater } from './transcript'
+import { MessageSchema } from './gen/agentmesh/v1/types_pb'
+import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater } from './transcript'
 
 const entry = (id: string, kind: TranscriptKind, o: Partial<{ text: string; tool: string; toolInput: string; toolUseId: string; isError: boolean }> = {}) => create(TranscriptEntrySchema, { id, kind, ...o })
 const page = (entries: ReturnType<typeof entry>[], o: Partial<{ sessionId: string; startOffset: bigint; endOffset: bigint; atStart: boolean; supported: boolean }> = {}) =>
@@ -66,5 +68,24 @@ describe('toBlocks', () => {
     if (b?.kind !== 'tools') throw new Error('not tools')
     expect(b.calls.map((c) => [c.tool, c.result?.text])).toEqual([['tool', 'late'], ['Bash', undefined]])
     expect(toolsSummary(b.calls.slice(1))).toBe('Ran 1 tool: Bash')
+  })
+})
+
+describe('timeline', () => {
+  const at = (s: number) => timestampFromMs(s * 1000)
+  const e = (id: string, kind: TranscriptKind, s: number) => create(TranscriptEntrySchema, { id, kind, text: id, time: at(s) })
+  const m = (id: string, s: number) => create(MessageSchema, { id, body: id, createdAt: at(s) })
+  const blocks = toBlocks([e('u1', TranscriptKind.USER, 10), e('bell', TranscriptKind.MESH, 20), e('a1', TranscriptKind.ASSISTANT, 30)])
+
+  it('puts each message where it was sent, and drops the doorbells once the messages are there', () => {
+    const items = timeline(blocks, [m('late', 40), m('task', 19), m('early', 5)], false)
+    // A message from before the window held is left for "Load earlier".
+    expect(items.map((i) => i.id)).toEqual(['u1', 'm-task', 'a1', 'm-late'])
+    expect(timeline(blocks, [m('early', 5)], true).map((i) => i.id)).toEqual(['m-early', 'u1', 'a1'])
+  })
+
+  it('keeps the doorbells while the messages are not read yet, and shows every message of a conversation it cannot read', () => {
+    expect(timeline(blocks, undefined, false).map((i) => i.id)).toEqual(['u1', 'bell', 'a1'])
+    expect(timeline([], [m('x', 5)], false).map((i) => i.id)).toEqual(['m-x'])
   })
 })

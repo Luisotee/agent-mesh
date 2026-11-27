@@ -38,7 +38,7 @@ export function waitingTargets(app: AppModel): Array<{ hostId: string; agentId: 
       hostId: h.info.id,
       agentId: w.agent.id,
       kind: w.kind,
-      tab: (w.kind === 'input' ? 'terminal' : 'messages') as AgentTab,
+      tab: (w.kind === 'input' ? 'terminal' : 'chat') as AgentTab,
       text: w.kind === 'plan' ? `${w.agent.name} sent a plan` : w.kind === 'question' ? `${w.agent.name} asked a question` : `${w.agent.name} is waiting in its terminal`,
     }))
   })
@@ -71,8 +71,8 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     dock: () => app.setDock(!st().dockOpen),
     chat_toggle: () => {
       const { agentId, tab } = st()
-      // From the chat to the terminal only where there is one (an exited agent has none): the panel would fall back
-      // to the overview, and the next press would go back to the chat.
+      // From the chat to the terminal only where there is one (an exited agent has none): the panel would show the
+      // chat still, and the next press would seem to do nothing.
       if (agentId && (tab === 'chat' ? hasOpenTerminal(app) : true)) app.setTab(tab === 'chat' ? 'terminal' : 'chat')
     },
     tab_next: () => {

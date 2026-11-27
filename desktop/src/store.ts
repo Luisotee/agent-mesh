@@ -24,7 +24,7 @@ export interface HostState {
   agents: Record<string, Agent>
   /** Every message seen: loaded with ListMessages, then added by events. */
   messages: Record<string, Message>
-  /** How loading a run's stored messages went (`messages.ts`): they are read when a run's Messages tab is first shown. A run not in here wasn't asked for. */
+  /** How loading a run's stored messages went (`messages.ts`): they are read when a chat of the run is first shown. A run not in here wasn't asked for. */
   messageLoad: Record<string, MessageLoad>
   /** The host's settings with their schemas, by key: loaded with ListSettings, then kept by SettingChanged events. */
   settings: Record<string, Setting>
