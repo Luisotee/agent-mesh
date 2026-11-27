@@ -36,8 +36,13 @@ func (d *Daemon) ArchiveAgent(ctx context.Context, req *connect.Request[v1.Archi
 		return nil, err
 	}
 	out := &v1.ArchiveAgentResponse{}
+	mu := d.agentLock(found.Id)
+	mu.Lock()
+	defer mu.Unlock()
+	// Looked for under the lock, not before it: a retry that waited for the call it repeats gets that call's answer. An
+	// applied call's agent is archived now, which the checks below would refuse; and a call past its expiry is refused here,
+	// before anything is retired or removed (the last write can't be, with the worktree gone).
 	if mid := m.GetMeta().GetMutationId(); mid != "" {
-		// Looked for first: an applied call's agent is archived now, which the checks below would refuse.
 		proc, resp, err := d.store.Read(ctx).Mutation(actor.Id, mid)
 		switch {
 		case err == nil && proc == agentmeshv1connect.MeshServiceArchiveAgentProcedure:
@@ -51,10 +56,9 @@ func (d *Daemon) ArchiveAgent(ctx context.Context, req *connect.Request[v1.Archi
 			return nil, err
 		}
 	}
-	mu := d.agentLock(found.Id)
-	mu.Lock()
-	defer mu.Unlock()
-	// Looked at again under the lock: another call may have archived it while this one waited.
+	if err := expired(m.Meta, d.now()); err != nil {
+		return nil, err
+	}
 	cur, err := d.getAgent(d.store.Read(ctx), found.Id)
 	if err != nil {
 		return nil, err
@@ -85,14 +89,32 @@ func (d *Daemon) ArchiveAgent(ctx context.Context, req *connect.Request[v1.Archi
 		return nil, err
 	}
 	d.sweepWorktrees(ctx, []*v1.Agent{cur})
+	// From here the worktree's lock is held (the order is the agent's, then the worktree's), so a resume or a message that
+	// would make the agent run again, or another agent that takes the worktree, waits for the removal and finds it gone:
+	// what was checked above is checked again, under the lock, and stays true until the removal is recorded.
+	wmu := d.worktreeLock(cur.Worktree)
+	wmu.Lock()
+	defer wmu.Unlock()
+	if cur, err = d.getAgent(d.store.Read(ctx), cur.Id); err != nil {
+		return nil, err
+	}
+	retiredStill := cur.State == v1.AgentState_AGENT_STATE_RETIRED && cur.PendingReopen == nil
+	if !retiredStill {
+		return nil, failedPrecondition("%s was resumed while it was being archived, so its worktree stays", cur.Name)
+	}
+	if err := d.archivable(ctx, cur); err != nil {
+		return nil, failedPrecondition("%v (it is retired; its worktree stays)", errMessage(err))
+	}
 	ch := agentChanges(ctx, cur)
 	if err := archiveRefusal(ch, cur.Name, m.Force); err != nil {
-		return nil, failedPrecondition("%v (it is retired; its worktree stays)", err)
+		return nil, failedPrecondition("%s (it is retired; its worktree stays)", errMessage(err))
 	}
-	if err := d.removeKeepingBranch(ctx, cur); err != nil {
+	if err := d.removeKeepingBranchLocked(ctx, cur); err != nil {
 		return nil, failedPrecondition("%s is retired, but its worktree stays: %v", cur.Name, err)
 	}
-	_, err = d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceArchiveAgentProcedure, out, func(tx *store.Tx) error {
+	// Only the mutation id: the expiry was checked before anything was done, and a write the removal has happened for must not
+	// be refused for it.
+	_, err = d.write(ctx, &v1.RequestMeta{MutationId: m.GetMeta().GetMutationId()}, agentmeshv1connect.MeshServiceArchiveAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := tx.GetAgent(cur.Id)
 		if err != nil {
 			return err
@@ -157,12 +179,9 @@ func archiveRefusal(ch *v1.GetAgentChangesResponse, name string, force bool) err
 	return nil
 }
 
-// removeKeepingBranch removes an agent's worktree with `git worktree remove` (never forced: git refuses one with untracked
-// files) and keeps its branch. A worktree already gone is only pruned.
-func (d *Daemon) removeKeepingBranch(ctx context.Context, a *v1.Agent) error {
-	mu := d.worktreeLock(a.Worktree)
-	mu.Lock()
-	defer mu.Unlock()
+// removeKeepingBranchLocked removes an agent's worktree with `git worktree remove` (never forced: git refuses one with untracked
+// files) and keeps its branch. A worktree already gone is only pruned. The caller holds the worktree's lock.
+func (d *Daemon) removeKeepingBranchLocked(ctx context.Context, a *v1.Agent) error {
 	if _, err := os.Stat(a.Worktree); os.IsNotExist(err) {
 		_, _ = git(ctx, a.Repo, "worktree", "prune")
 		return nil

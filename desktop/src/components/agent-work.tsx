@@ -185,6 +185,7 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
           <div className="flex flex-col gap-3 text-sm">
             {LIVE.includes(agent.state) && <p className="text-xs text-state-needs">It is {agent.state === AgentState.WORKING ? 'working' : 'busy'} now: archiving stops it.</p>}
             {read.value && <p className="text-xs text-muted-foreground">{changeSummary(read.value)}</p>}
+            {read.error && !read.value && <p role="alert" className="text-xs text-destructive">Couldn't read the worktree: {read.error}</p>}
             {advice.blocked && <p role="alert" className="text-xs text-destructive">{advice.blocked}</p>}
             {advice.warn && (
               <label className="flex items-start gap-2 text-xs">

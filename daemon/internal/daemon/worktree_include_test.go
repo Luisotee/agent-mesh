@@ -148,6 +148,32 @@ func TestWorktreeIncludeNeverWritesThroughASymlinkOfTheWorktree(t *testing.T) {
 	}
 }
 
+// A symlink that stays inside the worktree is not followed either: `secrets -> public` would put the ignored key in a directory
+// git does not ignore, where a commit could take it.
+func TestWorktreeIncludeNeverWritesThroughASymlinkToAnotherDirectoryOfTheWorktree(t *testing.T) {
+	repo := gitRepo(t)
+	writeFile(t, filepath.Join(repo, ".gitignore"), "secrets/\n", 0o644)
+	writeFile(t, filepath.Join(repo, ".worktreeinclude"), "secrets/\n", 0o644)
+	gitIn(t, repo, "add", ".gitignore", ".worktreeinclude")
+	gitIn(t, repo, "commit", "-q", "-m", "files")
+	writeFile(t, filepath.Join(repo, "secrets", "key.pem"), "key", 0o600)
+	wt := filepath.Join(t.TempDir(), "wt")
+	gitIn(t, repo, "worktree", "add", "-q", "-b", "feature", wt)
+	if err := os.MkdirAll(filepath.Join(wt, "public"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("public", filepath.Join(wt, "secrets")); err != nil {
+		t.Fatal(err)
+	}
+	res := daemon.CopyWorktreeInclude(context.Background(), repo, wt, 1<<20)
+	if entries, _ := os.ReadDir(filepath.Join(wt, "public")); len(entries) != 0 {
+		t.Errorf("a file was written through the symlink: %v", entries)
+	}
+	if res.Copied != 0 || len(res.Skipped) == 0 {
+		t.Errorf("copied %d, skipped %v", res.Copied, res.Skipped)
+	}
+}
+
 // A cap of 0 copies nothing, not even an empty file.
 func TestWorktreeIncludeWithACapOfZeroCopiesNothing(t *testing.T) {
 	repo := gitRepo(t)

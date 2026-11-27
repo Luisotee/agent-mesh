@@ -16,10 +16,14 @@ export function usePolled<T>(read: () => Promise<T>, key: string, everyMs: numbe
   const reader = useRef(read)
   reader.current = read
   const again = useRef<() => void>(undefined)
-  const first = useRef(true)
+  /** The `refreshKey` a read was last made for: a key and a refresh key changing in one render read once. */
+  const handled = useRef(refreshKey)
+  const latest = useRef(refreshKey)
+  latest.current = refreshKey
   useEffect(() => {
     if (!enabled) return
     let alive = true
+    handled.current = latest.current
     setState({ loading: true })
     const load = () =>
       reader.current().then(
@@ -36,10 +40,8 @@ export function usePolled<T>(read: () => Promise<T>, key: string, everyMs: numbe
     }
   }, [key, everyMs, enabled])
   useEffect(() => {
-    if (first.current) {
-      first.current = false
-      return
-    }
+    if (handled.current === refreshKey) return
+    handled.current = refreshKey
     again.current?.()
   }, [refreshKey])
   return state

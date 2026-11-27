@@ -93,6 +93,18 @@ describe('Changes', () => {
     await waitFor(() => expect(client.getAgentChanges.mock.calls.length).toBeGreaterThan(calls))
   })
 
+  it('reads once, not twice, when another agent in another state is shown', async () => {
+    const { host, client, wrap, agent: a } = fixture()
+    client.getAgentChanges.mockResolvedValue(create(GetAgentChangesResponseSchema, { available: true, uncommitted: 1 }))
+    const { rerender } = render(wrap(<Changes host={host} agent={a} />))
+    expect(await screen.findByTestId('change-summary')).toHaveTextContent('1 file uncommitted')
+    const calls = client.getAgentChanges.mock.calls.length
+    rerender(wrap(<Changes host={host} agent={agent({ id: 'w2', name: 'other', state: AgentState.WORKING })} />))
+    await waitFor(() => expect(client.getAgentChanges.mock.calls.length).toBeGreaterThan(calls))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(client.getAgentChanges.mock.calls.length).toBe(calls + 1)
+  })
+
   it('says why when the host could not read the worktree', async () => {
     const { host, client, wrap, agent: a } = fixture()
     client.getAgentChanges.mockResolvedValue(create(GetAgentChangesResponseSchema, { reason: 'its worktree and its branch are gone' }))
@@ -193,6 +205,16 @@ describe('worktree actions', () => {
     const again = await screen.findByRole('dialog', { name: 'Archive app-fix?' })
     expect(await within(again).findByRole('checkbox')).not.toBeChecked()
     expect(within(again).getByRole('button', { name: 'Archive' })).toBeDisabled()
+  })
+
+  it('says so in the dialog when the worktree cannot be read, and keeps Archive off', async () => {
+    const { host, client, wrap, agent: a } = fixture()
+    client.getAgentChanges.mockRejectedValue(new Error('host is unreachable'))
+    render(wrap(<WorktreeActions host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Archive app-fix?' })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent("Couldn't read the worktree: host is unreachable")
+    expect(within(dialog).getByRole('button', { name: 'Archive' })).toBeDisabled()
   })
 
   it('says it is archived and offers Restore, which resumes the agent', async () => {

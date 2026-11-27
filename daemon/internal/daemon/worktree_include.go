@@ -233,11 +233,36 @@ func insideDir(root, p string) bool {
 	return err == nil && r != ".." && !strings.HasPrefix(r, ".."+string(filepath.Separator))
 }
 
+// mkdirPlain makes a directory (and its parents) inside dest, one component at a time, and refuses one that is a symlink. The
+// root handle only keeps a path from leaving the worktree: a symlink the checked-out branch holds that points to another
+// place inside it (`secrets -> public`) would still be followed, and an ignored file written through it would land in a
+// directory git does not ignore.
+func mkdirPlain(dest *os.Root, dir string) error {
+	cur := ""
+	for _, part := range strings.Split(filepath.ToSlash(dir), "/") {
+		cur = filepath.Join(cur, part)
+		switch fi, err := dest.Lstat(cur); {
+		case err == nil && fi.Mode()&fs.ModeSymlink != 0:
+			return fmt.Errorf("%s is a symlink in the checkout", filepath.ToSlash(cur))
+		case err == nil && !fi.IsDir():
+			return fmt.Errorf("%s is a file in the checkout", filepath.ToSlash(cur))
+		case err == nil:
+		case errors.Is(err, fs.ErrNotExist):
+			if err := dest.Mkdir(cur, 0o700); err != nil {
+				return err
+			}
+		default:
+			return err
+		}
+	}
+	return nil
+}
+
 // copyOne copies a file to `to`, inside dest only, creating nothing that exists, and at most `room` bytes: a file that grew since
 // it was measured is left out, not truncated.
 func copyOne(from string, dest *os.Root, to string, mode fs.FileMode, room int64) (int64, error) {
 	if dir := filepath.Dir(to); dir != "." {
-		if err := dest.MkdirAll(dir, 0o700); err != nil {
+		if err := mkdirPlain(dest, dir); err != nil {
 			return 0, err
 		}
 	}

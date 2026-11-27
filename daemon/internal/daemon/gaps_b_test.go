@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
@@ -315,6 +316,53 @@ func TestArchiveRetriesAndRacesRecordOneArchive(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("%d archive events for the raced agent", n)
+	}
+}
+
+// A call past its expiry changes nothing: the agent is not retired and its worktree stays. Two calls at once with one mutation id
+// both get the one answer, and the archive happens once.
+func TestArchiveRefusesAnExpiredCallBeforeItRemovesAnythingAndTwoRetriesAtOnceShareOneAnswer(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	late := &v1.RequestMeta{MutationId: "late", ExpiresAt: timestamppb.New(time.Now().Add(-time.Minute))}
+	if _, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: late, Agent: a.Id})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("an expired call: %v", err)
+	}
+	if _, err := os.Stat(a.Worktree); err != nil {
+		t.Errorf("the worktree of an expired call: %v", err)
+	}
+	if cur, err := w.d.Store().Read(ctx).GetAgent(a.Id); err != nil || cur.State == v1.AgentState_AGENT_STATE_RETIRED || cur.Archived {
+		t.Errorf("an expired call changed the agent: %v, %v", cur, err)
+	}
+	results := make(chan *v1.ArchiveAgentResponse, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			res, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta("same"), Agent: a.Id}))
+			if err != nil {
+				t.Errorf("a retry at once: %v", err)
+				results <- nil
+				return
+			}
+			results <- res.Msg
+		}()
+	}
+	for i := 0; i < 2; i++ {
+		if res := <-results; res != nil && !res.Agent.Archived {
+			t.Errorf("answer: %v", res)
+		}
+	}
+	var n int
+	evs, _ := w.d.Store().Read(ctx).ListEvents(run.Id)
+	for _, ev := range evs {
+		if ev.GetAgentArchived() != nil {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("%d archive events", n)
 	}
 }
 
