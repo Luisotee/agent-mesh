@@ -43,7 +43,8 @@ public interface AddAttachmentRequestOrBuilder extends
 
   /**
    * <pre>
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    * </pre>
    *
    * <code>string name = 3 [json_name = "name"];</code>
@@ -52,7 +53,8 @@ public interface AddAttachmentRequestOrBuilder extends
   java.lang.String getName();
   /**
    * <pre>
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    * </pre>
    *
    * <code>string name = 3 [json_name = "name"];</code>
