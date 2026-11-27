@@ -24,6 +24,7 @@ public  final class PullRequest extends
     state_ = "";
     checks_ = "";
     source_ = "";
+    headRef_ = "";
   }
   private int bitField0_;
   public static final int AGENT_ID_FIELD_NUMBER = 1;
@@ -534,6 +535,78 @@ public  final class PullRequest extends
   private void clearHeld() {
 
     held_ = false;
+  }
+
+  public static final int HEAD_REF_FIELD_NUMBER = 11;
+  private java.lang.String headRef_;
+  /**
+   * <pre>
+   * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+   * head is its branch.
+   * </pre>
+   *
+   * <code>string head_ref = 11 [json_name = "headRef"];</code>
+   * @return The headRef.
+   */
+  @java.lang.Override
+  public java.lang.String getHeadRef() {
+    return headRef_;
+  }
+  /**
+   * <pre>
+   * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+   * head is its branch.
+   * </pre>
+   *
+   * <code>string head_ref = 11 [json_name = "headRef"];</code>
+   * @return The bytes for headRef.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHeadRefBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(headRef_);
+  }
+  /**
+   * <pre>
+   * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+   * head is its branch.
+   * </pre>
+   *
+   * <code>string head_ref = 11 [json_name = "headRef"];</code>
+   * @param value The headRef to set.
+   */
+  private void setHeadRef(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    headRef_ = value;
+  }
+  /**
+   * <pre>
+   * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+   * head is its branch.
+   * </pre>
+   *
+   * <code>string head_ref = 11 [json_name = "headRef"];</code>
+   */
+  private void clearHeadRef() {
+
+    headRef_ = getDefaultInstance().getHeadRef();
+  }
+  /**
+   * <pre>
+   * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+   * head is its branch.
+   * </pre>
+   *
+   * <code>string head_ref = 11 [json_name = "headRef"];</code>
+   * @param value The bytes for headRef to set.
+   */
+  private void setHeadRefBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    headRef_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.PullRequest parseFrom(
@@ -1169,6 +1242,80 @@ public  final class PullRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+     * head is its branch.
+     * </pre>
+     *
+     * <code>string head_ref = 11 [json_name = "headRef"];</code>
+     * @return The headRef.
+     */
+    @java.lang.Override
+    public java.lang.String getHeadRef() {
+      return instance.getHeadRef();
+    }
+    /**
+     * <pre>
+     * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+     * head is its branch.
+     * </pre>
+     *
+     * <code>string head_ref = 11 [json_name = "headRef"];</code>
+     * @return The bytes for headRef.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHeadRefBytes() {
+      return instance.getHeadRefBytes();
+    }
+    /**
+     * <pre>
+     * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+     * head is its branch.
+     * </pre>
+     *
+     * <code>string head_ref = 11 [json_name = "headRef"];</code>
+     * @param value The headRef to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadRef(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHeadRef(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+     * head is its branch.
+     * </pre>
+     *
+     * <code>string head_ref = 11 [json_name = "headRef"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeadRef() {
+      copyOnWrite();
+      instance.clearHeadRef();
+      return this;
+    }
+    /**
+     * <pre>
+     * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+     * head is its branch.
+     * </pre>
+     *
+     * <code>string head_ref = 11 [json_name = "headRef"];</code>
+     * @param value The bytes for headRef to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadRefBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHeadRefBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.PullRequest)
   }
   @java.lang.Override
@@ -1196,10 +1343,12 @@ public  final class PullRequest extends
             "checkedAt_",
             "stale_",
             "held_",
+            "headRef_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0004" +
-              "\u0004\u0208\u0005\u0007\u0006\u0208\u0007\u0208\b\u1009\u0000\t\u0007\n\u0007";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0004\u0004\u0208\u0005\u0007\u0006\u0208\u0007\u0208\b\u1009\u0000\t\u0007" +
+              "\n\u0007\u000b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

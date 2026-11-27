@@ -229,6 +229,9 @@ message Message {
   google.protobuf.Timestamp read_at = 10;
   // A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
   google.protobuf.Timestamp wait_until = 11;
+  // A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+  // current task when it was sent. Empty for any other message.
+  string re = 12;
 }
 
 // Cursor is a position in the host's event log. A cursor from another generation (the log was recreated) can't
