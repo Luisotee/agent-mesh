@@ -99,6 +99,14 @@ class KeyboardInsetsTest {
         assertEquals("the composer is $gapOpen px above the keyboard, $gapClosed px above the bar when it is closed", gapClosed, gapOpen, 1f)
     }
 
+    @Test fun `the add-project sheet, whose list scrolls by itself, opens with the keyboard's padding`() {
+        val rt = runtime()
+        val container = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> api })
+        compose.setContent { CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { dev.agentmesh.android.ui.AddProjectSheet(rt) {} } } }
+        compose.waitForIdle()
+        compose.onNodeWithTag("project-query").assertExists()
+    }
+
     @Test fun `a terminal that is empty at its first frame is drawn when the host's screen arrives`() {
         val screen = TermScreen()
         compose.setContent { Box(Modifier.fillMaxSize()) { TerminalCanvas(screen, theme.terminal) } }
