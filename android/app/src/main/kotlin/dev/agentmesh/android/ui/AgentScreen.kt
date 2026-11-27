@@ -25,6 +25,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.derive.repoName
@@ -43,7 +45,7 @@ import java.util.Date
 /** One agent: its overview, its conversation, and its terminal (read only). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initialTab: Tab = Tab.Overview) {
+fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initialTab: Tab = Tab.Overview, onMenu: (() -> Unit)? = null) {
     val container = LocalContainer.current
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val agent = state.agents[agentId]
@@ -61,7 +63,11 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(agent?.name ?: "Agent") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            // With the drawer, the menu opens it (the system's Back goes home); at a width where it is always open, Back goes home.
+            navigationIcon = {
+                if (onMenu != null) IconButton(onClick = onMenu, Modifier.testTag("open-drawer")) { Icon(Icons.Default.Menu, "Menu") }
+                else IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
+            },
         )
     }) { pad ->
         if (agent == null) {
@@ -79,7 +85,7 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
             ModelLine(runtime, agent, canChange = !isReadOnlyDevice(state))
             TabRow(selectedTabIndex = tab.ordinal) {
                 Tab.entries.forEach { t ->
-                    androidx.compose.material3.Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.name) })
+                    androidx.compose.material3.Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.name, maxLines = 1, softWrap = false) })
                 }
             }
             when (tab) {

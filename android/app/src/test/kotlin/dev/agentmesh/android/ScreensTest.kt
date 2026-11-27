@@ -18,7 +18,6 @@ import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.AgentScreen
-import dev.agentmesh.android.ui.HostScreen
 import dev.agentmesh.android.ui.LocalContainer
 import dev.agentmesh.android.ui.HostsScreen
 import dev.agentmesh.gen.agentmesh.v1.AgentRole
@@ -85,41 +84,6 @@ class ScreensTest {
     private fun HostRuntime.feed(vararg frames: dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse) {
         onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         frames.forEach(::onFrame)
-    }
-
-    @Test fun `the host screen shows each run as a tree and what waits on the user`() {
-        val rt = runtime()
-        val lead = agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead", state = AgentState.AGENT_STATE_WORKING)
-        val worker = agent("w1", parent = "lead", name = "shop-fix-typo", state = AgentState.AGENT_STATE_NEEDS_INPUT, needsInput = 1, detail = "Bash", at = 2_000)
-        rt.feed(snapshot(listOf(run("r1", "Fix the typo")), listOf(lead, worker)))
-        rt.onFrame(messageSent(1, message("m1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, at = 3_000)))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
-        // The run's title heads its tree and sits under each waiting row.
-        compose.onAllNodesWithText("Fix the typo").assertCountEquals(3)
-        compose.onNodeWithText("shop-lead").assertIsDisplayed()
-        compose.onNodeWithText("shop-fix-typo").assertIsDisplayed()
-        compose.onNodeWithText("Needs you: Bash").assertIsDisplayed()
-        // The plan and the prompt both wait on the user.
-        compose.onNodeWithText("WAITING ON YOU (2)").assertIsDisplayed()
-        compose.onNodeWithText("shop-fix-typo sent a plan").assertIsDisplayed()
-    }
-
-    @Test fun `a closed run is collapsed until it is tapped`() {
-        val rt = runtime()
-        rt.feed(snapshot(listOf(run("r1", "Old work", status = dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_CLOSED)), listOf(agent("a1", name = "old-agent", state = AgentState.AGENT_STATE_EXITED))))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
-        compose.onNodeWithText("Old work").assertIsDisplayed()
-        compose.onNodeWithText("old-agent").assertDoesNotExistCompat()
-        compose.onNodeWithText("Old work").performClick()
-        compose.onNodeWithText("old-agent").assertIsDisplayed()
-    }
-
-    @Test fun `a host that is not connected says why and offers a retry`() {
-        val rt = runtime()
-        rt.onState(ConnState.Stopped(ConnState.Reason.Auth, "bad token"))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
-        compose.onNodeWithText("The host refused this device's token").assertIsDisplayed()
-        compose.onNodeWithText("Retry").assertIsDisplayed()
     }
 
     @Test fun `the agent screen shows where it works`() {

@@ -41,38 +41,6 @@ import dev.agentmesh.android.derive.statusSentence
 import dev.agentmesh.android.notify.Tab
 import dev.agentmesh.gen.agentmesh.v1.AgentState
 
-/**
- * The live dock: a tile for every live agent of the host's open runs, the ones that need you first, each with the tool
- * it runs now and the last thing it said. The agents' state and the ephemeral activity frames feed it; a tap opens the
- * agent. (The desktop's dock; here per host, as the phone opens one host at a time.)
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DockScreen(runtime: HostRuntime, onBack: () -> Unit, onLog: () -> Unit = {}, onAgent: (String, Tab) -> Unit) {
-    val state by runtime.state.collectAsStateWithLifecycleCompat()
-    val tiles = remember(state.runs, state.agents, state.messages) { dockTiles(state.runs, state.agents, state.messages) }
-    val now = rememberNowMs(true)
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Live · ${runtime.host?.name ?: "Host"}") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-        )
-    }) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize()) {
-            ConnectionBanner(state, onRetry = runtime::nudge, onLog = onLog)
-            if (tiles.isEmpty()) {
-                Text(
-                    if (state.synced) "No live agents. Agents of an open run show here while they work." else "Waiting for the host…",
-                    Modifier.padding(16.dp).testTag("dock-empty"), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(tiles, key = { it.agent.id }) { t -> TileCard(t, state.clockSkewMs, now) { onAgent(t.agent.id, if (t.agent.state == AgentState.AGENT_STATE_NEEDS_INPUT) Tab.Terminal else Tab.Chat) } }
-            }
-        }
-    }
-}
-
 @Composable
 internal fun TileCard(t: Tile, skewMs: Long, now: Long, onClick: () -> Unit) {
     val a = t.agent

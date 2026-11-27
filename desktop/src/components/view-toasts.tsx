@@ -11,6 +11,12 @@ export function describeView(r: ViewRequestRow, agentName: (hostId: string, id: 
       return `${agentName(r.hostId, v.target) ?? 'an agent'}'s chat`
     case 'terminal':
       return `${agentName(r.hostId, v.target) ?? 'an agent'}'s terminal`
+    case 'messages':
+      return `${agentName(r.hostId, v.target) ?? 'an agent'}'s messages`
+    case 'plan':
+      return `${agentName(r.hostId, v.target) ?? 'an agent'}'s plan`
+    case 'pr':
+      return `pull request ${/\/pull\/(\d+)/.exec(v.target)?.[1] ? '#' + /\/pull\/(\d+)/.exec(v.target)![1] : v.target}`
     case 'run':
       return `the run ${runTitle(r.hostId, v.target) ?? ''}`.trim()
     default:

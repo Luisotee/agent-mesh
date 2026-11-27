@@ -53,11 +53,11 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onStarted: (agentId: String) -> Unit = {}) {
+fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onStarted: (agentId: String) -> Unit = {}, repo: String = "") {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val hasLead = runId != null && state.agents.values.any { it.runId == runId && it.role == AgentRole.AGENT_ROLE_ROOT }
     var title by remember { mutableStateOf("") }
-    var form by remember { mutableStateOf(SpawnForm()) }
+    var form by remember { mutableStateOf(SpawnForm(repo = repo)) }
     // A new run's agent is its lead; an added one is the lead if the run has none, else a worker.
     val role = if (runId == null) AgentRole.AGENT_ROLE_ROOT else defaultRole(hasLead)
     var chosenRole by remember(role) { mutableStateOf(role) }
@@ -111,7 +111,7 @@ fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onSt
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp).navigationBarsPadding().testTag("spawn-sheet"),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(if (runId == null) "New run" else "Add an agent", style = MaterialTheme.typography.titleMedium)
+            Text(if (runId == null) "New lead" else "Add an agent", style = MaterialTheme.typography.titleMedium)
             if (runId == null) {
                 OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth().testTag("run-title"), label = { Text("Title") }, singleLine = true, placeholder = { Text("Fix the typo in the README") })
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -12,7 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -46,19 +46,20 @@ import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import kotlinx.coroutines.launch
 
+/** Settings › Hosts: the paired hosts, each with its own settings, usage and log; pairing and adding one. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit, onEdit: (String) -> Unit, onSettings: () -> Unit, onLive: () -> Unit = {}) {
+fun HostsScreen(
+    onBack: () -> Unit, onAdd: () -> Unit, onPair: () -> Unit, onEdit: (String) -> Unit, onHostSettings: (String) -> Unit,
+    onUsage: (String) -> Unit = {}, onLog: (String) -> Unit = {},
+) {
     val container = LocalContainer.current
     val hosts by container.hosts.hosts.collectAsStateWithLifecycleCompat()
     val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
     var removing by remember { mutableStateOf<Host?>(null) }
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("agent-mesh") }, actions = {
-                if (hosts.isNotEmpty()) androidx.compose.material3.TextButton(onClick = onLive, modifier = Modifier.testTag("live-all")) { Text("Live") }
-                IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
-            })
+            TopAppBar(title = { Text("Hosts") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
         },
         floatingActionButton = {
             var addMenu by remember { mutableStateOf(false) }
@@ -76,7 +77,7 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
         } else {
             LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 items(hosts, key = { it.id }) { h ->
-                    HostRow(h, runtimes[h.id], onOpen = { onOpen(h.id) }, onEdit = { onEdit(h.id) }, onRemove = { removing = h })
+                    HostRow(h, runtimes[h.id], onOpen = { onHostSettings(h.id) }, onEdit = { onEdit(h.id) }, onUsage = { onUsage(h.id) }, onLog = { onLog(h.id) }, onRemove = { removing = h })
                     HorizontalDivider()
                 }
             }
@@ -90,7 +91,7 @@ fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit,
             hostName = h.name,
             canUnpair = ready,
             unpair = { retry -> unpairFromHost(runtime?.api(), afterFailedTry = retry) },
-            onRemove = { container.hosts.remove(h.id); removing = null },
+            onRemove = { container.hosts.remove(h.id); container.prefs.forgetHost(h.id); removing = null },
             onDismiss = { removing = null },
         )
     }
@@ -157,7 +158,7 @@ fun RemoveHostDialog(hostName: String, canUnpair: Boolean, unpair: suspend (afte
 }
 
 @Composable
-private fun EmptyHosts(modifier: Modifier, recovered: Boolean, onAdd: () -> Unit, onPair: () -> Unit) {
+internal fun EmptyHosts(modifier: Modifier, recovered: Boolean, onAdd: () -> Unit, onPair: () -> Unit) {
     Column(modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Text("No hosts yet", style = MaterialTheme.typography.titleMedium)
         Text(
@@ -171,7 +172,7 @@ private fun EmptyHosts(modifier: Modifier, recovered: Boolean, onAdd: () -> Unit
 }
 
 @Composable
-private fun HostRow(host: Host, runtime: HostRuntime?, onOpen: () -> Unit, onEdit: () -> Unit, onRemove: () -> Unit) {
+private fun HostRow(host: Host, runtime: HostRuntime?, onOpen: () -> Unit, onEdit: () -> Unit, onUsage: () -> Unit, onLog: () -> Unit, onRemove: () -> Unit) {
     val state by (runtime?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(dev.agentmesh.android.store.HostState()) }).collectAsStateWithLifecycleCompat()
     val waiting = remember(state.waiting, state.runs, state.agents, state.messages) { waitingFor(state).size }
     val open = state.runs.values.count { it.status == RunStatus.RUN_STATUS_OPEN }
@@ -191,7 +192,10 @@ private fun HostRow(host: Host, runtime: HostRuntime?, onOpen: () -> Unit, onEdi
         Column {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Host menu") }
             DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; onEdit() })
+                DropdownMenuItem(text = { Text("Host settings") }, onClick = { menu = false; onOpen() })
+                DropdownMenuItem(text = { Text("Usage and cost") }, onClick = { menu = false; onUsage() })
+                DropdownMenuItem(text = { Text("Connection log") }, onClick = { menu = false; onLog() })
+                DropdownMenuItem(text = { Text("Edit address") }, onClick = { menu = false; onEdit() })
                 DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; onRemove() })
             }
         }

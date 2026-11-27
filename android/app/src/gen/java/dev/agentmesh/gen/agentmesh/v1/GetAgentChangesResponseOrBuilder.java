@@ -97,4 +97,39 @@ public interface GetAgentChangesResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getReasonBytes();
+
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.IgnoredEntry> 
+      getIgnoredList();
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.IgnoredEntry getIgnored(int index);
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  int getIgnoredCount();
+
+  /**
+   * <code>int32 ignored_more = 9 [json_name = "ignoredMore"];</code>
+   * @return The ignoredMore.
+   */
+  int getIgnoredMore();
 }

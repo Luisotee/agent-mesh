@@ -173,14 +173,17 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const waiting = useHostState(host, (s) => s.waiting)
   const mine = useMemo(() => messagesOf(allMessages, agentId), [allMessages, agentId])
   const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
+  // A plan an agent asked to show (`OpenView`) is shown like one waiting on the user, whatever the window held.
+  const focusId = useAppState((s) => (s.focusMessage?.hostId === host.info.id ? s.focusMessage.id : undefined))
+  const shown = useMemo(() => (focusId ? new Set([...open, focusId]) : open), [open, focusId])
   useEffect(() => {
     if (active && runId) host.loadMessages(runId)
   }, [active, runId, host])
   const working = agent?.state === AgentState.WORKING
   const lastTools = useMemo(() => [...blocks].reverse().find((b) => b.kind !== 'mesh'), [blocks])
   const items = useMemo(
-    () => timeline(blocks, messageLoad === 'loaded' ? mine : undefined, transcript.atStart || !transcript.supported, open),
-    [blocks, messageLoad, mine, transcript.atStart, transcript.supported, open],
+    () => timeline(blocks, messageLoad === 'loaded' ? mine : undefined, transcript.atStart || !transcript.supported, shown),
+    [blocks, messageLoad, mine, transcript.atStart, transcript.supported, shown],
   )
   const queued = useQueue(host, agentId, active)
 

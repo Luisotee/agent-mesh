@@ -40,6 +40,8 @@ function setup(opts: { input?: boolean; ticket?: () => Promise<{ path: string; i
   let resets = 0
   let tickets = 0
   let size = { cols: 100, rows: 30 }
+  let sizeReads = 0
+  const hostSizes: { cols: number; rows: number }[] = []
   const session = new TerminalSession({
     ticket:
       opts.ticket ??
@@ -52,8 +54,9 @@ function setup(opts: { input?: boolean; ticket?: () => Promise<{ path: string; i
       sockets.push(s)
       return s
     },
-    sink: { write: (d) => written.push(text(d)), reset: () => resets++, size: () => size },
+    sink: { write: (d) => written.push(text(d)), reset: () => resets++, size: () => (sizeReads++, size) },
     onState: (s) => states.push(s),
+    onHostSize: (cols, rows) => hostSizes.push({ cols, rows }),
     backoffBaseMs: 1000,
     backoffMaxMs: 8000,
     timers: { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (id) => clearTimeout(id as never), random: () => 1 },
@@ -62,7 +65,7 @@ function setup(opts: { input?: boolean; ticket?: () => Promise<{ path: string; i
   const attach = (s: FakeSocket, o: { mode?: AttachMode; input?: boolean; reanchored?: boolean; epoch?: bigint; offset?: bigint } = {}) => {
     s.host({ case: 'attached', value: { terminalId: 'x', mode: o.mode ?? AttachMode.REPAINT, input: o.input ?? true, reanchored: o.reanchored ?? false, epoch: o.epoch ?? 1n, offset: o.offset ?? 0n, cols: 100, rows: 30 } })
   }
-  return { session, setSize: (cols: number, rows: number) => (size = { cols, rows }), sockets, states, written, resets: () => resets, last, attach, tickets: () => tickets }
+  return { session, hostSizes, sizeReads: () => sizeReads, setSize: (cols: number, rows: number) => (size = { cols, rows }), sockets, states, written, resets: () => resets, last, attach, tickets: () => tickets }
 }
 
 const flush = () => vi.advanceTimersByTimeAsync(0)
@@ -184,6 +187,56 @@ describe('TerminalSession', () => {
     await vi.advanceTimersByTimeAsync(1000)
     t.sockets[1]!.open()
     expect(t.sockets[1]!.sent[0]!.frame).toMatchObject({ value: { mode: AttachMode.EXACT, epoch: 2n, offset: 4n } })
+  })
+
+  it('takes the new size and epoch from a Resized frame, and a reattach continues exactly in that epoch', async () => {
+    const t = setup()
+    t.session.start()
+    await flush()
+    const a = t.sockets[0]!
+    a.open()
+    t.attach(a)
+    done(a)
+    out(a, 0n, 'ab', 1n)
+    a.host({ case: 'resized', value: { epoch: 2n, offset: 2n, cols: 60, rows: 30 } })
+    expect(t.hostSizes).toEqual([{ cols: 100, rows: 30 }, { cols: 60, rows: 30 }])
+    out(a, 2n, 'cd', 2n)
+    expect(t.written).toEqual(['ab', 'cd'])
+    expect(t.resets()).toBe(0)
+    expect(a.closed).toBe(false)
+    a.drop(1006)
+    await vi.advanceTimersByTimeAsync(1000)
+    t.sockets[1]!.open()
+    expect(t.sockets[1]!.sent[0]!.frame).toMatchObject({ value: { mode: AttachMode.EXACT, epoch: 2n, offset: 4n } })
+  })
+
+  it('tells the sink the host size again on a Resized of the epoch it is in, the answer to a resize that moved nothing', async () => {
+    const t = setup()
+    t.session.start()
+    await flush()
+    const a = t.sockets[0]!
+    a.open()
+    t.attach(a, { epoch: 2n, offset: 7n })
+    done(a, 7n)
+    a.host({ case: 'resized', value: { epoch: 2n, offset: 7n, cols: 100, rows: 30 } })
+    expect(t.hostSizes).toEqual([{ cols: 100, rows: 30 }, { cols: 100, rows: 30 }])
+    out(a, 7n, 'x', 2n)
+    expect(t.written).toEqual(['x'])
+    expect(t.resets()).toBe(0)
+  })
+
+  it("does not read the window's size on ReplayDone for a viewer, whose resize the host would not take", async () => {
+    const v = setup({ input: false })
+    v.session.start()
+    await flush()
+    const s = v.sockets[0]!
+    s.open()
+    const reads = v.sizeReads()
+    v.attach(s, { input: false })
+    v.setSize(140, 40)
+    done(s)
+    expect(v.sizeReads()).toBe(reads)
+    expect(s.sent.map((f) => f.frame.case)).toEqual(['attach', 'ready'])
   })
 
   it('clears the screen when the host had to repaint instead of replaying exactly', async () => {
