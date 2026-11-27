@@ -57,7 +57,7 @@ public interface ClaudeUsageOrBuilder extends
 
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -67,7 +67,7 @@ public interface ClaudeUsageOrBuilder extends
       getAtReserveList();
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -76,7 +76,7 @@ public interface ClaudeUsageOrBuilder extends
   int getAtReserveCount();
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -86,7 +86,7 @@ public interface ClaudeUsageOrBuilder extends
   java.lang.String getAtReserve(int index);
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>

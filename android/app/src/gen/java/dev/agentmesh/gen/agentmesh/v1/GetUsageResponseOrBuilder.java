@@ -104,7 +104,7 @@ public interface GetUsageResponseOrBuilder extends
 
   /**
    * <pre>
-   * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+   * quota_stop_weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
    * </pre>
    *
    * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>

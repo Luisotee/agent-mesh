@@ -50,7 +50,7 @@ func startClaudeUsageWorld(t *testing.T) (*reopenWorld, *v1.Run) {
 func TestTheFiveHourAndTheWeeklyReserveAreSeparate(t *testing.T) {
 	w, run := startClaudeUsageWorld(t)
 	w.set(t, "quota_stop", 85)
-	w.set(t, "quota_stop.weekly", 95)
+	w.set(t, "quota_stop_weekly", 95)
 
 	claudeWindows(t, w, map[string]float64{"five_hour": 80, "seven_day": 90})
 	if err := guard(w, run.Id, "claude", "sonnet", false); err != nil {
@@ -61,8 +61,8 @@ func TestTheFiveHourAndTheWeeklyReserveAreSeparate(t *testing.T) {
 		t.Errorf("5h 86 over 85: %v, want a refusal naming quota_stop 85%%", err)
 	}
 	claudeWindows(t, w, map[string]float64{"five_hour": 10, "seven_day": 96})
-	if err := guard(w, run.Id, "claude", "sonnet", false); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "quota_stop.weekly 95%") {
-		t.Errorf("weekly 96 over 95: %v, want a refusal naming quota_stop.weekly 95%%", err)
+	if err := guard(w, run.Id, "claude", "sonnet", false); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "quota_stop_weekly 95%") {
+		t.Errorf("weekly 96 over 95: %v, want a refusal naming quota_stop_weekly 95%%", err)
 	}
 	// A weekly reserve above the five-hour one lets 90% through that the 5h reserve alone would have held.
 	claudeWindows(t, w, map[string]float64{"five_hour": 10, "seven_day": 90})
@@ -115,7 +115,7 @@ func TestAModelPastItsReviewsOnlyLineTakesOnlyPRReviews(t *testing.T) {
 	}
 }
 
-// agy's weekly rows follow quota_stop.weekly, its five-hour rows quota_stop, and the reviews-only line holds a row
+// agy's weekly rows follow quota_stop_weekly, its five-hour rows quota_stop, and the reviews-only line holds a row
 // of either; GetUsage says which rows are at which line.
 func TestAgyWeeklyRowsHaveTheWeeklyReserve(t *testing.T) {
 	ctx := context.Background()
@@ -139,15 +139,15 @@ func TestAgyWeeklyRowsHaveTheWeeklyReserve(t *testing.T) {
 		}
 	}
 	w.set(t, "quota_stop", 90)
-	w.set(t, "quota_stop.weekly", 95)
+	w.set(t, "quota_stop_weekly", 95)
 
 	read(50, 8) // 92% of the week used: under 95
 	if err := guard(w, run.Id, "agy", "hydrogen", false); err != nil {
 		t.Errorf("weekly 92 under 95: %v", err)
 	}
 	read(50, 4) // 96% used
-	if err := guard(w, run.Id, "agy", "hydrogen", false); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "quota_stop.weekly 95%") {
-		t.Errorf("weekly 96 over 95: %v, want a refusal naming quota_stop.weekly", err)
+	if err := guard(w, run.Id, "agy", "hydrogen", false); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "quota_stop_weekly 95%") {
+		t.Errorf("weekly 96 over 95: %v, want a refusal naming quota_stop_weekly", err)
 	}
 	read(8, 50) // the five-hour row at 92% used: over quota_stop 90
 	if err := guard(w, run.Id, "agy", "hydrogen", false); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "quota_stop 90%") {
@@ -227,4 +227,51 @@ func TestSpawnPassesTheRoleToTheReviewsOnlyLine(t *testing.T) {
 		t.Fatalf("a reviewer spawn past the reviews-only line: %v", err)
 	}
 	w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+}
+
+// A CLI with no reviews-only line is never called reviews-only, whatever another CLI's line says.
+func TestAClaudeWindowIsNotReviewsOnlyWhenOnlyAgyHasALine(t *testing.T) {
+	ctx := context.Background()
+	w, _ := startClaudeUsageWorld(t)
+	w.set(t, "quota_stop", 100)
+	w.set(t, "quota_stop_weekly", 100)
+	w.set(t, "quota_reviews_only.agy", 80)
+	claudeWindows(t, w, map[string]float64{"five_hour": 100})
+	u, err := w.device.Mesh.GetUsage(ctx, connect.NewRequest(&v1.GetUsageRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Msg.Claude == nil || len(u.Msg.Claude.ReviewsOnly) != 0 || len(u.Msg.Claude.AtReserve) != 0 {
+		t.Errorf("claude = %+v, want no reserve and no reviews-only mark", u.Msg.Claude)
+	}
+}
+
+// A model that only reviewers use is not told it now takes only reviews: nothing is held back from them.
+func TestNoReviewsOnlyAlertForAModelOnlyReviewersUse(t *testing.T) {
+	ctx := context.Background()
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.ReserveEvery = 40 * time.Millisecond
+		c.Usage = &daemon.UsageOps{FetchClaudeUsage: func(context.Context) (*hook.ClaudeUsageSnapshot, error) { return nil, os.ErrNotExist }}
+	})
+	run := startRun(t, w.device.Mesh, "")
+	w.set(t, "quota_reviews_only.claude", 75)
+	lead, _ := w.root(t, run.Id)
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "review", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_REVIEWER,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	claudeWindows(t, w, map[string]float64{"five_hour": 80})
+	time.Sleep(500 * time.Millisecond)
+	msgs, err := w.d.Store().Read(ctx).Inbox(lead.Id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range msgs {
+		if strings.Contains(m.Body, "[mesh alert reserve") {
+			t.Errorf("a reviewer-only model was alerted: %s", m.Body)
+		}
+	}
 }

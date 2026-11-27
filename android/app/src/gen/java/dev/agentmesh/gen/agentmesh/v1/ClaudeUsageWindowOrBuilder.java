@@ -81,7 +81,7 @@ public interface ClaudeUsageWindowOrBuilder extends
 
   /**
    * <pre>
-   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
    * the weekly ones.
    * </pre>
    *

@@ -133,14 +133,14 @@ func (d *Daemon) percentSetting(r store.Reader, key string, def float64) float64
 func (d *Daemon) quotaStop(r store.Reader) float64 { return d.percentSetting(r, "quota_stop", 90) }
 
 // reserveLimits are the lines of one CLI's quota: the percent used at which a short window and a weekly window take
-// no new work (`quota_stop`, `quota_stop.weekly`), and the one at which the CLI takes only PR reviews
+// no new work (`quota_stop`, `quota_stop_weekly`), and the one at which the CLI takes only PR reviews
 // (`quota_reviews_only.<kind>`; 100 is off).
 type reserveLimits struct {
 	short, weekly, reviews float64
 }
 
 func (d *Daemon) reserveLimits(r store.Reader, kind string) reserveLimits {
-	l := reserveLimits{short: d.quotaStop(r), weekly: d.percentSetting(r, "quota_stop.weekly", 90), reviews: 100}
+	l := reserveLimits{short: d.quotaStop(r), weekly: d.percentSetting(r, "quota_stop_weekly", 90), reviews: 100}
 	if kind == "claude" || kind == "agy" {
 		l.reviews = d.percentSetting(r, "quota_reviews_only."+kind, 100)
 	}
@@ -755,7 +755,7 @@ func (d *Daemon) claudeAtReserve(ctx context.Context, model string, lim reserveL
 }
 
 // ReserveGuard enforces the quota reserves: it returns ResourceExhausted if `kind`/`model` is at or past the
-// reserve of its window (`quota_stop` short, `quota_stop.weekly` weekly), or, for work that is not a PR review
+// reserve of its window (`quota_stop` short, `quota_stop_weekly` weekly), or, for work that is not a PR review
 // (`reviewer` false), past `quota_reviews_only.<kind>`, and the run has not been placed `over_reserve` via
 // `SetReserve` (`mesh reserve off`).
 func (d *Daemon) ReserveGuard(ctx context.Context, r store.Reader, runID, kind, model, effort, what string, reviewer bool) error {
@@ -766,7 +766,7 @@ func (d *Daemon) ReserveGuard(ctx context.Context, r store.Reader, runID, kind, 
 // stopKey names the setting that holds a window's reserve.
 func stopKey(weekly bool) string {
 	if weekly {
-		return "quota_stop.weekly"
+		return "quota_stop_weekly"
 	}
 	return "quota_stop"
 }
@@ -884,7 +884,7 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 			if stale := claudeWindowStale(w, now); !stale {
 				if w.Used >= line && line < 100 {
 					cu.AtReserve = append(cu.AtReserve, meta.label)
-				} else if w.Used >= climits.reviews {
+				} else if climits.reviews < 100 && w.Used >= climits.reviews {
 					cu.ReviewsOnly = append(cu.ReviewsOnly, meta.label)
 				}
 			}
@@ -964,11 +964,11 @@ func (d *Daemon) SetReserve(ctx context.Context, req *connect.Request[v1.SetRese
 	}
 
 	formatSummary := func(over bool, r store.Reader) string {
-		stop, weekly := d.quotaStop(r), d.percentSetting(r, "quota_stop.weekly", 90)
+		stop, weekly := d.quotaStop(r), d.percentSetting(r, "quota_stop_weekly", 90)
 		if over {
-			return fmt.Sprintf("reserve off: new tasks allowed past %.0f%% quota_stop (5h) and %.0f%% quota_stop.weekly, and past any reviews-only line", stop, weekly)
+			return fmt.Sprintf("reserve off: new tasks allowed past %.0f%% quota_stop (5h) and %.0f%% quota_stop_weekly, and past any reviews-only line", stop, weekly)
 		}
-		return fmt.Sprintf("reserve on: new tasks stop at %.0f%% quota_stop (5h) and %.0f%% quota_stop.weekly (weekly)", stop, weekly)
+		return fmt.Sprintf("reserve on: new tasks stop at %.0f%% quota_stop (5h) and %.0f%% quota_stop_weekly (weekly)", stop, weekly)
 	}
 
 	if mode == "" {
@@ -1027,7 +1027,7 @@ func (d *Daemon) SetReserve(ctx context.Context, req *connect.Request[v1.SetRese
 }
 
 // reserveAlertPass notifies the lead of any open run (not over_reserve) when a vendor window or active agy
-// model reaches its reserve (`quota_stop`, `quota_stop.weekly`) or its reviews-only line, deduped per run + alert
+// model reaches its reserve (`quota_stop`, `quota_stop_weekly`) or its reviews-only line, deduped per run + alert
 // key + reset window.
 func (d *Daemon) reserveAlertPass(ctx context.Context) {
 	r := d.store.Read(ctx)
@@ -1045,6 +1045,8 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 	}
 	leadsByRun := map[string]*v1.Agent{}
 	usedKinds := map[string]bool{}
+	// The models of a run's live agents; true when an agent that is not a reviewer is on it (a model only reviewers
+	// use is never held back from them by the reviews-only line, so it is not told of it).
 	activeClaudeModels := map[string]map[string]bool{}
 	activeAgyModels := map[string]map[agyResolveKey]bool{}
 	for _, a := range agents {
@@ -1061,13 +1063,14 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 			if activeClaudeModels[a.RunId] == nil {
 				activeClaudeModels[a.RunId] = map[string]bool{}
 			}
-			activeClaudeModels[a.RunId][a.Model] = true
+			activeClaudeModels[a.RunId][a.Model] = activeClaudeModels[a.RunId][a.Model] || !isReviewer(a)
 		case "agy":
 			if a.Model != "" {
 				if activeAgyModels[a.RunId] == nil {
 					activeAgyModels[a.RunId] = map[agyResolveKey]bool{}
 				}
-				activeAgyModels[a.RunId][agyResolveKey{model: a.Model, effort: a.Effort}] = true
+				k := agyResolveKey{model: a.Model, effort: a.Effort}
+				activeAgyModels[a.RunId][k] = activeAgyModels[a.RunId][k] || !isReviewer(a)
 			}
 		}
 	}
@@ -1096,7 +1099,7 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 			continue
 		}
 		var alerts []alertItem
-		if models := activeClaudeModels[run.Id]; len(models) > 0 && claudeSnap != nil {
+		if models := activeClaudeModels[run.Id]; len(models) > 0 && claudeSnap != nil && !climits.off() {
 			for _, meta := range claudeWindowOrder {
 				w, ok := claudeSnap.Windows[meta.key]
 				if !ok || claudeWindowStale(w, now) {
@@ -1105,13 +1108,13 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 				weekly := meta.key != "five_hour"
 				stopLine, _ := climits.line(weekly, true)
 				atStop := stopLine < 100 && w.Used >= stopLine
-				reviewsOnly := !atStop && w.Used >= climits.reviews
+				reviewsOnly := !atStop && climits.reviews < 100 && w.Used >= climits.reviews
 				if !atStop && !reviewsOnly {
 					continue
 				}
 				applies := false
-				for m := range models {
-					if claudeWindowApplies(meta.key, m) {
+				for m, nonReviewer := range models {
+					if claudeWindowApplies(meta.key, m) && (atStop || nonReviewer) {
 						applies = true
 						break
 					}
@@ -1136,8 +1139,8 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 				alerts = append(alerts, alertItem{key: dedupeKey, expiresAt: expiresAt, body: body})
 			}
 		}
-		for k := range activeAgyModels[run.Id] {
-			if hit := d.agyModelAtReserve(ctx, k.model, k.effort, alimits, false, false); hit != nil {
+		for k, nonReviewer := range activeAgyModels[run.Id] {
+			if hit := d.agyModelAtReserve(ctx, k.model, k.effort, alimits, !nonReviewer, false); hit != nil {
 				name := hit.model
 				if hit.display != "" {
 					name = hit.display

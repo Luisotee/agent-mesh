@@ -70,6 +70,12 @@ describe('usageView', () => {
     expect([v.reserveWeekly, v.claude[0]!.reserve, v.reviewsOnly]).toEqual([80, 80, { claude: 100, agy: 100 }])
   })
 
+  it('reads agy rows of a host that predates the weekly reserve from min_quota, as before', () => {
+    const v = usageView(create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, agyRows: [{ group: 'g', label: 'a', left: 5 }, { group: 'g', label: 'b', left: 60 }] }))
+    expect(v.agy.map((r) => r.atReserve)).toEqual([true, false])
+    expect(usageView(create(GetUsageResponseSchema, { quotaStop: 100, minQuota: 0, agyRows: [{ group: 'g', label: 'a', left: 0 }] })).agy.map((r) => r.atReserve)).toEqual([false])
+  })
+
   it('keeps what a tier would start on, and a missing "left"', () => {
     const v = usageView(u)
     expect(v.tiers).toEqual([
@@ -175,6 +181,11 @@ describe("the footer's quota sections", () => {
       ['claude', 'Claude', [['5h', 20], ['7d', 40]]],
       ['gemini', 'agy', [['Neon', 40]]],
     ])
+  })
+
+  it('brings a minor window back once it is kept for PR reviews', () => {
+    const u = base({ claude: create(ClaudeUsageSchema, { windows: [win('five_hour', 'five-hour window', 20), win('seven_day_opus', 'seven-day Opus', 80)], reviewsOnly: ['seven-day Opus'] }) })
+    expect(quotaSections(u).sections[0]!.lines.map((l) => [l.label, l.reviewsOnly])).toEqual([['5h', false], ['7d Opus', true]])
   })
 
   it('brings a minor window back once it is at the reserve', () => {

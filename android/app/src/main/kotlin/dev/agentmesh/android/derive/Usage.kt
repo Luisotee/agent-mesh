@@ -28,7 +28,7 @@ class AgyTier(val tier: String, val model: String, val left: Int?, val notes: Li
 class UsageView(
     /** The percent of a five-hour quota used at which the host starts nothing new (`quota_stop`). */
     val reserve: Int,
-    /** The same for a weekly quota (`quota_stop.weekly`). */
+    /** The same for a weekly quota (`quota_stop_weekly`). */
     val reserveWeekly: Int,
     /** Where Claude and agy take only PR reviews (`quota_reviews_only.*`); 100 is off. */
     val reviewsOnlyClaude: Int,
@@ -53,8 +53,9 @@ fun usageView(u: GetUsageResponse): UsageView {
         // The host says which windows are at the reserve (a window whose reset has passed isn't, whatever it last read).
         QuotaBar(w.key, w.label, w.used, w.label in u.claude.atReserveList, if (w.hasResetsAt()) w.resetsAt.toMillis() else null, w.label in u.claude.reviewsOnlyList)
     }
-    // agy reports what is left; the host says which rows are at their line (a weekly row has the weekly reserve).
-    val agy = u.agyRowsList.map { AgyRow(it.group, it.label, it.left, it.resets, it.atReserve, it.reviewsOnly) }
+    // agy reports what is left; the host says which rows are at their line (a weekly row has the weekly reserve). A host that
+    // predates the weekly reserve sends no flags: its one reserve, from `min_quota`, is read as before.
+    val agy = u.agyRowsList.map { AgyRow(it.group, it.label, it.left, it.resets, if (u.quotaStopWeekly == 0) reserve < 100 && it.left <= u.minQuota else it.atReserve, it.reviewsOnly) }
     val tiers = u.agyTiersList.map { AgyTier(it.tier, it.model, if (it.hasLeft) it.left else null, it.notesList) }
     val warnings = claude.filter { it.atReserve }.map { "Claude ${it.label}" } + agy.filter { it.atReserve }.map { "agy ${it.group} ${it.label}" }
     val reviewsOnlyWarnings = claude.filter { it.reviewsOnly }.map { "Claude ${it.label}" } + agy.filter { it.reviewsOnly }.map { "agy ${it.group} ${it.label}" }

@@ -88,7 +88,7 @@ describe('UsagePanel', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Only PR reviews: Claude five-hour window')
     expect(screen.queryByRole('alert')).toBeNull()
     const text = document.body.textContent ?? ''
-    expect(text).toContain('85% of a five-hour one (quota_stop) or 95% of a weekly one (quota_stop.weekly) is used')
+    expect(text).toContain('85% of a five-hour one (quota_stop) or 95% of a weekly one (quota_stop_weekly) is used')
     expect(text).toContain('Claude starts only PR reviews from 70% (quota_reviews_only.claude)')
   })
 

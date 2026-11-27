@@ -190,7 +190,7 @@ public  final class AgyUsageRow extends
   private boolean atReserve_;
   /**
    * <pre>
-   * At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
    * </pre>
    *
    * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
@@ -202,7 +202,7 @@ public  final class AgyUsageRow extends
   }
   /**
    * <pre>
-   * At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
    * </pre>
    *
    * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
@@ -214,7 +214,7 @@ public  final class AgyUsageRow extends
   }
   /**
    * <pre>
-   * At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
    * </pre>
    *
    * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
@@ -536,7 +536,7 @@ public  final class AgyUsageRow extends
 
     /**
      * <pre>
-     * At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+     * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
      * </pre>
      *
      * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
@@ -548,7 +548,7 @@ public  final class AgyUsageRow extends
     }
     /**
      * <pre>
-     * At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+     * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
      * </pre>
      *
      * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
@@ -562,7 +562,7 @@ public  final class AgyUsageRow extends
     }
     /**
      * <pre>
-     * At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+     * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
      * </pre>
      *
      * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>

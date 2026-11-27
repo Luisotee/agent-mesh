@@ -262,7 +262,7 @@ public  final class ClaudeUsageWindow extends
   private int reserve_;
   /**
    * <pre>
-   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
    * the weekly ones.
    * </pre>
    *
@@ -275,7 +275,7 @@ public  final class ClaudeUsageWindow extends
   }
   /**
    * <pre>
-   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
    * the weekly ones.
    * </pre>
    *
@@ -288,7 +288,7 @@ public  final class ClaudeUsageWindow extends
   }
   /**
    * <pre>
-   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
    * the weekly ones.
    * </pre>
    *
@@ -647,7 +647,7 @@ public  final class ClaudeUsageWindow extends
 
     /**
      * <pre>
-     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
      * the weekly ones.
      * </pre>
      *
@@ -660,7 +660,7 @@ public  final class ClaudeUsageWindow extends
     }
     /**
      * <pre>
-     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
      * the weekly ones.
      * </pre>
      *
@@ -675,7 +675,7 @@ public  final class ClaudeUsageWindow extends
     }
     /**
      * <pre>
-     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
      * the weekly ones.
      * </pre>
      *

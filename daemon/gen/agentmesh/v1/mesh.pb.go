@@ -7316,7 +7316,7 @@ type ClaudeUsageWindow struct {
 	Used float64 `protobuf:"fixed64,3,opt,name=used,proto3" json:"used,omitempty"`
 	// When the window resets, if known.
 	ResetsAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=resets_at,json=resetsAt,proto3" json:"resets_at,omitempty"`
-	// Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+	// Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
 	// the weekly ones.
 	Reserve       int32 `protobuf:"varint,5,opt,name=reserve,proto3" json:"reserve,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -7394,7 +7394,7 @@ type ClaudeUsage struct {
 	FetchedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=fetched_at,json=fetchedAt,proto3" json:"fetched_at,omitempty"`
 	// Where the reading came from ("statusline", "live", or "cache").
 	Source string `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
-	// Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+	// Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
 	AtReserve []string `protobuf:"bytes,4,rep,name=at_reserve,json=atReserve,proto3" json:"at_reserve,omitempty"`
 	// Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
 	ReviewsOnly   []string `protobuf:"bytes,5,rep,name=reviews_only,json=reviewsOnly,proto3" json:"reviews_only,omitempty"`
@@ -7473,7 +7473,7 @@ type AgyUsageRow struct {
 	Label  string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
 	Left   int32                  `protobuf:"varint,3,opt,name=left,proto3" json:"left,omitempty"`
 	Resets string                 `protobuf:"bytes,4,opt,name=resets,proto3" json:"resets,omitempty"`
-	// At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+	// At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
 	AtReserve bool `protobuf:"varint,5,opt,name=at_reserve,json=atReserve,proto3" json:"at_reserve,omitempty"`
 	// Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
 	ReviewsOnly   bool `protobuf:"varint,6,opt,name=reviews_only,json=reviewsOnly,proto3" json:"reviews_only,omitempty"`
@@ -7639,7 +7639,7 @@ type GetUsageResponse struct {
 	MinQuota  int32                  `protobuf:"varint,5,opt,name=min_quota,json=minQuota,proto3" json:"min_quota,omitempty"`
 	// What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
 	Notes []string `protobuf:"bytes,6,rep,name=notes,proto3" json:"notes,omitempty"`
-	// quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+	// quota_stop_weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
 	QuotaStopWeekly int32 `protobuf:"varint,7,opt,name=quota_stop_weekly,json=quotaStopWeekly,proto3" json:"quota_stop_weekly,omitempty"`
 	// quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
 	ReviewsOnlyClaude int32 `protobuf:"varint,8,opt,name=reviews_only_claude,json=reviewsOnlyClaude,proto3" json:"reviews_only_claude,omitempty"`

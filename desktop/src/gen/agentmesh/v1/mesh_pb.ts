@@ -3602,7 +3602,7 @@ export type ClaudeUsageWindow = Message<"agentmesh.v1.ClaudeUsageWindow"> & {
   resetsAt?: Timestamp | undefined;
 
   /**
-   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop.weekly for
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
    * the weekly ones.
    *
    * @generated from field: int32 reserve = 5;
@@ -3639,7 +3639,7 @@ export type ClaudeUsage = Message<"agentmesh.v1.ClaudeUsage"> & {
   source: string;
 
   /**
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    *
    * @generated from field: repeated string at_reserve = 4;
    */
@@ -3685,7 +3685,7 @@ export type AgyUsageRow = Message<"agentmesh.v1.AgyUsageRow"> & {
   resets: string;
 
   /**
-   * At or past its reserve (quota_stop for a short window, quota_stop.weekly for a weekly one).
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
    *
    * @generated from field: bool at_reserve = 5;
    */
@@ -3782,7 +3782,7 @@ export type GetUsageResponse = Message<"agentmesh.v1.GetUsageResponse"> & {
   notes: string[];
 
   /**
-   * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+   * quota_stop_weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
    *
    * @generated from field: int32 quota_stop_weekly = 7;
    */

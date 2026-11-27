@@ -165,7 +165,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Reserve: the host starts nothing new on a quota window once {view.reserve}% of a five-hour one (<code className="font-mono">quota_stop</code>) or {view.reserveWeekly}% of a weekly one (<code className="font-mono">quota_stop.weekly</code>) is used.
+              Reserve: the host starts nothing new on a quota window once {view.reserve}% of a five-hour one (<code className="font-mono">quota_stop</code>) or {view.reserveWeekly}% of a weekly one (<code className="font-mono">quota_stop_weekly</code>) is used.
               {(['claude', 'agy'] as const)
                 .filter((k) => view.reviewsOnly[k] < 100)
                 .map((k) => ` ${k === 'claude' ? 'Claude' : 'agy'} starts only PR reviews from ${view.reviewsOnly[k]}% (quota_reviews_only.${k}).`)

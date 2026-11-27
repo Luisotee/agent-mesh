@@ -211,7 +211,7 @@ func renderUsage(m proto.Message, w io.Writer) {
 	if weekly == 0 {
 		weekly = u.QuotaStop // a host that predates the weekly line
 	}
-	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota window once %d%% of a five-hour one (quota_stop) or %d%% of a weekly one (quota_stop.weekly) is used\n", u.QuotaStop, weekly)
+	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota window once %d%% of a five-hour one (quota_stop) or %d%% of a weekly one (quota_stop_weekly) is used\n", u.QuotaStop, weekly)
 	for _, o := range []struct {
 		kind string
 		at   int32

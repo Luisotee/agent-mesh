@@ -11,7 +11,7 @@ export interface QuotaBar {
   used: number
   /** At or past the reserve: the host starts nothing new on it (`quota_stop`, `ReserveGuard` in the daemon). */
   atReserve: boolean
-  /** The percent used at which this window's reserve is: `quota_stop` for the five-hour one, `quota_stop.weekly` for a weekly one. */
+  /** The percent used at which this window's reserve is: `quota_stop` for the five-hour one, `quota_stop_weekly` for a weekly one. */
   reserve: number
   /** Past the CLI's reviews-only line, under the reserve: the host starts only PR reviews on it. */
   reviewsOnly: boolean
@@ -24,7 +24,7 @@ export interface AgyRow {
   left: number
   resets: string
   atReserve: boolean
-  /** The percent used at which this row's reserve is: `quota_stop` for a short row, `quota_stop.weekly` for a weekly one. */
+  /** The percent used at which this row's reserve is: `quota_stop` for a short row, `quota_stop_weekly` for a weekly one. */
   reserve: number
   reviewsOnly: boolean
 }
@@ -40,7 +40,7 @@ export interface AgyTier {
 export interface UsageView {
   /** The percent of a five-hour quota used at which the host starts nothing new (`quota_stop`). */
   reserve: number
-  /** The same for a weekly quota (`quota_stop.weekly`). */
+  /** The same for a weekly quota (`quota_stop_weekly`). */
   reserveWeekly: number
   /** Where Claude and agy take only PR reviews (`quota_reviews_only.*`); 100 is off. */
   reviewsOnly: { claude: number; agy: number }
@@ -78,7 +78,8 @@ export function usageView(u: GetUsageResponse): UsageView {
     label: r.label,
     left: r.left,
     resets: r.resets,
-    atReserve: r.atReserve,
+    // A host that predates the weekly reserve sends no flags: its one reserve, from `min_quota`, is read as before.
+    atReserve: u.quotaStopWeekly === 0 ? reserve < 100 && r.left <= u.minQuota : r.atReserve,
     reserve: /week/i.test(r.label) ? reserveWeekly : reserve,
     reviewsOnly: r.reviewsOnly,
   }))
@@ -153,7 +154,7 @@ export function quotaSections(u: GetUsageResponse): { reserve: number; sections:
   const v = usageView(u)
   const sections: QuotaSection[] = []
   const claude: QuotaLine[] = v.claude
-    .filter((w) => !minorWindow(w.key, w.label) || w.atReserve)
+    .filter((w) => !minorWindow(w.key, w.label) || w.atReserve || w.reviewsOnly)
     .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, reserve: w.reserve, reviewsOnly: w.reviewsOnly, resetsAt: w.resetsAt }))
   if (claude.length > 0) sections.push({ vendor: 'claude', name: 'Claude', lines: claude })
   // With no tier to say what is used, the fullest row stands for agy; with tiers, the rows they start on.

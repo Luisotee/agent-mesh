@@ -423,7 +423,7 @@ func DefaultLeaves() []Leaf {
 			Summary: "how the root leans when a task could go either way (guidance in `mesh brief` and ORCHESTRATE \"Tiers\", not enforced): quality takes the stronger tier or the higher effort, thrifty the cheaper one and raises it when the work shows it needs more, balanced has no lean: the root judges each task"},
 		Leaf{Key: "quota_stop", Label: "Stop starting agents at 5h quota", Group: GroupLimits, Type: Percent, Default: 90.0,
 			Summary: "percent of a vendor's short quota window (Claude's five-hour one, an agy five-hour row) used at which nothing new starts on it"},
-		Leaf{Key: "quota_stop.weekly", Label: "Stop starting agents at weekly quota", Group: GroupLimits, Type: Percent, Default: 90.0,
+		Leaf{Key: "quota_stop_weekly", Label: "Stop starting agents at weekly quota", Group: GroupLimits, Type: Percent, Default: 90.0,
 			Summary: "percent of a vendor's weekly quota window (Claude's seven-day ones, an agy weekly row) used at which nothing new starts on it"},
 		Leaf{Key: "quota_reviews_only.claude", Label: "Only PR reviews on Claude at", Group: GroupLimits, Type: Percent, Default: 100.0,
 			Summary: "percent of a Claude window (any, the model's own) used at which Claude starts only PR reviewers (`mesh ask --review`) and no task, resume or other ask; below the stop reserve it keeps that much for reviews; 100 is off"},

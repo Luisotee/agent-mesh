@@ -233,7 +233,7 @@ public  final class ClaudeUsage extends
   private com.google.protobuf.Internal.ProtobufList<java.lang.String> atReserve_;
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -245,7 +245,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -257,7 +257,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -270,7 +270,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -292,7 +292,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -307,7 +307,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -321,7 +321,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -335,7 +335,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -345,7 +345,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -804,7 +804,7 @@ public  final class ClaudeUsage extends
 
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -818,7 +818,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -830,7 +830,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -843,7 +843,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -857,7 +857,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -873,7 +873,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -888,7 +888,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -903,7 +903,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -916,7 +916,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>

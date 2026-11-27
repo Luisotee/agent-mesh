@@ -615,9 +615,9 @@ func TestWarmUsageSkipsAgyWhenQuotaStopDisabledAndRunInvalid(t *testing.T) {
 		t.Errorf("ReadAgyUsage called %d times on invalid run, want 0", agyUsageCalls.Load())
 	}
 
-	// With quota_stop and quota_stop.weekly at 100, SpawnAgent/SendMessage/SwitchAgent/ResumeAgent never run `agy -p /usage`.
+	// With quota_stop and quota_stop_weekly at 100, SpawnAgent/SendMessage/SwitchAgent/ResumeAgent never run `agy -p /usage`.
 	w.set(t, "quota_stop", 100)
-	w.set(t, "quota_stop.weekly", 100)
+	w.set(t, "quota_stop_weekly", 100)
 	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
 		RunId: run.Id, Repo: repo, Slug: "agy-w", Kind: "agy", Tier: "strong", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
