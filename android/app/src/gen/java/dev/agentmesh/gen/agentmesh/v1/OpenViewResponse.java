@@ -20,7 +20,8 @@ public  final class OpenViewResponse extends
   private int delivered_;
   /**
    * <pre>
-   * How many apps were told (live subscribers of a device's token). Zero means nobody had it open.
+   * How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on
+   * it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.
    * </pre>
    *
    * <code>int32 delivered = 1 [json_name = "delivered"];</code>
@@ -32,7 +33,8 @@ public  final class OpenViewResponse extends
   }
   /**
    * <pre>
-   * How many apps were told (live subscribers of a device's token). Zero means nobody had it open.
+   * How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on
+   * it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.
    * </pre>
    *
    * <code>int32 delivered = 1 [json_name = "delivered"];</code>
@@ -44,7 +46,8 @@ public  final class OpenViewResponse extends
   }
   /**
    * <pre>
-   * How many apps were told (live subscribers of a device's token). Zero means nobody had it open.
+   * How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on
+   * it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.
    * </pre>
    *
    * <code>int32 delivered = 1 [json_name = "delivered"];</code>
@@ -153,7 +156,8 @@ public  final class OpenViewResponse extends
 
     /**
      * <pre>
-     * How many apps were told (live subscribers of a device's token). Zero means nobody had it open.
+     * How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on
+     * it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.
      * </pre>
      *
      * <code>int32 delivered = 1 [json_name = "delivered"];</code>
@@ -165,7 +169,8 @@ public  final class OpenViewResponse extends
     }
     /**
      * <pre>
-     * How many apps were told (live subscribers of a device's token). Zero means nobody had it open.
+     * How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on
+     * it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.
      * </pre>
      *
      * <code>int32 delivered = 1 [json_name = "delivered"];</code>
@@ -179,7 +184,8 @@ public  final class OpenViewResponse extends
     }
     /**
      * <pre>
-     * How many apps were told (live subscribers of a device's token). Zero means nobody had it open.
+     * How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on
+     * it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.
      * </pre>
      *
      * <code>int32 delivered = 1 [json_name = "delivered"];</code>

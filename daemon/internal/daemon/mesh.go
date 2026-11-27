@@ -196,8 +196,8 @@ func cleanRunAutonomy(a *v1.RunAutonomy) *v1.RunAutonomy {
 	seen := map[string]bool{}
 	for _, e := range a.AskBefore {
 		e = strings.TrimSpace(e)
-		if len(e) > maxAskBeforeLen {
-			e = e[:maxAskBeforeLen]
+		if r := []rune(e); len(r) > maxAskBeforeLen {
+			e = string(r[:maxAskBeforeLen])
 		}
 		if e != "" && !seen[e] && len(out.AskBefore) < maxAskBefore {
 			seen[e] = true

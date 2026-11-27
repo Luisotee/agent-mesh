@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -55,8 +56,10 @@ func (d *Daemon) OpenView(ctx context.Context, req *connect.Request[v1.OpenViewR
 		if runID != "" && target != runID {
 			return nil, denied("an agent may show only its own run")
 		}
-		if _, err := d.store.Read(ctx).GetRun(target); err != nil {
+		if _, err := d.store.Read(ctx).GetRun(target); errors.Is(err, store.ErrNotFound) {
 			return nil, notFound("no run %q", target)
+		} else if err != nil {
+			return nil, err
 		}
 		frame.Target, frame.RunId = target, target
 	default:

@@ -32,6 +32,8 @@ export function NewRunDialog({ host, label = 'New run', variant = 'secondary' }:
       await startRun(host.client, title.trim(), autonomy.value())
       setOpen(false)
       setTitle('')
+      autonomy.setLevel('inherit')
+      autonomy.setAsk('')
     } catch (err) {
       setError(message(err))
     } finally {

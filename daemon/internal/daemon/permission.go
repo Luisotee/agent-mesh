@@ -277,7 +277,6 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 	p.Since = tsOf(d.now())
 	d.perms.add(p)
 	defer d.perms.take(p.Id)
-	d.permissionEvent(ctx, &p.PendingPermission, "asked")
 
 	text := fmt.Sprintf("%s%s] %s asks to use %s", permissionTag, p.Id, a.Name, codeSpan(tool))
 	if summary != "" {
@@ -303,6 +302,8 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 	if told == nil {
 		return none, nil // the parent stopped meanwhile: nobody was told, so nobody is waited for
 	}
+	// Said only once it is held for someone, so every "asked" has an answer or an "ended" after it.
+	d.permissionEvent(ctx, &p.PendingPermission, "asked")
 	if d.notify != nil {
 		d.notify(parent.Id)
 	}

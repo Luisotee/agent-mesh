@@ -49,7 +49,8 @@ var prURLRE = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
 type prTracker struct {
 	mu    sync.Mutex
 	tried map[string]prTry
-	ghAt  time.Time // when the `gh` CLI was last checked (ghProblem), and what it said
+	ghMu  sync.Mutex // serialises ghProblem's check
+	ghAt  time.Time  // when the `gh` CLI was last checked (ghProblem), and what it said
 	ghWhy string
 }
 
@@ -100,6 +101,9 @@ const ghProblemWait = 2 * time.Second
 // ghProblem says why GitHub can't be read on this host: "no_gh" (the CLI is missing) or "not_logged_in" (`gh auth status`
 // fails), and "" when it works or can't be told (a timeout, a test with no gh). The answer is kept for a minute.
 func (d *Daemon) ghProblem(ctx context.Context) string {
+	// One check at a time: readers that arrive while it runs wait for it and use its answer.
+	d.prs.ghMu.Lock()
+	defer d.prs.ghMu.Unlock()
 	now := d.now()
 	d.prs.mu.Lock()
 	if !d.prs.ghAt.IsZero() && now.Sub(d.prs.ghAt) < ghProblemTTL {
@@ -115,6 +119,8 @@ func (d *Daemon) ghProblem(ctx context.Context) string {
 	if _, err := d.runGH(cctx, "", "auth", "status"); err != nil {
 		var exit *exec.ExitError
 		switch {
+		case cctx.Err() != nil:
+			return "" // too slow to tell (a killed process is an exit error too): no claim, and not kept
 		case errors.Is(err, exec.ErrNotFound):
 			why = "no_gh"
 		case errors.As(err, &exit):
