@@ -36,6 +36,8 @@ type Spec struct {
 	Bin     string
 	Dir     string // where the stub openers are made, which must allow running programs; empty means the temp dir
 	Args    []string
+	Cwd     string   // where the CLI runs; empty means the daemon's own
+	Stdin   []byte   // what the CLI reads on stdin (then end of input); empty means /dev/null
 	Env     []string // KEY=VALUE; empty means the daemon's own environment
 	Timeout time.Duration
 }
@@ -82,7 +84,11 @@ func Run(ctx context.Context, s Spec) ([]byte, error) {
 	}
 	cmd := exec.CommandContext(ctx, s.Bin, s.Args...)
 	cmd.Env = env
+	cmd.Dir = s.Cwd
 	cmd.Stdin = nil // /dev/null
+	if len(s.Stdin) > 0 {
+		cmd.Stdin = bytes.NewReader(s.Stdin)
+	}
 	var out bytes.Buffer
 	var stderr capped
 	cmd.Stdout = &out

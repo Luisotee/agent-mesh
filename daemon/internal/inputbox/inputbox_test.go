@@ -276,3 +276,44 @@ func TestADraftWithTheCursorOnItIsStillADraft(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudesSuggestedPromptIsTheBoxsGhostText(t *testing.T) {
+	const want = "rebuild the windows installer when 202 merges"
+	// The lead's own capture (unfocused: all of it dim), and the same drawn with the cursor on its first character.
+	if got := inputbox.Read([]byte(claudeSuggestion), inputbox.Claude, "x"); got.State != inputbox.Empty || got.Ghost != want {
+		t.Errorf("the captured screen: %v %q", got.State, got.Ghost)
+	}
+	if got := inputbox.Read(repaint(t, 120, 24, claudeScreen(focused(want))), inputbox.Claude, "x"); got.State != inputbox.Empty || got.Ghost != want {
+		t.Errorf("with the cursor on it: %v %q, want %q", got.State, got.Ghost, want)
+	}
+	// A suggestion longer than the box is wrapped by the CLI at a word onto more rows (indented under the glyph): one text.
+	long := "rebuild the windows installer once 202 merges, then run the packaged app and check the tray and the notifications"
+	wrapped := claudeScreen(focused("rebuild the windows installer once 202 merges, then run the"), "  "+dim+"packaged app and check the tray and the notifications"+reset)
+	if got := inputbox.Read(repaint(t, 80, 24, wrapped), inputbox.Claude, "x"); got.State != inputbox.Empty || got.Ghost != long {
+		t.Errorf("wrapped: %v %q, want %q", got.State, got.Ghost, long)
+	}
+}
+
+func TestTheCLIsOwnFixedHintsAreNoSuggestionAndADraftHasNoGhost(t *testing.T) {
+	for _, hint := range []string{
+		`Try "fix lint errors"`,
+		"Press up to edit queued messages, Enter to send them now",
+		"Message @reviewer…",
+	} {
+		for _, draw := range []string{focused(hint), dim + hint + reset} {
+			if got := inputbox.Read(repaint(t, 120, 24, claudeScreen(draw)), inputbox.Claude, "x"); got.State != inputbox.Empty || got.Ghost != "" {
+				t.Errorf("%q: %v ghost %q, want none", hint, got.State, got.Ghost)
+			}
+		}
+	}
+	// A draft is a draft, with an inline completion's grey after it too; an empty box has no ghost.
+	for _, draw := range []string{"fix the typo", "/com" + dim + "pact" + reset, ""} {
+		if got := inputbox.Read(repaint(t, 120, 24, claudeScreen(draw)), inputbox.Claude, "x"); got.Ghost != "" {
+			t.Errorf("%q: ghost %q", draw, got.Ghost)
+		}
+	}
+	// Only a CLI whose profile says it suggests has one: agy's grey hint is not a prediction.
+	if got := inputbox.Read(repaint(t, 120, 24, claudeScreen(grey8+"Auto mode: edits & safe commands auto-approved"+reset)), inputbox.Agy, "x"); got.State != inputbox.Empty || got.Ghost != "" {
+		t.Errorf("agy: %v %q", got.State, got.Ghost)
+	}
+}

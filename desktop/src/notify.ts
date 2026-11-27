@@ -1,8 +1,7 @@
-import { ActorClass } from './gen/agentmesh/v1/actor_pb'
-import { AgentRole, AgentState, MessageType, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
+import type { Event } from './gen/agentmesh/v1/types_pb'
 import type { AgentTabId } from '../shared/api'
 
-export type NotifyKind = 'input' | 'plan' | 'question' | 'report' | 'failed' | 'exited' | 'limited' | 'error'
+export type NotifyKind = 'input' | 'plan' | 'question' | 'report' | 'failed' | 'exited' | 'limited' | 'error' | 'finished' | 'ready'
 
 export interface Notice {
   kind: NotifyKind
@@ -17,85 +16,21 @@ export interface Notice {
 /** An event older than this wasn't "just now": history replayed after a reconnect doesn't notify. */
 export const LIVE_WITHIN_MS = 60_000
 
-const MAX_BODY = 200
-
 /** Whether an event just happened, by the host's clock (`clockSkewMs`: how far it is ahead of ours): history replayed after a reconnect isn't live. */
 export function isLive(e: Event, now: number, clockSkewMs = 0): boolean {
   const at = e.time ? Number(e.time.seconds) * 1000 + Math.floor(e.time.nanos / 1e6) : 0
   return now + clockSkewMs - at <= LIVE_WITHIN_MS
 }
 
-function brief(text: string): string {
-  // A notification is plain text: drop the Markdown's own marks (headings, bullets, emphasis, code ticks).
-  const flat = text
-    .split('\n')
-    .map((l) => l.replace(/^\s*(#{1,6}\s+|>\s*|[-*+]\s+|\d+\.\s+)/, ''))
-    .join(' ')
-    .replace(/[*`]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return flat.length > MAX_BODY ? `${flat.slice(0, MAX_BODY - 1)}…` : flat
-}
-
 /**
- * What an event means to the person, if anything: an agent stopped at a prompt, a plan, a question, a report or a
- * failure sent to a run's lead, an agent that died, one that hit its usage limit or is in error. Only live events (history replayed after a reconnect stays
- * quiet), and never what the user did themselves. `agents` is the state before the event; `clockSkewMs` is how
- * far the host's clock is ahead of ours.
+ * What an event means to the person: only the host's own decision, a `UserNotice` event (`internal/notice` on the host
+ * decides once; the phones' pushes and this follow it). A notice is shown only when it is for the user and live
+ * (history replayed after a reconnect stays quiet); the others are for the Activity list. `clockSkewMs` is how far the
+ * host's clock is ahead of ours.
  */
-export function noticeFor(e: Event, agents: Record<string, Agent>, now: number, clockSkewMs = 0): Notice | undefined {
-  // The event's time is the host's: compare it with the host's clock now, not ours.
-  if (!isLive(e, now, clockSkewMs)) return undefined
+export function noticeFor(e: Event, now: number, clockSkewMs = 0): Notice | undefined {
   const p = e.payload
-  switch (p.case) {
-    case 'agentStateChanged': {
-      const a = agents[e.agentId]
-      if (!a || p.value.to === p.value.from) return undefined
-      const detail = brief(p.value.detail)
-      switch (p.value.to) {
-        case AgentState.NEEDS_INPUT:
-          return { kind: 'input', tag: a.id, title: `${a.name} needs you`, body: detail || 'It is stopped at a prompt in its terminal.', agentId: a.id, tab: 'terminal' }
-        case AgentState.LIMITED:
-          return { kind: 'limited', tag: a.id, title: `${a.name} hit its usage limit`, body: detail || 'Its terminal says more.', agentId: a.id, tab: 'terminal' }
-        case AgentState.ERROR:
-          return { kind: 'error', tag: a.id, title: `${a.name} is in error`, body: detail || 'Its terminal says more.', agentId: a.id, tab: 'terminal' }
-      }
-      return undefined
-    }
-    case 'messageSent': {
-      const m = p.value.message
-      if (!m || m.from?.class === ActorClass.DEVICE) return undefined
-      const to = agents[m.toId]
-      const from = agents[m.from?.id ?? '']
-      // What reaches a run's lead is what the user is waiting for; talk among workers isn't.
-      if (!to || to.role !== AgentRole.ROOT || !from) return undefined
-      const base = { tag: from.id, agentId: from.id, tab: 'chat' as const, body: brief(m.body) }
-      switch (m.type) {
-        case MessageType.PLAN:
-          return { ...base, kind: 'plan', title: `${from.name} sent a plan` }
-        case MessageType.QUESTION:
-          return { ...base, kind: 'question', title: `${from.name} has a question` }
-        case MessageType.DONE:
-          return { ...base, kind: 'report', title: `${from.name} reported done` }
-        case MessageType.FAILED:
-          return { ...base, kind: 'failed', title: `${from.name} failed` }
-      }
-      return undefined
-    }
-    case 'agentExited': {
-      const a = agents[e.agentId]
-      // The user stopping an agent isn't news.
-      if (!a || p.value.reason === 'killed') return undefined
-      const clean = p.value.exitCode === 0 && p.value.reason !== 'lost'
-      return {
-        kind: clean ? 'exited' : 'failed',
-        tag: a.id,
-        title: clean ? `${a.name} finished` : p.value.reason === 'lost' ? `${a.name} was lost` : `${a.name} exited with code ${p.value.exitCode}`,
-        body: '',
-        agentId: a.id,
-        tab: 'chat',
-      }
-    }
-  }
-  return undefined
+  if (p.case !== 'userNotice' || !p.value.forUser || !isLive(e, now, clockSkewMs)) return undefined
+  const n = p.value
+  return { kind: n.kind as NotifyKind, tag: n.tag || n.agentId, title: n.title, body: n.body, agentId: n.agentId, tab: n.tab === 'terminal' ? 'terminal' : 'chat' }
 }

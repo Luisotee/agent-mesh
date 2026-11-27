@@ -117,7 +117,7 @@ func ShellQuote(argv ...string) string {
 // ReadInputBox answers a ReadInputBoxRequest from a CLI's input-box profile: what the adapters share.
 func ReadInputBox(req *adapterv1.ReadInputBoxRequest, p inputbox.Profile) *adapterv1.ReadInputBoxResponse {
 	r := inputbox.Read(req.Screen, p, req.Token)
-	out := &adapterv1.ReadInputBoxResponse{Text: r.Text, TokenAbove: int32(r.TokenAbove)}
+	out := &adapterv1.ReadInputBoxResponse{Text: r.Text, TokenAbove: int32(r.TokenAbove), Ghost: r.Ghost}
 	switch r.State {
 	case inputbox.Empty:
 		out.Box = adapterv1.InputBox_INPUT_BOX_EMPTY

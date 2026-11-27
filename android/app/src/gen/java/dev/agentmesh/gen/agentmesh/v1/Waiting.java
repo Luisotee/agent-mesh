@@ -315,6 +315,50 @@ public  final class Waiting extends
 
   }
 
+  public static final int FOR_USER_FIELD_NUMBER = 6;
+  private boolean forUser_;
+  /**
+   * <pre>
+   * The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+   * the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+   * view and Activity still show it.
+   * </pre>
+   *
+   * <code>bool for_user = 6 [json_name = "forUser"];</code>
+   * @return The forUser.
+   */
+  @java.lang.Override
+  public boolean getForUser() {
+    return forUser_;
+  }
+  /**
+   * <pre>
+   * The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+   * the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+   * view and Activity still show it.
+   * </pre>
+   *
+   * <code>bool for_user = 6 [json_name = "forUser"];</code>
+   * @param value The forUser to set.
+   */
+  private void setForUser(boolean value) {
+    
+    forUser_ = value;
+  }
+  /**
+   * <pre>
+   * The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+   * the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+   * view and Activity still show it.
+   * </pre>
+   *
+   * <code>bool for_user = 6 [json_name = "forUser"];</code>
+   */
+  private void clearForUser() {
+
+    forUser_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Waiting parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -721,6 +765,52 @@ public  final class Waiting extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+     * the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+     * view and Activity still show it.
+     * </pre>
+     *
+     * <code>bool for_user = 6 [json_name = "forUser"];</code>
+     * @return The forUser.
+     */
+    @java.lang.Override
+    public boolean getForUser() {
+      return instance.getForUser();
+    }
+    /**
+     * <pre>
+     * The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+     * the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+     * view and Activity still show it.
+     * </pre>
+     *
+     * <code>bool for_user = 6 [json_name = "forUser"];</code>
+     * @param value The forUser to set.
+     * @return This builder for chaining.
+     */
+    public Builder setForUser(boolean value) {
+      copyOnWrite();
+      instance.setForUser(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+     * the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+     * view and Activity still show it.
+     * </pre>
+     *
+     * <code>bool for_user = 6 [json_name = "forUser"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearForUser() {
+      copyOnWrite();
+      instance.clearForUser();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Waiting)
   }
   @java.lang.Override
@@ -743,10 +833,11 @@ public  final class Waiting extends
             "agentId_",
             "message_",
             "detail_",
+            "forUser_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\f\u0002\u0208" +
-              "\u0003\u0208\u0004\u1009\u0000\u0005\u0208";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\f\u0002\u0208" +
+              "\u0003\u0208\u0004\u1009\u0000\u0005\u0208\u0006\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

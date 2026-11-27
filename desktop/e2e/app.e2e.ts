@@ -27,6 +27,11 @@ afterAll(async () => {
   if (bins) rmSync(bins, { recursive: true, force: true })
 })
 
+/** The user approves the plans of this repo: its workers' plans are then the user's to answer (and notify), not the lead's. */
+async function userApprovesPlans() {
+  await host.client().setSetting({ key: 'repos.user_approves_plans', value: { kind: { case: 'listValue', value: { values: [{ kind: { case: 'stringValue', value: host.repo } }] } } } })
+}
+
 test('the lead-agent view follows a real daemon live, and survives its restart', async () => {
   const { page } = app
 
@@ -161,6 +166,7 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
 
 test('plans, questions and reports: waiting on the user, answered from the app, and still there after a reload', async () => {
   const { page } = app
+  await userApprovesPlans()
   // A worker the lead started (so its parent is the lead, the plan's recipient).
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
   const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'planner', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
@@ -187,15 +193,15 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
   await expect.poll(async () => (await asWorker.readInbox({ peek: true, all: true })).messages.map((m) => `${MessageType[m.type]}:${m.body}:${m.from?.name}`)).toContainEqual(expect.stringMatching(/^ANSWER:approved:/))
   await page.getByRole('region', { name: 'Waiting on you' }).waitFor({ state: 'detached', timeout: 20_000 })
 
-  // A question is answered with free text; a report is shown as Markdown.
+  // A question the lead puts to the user (`mesh send user`) is answered with free text, as an answer to the lead; a
+  // worker's report is shown as Markdown.
   await asWorker.readInbox({}) // an agent reads its answer first: a report is refused while one is unread
-  await asWorker.sendMessage({ to: 'parent', type: MessageType.QUESTION, body: 'Which branch should I base this on?' })
-  await page.getByRole('region', { name: 'Waiting on you' }).getByRole('button', { name: /repo-planner asked a question/ }).click()
+  await asLead.sendMessage({ to: 'user', type: MessageType.QUESTION, body: 'Which branch should I base this on?' })
+  await page.getByRole('region', { name: 'Waiting on you' }).getByRole('button', { name: /repo-lead asked a question/ }).click()
   const q = page.getByRole('form', { name: 'Answer the question' })
   await q.getByLabel('Your answer').fill('main')
   await q.getByRole('button', { name: 'Send answer' }).click()
-  await expect.poll(async () => (await asWorker.readInbox({ peek: true, all: true })).messages.map((m) => m.body)).toContain('main')
-  await asWorker.readInbox({}) // an agent reads its answer first: a report is refused while one is unread
+  await expect.poll(async () => (await asLead.readInbox({ peek: true, all: true })).messages.map((m) => m.body)).toContain('main')
   await asWorker.sendMessage({ to: 'parent', type: MessageType.DONE, body: '## Result\n\n- **PR** opened\n- tests pass' })
   const report = page.getByRole('article', { name: 'Report from repo-planner' })
   await report.getByRole('heading', { name: 'Result' }).waitFor()
@@ -246,6 +252,7 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   const { page } = app
   const log = () => readFileSync(app.shellLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
   const notices = () => log().filter((l) => l.type === 'notify').map((l) => `${l.title}`)
+  await userApprovesPlans()
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
   const { agent: noisy } = await asLead.spawnAgent({ repo: host.repo, slug: 'noisy', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const asNoisy = host.client(host.agentToken(noisy!.id))
@@ -263,10 +270,9 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   await new Promise((r) => setTimeout(r, 1000))
   expect(notices()).toHaveLength(before)
 
-  // Take plans off the list of what notifies (through the host's settings): the next plan is silent, the tray still counts.
+  // Take plans and questions off the list of what notifies (through the host's settings): the next one is silent, the tray still counts.
   await host.client().setSetting({ key: 'app.notify.events', value: { kind: { case: 'listValue', value: { values: [{ kind: { case: 'stringValue', value: 'input' } }] } } } })
-  await asNoisy.readInbox({})
-  await asNoisy.sendMessage({ to: 'parent', type: MessageType.QUESTION, body: 'Which branch?' })
+  await asLead.sendMessage({ to: 'user', type: MessageType.QUESTION, body: 'Which branch?' }) // the lead asks the user
   await expect.poll(() => log().filter((l) => l.type === 'waiting').at(-1)?.count, { timeout: 20_000 }).toBe(2)
   expect(notices()).toHaveLength(before)
   await host.client().resetSetting({ key: 'app.notify.events' })

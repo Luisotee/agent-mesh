@@ -13,7 +13,7 @@ import type { StoredHost } from '../electron/hosts'
 import type { DesktopApi } from '../shared/api'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { HelloResponseSchema, ListAgentsResponseSchema, ListMessagesResponseSchema, ListSettingsResponseSchema, ListShellsResponseSchema, ListWaitingResponseSchema, ShellSchema, MeshService, SubscribeEventsResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
-import { AgentRole, AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, SettingSchema$ as SettingDescriptor, SettingSchemaSchema, type Event } from './gen/agentmesh/v1/types_pb'
+import { AgentRole, AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, SettingSchema$ as SettingDescriptor, SettingSchemaSchema, UserNoticeSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import { createAppModel } from './model'
 
 let dir: string
@@ -36,7 +36,10 @@ const event = (seq: number, payload: Event['payload'], age = 100, agentId = 'w1'
 const sentEvent = (seq: number, m: ReturnType<typeof msg>, age = 100) => event(seq, { case: 'messageSent', value: { $typeName: 'agentmesh.v1.MessageSent', message: m } }, age)
 const spawned = (seq: number, a: ReturnType<typeof agent>, age = 100, cls = ActorClass.WORKER) =>
   create(EventSchema, { seq: BigInt(seq), generation: 'g', runId: 'r1', agentId: a.id, time: timestampFromMs(NOW() - age), actor: { $typeName: 'agentmesh.v1.Actor', id: 'x', name: 'x', class: cls, runId: 'r1' }, payload: { case: 'agentSpawned', value: { $typeName: 'agentmesh.v1.AgentSpawned', agent: a } } })
-const waiting = (kind: WaitingKind, agentId: string, message?: ReturnType<typeof msg>) => create(WaitingSchema, { kind, runId: 'r1', agentId, message })
+const waiting = (kind: WaitingKind, agentId: string, message?: ReturnType<typeof msg>) => create(WaitingSchema, { kind, runId: 'r1', agentId, message, forUser: true })
+/** What the host decided to tell the user (a `UserNotice` event). */
+const noticed = (seq: number, kind: string, title: string, body: string, o: { age?: number; forUser?: boolean; tab?: string } = {}) =>
+  event(seq, { case: 'userNotice', value: create(UserNoticeSchema, { kind, title, body, agentId: 'w1', tab: o.tab ?? 'chat', forUser: o.forUser ?? true, tag: 'w1' }) }, o.age ?? 100)
 const settingOf = (key: string, type: string, def: unknown) =>
   create(SettingDescriptor, { key, value: settings[key] ?? fromJson(ValueSchema, def as never), default: fromJson(ValueSchema, def as never), isSet: key in settings, schema: create(SettingSchemaSchema, { type, summary: key }) })
 
@@ -75,7 +78,7 @@ beforeEach(async () => {
           listSettings: async () => {
             await settingsGate
             return create(ListSettingsResponseSchema, {
-              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed', 'error']), settingOf('app.tray.close_to_tray', 'bool', false), settingOf('app.dock.new_agents', 'string', 'dock')],
+              settings: [settingOf('app.notify.enabled', 'bool', true), settingOf('app.notify.sound', 'bool', true), settingOf('app.notify.events', 'kinds', ['input', 'plan', 'question', 'report', 'failed', 'error', 'finished', 'ready']), settingOf('app.tray.close_to_tray', 'bool', false), settingOf('app.dock.new_agents', 'string', 'dock')],
             })
           },
           async *subscribeEvents() {
@@ -130,8 +133,10 @@ it('turns live events into notifications by the host\'s own preferences, and cou
   const m0 = msg('m0', MessageType.PLAN, 'w1', 'lead', 'old plan')
   const m1 = msg('m1', MessageType.PLAN, 'w1', 'lead', '# The plan\n\n- do it')
   hostWaiting = [waiting(WaitingKind.PLAN, 'w1', m0), waiting(WaitingKind.PLAN, 'w1', m1)]
-  push(sentEvent(1, m0, 3_600_000))
-  push(sentEvent(2, m1))
+  push(sentEvent(10, m0, 3_600_000))
+  push(sentEvent(11, m1))
+  push(noticed(1, 'plan', 'app-fix sent a plan', 'old plan', { age: 3_600_000 }))
+  push(noticed(2, 'plan', 'app-fix sent a plan', 'The plan do it'))
   await vi.waitFor(() => expect(shell.notify).toHaveBeenCalledTimes(1))
   expect(shell.notify.mock.calls[0]![0]).toEqual({ tag: 'h:w1', title: 'app-fix sent a plan', body: 'The plan do it', sound: true, hostId: 'h', agentId: 'w1', tab: 'chat' })
   // Both plans wait (the old one is still unanswered), counted for the tray.
@@ -149,21 +154,26 @@ it('stays quiet when notifications are off or the kind is not chosen', async () 
   const { shell, hostStore } = await boot()
   const m1 = msg('m1', MessageType.PLAN, 'w1', 'lead', 'a plan')
   hostWaiting = [waiting(WaitingKind.PLAN, 'w1', m1)]
-  push(sentEvent(1, m1))
-  await vi.waitFor(() => expect(hostStore.getState().messages['m1']).toBeDefined())
+  push(sentEvent(10, m1))
+  push(noticed(1, 'plan', 'app-fix sent a plan', 'a plan'))
+  await vi.waitFor(() => expect(hostStore.getState().activity).toHaveLength(1))
   expect(shell.notify).not.toHaveBeenCalled()
 
-  // A needs-input prompt is a chosen kind.
+  // A notice for Activity alone never notifies, even of a chosen kind; a needs-input prompt is a chosen kind.
+  push(noticed(2, 'input', 'app-fix needs you', 'Bash', { forUser: false, tab: 'terminal' }))
+  await vi.waitFor(() => expect(hostStore.getState().activity).toHaveLength(2))
+  expect(shell.notify).not.toHaveBeenCalled()
   hostWaiting = [waiting(WaitingKind.PLAN, 'w1', m1), waiting(WaitingKind.INPUT, 'w1')]
-  push(event(2, { case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from: AgentState.WORKING, to: AgentState.NEEDS_INPUT, detail: 'Bash', needsInput: 1 } }))
+  push(event(12, { case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from: AgentState.WORKING, to: AgentState.NEEDS_INPUT, detail: 'Bash', needsInput: 1 } }))
+  push(noticed(3, 'input', 'app-fix needs you', 'Bash', { tab: 'terminal' }))
   await vi.waitFor(() => expect(shell.notify).toHaveBeenCalledTimes(1))
   expect(shell.notify.mock.calls[0]![0]).toMatchObject({ title: 'app-fix needs you', tab: 'terminal' })
   await vi.waitFor(() => expect(shell.setWaiting).toHaveBeenLastCalledWith(2)) // the plan and the prompt
 
   // Switched off, nothing notifies.
   hostStore.setState((s) => ({ settings: { ...s.settings, 'app.notify.enabled': { ...s.settings['app.notify.enabled']!, value: fromJson(ValueSchema, false) } } }))
-  push(sentEvent(3, msg('m2', MessageType.QUESTION, 'w1', 'lead', 'a question')))
-  await vi.waitFor(() => expect(hostStore.getState().messages['m2']).toBeDefined())
+  push(noticed(4, 'input', 'app-fix needs you again', 'Bash', { tab: 'terminal' }))
+  await vi.waitFor(() => expect(hostStore.getState().activity).toHaveLength(4))
   expect(shell.notify).toHaveBeenCalledTimes(1)
 })
 

@@ -155,3 +155,19 @@ func TestAProbeWithAQuoteInItsDirectoryStillCatchesTheBrowser(t *testing.T) {
 		os.Remove("pwned")
 	}
 }
+
+func TestAProbeGetsItsStdinAndRunsInTheDirectoryAsked(t *testing.T) {
+	dir := t.TempDir()
+	out, err := Run(context.Background(), Spec{Bin: cli(t, `pwd; cat`), Cwd: dir, Stdin: []byte("a request\n"), Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	real, _ := filepath.EvalSymlinks(dir)
+	if got := strings.TrimSpace(string(out)); got != real+"\na request" && got != dir+"\na request" {
+		t.Errorf("output %q, want the directory and the line read from stdin", got)
+	}
+	// With no Stdin it is /dev/null, as before: `cat` ends at once.
+	if out, err := Run(context.Background(), Spec{Bin: cli(t, `cat; echo end`), Timeout: 10 * time.Second}); err != nil || strings.TrimSpace(string(out)) != "end" {
+		t.Errorf("no stdin: %q %v", out, err)
+	}
+}
