@@ -124,4 +124,15 @@ public interface VerdictOrBuilder extends
    */
   com.google.protobuf.ByteString
       getJudgeBytes();
+
+  /**
+   * <pre>
+   * How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+   * is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 11 [json_name = "declinedBlocking"];</code>
+   * @return The declinedBlocking.
+   */
+  int getDeclinedBlocking();
 }

@@ -24,6 +24,8 @@ import (
 const (
 	reviewByWorker = "worker"
 	reviewByRoot   = "root"
+	// reviewByRelay is a risky PR's: the worker runs its reviews itself, as a relay (`mesh ask --relay`), and no other round.
+	reviewByRelay = "relay"
 
 	judgeAuthor = "author" // a verdict the PR's author (the worker that asked the round) gave
 	judgeRoot   = "root"
@@ -32,10 +34,10 @@ const (
 
 // checkReviewBy validates a `reviews` request field.
 func checkReviewBy(s string) error {
-	if s == "" || s == reviewByWorker || s == reviewByRoot {
+	if s == "" || s == reviewByWorker || s == reviewByRoot || s == reviewByRelay {
 		return nil
 	}
-	return invalid("reviews %q: worker (it runs its PR's review rounds itself) or root (its parent does)", s)
+	return invalid("reviews %q: worker (it runs its PR's review rounds itself), relay (it runs them as a relay, for a risky PR) or root (its parent does)", s)
 }
 
 // reviewByOf is who runs a worker's PR's rounds: the worker's own choice, else the `review.by` setting.
@@ -127,17 +129,21 @@ func githubRepoOf(u string) string {
 
 // workerGuard refuses what a worker may not do with a review of this PR: one that is not its own (its head is not
 // the worker's branch, nor the branch checked out in its own worktree: a worker may open its PR from another
-// branch than the one it was registered on), and one whose rounds its parent runs (`review.by`, `--reviews root`: a
-// relay for a risky PR). Anyone else passes.
-func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Actor, pr *prInfo) error {
+// branch than the one it was registered on), one whose rounds its parent runs (`review.by`, `--reviews root`), and,
+// for a worker on `--reviews relay` (a risky PR), any ask but a relay step. Anyone else passes.
+func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Actor, pr *prInfo, relay bool) error {
 	self := d.selfWorker(r, actor)
 	if self == nil {
 		return nil
 	}
 	if d.reviewByOf(r, self) == reviewByRoot {
 		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
-			"your parent runs the reviews of your PR (review.by or --reviews root: a relay, or a PR it reads itself): "+
+			"your parent runs the reviews of your PR (review.by or --reviews root): "+
 				"don't ask a round; report `done` and it starts them"))
+	}
+	if d.reviewByOf(r, self) == reviewByRelay && !relay {
+		return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"your PR's reviews are a relay (it is risky): no round and no single reviewer, only `mesh ask --repo <repo> --review <PR> --relay` (one step, then fix, then the next)"))
 	}
 	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr)) {
 		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
@@ -363,13 +369,33 @@ func hasBranchWork(ctx context.Context, a *v1.Agent) bool {
 	return err != nil || n != "0"
 }
 
-// reviewFooter is what a worker's `done` to its parent carries about its PR's reviews, from the store alone: each
-// round it asked (who answered, the answers file, the verdicts and who gave them), and for a PR the `done` names
-// that it asked no round on, a line saying so. The parent then needs no relay to find the findings, and a
-// skipped round shows instead of passing silently. A worker whose parent runs its reviews gets none.
+// reviewFooter is what a worker's `done` to its parent carries about its PRs' reviews: one outcome line per PR, from
+// the store alone. SETTLED, or NEEDS YOU with what is open (the parent then reads only what the line names), never the
+// findings and never the declines. An unknown is not a pass: a PR with no round, a round still collecting, a
+// reviewer that did not answer, an answer with no verdict, a blocking finding the author declined, a relay not done,
+// failing or pending checks, or a PR the worker opened and asked nothing on, all make it NEEDS YOU. A worker whose
+// parent runs its reviews gets none.
 func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWork bool) string {
-	if self.Role != v1.AgentRole_AGENT_ROLE_WORKER || d.reviewByOf(r, self) == reviewByRoot {
+	outs := d.reviewOutcomes(r, self, body, hasWork)
+	if len(outs) == 0 {
 		return ""
+	}
+	var lines []string
+	for _, o := range outs {
+		lines = append(lines, o.line)
+	}
+	return "\n\n" + strings.Join(lines, "\n")
+}
+
+// outcome is one PR's review outcome: its line, and its state (settled, running: only a round still collecting,
+// or needs you).
+type outcome struct{ line, state string }
+
+// reviewOutcomes is the outcome of each PR a worker's `done` (body) concerns, in order; none for a worker whose
+// parent runs its reviews.
+func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, hasWork bool) []outcome {
+	if self.Role != v1.AgentRole_AGENT_ROLE_WORKER || d.reviewByOf(r, self) == reviewByRoot {
+		return nil
 	}
 	var urls []string
 	seen := map[string]bool{}
@@ -379,27 +405,47 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 			urls = append(urls, u)
 		}
 	}
-	// The PRs the done names that are the worker's own. A recorded PR whose head branch GitHub gave is decided by
-	// it (the worker's own is the one on its branch); one the branch lookup found is the worker's; a link a `done`
-	// once named, recorded with no head branch, proves nothing; and when none is its own and the branch has
-	// commits (a new PR, a reused worker's older ones), the first link not already known to be another branch's.
-	own := map[string]bool{}
-	decided := map[string]bool{}
+	asks, err := r.RunAsks(self.RunId)
+	if err != nil {
+		return nil
+	}
+	byPR := map[string][]*v1.Ask{} // the review asks of the worker, by PR
+	var prOrder []string
+	prURL := map[string]string{}
+	for _, a := range asks {
+		if a.Kind != v1.AskKind_ASK_KIND_REVIEW || a.CallerId != self.Id || a.Pr == "" {
+			continue
+		}
+		k := prKey(a.Pr)
+		if byPR[k] == nil {
+			prOrder = append(prOrder, k)
+			prURL[k] = a.Pr
+		}
+		byPR[k] = append(byPR[k], a)
+	}
+	sort.Strings(prOrder)
+	recorded := map[string]*v1.PullRequest{}
 	if prs, err := r.AgentPRs(self.Id); err == nil {
-		recorded := map[string]*v1.PullRequest{}
 		for _, p := range prs {
 			recorded[prKey(p.Url)] = p
 		}
-		for _, u := range urls {
-			p := recorded[prKey(u)]
-			switch {
-			case p == nil:
-			case p.HeadRef != "":
-				decided[prKey(u)] = true
-				own[prKey(u)] = p.HeadRef == self.Branch
-			case p.Source == "branch":
-				own[prKey(u)] = true // found by `gh pr list --head <its branch>`
-			}
+	}
+	// The PRs the done names that are the worker's own. A recorded PR whose head branch GitHub gave is decided by it
+	// (the worker's branch or one of its series; a PR the worker asked a round on is listed below whatever its head); one the branch lookup found is the worker's; a link a
+	// `done` once named, recorded with no head branch, proves nothing; and when none is its own and the branch has
+	// commits (a new PR, a reused worker's older ones), the first link not already known to be another branch's.
+	own := map[string]bool{}
+	decided := map[string]bool{}
+	for _, u := range urls {
+		k := prKey(u)
+		p := recorded[k]
+		switch {
+		case p == nil:
+		case p.HeadRef != "":
+			decided[k] = true
+			own[k] = p.HeadRef == self.Branch || inSeriesOf(self.Branch, p.HeadRef)
+		case p.Source == "branch":
+			own[k] = true // found by `gh pr list --head <its branch>`
 		}
 	}
 	// hasWork: the worker's branch has commits. A worker with none (research, a question) that names a PR names
@@ -412,106 +458,193 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 			}
 		}
 	}
-	asks, err := r.RunAsks(self.RunId)
-	if err != nil {
+	var outs []outcome
+	done := map[string]bool{}
+	line := func(k, u string) {
+		if done[k] {
+			return
+		}
+		done[k] = true
+		l, st := d.reviewOutcome(r, self, prNumberOf(u), u, byPR[k], recorded[k])
+		outs = append(outs, outcome{l, st})
+	}
+	for _, u := range urls {
+		if own[prKey(u)] {
+			line(prKey(u), u)
+		}
+	}
+	for _, k := range prOrder { // a PR it asked rounds on that its done doesn't name
+		line(k, prURL[k])
+	}
+	// A PR of its own the worker opened that is still open with no round of its own: not named in the done, but not
+	// settled either.
+	var open []string
+	for k := range recorded {
+		open = append(open, k)
+	}
+	sort.Strings(open)
+	for _, k := range open {
+		p := recorded[k]
+		if p.State == "open" && len(byPR[k]) == 0 && (p.Source == "branch" || p.HeadRef == self.Branch || p.HeadRef != "" && inSeriesOf(self.Branch, p.HeadRef)) {
+			line(k, p.Url)
+		}
+	}
+	return outs
+}
+
+// reviewWord is the one word the brief shows of a finished worker's PR reviews: "needs you" when any PR's outcome is
+// NEEDS YOU for a reason of its own, "running" when only a round is still collecting, else "settled"; "" for a worker
+// with no PR or round to speak of. The caller asks only after the worker's `done`: before it, an open PR with no
+// round yet is no news.
+func (d *Daemon) reviewWord(r store.Reader, a *v1.Agent) string {
+	outs := d.reviewOutcomes(r, a, "", false)
+	if len(outs) == 0 {
 		return ""
 	}
-	byPR := map[string][]*v1.Ask{}
-	var prOrder []string
-	for _, a := range asks {
-		if a.Kind != v1.AskKind_ASK_KIND_REVIEW || a.CallerId != self.Id || a.Pr == "" {
-			continue
+	word := "settled"
+	for _, o := range outs {
+		switch {
+		case o.state == "needs you":
+			return "needs you"
+		case o.state == "running":
+			word = "running"
 		}
-		k := prKey(a.Pr)
-		if byPR[k] == nil {
-			prOrder = append(prOrder, k)
-		}
-		byPR[k] = append(byPR[k], a)
 	}
-	sort.Strings(prOrder)
-	var lines []string
-	covered := map[string]bool{}
-	for _, u := range urls {
-		k := prKey(u)
-		if len(byPR[k]) > 0 || !own[k] {
-			continue
-		}
-		// Rounds of the PR that others asked (the root, an earlier run) count against the ceiling too.
-		others, err := prAsksByKey(r, u)
-		if err != nil {
-			continue
-		}
+	return word
+}
+
+// reviewOutcome is the line for one PR of a worker: SETTLED with what the reviews came to, or NEEDS YOU with what is
+// open. rounds are the asks the worker made of it (none: the rounds others asked are named), p its recorded row.
+func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url string, rounds []*v1.Ask, p *v1.PullRequest) (string, string) {
+	head := "[mesh reviews] PR #" + number + ": "
+	checks := "checks none"
+	if p != nil && p.Checks != "" {
+		checks = "checks " + p.Checks
+	}
+	if len(rounds) == 0 {
+		others, err := prAsksByKey(r, url)
 		var by []string
-		for _, a := range others {
-			if a.Kind == v1.AskKind_ASK_KIND_REVIEW && !slices.Contains(by, a.CallerName) {
-				by = append(by, a.CallerName)
+		if err == nil {
+			for _, a := range others {
+				if a.Kind == v1.AskKind_ASK_KIND_REVIEW && !slices.Contains(by, a.CallerName) {
+					by = append(by, a.CallerName)
+				}
 			}
 		}
 		if len(by) == 0 {
-			lines = append(lines, fmt.Sprintf("[mesh reviews] PR #%s: %s asked no review round: ask it why, or start one yourself.", prNumberOf(u), self.Name))
-		} else {
-			lines = append(lines, fmt.Sprintf("[mesh reviews] PR #%s: %s asked no review round itself; rounds of it were asked by %s (`mesh asks`).",
-				prNumberOf(u), self.Name, strings.Join(by, ", ")))
+			return head + "NEEDS YOU: " + self.Name + " asked no review round: ask it why, or start one yourself.", "needs you"
 		}
-		covered[k] = true
+		return head + "NEEDS YOU: " + self.Name + " asked no review round itself; rounds of it were asked by " + strings.Join(by, ", ") + " (`mesh asks`).", "needs you"
 	}
-	for _, k := range prOrder {
-		if !covered[k] {
-			lines = append(lines, roundsFooter(byPR[k])...)
+	sort.SliceStable(rounds, func(i, j int) bool { return rounds[i].CreatedAt.AsTime().Before(rounds[j].CreatedAt.AsTime()) })
+	last := rounds[len(rounds)-1]
+	var why []string
+	collecting := false
+	var findings, agreed, other, disagreed, declinedBlocking int32
+	steps := 0
+	for _, a := range rounds {
+		if a.Status == v1.AskStatus_ASK_STATUS_OPEN && !collecting {
+			why = append(why, "a round is still collecting its answers")
+			collecting = true
+		}
+		// A step that nobody answered is run again under the same number: only answered steps count.
+		if a.RelayStep > 0 && answered(a) > 0 && int(a.RelayStep) > steps {
+			steps = int(a.RelayStep)
+		}
+		for _, v := range a.Verdicts {
+			findings += v.Agree + v.Other + v.Disagree
+			agreed += v.Agree
+			other += v.Other
+			disagreed += v.Disagree
+			// The author's own count stands until the root judges the reviewer's findings (its verdict replaces it).
+			if v.Judge == judgeAuthor && v.DeclinedBlocking > 0 {
+				declinedBlocking += v.DeclinedBlocking
+				why = append(why, fmt.Sprintf("%s: %d blocking finding(s) declined by the author", v.Reviewer, v.DeclinedBlocking))
+			}
 		}
 	}
-	if len(lines) == 0 {
+	verdictOf := func(a *v1.Ask, name string) *v1.Verdict {
+		for _, v := range a.Verdicts {
+			if v.Reviewer == name {
+				return v
+			}
+		}
+		return nil
+	}
+	asked := 0
+	var kinds []string
+	for _, m := range last.Members {
+		if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED {
+			continue
+		}
+		asked++
+		kinds = append(kinds, m.Kind)
+		v := verdictOf(last, m.Name)
+		switch {
+		case last.Status == v1.AskStatus_ASK_STATUS_OPEN: // still collecting: said above, once
+		case last.Collected && m.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED:
+			why = append(why, m.Name+" did not answer"+bracket(m.Line))
+		case v == nil: // answered (or asked alone, its done went to the asker) and not judged
+			why = append(why, m.Name+" answered and has no verdict recorded")
+		}
+	}
+	if asked == 0 {
+		why = append(why, "no reviewer could be asked")
+	}
+	if d.reviewByOf(r, self) == reviewByRelay || steps > 0 {
+		switch {
+		case steps == 0:
+			why = append(why, "its relay has not started")
+		case steps < 3 && relayHasFindings(last):
+			why = append(why, fmt.Sprintf("its relay is unfinished (step %d of 3, with findings to fix)", steps))
+		}
+	}
+	if p != nil && (p.Checks == "failing" || p.Checks == "pending") {
+		why = append(why, "checks "+p.Checks)
+	}
+	if p != nil && (p.State == "unknown" || p.Stale) {
+		why = append(why, "GitHub's state of the PR was not read (checks unknown)")
+	}
+	if len(why) > 0 {
+		out := head + "NEEDS YOU: " + strings.Join(why, "; ") + "."
+		if last.AnswersPath != "" {
+			out += " Answers: " + filepath.Clean(last.AnswersPath)
+		}
+		if collecting && len(why) == 1 {
+			return out, "running"
+		}
+		return out, "needs you"
+	}
+	what := fmt.Sprintf("%d round(s)", len(rounds))
+	if steps > 0 {
+		what = fmt.Sprintf("relay, %d step(s)", steps)
+	}
+	return head + fmt.Sprintf("SETTLED: %s (%s); %d finding(s): %d agreed, %d other, %d disagreed (%d blocking declined); %s",
+		what, strings.Join(kinds, ", "), findings, agreed, other, disagreed, declinedBlocking, checks), "settled"
+}
+
+// relayHasFindings tells whether the relay's latest step left findings the author used (agreed with, or found
+// otherwise useful: a step whose verdicts take nothing leaves nothing to fix: "stop at any step that leaves
+// nothing worth fixing").
+func relayHasFindings(last *v1.Ask) bool {
+	for _, v := range last.Verdicts {
+		if v.Agree+v.Other > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// bracket is " (s)" for a note, "" for none.
+func bracket(s string) string {
+	if s == "" {
 		return ""
 	}
-	return "\n\n" + strings.Join(lines, "\n")
+	return " (" + s + ")"
 }
 
 func prNumberOf(url string) string {
 	return url[strings.LastIndex(url, "/")+1:]
-}
-
-// roundsFooter describes one PR's asks by one worker, oldest first.
-func roundsFooter(asks []*v1.Ask) []string {
-	sort.Slice(asks, func(i, j int) bool { return asks[i].CreatedAt.AsTime().Before(asks[j].CreatedAt.AsTime()) })
-	out := []string{fmt.Sprintf("[mesh reviews] PR #%d: %d review ask(s) by its author:", asks[0].PrNumber, len(asks))}
-	for _, a := range asks {
-		var who []string
-		for _, m := range a.Members {
-			switch {
-			case !a.Collected: // its `done` went to the asking agent: the ask never learns whether it answered
-				who = append(who, m.Name+" asked alone (its done went to "+a.CallerName+")")
-			case m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED:
-				who = append(who, m.Name+" answered")
-			case m.Line != "":
-				who = append(who, m.Name+" no answer ("+m.Line+")")
-			default:
-				who = append(who, m.Name+" pending")
-			}
-		}
-		line := fmt.Sprintf("- round %d (%s, %s) at %s: %s", a.Round, a.Size, orDash(a.Tier), short(a.Head), strings.Join(who, ", "))
-		if !a.Collected {
-			line = fmt.Sprintf("- one reviewer (%s, %s) at %s: %s", a.Size, orDash(a.Tier), short(a.Head), strings.Join(who, ", "))
-		}
-		if a.AnswersPath != "" {
-			line += "; answers " + filepath.Clean(a.AnswersPath)
-		}
-		out = append(out, line)
-		var judged []string
-		have := map[string]bool{}
-		for _, v := range a.Verdicts {
-			have[v.Reviewer] = true
-			judged = append(judged, fmt.Sprintf("%s %d/%d/%d/%d by %s", v.Reviewer, v.Agree, v.Other, v.Disagree, v.Blocking, orDefault(v.Judge, judgeRoot)))
-		}
-		for _, m := range a.Members {
-			if (m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED || !a.Collected) && !have[m.Name] {
-				judged = append(judged, m.Name+" no verdict recorded")
-			}
-		}
-		if len(judged) > 0 {
-			out = append(out, "  verdicts (agree/other/disagree/blocking): "+strings.Join(judged, "; "))
-		}
-	}
-	return out
 }
 
 func orDefault(s, d string) string {

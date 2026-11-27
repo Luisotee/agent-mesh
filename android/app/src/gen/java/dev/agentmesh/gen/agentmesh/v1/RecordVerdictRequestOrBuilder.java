@@ -84,4 +84,15 @@ public interface RecordVerdictRequestOrBuilder extends
    * @return The blocking.
    */
   int getBlocking();
+
+  /**
+   * <pre>
+   * Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+   * makes the PR's review outcome NEEDS YOU: the root settles it.
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 8 [json_name = "declinedBlocking"];</code>
+   * @return The declinedBlocking.
+   */
+  int getDeclinedBlocking();
 }
