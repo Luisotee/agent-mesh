@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -58,6 +59,8 @@ class PushRegistrar(
     private val store: EndpointStore,
     private val runtimes: StateFlow<Map<String, HostRuntime>>,
     private val enabled: StateFlow<Boolean>,
+    /** The kinds this device chose to be pushed (null: each host's own list), sent with every registration. */
+    private val events: StateFlow<Set<String>?>,
     private val scope: CoroutineScope,
 ) {
     private val _status = MutableStateFlow<Map<String, PushStatus>>(emptyMap())
@@ -74,6 +77,12 @@ class PushRegistrar(
     private fun turn(hostId: String) = synchronized(turns) { turns.getOrPut(hostId) { Mutex() } }
 
     init {
+        // A changed choice goes to every host at once (a registration replaces the earlier one's list).
+        scope.launch {
+            events.drop(1).collect {
+                for (rt in runtimes.value.values) if (rt.state.value.conn is ConnState.Ready && store.get(rt.hostId) != null) register(rt)
+            }
+        }
         scope.launch {
             combine(runtimes, enabled) { rts, on -> if (on) rts else emptyMap() }.collect { rts ->
                 synchronized(watching) {
@@ -123,7 +132,7 @@ class PushRegistrar(
             if (!enabled.value || e == null) return
             val api = rt.api() ?: return
             val st = try {
-                api.registerPush(e.url, e.p256dh, e.auth)
+                api.registerPush(e.url, e.p256dh, e.auth, events.value.orEmpty().sorted())
                 PushStatus("Registered with the host", ok = true)
             } catch (ex: CancellationException) {
                 throw ex

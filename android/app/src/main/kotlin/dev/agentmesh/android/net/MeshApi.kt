@@ -128,8 +128,8 @@ interface MeshApi {
     suspend fun setSetting(key: String, value: Value): Setting
     suspend fun resetSetting(key: String): Setting
 
-    /** Gives the host this device's UnifiedPush endpoint and its WebPush keys (base64url), so it pushes here. */
-    suspend fun registerPush(endpoint: String, p256dh: String, auth: String): PushRegistration
+    /** Gives the host this device's UnifiedPush endpoint and its WebPush keys (base64url), so it pushes here, and the kinds of notice this device chose to be pushed ([events]; none follows the host's list). */
+    suspend fun registerPush(endpoint: String, p256dh: String, auth: String, events: List<String> = emptyList()): PushRegistration
 
     /** Tells the host to stop pushing to this device. Returns whether it had an endpoint. */
     suspend fun unregisterPush(): Boolean
@@ -246,8 +246,8 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
     override suspend fun resetSetting(key: String): Setting =
         service.resetSetting(ResetSettingRequest.newBuilder().setMeta(newMeta()).setKey(key).build()).ok().setting
 
-    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): PushRegistration =
-        service.registerPush(RegisterPushRequest.newBuilder().setMeta(newMeta()).setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()).ok().registration
+    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String, events: List<String>): PushRegistration =
+        service.registerPush(RegisterPushRequest.newBuilder().setMeta(newMeta()).setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).addAllEvents(events).build()).ok().registration
 
     override suspend fun unregisterPush(): Boolean =
         service.unregisterPush(UnregisterPushRequest.newBuilder().setMeta(newMeta()).build()).ok().removed
