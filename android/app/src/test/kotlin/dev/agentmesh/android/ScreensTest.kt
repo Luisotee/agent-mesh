@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -65,6 +66,10 @@ private object Silent : MeshApi {
     override suspend fun startRun(title: String): dev.agentmesh.gen.agentmesh.v1.Run = error("unused")
     override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: dev.agentmesh.gen.agentmesh.v1.AgentRole, kind: String, tier: String, model: String, task: String): dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse = error("unused")
     override suspend fun listProjects(): List<dev.agentmesh.gen.agentmesh.v1.Project> = error("unused")
+    override suspend fun stopAgent(agent: String) = error("unused")
+    override suspend fun retireAgent(agent: String) = error("unused")
+    override suspend fun renameRun(runId: String, title: String) = error("unused")
+    override suspend fun stopRun(runId: String): List<String> = error("unused")
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -92,6 +97,8 @@ class ScreensTest {
         val container = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> Silent })
         compose.setContent { CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { AgentScreen(rt, "a1", {}) } } }
         compose.onNodeWithText("Working").assertIsDisplayed()
+        // Where it works is in the details (⋯), not on the chat's screen.
+        compose.onNodeWithTag("details-open").performClick()
         compose.onNodeWithText("mesh/r1/fix").assertIsDisplayed()
         compose.onNodeWithText("shop-api").assertIsDisplayed()
     }

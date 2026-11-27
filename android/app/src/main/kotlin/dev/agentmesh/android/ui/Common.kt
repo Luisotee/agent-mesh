@@ -101,3 +101,8 @@ fun rememberNowMs(active: Boolean): Long {
     }
     return now.longValue
 }
+
+/** Puts [text] on the clipboard. */
+fun copyToClipboard(context: android.content.Context, text: String, label: String = "text") {
+    (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+}

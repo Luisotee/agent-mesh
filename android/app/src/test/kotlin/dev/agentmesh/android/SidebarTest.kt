@@ -177,7 +177,7 @@ class SidebarTest {
     @Test fun `a hidden project comes back while something in it waits on the user`() {
         api = RecordingApi(); NotificationsTest.api = api
         val rt = host("wsl", runs, team)
-        container.prefs.toggleHidden(dev.agentmesh.android.derive.projectKey(rt.hostId, shop))
+        container.prefs.hide(dev.agentmesh.android.derive.projectKey(rt.hostId, shop))
         drawer()
         // shop-api has the worker that needs the user: it stays.
         waitForText("shop-api")
@@ -249,13 +249,25 @@ class SidebarTest {
         compose.onAllNodesWithTag("new-run").assertCountEquals(0)
     }
 
+    @Test fun `pinning twice keeps the pin, and hide and unhide say what they do`() {
+        val p = container.prefs
+        p.pin("h1", "/p/a"); p.pin("h1", "/p/b"); p.pin("h1", "/p/a")
+        assertEquals(listOf("/p/a", "/p/b"), p.pins.value["h1"])
+        p.unpin("h1", "/p/zzz")
+        assertEquals(listOf("/p/a", "/p/b"), p.pins.value["h1"])
+        p.hide("h1\n/p/a"); p.hide("h1\n/p/a")
+        assertEquals(setOf("h1\n/p/a"), p.hidden.value)
+        p.unhide("h1\n/p/a"); p.unhide("h1\n/p/a")
+        assertEquals(emptySet<String>(), p.hidden.value)
+    }
+
     @Test fun `pins and hides are kept on this device across a restart of the prefs`() {
         val c = container
-        c.prefs.togglePin("h1", "/p/a"); c.prefs.togglePin("h1", "/p/b"); c.prefs.togglePin("h2", "/p/a"); c.prefs.toggleHidden("h1\n/p/c")
+        c.prefs.pin("h1", "/p/a"); c.prefs.pin("h1", "/p/b"); c.prefs.pin("h2", "/p/a"); c.prefs.hide("h1\n/p/c")
         val again = dev.agentmesh.android.DevicePrefs(ApplicationProvider.getApplicationContext<Application>())
         assertEquals(mapOf("h1" to listOf("/p/a", "/p/b"), "h2" to listOf("/p/a")), again.pins.value)
         assertEquals(setOf("h1\n/p/c"), again.hidden.value)
-        again.togglePin("h1", "/p/a")
+        again.unpin("h1", "/p/a")
         assertEquals(listOf("/p/b"), again.pins.value["h1"])
         // A removed host's are forgotten.
         again.forgetHost("h1")
@@ -291,7 +303,7 @@ class SidebarTest {
     @Test fun `a project that stays listed because it waits on you can be shown again, not hidden twice`() {
         api = RecordingApi(); NotificationsTest.api = api
         val rt = host("wsl", runs, team)
-        container.prefs.toggleHidden(dev.agentmesh.android.derive.projectKey(rt.hostId, shop))
+        container.prefs.hide(dev.agentmesh.android.derive.projectKey(rt.hostId, shop))
         drawer()
         waitForText("shop-api")
         compose.onNodeWithContentDescription("Menu of shop-api").performClick()
