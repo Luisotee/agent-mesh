@@ -91,7 +91,7 @@ function resetWords(l: QuotaLine): string {
   if (!t) return ''
   const at = /^\d{4}-\d\d-\d\dT/.test(t) ? new Date(t) : undefined
   if (at && !Number.isNaN(at.getTime())) return resetText(at)
-  return /^\d+\s*(h|m|d|min|hr)\b/i.test(t) ? `resets in ${t}` : `resets ${t}`
+  return /^(\d+\s*[dhms][a-z]*\s*)+$/i.test(t) ? `resets in ${t}` : `resets ${t}`
 }
 
 /**
@@ -103,9 +103,9 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
   const up = useHostState(host, (s) => s.conn.kind === 'ready')
   const usage = usePolled(() => getUsage(host.client), host.info.id, 60_000, up)
   const q = useMemo(() => (usage.value ? quotaSections(usage.value) : undefined), [usage.value])
-  if (!q) return null
-  // A host with no reading (no Claude account, no agy) still has its Usage and cost screen: the way in stays.
-  if (q.sections.length === 0) {
+  // A host with no reading (no Claude account, no agy, a failed or slow read) still has its Usage and cost screen: the way in stays.
+  if (!q && !usage.error) return null
+  if (!q || q.sections.length === 0) {
     return (
       <Button type="button" size="sm" variant="ghost" className="mb-1 h-6 w-full justify-start px-1.5 text-xs text-muted-foreground" aria-label={`Quota${many ? ` of ${host.info.name}` : ''}: open usage and cost`} onClick={() => toggleUsage(app, host.info.id)}>
         Usage and cost

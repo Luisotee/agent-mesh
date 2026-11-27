@@ -119,7 +119,10 @@ export function quotaSections(u: GetUsageResponse): { reserve: number; sections:
   // With no tier to say what is used, the fullest row stands for agy; with tiers, the rows they start on.
   const named = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || rowIsUsed(r, v.tiers)) : []
   const used = named.length > 0 ? named : [...v.agy].sort((x, y) => x.left - y.left).slice(0, 1)
-  const agy: QuotaLine[] = used.sort((x, y) => x.left - y.left).slice(0, 3).map((r) => ({ label: r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, resetsIn: r.resets }))
+  const chosen = used.sort((x, y) => x.left - y.left).slice(0, 3)
+  // Two pools can share a label ("Weekly Limit Remaining"): the group then says which.
+  const clash = (r: AgyRow) => chosen.filter((o) => (o.label || o.group) === (r.label || r.group)).length > 1
+  const agy: QuotaLine[] = chosen.map((r) => ({ label: clash(r) ? `${r.group} ${r.label}`.trim() : r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, resetsIn: r.resets }))
   if (agy.length > 0) sections.push({ vendor: 'gemini', name: 'agy', lines: agy })
   return { reserve: v.reserve, sections }
 }
