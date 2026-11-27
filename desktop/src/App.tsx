@@ -8,10 +8,11 @@ import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
-import { Panes } from '@/components/panes'
+import { DropEdges, Panes } from '@/components/panes'
 import { SidePanel } from '@/components/side-panel'
 import { WatchAll } from '@/components/watch-all'
 import { TabBar } from '@/components/tab-bar'
+import { ViewToasts } from '@/components/view-toasts'
 import { AddHostDialog, AddHostForm, RemoveHostDialog } from '@/components/host-dialogs'
 import { LocalSetup } from '@/components/local-setup'
 import { EmptyPane } from '@/components/empty-pane'
@@ -19,7 +20,7 @@ import { RunSidebar } from '@/components/run-sidebar'
 import { PairPanel, canPair } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
 import { UsagePanel } from '@/components/usage-panel'
-import { joinWaiting } from '@/derive'
+import { waitingCount } from '@/derive'
 import { useShortcuts } from '@/shortcuts'
 import { appPrefs } from '@/prefs'
 import { applyTheme, themeByName } from '@/theme'
@@ -75,11 +76,15 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
           <main className="flex min-w-0 flex-1 flex-col">
             <ConnectionBanner host={host} />
             <TabBar />
-            <MainPane host={host} />
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <MainPane host={host} />
+              <DropEdges />
+            </div>
             <Dock />
           </main>
           <PanelSlot host={host} />
           <CommandPalette />
+          <ViewToasts />
         </>
       )}
     </div>
@@ -163,7 +168,7 @@ const DOT: Record<string, string> = { ready: 'bg-state-done', connecting: 'bg-st
 
 function RailItem({ host, selected, onSelect }: { host: HostRuntime; selected: boolean; onSelect: () => void }) {
   const kind = useHostState(host, (s) => s.conn.kind)
-  const waiting = useHostState(host, (s) => joinWaiting(s.waiting, s.runs, s.agents).length)
+  const waiting = useHostState(host, (s) => waitingCount(s.waiting, s.permissions, s.runs, s.agents))
   return (
     <button
       type="button"

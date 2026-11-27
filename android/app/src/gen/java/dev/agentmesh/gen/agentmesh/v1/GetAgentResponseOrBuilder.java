@@ -20,4 +20,30 @@ public interface GetAgentResponseOrBuilder extends
    * @return The agent.
    */
   dev.agentmesh.gen.agentmesh.v1.Agent getAgent();
+
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.ModelSwap> 
+      getModelHistoryList();
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.ModelSwap getModelHistory(int index);
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  int getModelHistoryCount();
 }

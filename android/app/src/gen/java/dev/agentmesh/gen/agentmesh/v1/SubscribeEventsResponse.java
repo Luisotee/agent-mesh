@@ -25,6 +25,7 @@ public  final class SubscribeEventsResponse extends
     EVENT(3),
     END(4),
     ACTIVITY(5),
+    VIEW(6),
     FRAME_NOT_SET(0);
     private final int value;
     private FrameCase(int value) {
@@ -45,6 +46,7 @@ public  final class SubscribeEventsResponse extends
         case 3: return EVENT;
         case 4: return END;
         case 5: return ACTIVITY;
+        case 6: return VIEW;
         case 0: return FRAME_NOT_SET;
         default: return null;
       }
@@ -396,6 +398,81 @@ public  final class SubscribeEventsResponse extends
    */
   private void clearActivity() {
     if (frameCase_ == 5) {
+      frameCase_ = 0;
+      frame_ = null;
+    }
+  }
+
+  public static final int VIEW_FIELD_NUMBER = 6;
+  /**
+   * <pre>
+   * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+   * token only; ephemeral, like `activity`.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+   */
+  @java.lang.Override
+  public boolean hasView() {
+    return frameCase_ == 6;
+  }
+  /**
+   * <pre>
+   * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+   * token only; ephemeral, like `activity`.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.ViewRequest getView() {
+    if (frameCase_ == 6) {
+       return (dev.agentmesh.gen.agentmesh.v1.ViewRequest) frame_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.ViewRequest.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+   * token only; ephemeral, like `activity`.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+   */
+  private void setView(dev.agentmesh.gen.agentmesh.v1.ViewRequest value) {
+    java.util.Objects.requireNonNull(value);
+    frame_ = value;
+    frameCase_ = 6;
+  }
+  /**
+   * <pre>
+   * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+   * token only; ephemeral, like `activity`.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+   */
+  private void mergeView(dev.agentmesh.gen.agentmesh.v1.ViewRequest value) {
+    java.util.Objects.requireNonNull(value);
+    if (frameCase_ == 6 &&
+        frame_ != dev.agentmesh.gen.agentmesh.v1.ViewRequest.getDefaultInstance()) {
+      frame_ = dev.agentmesh.gen.agentmesh.v1.ViewRequest.newBuilder((dev.agentmesh.gen.agentmesh.v1.ViewRequest) frame_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      frame_ = value;
+    }
+    frameCase_ = 6;
+  }
+  /**
+   * <pre>
+   * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+   * token only; ephemeral, like `activity`.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+   */
+  private void clearView() {
+    if (frameCase_ == 6) {
       frameCase_ = 0;
       frame_ = null;
     }
@@ -852,6 +929,84 @@ public  final class SubscribeEventsResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+     * token only; ephemeral, like `activity`.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+     */
+    @java.lang.Override
+    public boolean hasView() {
+      return instance.hasView();
+    }
+    /**
+     * <pre>
+     * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+     * token only; ephemeral, like `activity`.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.ViewRequest getView() {
+      return instance.getView();
+    }
+    /**
+     * <pre>
+     * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+     * token only; ephemeral, like `activity`.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+     */
+    public Builder setView(dev.agentmesh.gen.agentmesh.v1.ViewRequest value) {
+      copyOnWrite();
+      instance.setView(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+     * token only; ephemeral, like `activity`.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+     */
+    public Builder setView(
+        dev.agentmesh.gen.agentmesh.v1.ViewRequest.Builder builderForValue) {
+      copyOnWrite();
+      instance.setView(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+     * token only; ephemeral, like `activity`.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+     */
+    public Builder mergeView(dev.agentmesh.gen.agentmesh.v1.ViewRequest value) {
+      copyOnWrite();
+      instance.mergeView(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+     * token only; ephemeral, like `activity`.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+     */
+    public Builder clearView() {
+      copyOnWrite();
+      instance.clearView();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SubscribeEventsResponse)
   }
   @java.lang.Override
@@ -875,10 +1030,11 @@ public  final class SubscribeEventsResponse extends
             dev.agentmesh.gen.agentmesh.v1.Event.class,
             dev.agentmesh.gen.agentmesh.v1.End.class,
             dev.agentmesh.gen.agentmesh.v1.AgentActivity.class,
+            dev.agentmesh.gen.agentmesh.v1.ViewRequest.class,
           };
           java.lang.String info =
-              "\u0000\u0005\u0001\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001<\u0000\u0002<" +
-              "\u0000\u0003<\u0000\u0004<\u0000\u0005<\u0000";
+              "\u0000\u0006\u0001\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001<\u0000\u0002<" +
+              "\u0000\u0003<\u0000\u0004<\u0000\u0005<\u0000\u0006<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

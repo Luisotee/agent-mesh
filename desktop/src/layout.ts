@@ -1,7 +1,7 @@
 import type { SidebarGroup } from './model'
 import type { AgentTab } from './model'
 import { MAX_SIDE_PANES, tabKey, type PaneRef, type SplitDir, type TabRef } from './workspace'
-import type { Agent } from './gen/agentmesh/v1/types_pb'
+import type { Agent, AgentState } from './gen/agentmesh/v1/types_pb'
 
 /**
  * What the window restores after a restart: which agents were open as tabs, the view of each, the one that was open,
@@ -18,6 +18,10 @@ export interface Layout {
   sidebarGroup: SidebarGroup
   dockOpen: boolean
   panelOpen: boolean
+  /** Dock tiles the user dismissed, by tab key, with the agent state they were dismissed in. Optional: a layout from before had none. */
+  dismissed?: Record<string, AgentState>
+  /** The projects the user pinned in the New workspace dialog, by host id (paths on that host). */
+  pins?: Record<string, string[]>
 }
 
 export const LAYOUT_KEY = 'agent-mesh.layout.v1'
@@ -63,7 +67,26 @@ export function parseLayout(text: string | null | undefined): Layout | undefined
     sidebarGroup: GROUPS.includes(raw.sidebarGroup as string) ? (raw.sidebarGroup as SidebarGroup) : 'run',
     dockOpen: raw.dockOpen !== false,
     panelOpen: raw.panelOpen !== false,
+    dismissed: dismissedOf(raw.dismissed),
+    pins: pinsOf(raw.pins),
   }
+}
+
+const dismissedOf = (v: unknown): Record<string, AgentState> => {
+  const out: Record<string, AgentState> = {}
+  if (v && typeof v === 'object') for (const [k, n] of Object.entries(v)) if (k.includes('/') && Number.isInteger(n)) out[k] = n as AgentState
+  return out
+}
+
+const pinsOf = (v: unknown): Record<string, string[]> => {
+  const out: Record<string, string[]> = {}
+  if (v && typeof v === 'object') {
+    for (const [host, list] of Object.entries(v)) {
+      const paths = Array.isArray(list) ? [...new Set(list.filter(str))] : []
+      if (paths.length > 0) out[host] = paths
+    }
+  }
+  return out
 }
 
 export interface LayoutSource {
@@ -77,6 +100,8 @@ export interface LayoutSource {
   sidebarGroup: SidebarGroup
   dockOpen: boolean
   panelOpen: boolean
+  dismissed?: Record<string, AgentState>
+  pins?: Record<string, string[]>
 }
 
 export function layoutOf(s: LayoutSource): Layout {
@@ -92,6 +117,8 @@ export function layoutOf(s: LayoutSource): Layout {
     sidebarGroup: s.sidebarGroup,
     dockOpen: s.dockOpen,
     panelOpen: s.panelOpen,
+    dismissed: s.dismissed ?? {},
+    pins: s.pins ?? {},
   }
 }
 
@@ -111,6 +138,8 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
     sidebarGroup: l.sidebarGroup,
     dockOpen: l.dockOpen,
     panelOpen: l.panelOpen,
+    dismissed: Object.fromEntries(Object.entries(l.dismissed ?? {}).filter(([k]) => hostIds.has(k.slice(0, k.indexOf('/'))))),
+    pins: Object.fromEntries(Object.entries(l.pins ?? {}).filter(([h]) => hostIds.has(h))),
   }
 }
 
@@ -120,10 +149,13 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
  */
 export function pruneHost(s: LayoutSource, hostId: string, agents: Record<string, Agent>): Partial<LayoutSource> | undefined {
   const gone = (r: TabRef) => r.hostId === hostId && !(r.agentId in agents)
-  if (!s.tabs.some(gone) && !s.side.some(gone) && !(s.agentId && gone({ hostId: s.hostId ?? '', agentId: s.agentId }))) return undefined
+  // A dismissal of an agent the host lost is dead weight in the kept layout.
+  const deadKeys = Object.keys(s.dismissed ?? {}).filter((k) => k.startsWith(`${hostId}/`) && !(k.slice(hostId.length + 1) in agents))
+  if (!s.tabs.some(gone) && !s.side.some(gone) && !(s.agentId && gone({ hostId: s.hostId ?? '', agentId: s.agentId })) && deadKeys.length === 0) return undefined
   const tabs = s.tabs.filter((t) => !gone(t))
   const side = s.side.filter((p) => !gone(p))
   const patch: Partial<LayoutSource> = { tabs, side, views: Object.fromEntries(Object.entries(s.views).filter(([k]) => tabs.some((t) => tabKey(t) === k))) }
+  if (deadKeys.length > 0) patch.dismissed = Object.fromEntries(Object.entries(s.dismissed ?? {}).filter(([k]) => !deadKeys.includes(k)))
   if (s.agentId && gone({ hostId: s.hostId ?? '', agentId: s.agentId })) {
     // The open agent is gone: a pane beside it takes over, else nothing is open (the tabs stay for the user to pick).
     const next = side[0]

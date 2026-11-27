@@ -41,6 +41,8 @@ type sub struct {
 	dropped      bool
 	// act carries ephemeral activity frames, for a subscriber served by Serve (nil: it wants none).
 	act chan *v1.AgentActivity
+	// views carries `OpenView` requests, for an app: a device's subscriber that also asked for activity (nil otherwise).
+	views chan *v1.ViewRequest
 }
 
 // New returns a bus over a store. Wire Publish to store.OnCommit.
@@ -88,10 +90,33 @@ func (b *Bus) PublishActivity(a *v1.AgentActivity) {
 	}
 }
 
-func (b *Bus) subscribe(runID string, deviceEvents, activity bool) *sub {
+// PublishView hands an `OpenView` request to the apps connected now (a device's live subscribers that asked for
+// activity), whatever run they watch, and says how many it reached. It is never stored or replayed: a view asked for
+// while no app was connected is not opened later.
+func (b *Bus) PublishView(v *v1.ViewRequest) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for s := range b.subs {
+		if s.views == nil {
+			continue
+		}
+		select {
+		case s.views <- v:
+			n++
+		default:
+		}
+	}
+	return n
+}
+
+func (b *Bus) subscribe(runID string, deviceEvents, activity, device bool) *sub {
 	s := &sub{ch: make(chan *v1.Event, LiveBuffer), runID: runID, deviceEvents: deviceEvents}
 	if activity {
 		s.act = make(chan *v1.AgentActivity, ActivityBuffer)
+		if device {
+			s.views = make(chan *v1.ViewRequest, 8)
+		}
 	}
 	b.mu.Lock()
 	b.subs[s] = struct{}{}
@@ -118,7 +143,7 @@ func (b *Bus) Subscribers() int {
 // SubscribeRun returns a channel receiving live events for runID (or all runs when empty) and an unsubscribe
 // function. If the subscriber falls behind LiveBuffer, the channel closes.
 func (b *Bus) SubscribeRun(runID string, deviceEvents bool) (<-chan *v1.Event, func()) {
-	s := b.subscribe(runID, deviceEvents, false)
+	s := b.subscribe(runID, deviceEvents, false, false)
 	return s.ch, func() { b.unsubscribe(s) }
 }
 
@@ -127,8 +152,14 @@ func (b *Bus) SubscribeRun(runID string, deviceEvents bool) (<-chan *v1.Event, f
 // (DevicePaired, DeviceRevoked) are filtered out of both resumed backlogs and live streams.
 func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents bool, stopping <-chan struct{},
 	send func(*v1.SubscribeEventsResponse) error) error {
+	return b.ServeFor(ctx, req, deviceEvents, false, stopping, send)
+}
+
+// ServeFor is Serve for a subscriber that may be a device (an app): it also gets the `OpenView` requests.
+func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, deviceEvents, device bool, stopping <-chan struct{},
+	send func(*v1.SubscribeEventsResponse) error) error {
 	// Live events first, so nothing committed while the backlog is read is missed; duplicates are skipped by seq.
-	live := b.subscribe(req.RunId, deviceEvents, req.Activity)
+	live := b.subscribe(req.RunId, deviceEvents, req.Activity, device)
 	defer b.unsubscribe(live)
 
 	gen := b.store.Generation()
@@ -180,6 +211,9 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceE
 	for n := len(live.act); n > 0; n-- {
 		<-live.act
 	}
+	for n := len(live.views); n > 0; n-- {
+		<-live.views
+	}
 	for {
 		// The frames queued now are told before the event after them: they were published first (an activity frame
 		// goes out as its write commits, a state event as the next write does), and select alone picks a ready
@@ -203,6 +237,10 @@ func (b *Bus) Serve(ctx context.Context, req *v1.SubscribeEventsRequest, deviceE
 				End: &v1.End{Reason: "daemon shutting down"}}})
 		case a := <-live.act:
 			if err := send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_Activity{Activity: a}}); err != nil {
+				return err
+			}
+		case v := <-live.views: // nil channel for a subscriber that is no app: never ready
+			if err := send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_View{View: v}}); err != nil {
 				return err
 			}
 		case ev, ok := <-live.ch:

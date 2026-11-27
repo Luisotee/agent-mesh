@@ -88,7 +88,7 @@ func (t *permTable) list() []*v1.PendingPermission {
 // with no decision, so their hooks print nothing. With a tool, only the oldest prompt for that tool call ends
 // (the same tool and the same command or path): the call that finished is one of possibly several in parallel,
 // and a prompt for another call, of the same tool or not, is still open.
-func (t *permTable) endFor(agentID, tool, summary string) {
+func (t *permTable) endFor(agentID, tool, summary string) []*pendingPermission {
 	t.mu.Lock()
 	var ended []*pendingPermission
 	var oldest *pendingPermission
@@ -111,6 +111,20 @@ func (t *permTable) endFor(agentID, tool, summary string) {
 	t.mu.Unlock()
 	for _, p := range ended {
 		p.ch <- permDecision{}
+	}
+	return ended
+}
+
+// permissionEvent tells the apps a prompt was held or ended (`PermissionChanged`): they list the pending prompts again.
+// It carries no prompt text. A failed write is only logged: the prompt itself does not depend on it.
+func (d *Daemon) permissionEvent(ctx context.Context, p *v1.PendingPermission, state string) {
+	err := d.store.Write(context.WithoutCancel(ctx), meshdActor, "", func(tx *store.Tx) error {
+		_, err := tx.AppendEvent(&v1.Event{RunId: p.RunId, AgentId: p.AgentId, Payload: &v1.Event_PermissionChanged{
+			PermissionChanged: &v1.PermissionChanged{Id: p.Id, AgentName: p.AgentName, State: state}}})
+		return err
+	})
+	if err != nil {
+		d.log.Warn("permission event", "id", p.Id, "state", state, "err", err)
 	}
 }
 
@@ -261,7 +275,6 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 	p := &pendingPermission{ch: make(chan permDecision, 1)}
 	p.Id, p.RunId, p.AgentId, p.AgentName, p.ParentId, p.Tool, p.Summary = ids.New("p", 8), a.RunId, a.Id, a.Name, parent.Id, tool, summary
 	p.Since = tsOf(d.now())
-	d.perms.add(p)
 	defer d.perms.take(p.Id)
 
 	text := fmt.Sprintf("%s%s] %s asks to use %s", permissionTag, p.Id, a.Name, codeSpan(tool))
@@ -275,14 +288,31 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 		permissionPlannedHook()
 	}
 	var told *v1.Message
+	listed := false // set where the prompt is added: a failure before that lists nothing, so nothing will be sent on p.ch
+	// The prompt is listed, and "asked" said, in the same write that tells the parent, and only when it does: a decision can
+	// come only once it is listed, and its own event waits for this write to commit, so "asked" always comes first; a write
+	// that fails or finds the parent stopped lists nothing, so nothing can be decided into the void.
 	if err := d.store.Write(ctx, meshdActor, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(parent.Id)
 		if err != nil || stopped(cur) {
 			return err
 		}
-		told, err = tellTx(tx, cur, text)
+		if told, err = tellTx(tx, cur, text); err != nil {
+			return err
+		}
+		d.perms.add(p)
+		listed = true
+		_, err = tx.AppendEvent(&v1.Event{RunId: p.RunId, AgentId: p.AgentId, Payload: &v1.Event_PermissionChanged{
+			PermissionChanged: &v1.PermissionChanged{Id: p.Id, AgentName: p.AgentName, State: "asked"}}})
 		return err
 	}); err != nil {
+		// Listed before the commit failed: a decision may have been taken in between, and is not dropped. A
+		// failure before it was listed (a canceled request, a read or tell error) has nothing to wait for.
+		if listed {
+			if _, pending := d.perms.take(p.Id); !pending {
+				return d.decided(ctx, p, none), nil
+			}
+		}
 		return none, nil
 	}
 	if told == nil {
@@ -302,10 +332,21 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 	// Out of time: take the prompt back. If it is already gone, a decision (or the end of the prompt) has been
 	// taken and is on its way: wait for it, so the parent's answer is not lost.
 	if _, pending := d.perms.take(p.Id); !pending {
-		dec := <-p.ch
-		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason}), nil
+		return d.decided(ctx, p, none), nil
 	}
+	d.permissionEvent(ctx, &p.PendingPermission, "ended")
 	return none, nil
+}
+
+// decided returns the decision that has been taken for a prompt, and is on its way on p.ch; the caller going away
+// first (its context ends) gives up the wait and answers `none`.
+func (d *Daemon) decided(ctx context.Context, p *pendingPermission, none *connect.Response[v1.RequestPermissionResponse]) *connect.Response[v1.RequestPermissionResponse] {
+	select {
+	case dec := <-p.ch:
+		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason})
+	case <-ctx.Done():
+		return none
+	}
 }
 
 // DecidePermission answers a pending prompt: the agent's parent, or a device.
@@ -330,6 +371,11 @@ func (d *Daemon) DecidePermission(ctx context.Context, req *connect.Request[v1.D
 		return nil, notFound("no pending permission %q: it was just answered", m.Id)
 	}
 	p.ch <- permDecision{decision: decision, reason: strings.TrimSpace(m.Why)}
+	state := "allowed"
+	if decision == "deny" {
+		state = "denied"
+	}
+	d.permissionEvent(ctx, &p.PendingPermission, state)
 	out := proto.Clone(&p.PendingPermission).(*v1.PendingPermission)
 	return connect.NewResponse(&v1.DecidePermissionResponse{Permission: out}), nil
 }
@@ -350,12 +396,18 @@ func (d *Daemon) ListPermissions(ctx context.Context, req *connect.Request[v1.Li
 	return connect.NewResponse(out), nil
 }
 
+func (d *Daemon) endedPermissions(ended []*pendingPermission) {
+	for _, p := range ended {
+		d.permissionEvent(context.Background(), &p.PendingPermission, "ended")
+	}
+}
+
 // permissionEnded ends the prompts of an agent that a hook shows went on: its turn ended or began again, its
 // session ended, or the tool call a prompt was for ran (a PostToolUse of that tool with that command or path).
 func (d *Daemon) permissionEnded(agentID, event string, payload []byte) {
 	switch event {
 	case "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd":
-		d.perms.endFor(agentID, "", "")
+		d.endedPermissions(d.perms.endFor(agentID, "", ""))
 	case "PostToolUse":
 		var p struct {
 			Tool  string          `json:"tool_name"`
@@ -363,7 +415,7 @@ func (d *Daemon) permissionEnded(agentID, event string, payload []byte) {
 		}
 		if json.Unmarshal(payload, &p) == nil && p.Tool != "" {
 			// The prompt's summary is made of the same input, the same way (PermissionSummary, then cutLine).
-			d.perms.endFor(agentID, cutLine(p.Tool, 80), cutLine(claude.PermissionSummary(p.Input), maxPermissionSummary))
+			d.endedPermissions(d.perms.endFor(agentID, cutLine(p.Tool, 80), cutLine(claude.PermissionSummary(p.Input), maxPermissionSummary)))
 		}
 	}
 }

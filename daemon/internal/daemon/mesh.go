@@ -156,7 +156,7 @@ func (d *Daemon) StartRun(ctx context.Context, req *connect.Request[v1.StartRunR
 		var run *v1.Run
 		for try := 0; ; try++ {
 			run = &v1.Run{Id: ids.New("r", 6), Title: title, Status: v1.RunStatus_RUN_STATUS_OPEN,
-				CreatedAt: tsOf(t.Now()), CreatedBy: t.Actor}
+				CreatedAt: tsOf(t.Now()), CreatedBy: t.Actor, Autonomy: cleanRunAutonomy(req.Msg.Autonomy)}
 			err := t.PutRun(run)
 			if err == nil {
 				break
@@ -174,6 +174,77 @@ func (d *Daemon) StartRun(ctx context.Context, req *connect.Request[v1.StartRunR
 		}
 		out.Run = run
 		return nil
+	})
+	return connect.NewResponse(out), err
+}
+
+// Limits on what a run's autonomy keeps: the brief is read by an agent on every start.
+const (
+	maxAskBefore    = 20
+	maxAskBeforeLen = 200
+	maxRunTitle     = 200
+)
+
+// cleanRunAutonomy trims a run's autonomy: ask-before entries without blanks or repeats, within the limits. Nil stays
+// nil (the host's settings alone apply).
+func cleanRunAutonomy(a *v1.RunAutonomy) *v1.RunAutonomy {
+	if a == nil {
+		return nil
+	}
+	out := &v1.RunAutonomy{KeepRepoLists: a.KeepRepoLists}
+	if !a.KeepRepoLists {
+		out.UserApprovesPlans, out.UserMerges = a.UserApprovesPlans, a.UserMerges || a.UserApprovesPlans
+	}
+	seen := map[string]bool{}
+	for _, e := range a.AskBefore {
+		e = strings.TrimSpace(e)
+		if r := []rune(e); len(r) > maxAskBeforeLen {
+			e = string(r[:maxAskBeforeLen])
+		}
+		if e != "" && !seen[e] && len(out.AskBefore) < maxAskBefore {
+			seen[e] = true
+			out.AskBefore = append(out.AskBefore, e)
+		}
+	}
+	return out
+}
+
+// RenameRun changes a run's title. A root may rename only its own run.
+func (d *Daemon) RenameRun(ctx context.Context, req *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error) {
+	runID, err := scopedRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	if err != nil {
+		return nil, err
+	}
+	if runID == "" {
+		return nil, invalid("name the run (run_id)")
+	}
+	title := strings.Join(strings.Fields(req.Msg.Title), " ")
+	if title == "" {
+		return nil, invalid("give the run a title (--title)")
+	}
+	if r := []rune(title); len(r) > maxRunTitle {
+		title = string(r[:maxRunTitle])
+	}
+	out := &v1.RenameRunResponse{}
+	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRenameRunProcedure, out, func(t *store.Tx) error {
+		run, err := t.GetRun(runID)
+		if errors.Is(err, store.ErrNotFound) {
+			return notFound("no run %q", runID)
+		}
+		if err != nil {
+			return err
+		}
+		out.Run = run
+		if run.Title == title {
+			return nil
+		}
+		prev := run.Title
+		run.Title = title
+		if err := t.UpdateRun(run); err != nil {
+			return err
+		}
+		_, err = t.AppendEvent(&v1.Event{RunId: run.Id, Payload: &v1.Event_RunRenamed{RunRenamed: &v1.RunRenamed{Title: title, Previous: prev}}})
+		return err
 	})
 	return connect.NewResponse(out), err
 }
@@ -304,7 +375,11 @@ func (d *Daemon) GetAgent(ctx context.Context, req *connect.Request[v1.GetAgentR
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.GetAgentResponse{Agent: d.agentView(a)}), nil
+	hist, err := modelHistory(ctx, d.store.Read(ctx), a)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&v1.GetAgentResponse{Agent: d.agentView(a), ModelHistory: hist}), nil
 }
 
 // SendMessage stores a message and asks for its doorbell to be rung.
@@ -774,7 +849,8 @@ func (d *Daemon) SubscribeEvents(ctx context.Context, req *connect.Request[v1.Su
 	// Device pairing/revocation events go only to the host's own device, the one that may manage devices
 	// (requireHostDevice).
 	deviceEvents := actor != nil && actor.Id == localDeviceID
-	return d.bus.Serve(sctx, msg, deviceEvents, d.stopping, stream.Send)
+	isDevice := actor != nil && !IsAgent(actor.Class)
+	return d.bus.ServeFor(sctx, msg, deviceEvents, isDevice, d.stopping, stream.Send)
 }
 
 // parseWaitUntil reads a wait's `until`: a duration from now (`45m`) or an RFC 3339 time, in the future. It is
