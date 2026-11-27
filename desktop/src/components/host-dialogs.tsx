@@ -81,9 +81,11 @@ export function AddHostDialog({ opened, onClose }: { opened?: OpenedLink; onClos
   }
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="icon" variant="ghost" aria-label="Add a host" />}>
-        <Plus />
-      </DialogTrigger>
+      <Tip label="Add a host">
+        <DialogTrigger render={<Button size="icon" variant="ghost" aria-label="Add a host" />}>
+          <Plus />
+        </DialogTrigger>
+      </Tip>
       <DialogContent title="Add a host" description="A host is a machine running meshd, the agent-mesh daemon.">
         {!opened &&
           (looking ? (

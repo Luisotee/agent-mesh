@@ -13,6 +13,7 @@ import { hueStyle } from '@/hue'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
+import { Tip } from '@/components/ui/tooltip'
 
 /**
  * The live dock: a tile per live agent of the open runs, on every host, with what it is doing now. A worker that
@@ -106,24 +107,26 @@ function DockTile({ tile, now, many, selected }: { tile: Tile; now: number; many
           {!tile.lastSent && !when && ' '}
         </span>
       </button>
-      <button
-        type="button"
-        aria-label={`Pin ${a.name} as a split`}
-        title="Show beside the open agent"
-        onClick={() => app.pinSplit(tile.hostId, a.id)}
-        className="absolute top-1 right-7 hidden size-5 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
-      >
-        <Columns2 className="size-3" />
-      </button>
-      <button
-        type="button"
-        aria-label={`Dismiss ${a.name} from the dock`}
-        title="Hide until its state changes"
-        onClick={() => app.dismissTile(tile.hostId, a.id)}
-        className="absolute top-1 right-1 hidden size-5 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
-      >
-        <X className="size-3" />
-      </button>
+      <Tip label="Show beside the open agent">
+        <button
+          type="button"
+          aria-label={`Pin ${a.name} as a split`}
+          onClick={() => app.pinSplit(tile.hostId, a.id)}
+          className="absolute top-1 right-7 hidden size-5 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
+        >
+          <Columns2 className="size-3" />
+        </button>
+      </Tip>
+      <Tip label="Hide until its state changes">
+        <button
+          type="button"
+          aria-label={`Dismiss ${a.name} from the dock`}
+          onClick={() => app.dismissTile(tile.hostId, a.id)}
+          className="absolute top-1 right-1 hidden size-5 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
+        >
+          <X className="size-3" />
+        </button>
+      </Tip>
     </m.li>
   )
 }

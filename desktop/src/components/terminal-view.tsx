@@ -39,7 +39,6 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
   const box = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal>(null)
   const search = useRef<SearchAddon>(null)
-  const fit = useRef<FitAddon>(null)
   // Fits the terminal to its box and, the first time it has one, attaches it.
   const refitRef = useRef<() => void>(undefined)
   const [state, setState] = useState<TermState>({ kind: 'connecting' })
@@ -65,7 +64,6 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     t.open(el)
     term.current = t
     search.current = s
-    fit.current = f
     const session = new TerminalSession({
       ticket: async () => {
         const r = await openTerminal(host.client, agentId, true)
@@ -111,7 +109,6 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
       session.dispose()
       t.dispose()
       term.current = null
-      fit.current = null
       search.current = null
       refitRef.current = undefined
     }

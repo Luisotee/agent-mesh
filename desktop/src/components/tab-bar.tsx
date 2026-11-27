@@ -5,6 +5,7 @@ import { hueStyle } from '@/hue'
 import { MAX_SIDE_PANES, tabKey } from '@/workspace'
 import { useHostViews } from '@/hooks'
 import { StateIcon } from './state-icon'
+import { Tip } from '@/components/ui/tooltip'
 
 /** The agents open as tabs, across hosts: a click shows one, the × closes it. */
 export function TabBar() {
@@ -59,15 +60,16 @@ export function TabBar() {
               {many && view && <span className="shrink-0 text-xs text-muted-foreground">{view.hostName}</span>}
             </button>
             {!active && !beside && side.length < MAX_SIDE_PANES && (
-              <button
-                type="button"
-                aria-label={`Show ${label} beside`}
-                title="Show beside the open agent"
-                onClick={() => app.pinSplit(t.hostId, t.agentId)}
-                className="hidden size-5 shrink-0 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
-              >
-                <Columns2 className="size-3" />
-              </button>
+              <Tip label="Show beside the open agent">
+                <button
+                  type="button"
+                  aria-label={`Show ${label} beside`}
+                  onClick={() => app.pinSplit(t.hostId, t.agentId)}
+                  className="hidden size-5 shrink-0 place-items-center rounded hover:bg-muted group-hover:grid group-focus-within:grid"
+                >
+                  <Columns2 className="size-3" />
+                </button>
+              </Tip>
             )}
             <button
               type="button"
@@ -82,15 +84,16 @@ export function TabBar() {
       })}
     </div>
     {side.length > 0 && (
-      <button
-        type="button"
-        aria-label={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}
-        title={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}
-        onClick={() => app.setSplitDir(dir === 'row' ? 'column' : 'row')}
-        className="mb-1 ml-1 grid size-6 shrink-0 place-items-center rounded hover:bg-muted"
-      >
-        {dir === 'row' ? <Rows2 className="size-3.5" /> : <Columns2 className="size-3.5" />}
-      </button>
+      <Tip label={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}>
+        <button
+          type="button"
+          aria-label={dir === 'row' ? 'Stack the panes' : 'Put the panes side by side'}
+          onClick={() => app.setSplitDir(dir === 'row' ? 'column' : 'row')}
+          className="mb-1 ml-1 grid size-6 shrink-0 place-items-center rounded hover:bg-muted"
+        >
+          {dir === 'row' ? <Rows2 className="size-3.5" /> : <Columns2 className="size-3.5" />}
+        </button>
+      </Tip>
     )}
     </div>
   )

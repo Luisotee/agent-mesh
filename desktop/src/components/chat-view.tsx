@@ -17,6 +17,7 @@ import type { HostRuntime } from '@/model'
 import { emptyTranscript, fromTail, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { Markdown } from './markdown'
 import { hueStyle } from '@/hue'
+import { Tip } from '@/components/ui/tooltip'
 
 const say = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
 
@@ -302,12 +303,16 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
             <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
             {!readOnly && (
               <>
-                <button type="button" aria-label="Edit the queued prompt" title="Take it back to edit" onClick={() => void take(p, true)} className="grid size-5 place-items-center rounded hover:bg-muted">
-                  <Pencil className="size-3" />
-                </button>
-                <button type="button" aria-label="Remove the queued prompt" title="Take it back" onClick={() => void take(p, false)} className="grid size-5 place-items-center rounded hover:bg-muted">
-                  <X className="size-3" />
-                </button>
+                <Tip label="Take it back to edit">
+                  <button type="button" aria-label="Edit the queued prompt" onClick={() => void take(p, true)} className="grid size-5 place-items-center rounded hover:bg-muted">
+                    <Pencil className="size-3" />
+                  </button>
+                </Tip>
+                <Tip label="Take it back">
+                  <button type="button" aria-label="Remove the queued prompt" onClick={() => void take(p, false)} className="grid size-5 place-items-center rounded hover:bg-muted">
+                    <X className="size-3" />
+                  </button>
+                </Tip>
               </>
             )}
           </p>
