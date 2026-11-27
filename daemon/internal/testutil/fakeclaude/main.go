@@ -45,7 +45,7 @@
 // drawn or reported, after one line on stderr ("fakeclaude: startup failed"): a launch that fails.
 //
 // Like Claude Code, `--resume` of a session id it has no conversation for exits 1 ("No conversation found with
-// session ID: <id>"). The conversation is an empty file under $HOME/.claude/projects (found by its id) that exists
+// session ID: <id>"). The conversation is an empty file under $HOME/.claude/projects/<cwd as a folder name> that exists
 // from the start, so a reopen resumes it whatever was typed; with $FAKECLAUDE_LAZY_SESSION set it is written with
 // the first prompt typed, as Claude Code does, and a reopen before that has nothing to resume.
 //
@@ -880,15 +880,15 @@ func readKeys(lines chan<- string) {
 	}
 }
 
-// sessionOnDisk reports whether a conversation with this session id exists under $HOME/.claude/projects (in any
-// folder: Claude Code finds it by its id).
+// sessionOnDisk reports whether a conversation with this session id exists for the working directory, under
+// $HOME/.claude/projects (the folder name is the cwd with every other character a dash).
 func sessionOnDisk() bool {
 	home := os.Getenv("HOME")
 	if home == "" || session == "" {
 		return true
 	}
-	found, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", session+".jsonl"))
-	return len(found) > 0
+	_, err := os.Stat(filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"), session+".jsonl"))
+	return err == nil
 }
 
 // touchSession makes the session's transcript exist (empty unless $FAKECLAUDE_TRANSCRIPT writes turns to it): Claude

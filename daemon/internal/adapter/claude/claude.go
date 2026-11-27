@@ -296,7 +296,7 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if sid == "" {
 		sid = a.NewSessionID()
 		argv = []string{bin, "--session-id", sid}
-	} else if !SessionExists(m.Env, sid) {
+	} else if !SessionExists(m.Env, m.Cwd, sid) {
 		// The id was chosen at the first launch, but Claude Code writes the conversation only with its first turn: an
 		// agent reopened before then has nothing to resume (`--resume` exits 1 with "No conversation found"). The same
 		// id starts it fresh, and the first turn is then the conversation `--resume` finds next time.

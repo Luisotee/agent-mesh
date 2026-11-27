@@ -140,27 +140,35 @@ func TestPlanLaunchResumesAndDeniesAPlanner(t *testing.T) {
 // A reopen of a session Claude Code has no conversation for (it writes one with the first prompt, and deletes old ones)
 // launches the same id fresh: `--resume` of it exits 1.
 func TestPlanLaunchStartsAMissingConversationFreshUnderItsId(t *testing.T) {
-	home := t.TempDir()
+	home, cwd := t.TempDir(), t.TempDir()
 	plan := func(session string) *adapterv1.PlanLaunchResponse {
 		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
-			Binary: "claude", ResumeSessionId: session, Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: t.TempDir(), Env: map[string]string{"HOME": home}}))
+			Binary: "claude", ResumeSessionId: session, Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: cwd, Env: map[string]string{"HOME": home}}))
 		if err != nil {
 			t.Fatal(err)
 		}
 		return res.Msg
 	}
+	env := map[string]string{"HOME": home}
+	write := func(path string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if got := plan("sid-new"); strings.Join(got.Argv[:3], " ") != "claude --session-id sid-new" || !got.ResumeMissing || got.SessionId != "sid-new" {
 		t.Errorf("a missing conversation: argv %v, resume_missing %v, session %q", got.Argv, got.ResumeMissing, got.SessionId)
 	}
-	dir := filepath.Join(home, ".claude", "projects", "-some-folder")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
+	// One kept under another folder is not found by `--resume` here: started fresh as well.
+	write(filepath.Join(home, ".claude", "projects", "-some-other-folder", "sid-else.jsonl"))
+	if got := plan("sid-else"); !got.ResumeMissing {
+		t.Errorf("a conversation of another folder was resumed: %v", got.Argv)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "sid-old.jsonl"), []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	write(TranscriptPath(env, cwd, "sid-old"))
 	if got := plan("sid-old"); strings.Join(got.Argv[:3], " ") != "claude --resume sid-old" || got.ResumeMissing {
-		t.Errorf("an existing conversation (in any project folder): argv %v, resume_missing %v", got.Argv, got.ResumeMissing)
+		t.Errorf("an existing conversation: argv %v, resume_missing %v", got.Argv, got.ResumeMissing)
 	}
 }
 

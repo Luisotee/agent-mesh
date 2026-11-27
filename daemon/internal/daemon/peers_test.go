@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -560,7 +561,7 @@ func TestImportingPeersCarriesTheirConversationsAndWorktreePathsAcrossAndAskResu
 
 	// Its conversation is on this machine (Claude Code keeps it by id): asked, it resumes it in that worktree instead of
 	// starting one.
-	if dir := filepath.Join(w.home, ".claude", "projects", "-old-peer-worktree"); os.MkdirAll(dir, 0o700) == nil {
+	if dir := filepath.Join(w.home, ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(wtA, "-")); os.MkdirAll(dir, 0o700) == nil {
 		if err := os.WriteFile(filepath.Join(dir, "sess-alpha.jsonl"), []byte("{}\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}

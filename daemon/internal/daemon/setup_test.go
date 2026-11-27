@@ -325,6 +325,16 @@ func TestAChatOpenedInTheSetupProjectIsTheSetupAgent(t *testing.T) {
 	if err != nil || got.Id != a.Id || got.Plain {
 		t.Fatalf("a new chat in the setup project = %+v, %v; want the setup agent %s", got, err, a.Id)
 	}
+	// The run the caller made for the chat is left empty: the host stops it, whatever the client.
+	runs, err := h.device.Mesh.ListRuns(ctx, connect.NewRequest(&v1.ListRunsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range runs.Msg.Runs {
+		if r.Id != first.Run.Id && r.Status == v1.RunStatus_RUN_STATUS_OPEN {
+			t.Errorf("run %s (%q) was left open and empty", r.Id, r.Title)
+		}
+	}
 
 	// Gone (retired), it comes back with its conversation, even if it never had a first turn.
 	if _, err := h.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta("retire-setup"), Agent: a.Id})); err != nil {

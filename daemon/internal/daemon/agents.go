@@ -384,7 +384,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	exiting := d.agentOfExit(ctx, terminalID, agentID, reopenID)
 	words := d.exitWords(ctx, exiting) // read before the write that records the exit
 	printed := ""
-	if exiting != nil && code > 0 && signal == 0 && reason == "exited" {
+	if exiting != nil && !exiting.HadTurn && code > 0 && signal == 0 && reason == "exited" {
 		printed = d.screenPrinted(ctx, terminalID) // a CLI that failed at once says why on its screen
 	}
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
@@ -994,6 +994,12 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		res, err := d.StartSetup(ctx, connect.NewRequest(&v1.StartSetupRequest{Kind: m.Kind, Tier: m.Tier}))
 		if err != nil {
 			return nil, err
+		}
+		// The run the caller made for this chat stays empty: it is stopped, so a client need not (the desktop does too).
+		if m.RunId != "" && m.RunId != res.Msg.Run.GetId() {
+			if agents, err := d.store.Read(ctx).ListAgents(m.RunId); err == nil && len(agents) == 0 {
+				_, _ = d.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{RunId: m.RunId}))
+			}
 		}
 		return connect.NewResponse(&v1.SpawnAgentResponse{Agent: res.Msg.Agent}), nil
 	}

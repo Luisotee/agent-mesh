@@ -33,15 +33,19 @@ const (
 
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 
-// SessionExists reports whether Claude Code has written a conversation with this id, in any project folder of its
-// config home (a conversation is found by its id alone, so the folder the cwd maps to need not be worked out).
-func SessionExists(env map[string]string, session string) bool {
+// SessionExists reports whether Claude Code has written a conversation with this id for the folder `cwd` (where
+// `--resume` looks: `TranscriptPath`); with no cwd, in any project folder of its config home.
+func SessionExists(env map[string]string, cwd, session string) bool {
 	home := configHome(env)
 	if home == "" || session == "" {
 		return true // no config home to look in: assume it is there, as a resume did before
 	}
 	if strings.ContainsAny(session, `/\*?[`) {
 		return false
+	}
+	if cwd != "" {
+		_, err := os.Stat(TranscriptPath(env, cwd, session))
+		return err == nil
 	}
 	found, err := filepath.Glob(filepath.Join(home, "projects", "*", session+".jsonl"))
 	return err == nil && len(found) > 0
