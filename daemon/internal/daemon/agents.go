@@ -352,6 +352,26 @@ func (d *Daemon) adopt(ctx context.Context) error {
 	return nil
 }
 
+// agentOfExit is the agent a terminal's exit is about, as recordExit finds it (nil when none): read before the write, for
+// what exitWords needs.
+func (d *Daemon) agentOfExit(ctx context.Context, terminalID, agentID, reopenID string) *v1.Agent {
+	r := d.store.Read(ctx)
+	a, err := r.AgentByTerminal(terminalID)
+	if errors.Is(err, store.ErrNotFound) && agentID != "" {
+		a, err = r.GetAgent(agentID)
+		if err == nil && a.TerminalId != "" && a.TerminalId != terminalID {
+			return nil // another process's exit, as recordExit finds
+		}
+	}
+	if err != nil {
+		return nil
+	}
+	if p := a.PendingReopen; p != nil && p.Id != reopenID {
+		return nil // a reopen's own stop of the old process: recordExit records nothing and tells no one
+	}
+	return a
+}
+
 // recordExit marks a terminal's agent exited (unless it already is), then lets the host forget the terminal.
 // The agent is found by the terminal, or by the agent label the terminal was created with: a CLI that exits
 // at once can do so before its spawn recorded the terminal. A terminal no agent claims is not acknowledged.
@@ -368,6 +388,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	}
 	claimed, replaced, realExit, owner := false, false, false, ""
 	var alert *v1.Message
+	words := d.exitWords(ctx, d.agentOfExit(ctx, terminalID, agentID, reopenID)) // read before the write that records the exit
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
 		if errors.Is(err, store.ErrNotFound) && agentID != "" {
@@ -437,7 +458,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 		}
 		// Its parent hears of it when it still owed a report (a stop someone asked for is told too: it is the
 		// parent's agent that ended).
-		if alert, err = d.alertExitTx(tx, a, lastSaid, code, signal, reason); err != nil {
+		if alert, err = d.alertExitTx(tx, a, lastSaid, words, code, signal, reason); err != nil {
 			return err
 		}
 		return tx.RevokeTokens(a.Id)
@@ -1352,6 +1373,10 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 	out := &v1.StopAgentResponse{}
 	dropped := false
 	var alert *v1.Message
+	words := ""
+	if a.PendingReopen != nil && a.TerminalId == "" { // the case that records the exit below
+		words = d.exitWords(ctx, a)
+	}
 	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceStopAgentProcedure, out, func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
@@ -1364,7 +1389,7 @@ func (d *Daemon) StopAgent(ctx context.Context, req *connect.Request[v1.StopAgen
 			dropped = true
 			if cur.TerminalId == "" && !stopped(cur) {
 				// Its process already died, the exit left to the reopen this drops: record it now, or nothing would.
-				if alert, err = d.recordStopped(tx, cur); err != nil {
+				if alert, err = d.recordStopped(tx, cur, words); err != nil {
 					return err
 				}
 			}
@@ -1399,7 +1424,7 @@ func setExitDetail(tx *store.Tx, a *v1.Agent, detail string) error {
 }
 
 // recordStopped records the exit of an agent whose process is already gone (applied to cur; the caller stores it).
-func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) (*v1.Message, error) {
+func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent, words string) (*v1.Message, error) {
 	lastSaid := a.StateDetail // the exit event below overwrites it
 	ev := &adapterv1.AgentEvent{Time: timestamppb.New(tx.Now()),
 		Kind: &adapterv1.AgentEvent_ProcessExited{ProcessExited: &adapterv1.ProcessExited{ExitCode: -1}}}
@@ -1413,7 +1438,7 @@ func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent) (*v1.Message, error) {
 		AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "stopped"}}}); err != nil {
 		return nil, err
 	}
-	alert, err := d.alertExitTx(tx, a, lastSaid, -1, 0, "stopped")
+	alert, err := d.alertExitTx(tx, a, lastSaid, words, -1, 0, "stopped")
 	if err != nil {
 		return nil, err
 	}
