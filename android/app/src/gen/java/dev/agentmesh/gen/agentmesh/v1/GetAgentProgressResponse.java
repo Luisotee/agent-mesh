@@ -16,7 +16,9 @@ public  final class GetAgentProgressResponse extends
     GetAgentProgressResponseOrBuilder {
   private GetAgentProgressResponse() {
     plan_ = emptyProtobufList();
+    marks_ = emptyProtobufList();
   }
+  private int bitField0_;
   public static final int SUPPORTED_FIELD_NUMBER = 1;
   private boolean supported_;
   /**
@@ -267,6 +269,244 @@ public  final class GetAgentProgressResponse extends
   private void clearContextWindow() {
 
     contextWindow_ = 0L;
+  }
+
+  public static final int WAIT_FIELD_NUMBER = 5;
+  private dev.agentmesh.gen.agentmesh.v1.AgentWait wait_;
+  /**
+   * <pre>
+   * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+   */
+  @java.lang.Override
+  public boolean hasWait() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentWait getWait() {
+    return wait_ == null ? dev.agentmesh.gen.agentmesh.v1.AgentWait.getDefaultInstance() : wait_;
+  }
+  /**
+   * <pre>
+   * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+   */
+  private void setWait(dev.agentmesh.gen.agentmesh.v1.AgentWait value) {
+    java.util.Objects.requireNonNull(value);
+    wait_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeWait(dev.agentmesh.gen.agentmesh.v1.AgentWait value) {
+    java.util.Objects.requireNonNull(value);
+    if (wait_ != null &&
+        wait_ != dev.agentmesh.gen.agentmesh.v1.AgentWait.getDefaultInstance()) {
+      wait_ =
+        dev.agentmesh.gen.agentmesh.v1.AgentWait.newBuilder(wait_).mergeFrom(value).buildPartial();
+    } else {
+      wait_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+   */
+  private void clearWait() {
+    wait_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int MARKS_FIELD_NUMBER = 6;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.ContextMark> marks_;
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.ContextMark> getMarksList() {
+    return marks_;
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.ContextMarkOrBuilder> 
+      getMarksOrBuilderList() {
+    return marks_;
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  @java.lang.Override
+  public int getMarksCount() {
+    return marks_.size();
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.ContextMark getMarks(int index) {
+    return marks_.get(index);
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.ContextMarkOrBuilder getMarksOrBuilder(
+      int index) {
+    return marks_.get(index);
+  }
+  private void ensureMarksIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.ContextMark> tmp = marks_;
+    if (!tmp.isModifiable()) {
+      marks_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  private void setMarks(
+      int index, dev.agentmesh.gen.agentmesh.v1.ContextMark value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMarksIsMutable();
+    marks_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  private void addMarks(dev.agentmesh.gen.agentmesh.v1.ContextMark value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMarksIsMutable();
+    marks_.add(value);
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  private void addMarks(
+      int index, dev.agentmesh.gen.agentmesh.v1.ContextMark value) {
+    java.util.Objects.requireNonNull(value);
+    ensureMarksIsMutable();
+    marks_.add(index, value);
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  private void addAllMarks(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.ContextMark> values) {
+    ensureMarksIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, marks_);
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  private void clearMarks() {
+    marks_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+   * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+   * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+   * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+   */
+  private void removeMarks(int index) {
+    ensureMarksIsMutable();
+    marks_.remove(index);
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.GetAgentProgressResponse parseFrom(
@@ -636,6 +876,263 @@ public  final class GetAgentProgressResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+     */
+    @java.lang.Override
+    public boolean hasWait() {
+      return instance.hasWait();
+    }
+    /**
+     * <pre>
+     * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentWait getWait() {
+      return instance.getWait();
+    }
+    /**
+     * <pre>
+     * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+     */
+    public Builder setWait(dev.agentmesh.gen.agentmesh.v1.AgentWait value) {
+      copyOnWrite();
+      instance.setWait(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+     */
+    public Builder setWait(
+        dev.agentmesh.gen.agentmesh.v1.AgentWait.Builder builderForValue) {
+      copyOnWrite();
+      instance.setWait(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+     */
+    public Builder mergeWait(dev.agentmesh.gen.agentmesh.v1.AgentWait value) {
+      copyOnWrite();
+      instance.mergeWait(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the agent is waiting on now, filled for every CLI (even where `supported` is false). Meaningful while it is idle.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.AgentWait wait = 5 [json_name = "wait"];</code>
+     */
+    public Builder clearWait() {  copyOnWrite();
+      instance.clearWait();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.ContextMark> getMarksList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getMarksList());
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    @java.lang.Override
+    public int getMarksCount() {
+      return instance.getMarksCount();
+    }/**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.ContextMark getMarks(int index) {
+      return instance.getMarks(index);
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder setMarks(
+        int index, dev.agentmesh.gen.agentmesh.v1.ContextMark value) {
+      copyOnWrite();
+      instance.setMarks(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder setMarks(
+        int index, dev.agentmesh.gen.agentmesh.v1.ContextMark.Builder builderForValue) {
+      copyOnWrite();
+      instance.setMarks(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder addMarks(dev.agentmesh.gen.agentmesh.v1.ContextMark value) {
+      copyOnWrite();
+      instance.addMarks(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder addMarks(
+        int index, dev.agentmesh.gen.agentmesh.v1.ContextMark value) {
+      copyOnWrite();
+      instance.addMarks(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder addMarks(
+        dev.agentmesh.gen.agentmesh.v1.ContextMark.Builder builderForValue) {
+      copyOnWrite();
+      instance.addMarks(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder addMarks(
+        int index, dev.agentmesh.gen.agentmesh.v1.ContextMark.Builder builderForValue) {
+      copyOnWrite();
+      instance.addMarks(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder addAllMarks(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.ContextMark> values) {
+      copyOnWrite();
+      instance.addAllMarks(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder clearMarks() {
+      copyOnWrite();
+      instance.clearMarks();
+      return this;
+    }
+    /**
+     * <pre>
+     * Where the daemon itself acts on the conversation's size for this agent, lowest first: the thresholds that apply to
+     * its role (a lead's reset point, a planner's compaction when approved, a worker's compactions), those below the window
+     * only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
+     * conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ContextMark marks = 6 [json_name = "marks"];</code>
+     */
+    public Builder removeMarks(int index) {
+      copyOnWrite();
+      instance.removeMarks(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetAgentProgressResponse)
   }
   @java.lang.Override
@@ -652,15 +1149,19 @@ public  final class GetAgentProgressResponse extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "supported_",
             "plan_",
             dev.agentmesh.gen.agentmesh.v1.PlanItem.class,
             "contextTokens_",
             "contextWindow_",
+            "wait_",
+            "marks_",
+            dev.agentmesh.gen.agentmesh.v1.ContextMark.class,
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0001\u0000\u0001\u0007\u0002\u001b" +
-              "\u0003\u0002\u0004\u0002";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0002\u0000\u0001\u0007\u0002\u001b" +
+              "\u0003\u0002\u0004\u0002\u0005\u1009\u0000\u0006\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

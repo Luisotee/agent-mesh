@@ -2,7 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { buildTrees, knownRepos, messagesOf, repoName, sameRepo, statusSentence, joinWaiting } from './derive'
-import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgentWaitKind, AgentWaitSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
 
 const a = (id: string, o: Parameters<typeof create<typeof AgentSchema>>[1] = {}) => create(AgentSchema, { id, name: id, runId: 'r1', createdAt: timestampFromMs(1000), ...o })
@@ -64,6 +64,27 @@ describe('statusSentence', () => {
     // The live event's reason, until the agent is reloaded.
     expect(statusSentence(a('x', { state: AgentState.EXITED, exitCode: -1, stateDetail: 'killed' }))).toBe('Stopped')
     expect(statusSentence(a('x', { state: AgentState.UNKNOWN }))).toMatch(/unknown/)
+  })
+})
+
+describe('what an idle agent waits on', () => {
+  const idle = a('x', { state: AgentState.IDLE })
+  const wait = (w: Partial<{ kind: AgentWaitKind; detail: string; from: string }>) => create(AgentWaitSchema, w)
+  it('says "waiting for a message" only before the host has said what it waits on', () => {
+    expect(statusSentence(idle)).toBe('Idle, waiting for a message')
+  })
+  it('names the background job, the declared wait, the answer, the report and the sender of the message', () => {
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.BACKGROUND, detail: 'go test ./...' }))).toBe('Waiting on its background job: go test ./...')
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.DECLARED, detail: 'CI on #12', from: 'lead' }))).toBe('Waiting: CI on #12')
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.ANSWER, from: 'app-lead' }))).toBe('Asked app-lead, waiting for the answer')
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.ANSWER, from: 'lead' }))).toBe('Asked lead, waiting for the answer')
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.REPORTED, from: 'app-lead' }))).toBe('Reported to app-lead, nothing owed')
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.MESSAGE, from: 'app-lead' }))).toBe('Idle, waiting for a task from app-lead')
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.MESSAGE, from: 'user' }))).toBe('Idle, waiting for you')
+  })
+  it('keeps a long command to one line, and ignores the wait of an agent that is not idle', () => {
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.BACKGROUND, detail: 'x'.repeat(100) })).length).toBeLessThan(110)
+    expect(statusSentence(a('x', { state: AgentState.WORKING }), wait({ kind: AgentWaitKind.MESSAGE, from: 'user' }))).toBe('Working')
   })
 })
 
