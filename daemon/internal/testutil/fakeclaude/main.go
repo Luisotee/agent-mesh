@@ -220,6 +220,12 @@ func main() {
 			time.Sleep(time.Hour) // a fresh start that never reaches its prompt
 		}
 	}
+	// The inbox is bound before anything is drawn: a daemon that takes the terminal for settled once its output
+	// is quiet must find the socket there, or it types the doorbell (a race a loaded host lost one run in thirty).
+	frames := make(chan string, 8)
+	if dir := os.Getenv("FAKECLAUDE_INBOX"); dir != "" {
+		serveInbox(dir, frames)
+	}
 	fmt.Printf("fake claude %s\r\n", session)
 	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
 		fmt.Print("Quick safety check: Is this a project you created or one you trust?\r\n" +
@@ -241,10 +247,6 @@ func main() {
 				fmt.Print("\x1b7\x1b[1;118H.\x1b8")
 			}
 		}()
-	}
-	frames := make(chan string, 8)
-	if dir := os.Getenv("FAKECLAUDE_INBOX"); dir != "" {
-		serveInbox(dir, frames)
 	}
 	dropped, stuck := 0, 0
 	for {

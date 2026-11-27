@@ -456,6 +456,12 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 			running[i] = a.Id
 		}
 	}
+	// A host with no room for the first reviewer: wait for a place (review.wait_room) instead of refusing the round.
+	if note, err := d.waitForRoom(ctx, running, "a review round"); err != nil {
+		return nil, err
+	} else if note != "" {
+		out.Notes = append(out.Notes, note)
+	}
 	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, true, running, func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
@@ -911,4 +917,66 @@ func (d *Daemon) ListAsks(ctx context.Context, req *connect.Request[v1.ListAsksR
 		out.Asks = append(out.Asks, a)
 	}
 	return connect.NewResponse(out), nil
+}
+
+// roomPoll is how often a round that waits for room looks again. A variable for tests.
+var roomPoll = 2 * time.Second
+
+// waitForRoom holds a review round while the host has no room for its first reviewer (the agent cap or the memory
+// floor, not the quota: a quota doesn't free in minutes), for at most `review.wait_room`, looking every roomPoll;
+// the caller's request stays open meanwhile, so nothing is stored and nothing survives a restart. A round whose
+// every slot has a running reviewer to reuse needs no new process and never waits. It returns a note for the
+// caller when it did wait; when the time is up, or the caller gave up, the round goes on to refuse as it always did
+// (the members that can't start say why). `running` is by slot, as collectRound takes it.
+func (d *Daemon) waitForRoom(ctx context.Context, running []string, what string) (string, error) {
+	need := false
+	var shared []string
+	for _, id := range running {
+		if id == "" {
+			need = true
+		} else {
+			shared = append(shared, id)
+		}
+	}
+	if !need {
+		return "", nil
+	}
+	maxWait, err := d.secondsSetting(ctx, "review.wait_room")
+	if err != nil || maxWait <= 0 {
+		return "", err
+	}
+	start := d.now()
+	hasRoom := func() (bool, error) {
+		r := d.store.Read(ctx)
+		err := d.capGuard(r, what, "", shared...)
+		if err == nil {
+			err = d.checkMemoryGuard(r, what)
+		}
+		var ce *connect.Error
+		if errors.As(err, &ce) && ce.Code() == connect.CodeResourceExhausted {
+			return false, nil
+		}
+		return true, nil // room, or a failure that isn't room (the start reports it)
+	}
+	for {
+		if ok, err := hasRoom(); err != nil {
+			return "", err
+		} else if ok {
+			if waited := d.now().Sub(start); waited >= roomPoll/2 {
+				return fmt.Sprintf("waited %s for room for a reviewer (caps.agents or the memory floor; review.wait_room is %s)",
+					waited.Round(time.Second), maxWait), nil
+			}
+			return "", nil
+		}
+		if d.now().Sub(start) >= maxWait {
+			return "", nil
+		}
+		select {
+		case <-time.After(roomPoll):
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-d.stopping:
+			return "", nil
+		}
+	}
 }

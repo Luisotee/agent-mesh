@@ -358,6 +358,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "the tier the reviewers of a small PR run on when the round names none (a worker's own round)"},
 		Leaf{Key: "review.tier.large", Type: String, Default: "strong", Choices: []string{"light", "mid", "strong"},
 			Summary: "the tier the reviewers of a large PR run on when the round names none (a worker's own round)"},
+		Leaf{Key: "review.wait_room", Type: Seconds, Default: 300.0,
+			Summary: "seconds a review round waits, its `mesh ask` staying open, for room to start its first reviewer (the agent cap `caps.agents` or the memory floor) before it is refused as before; a quota is not waited for; 0 refuses at once"},
 		Leaf{Key: "review.rounds.small", Type: Int, Default: 1.0,
 			Summary: "review rounds a small PR gets at most (a ceiling, not a quota)"},
 		Leaf{Key: "review.rounds.large", Type: Int, Default: 2.0,

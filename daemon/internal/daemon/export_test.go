@@ -189,3 +189,10 @@ func (d *Daemon) RunDirForTest(run string) string { return d.paths.RunDir(run) }
 func CopyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes int64) WorktreeInclude {
 	return copyWorktreeInclude(ctx, repo, worktree, maxBytes)
 }
+
+// SetRoomPoll sets how often a review round waits for room looks again; it returns the old one.
+func SetRoomPoll(d time.Duration) time.Duration {
+	old := roomPoll
+	roomPoll = d
+	return old
+}
