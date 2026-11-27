@@ -3,7 +3,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
+import { ConfirmDialog } from '@/components/ui/confirm'
 import { MarkdownField } from '@/components/ui/markdown-field'
+import { invoked, opensDialog } from '@/composer-commands'
+import { useComposerAssist } from './composer-assist'
 import { loadDraft, saveDraft } from '@/layout'
 import { useApp, useAppState, useHostState } from '@/context'
 import { messagesOf, statusSentence } from '@/derive'
@@ -393,6 +396,13 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     }
   }, [fill, agentId, app, setText])
   const hasQueue = useHostState(host, (s) => (s.prompts[agentId]?.length ?? 0) > 0)
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
+  // A command that ends the CLI's process asks first: the text waits here for the answer.
+  const [confirming, setConfirming] = useState('')
+  const assist = useComposerAssist({
+    host, agentId, kind: agent?.kind ?? '', state: agent?.state, text, setText, field: fieldRef,
+    disabled: readOnly || !agent || agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED || !agent.terminalId,
+  })
   if (!agent) return null
   const gone = agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED || !agent.terminalId
   const atPrompt = agent.state === AgentState.NEEDS_INPUT
@@ -405,14 +415,22 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     : gone
       ? 'The agent has stopped, so there is no terminal to type into. Send it a task from its menu (⋯) to bring it back.'
       : ''
-  async function send() {
+  async function send(confirmed = false) {
     const body = text.trim()
     if (!body || busy) return
+    // `/exit` and the like end the session: ask first. `/resume` and the pickers open a dialog the chat can't show.
+    const cmd = invoked(body, assist.commands)
+    if (cmd?.command.danger && !confirmed) {
+      setConfirming(body)
+      return
+    }
     setBusy(true)
     setError('')
     try {
       const res = await promptAgent(host.client, agentId, body)
       if (res.queued) host.store.setState(addPrompt(res.queued))
+      // Typed at once, a dialog is on the terminal's screen now: take the user there.
+      else if (cmd && opensDialog(cmd.command, cmd.args)) openTerminal()
       // What was sent goes; text written while it was in flight stays. The saved draft too, directly: a composer
       // unmounted meanwhile (another tab opened) runs no updater.
       const left = (cur: string) => {
@@ -484,11 +502,15 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
           className="flex-1 text-sm focus-visible:ring-identity"
           value={text}
           disabled={!!why}
-          placeholder={why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
+          ref={fieldRef}
+          {...assist.field}
+          title={assist.suggestion ? 'Tab takes the suggestion, Esc drops it' : undefined}
+          placeholder={assist.suggestion ? assist.suggestion : why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
           onValueChange={setText}
           onSend={() => void send()}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return
+            if (assist.onKeyDown(e)) return
             const interrupt = parseChord(keys.interrupt)
             if (interrupt && working && canStop && matches(e.nativeEvent, interrupt)) {
               e.preventDefault()
@@ -512,6 +534,17 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
           <Send /> {working ? 'Queue' : 'Send'}
         </Button>
       </div>
+      {assist.popup}
+      <ConfirmDialog
+        open={!!confirming}
+        onOpenChange={(o) => !o && setConfirming('')}
+        title="Send this command?"
+        description={`${confirming.split(/\s/)[0]} ends or signs out of ${agent.name}'s session. Its terminal closes; you can resume it from its menu.`}
+        action="Send"
+        run={async () => {
+          await send(true)
+        }}
+      />
       {why && <p className="text-xs text-muted-foreground">{why}</p>}
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     </form>
@@ -582,6 +615,16 @@ function ChatBlock({ block, agentId, running }: { block: Block; agentId: string;
           {block.entry.truncated && <p className="text-xs text-muted-foreground">… cut here</p>}
           <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="start" />
         </div>
+      )
+    case 'output':
+      // What a command the user typed printed (`/context`, `/usage`): the CLI's own words, not the model's.
+      return (
+        <pre
+          className={cn('max-h-64 max-w-[72ch] overflow-auto rounded-md border bg-surface px-3 py-2 font-mono text-xs whitespace-pre-wrap', block.entry.isError ? 'border-destructive text-destructive' : 'text-muted-foreground')}
+          data-kind="output"
+        >
+          {block.entry.text}
+        </pre>
       )
     case 'tools':
       return (

@@ -579,6 +579,40 @@ public class MeshServiceClient(
 
 
   /**
+   *  The commands an agent's CLI accepts when typed at its prompt, with descriptions and argument hints, for the
+   *  composer's `/` completion: the CLI's built-ins and what it loads for this agent (the repo's and the user's
+   *  commands, skills, plugins). Read from the CLI where it can say (Claude Code), else from a table of its
+   *  built-ins plus the files it reads.
+   */
+  override suspend fun listAgentCommands(request: ListAgentCommandsRequest, headers: Headers): ResponseMessage<ListAgentCommandsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListAgentCommands",
+      dev.agentmesh.gen.agentmesh.v1.ListAgentCommandsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListAgentCommandsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  The prompt Claude Code suggests next (grey text in its empty input box after a turn), read from the agent's
+   *  screen. Empty when there is none, the agent is not at its prompt, or its CLI has no such feature.
+   */
+  override suspend fun getPromptSuggestion(request: GetPromptSuggestionRequest, headers: Headers): ResponseMessage<GetPromptSuggestionResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetPromptSuggestion",
+      dev.agentmesh.gen.agentmesh.v1.GetPromptSuggestionRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetPromptSuggestionResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
    *  a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
    *  with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else

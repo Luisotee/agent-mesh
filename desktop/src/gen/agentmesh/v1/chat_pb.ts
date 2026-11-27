@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/chat.proto.
  */
 export const file_agentmesh_v1_chat: GenFile = /*@__PURE__*/
-  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiQQoTUHJvbXB0QWdlbnRSZXNwb25zZRIqCgZxdWV1ZWQYASABKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0IiMKEkxpc3RQcm9tcHRzUmVxdWVzdBINCgVhZ2VudBgBIAEoCSJCChNMaXN0UHJvbXB0c1Jlc3BvbnNlEisKB3Byb21wdHMYASADKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0ImIKFVdpdGhkcmF3UHJvbXB0UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhEKCXByb21wdF9pZBgDIAEoCSJEChZXaXRoZHJhd1Byb21wdFJlc3BvbnNlEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQiTwoVSW50ZXJydXB0QWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkiKQoWSW50ZXJydXB0QWdlbnRSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIKsQBCg5UcmFuc2NyaXB0S2luZBIfChtUUkFOU0NSSVBUX0tJTkRfVU5TUEVDSUZJRUQQABIYChRUUkFOU0NSSVBUX0tJTkRfVVNFUhABEh0KGVRSQU5TQ1JJUFRfS0lORF9BU1NJU1RBTlQQAhIdChlUUkFOU0NSSVBUX0tJTkRfVE9PTF9DQUxMEAMSHwobVFJBTlNDUklQVF9LSU5EX1RPT0xfUkVTVUxUEAQSGAoUVFJBTlNDUklQVF9LSU5EX01FU0gQBWIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiQQoTUHJvbXB0QWdlbnRSZXNwb25zZRIqCgZxdWV1ZWQYASABKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0IiMKEkxpc3RQcm9tcHRzUmVxdWVzdBINCgVhZ2VudBgBIAEoCSJCChNMaXN0UHJvbXB0c1Jlc3BvbnNlEisKB3Byb21wdHMYASADKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0ImIKFVdpdGhkcmF3UHJvbXB0UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhEKCXByb21wdF9pZBgDIAEoCSJEChZXaXRoZHJhd1Byb21wdFJlc3BvbnNlEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQiTwoVSW50ZXJydXB0QWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkiKQoWSW50ZXJydXB0QWdlbnRSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIIqYBCgxBZ2VudENvbW1hbmQSDAoEbmFtZRgBIAEoCRIPCgdhbGlhc2VzGAIgAygJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEhUKDWFyZ3VtZW50X2hpbnQYBCABKAkSDgoGc291cmNlGAUgASgJEisKBmRpYWxvZxgGIAEoDjIbLmFnZW50bWVzaC52MS5Db21tYW5kRGlhbG9nEg4KBmRhbmdlchgHIAEoCCIpChhMaXN0QWdlbnRDb21tYW5kc1JlcXVlc3QSDQoFYWdlbnQYASABKAkiXAoZTGlzdEFnZW50Q29tbWFuZHNSZXNwb25zZRIRCglzdXBwb3J0ZWQYASABKAgSLAoIY29tbWFuZHMYAiADKAsyGi5hZ2VudG1lc2gudjEuQWdlbnRDb21tYW5kIisKGkdldFByb21wdFN1Z2dlc3Rpb25SZXF1ZXN0Eg0KBWFnZW50GAEgASgJIisKG0dldFByb21wdFN1Z2dlc3Rpb25SZXNwb25zZRIMCgR0ZXh0GAEgASgJKugBCg5UcmFuc2NyaXB0S2luZBIfChtUUkFOU0NSSVBUX0tJTkRfVU5TUEVDSUZJRUQQABIYChRUUkFOU0NSSVBUX0tJTkRfVVNFUhABEh0KGVRSQU5TQ1JJUFRfS0lORF9BU1NJU1RBTlQQAhIdChlUUkFOU0NSSVBUX0tJTkRfVE9PTF9DQUxMEAMSHwobVFJBTlNDUklQVF9LSU5EX1RPT0xfUkVTVUxUEAQSGAoUVFJBTlNDUklQVF9LSU5EX01FU0gQBRIiCh5UUkFOU0NSSVBUX0tJTkRfQ09NTUFORF9PVVRQVVQQBipjCg1Db21tYW5kRGlhbG9nEh4KGkNPTU1BTkRfRElBTE9HX1VOU1BFQ0lGSUVEEAASFwoTQ09NTUFORF9ESUFMT0dfQkFSRRABEhkKFUNPTU1BTkRfRElBTE9HX0FMV0FZUxACYgZwcm90bzM", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * One line of the conversation, in the order the CLI wrote it. Thinking, subagents' own turns and the CLI's
@@ -366,6 +366,145 @@ export const InterruptAgentResponseSchema: GenMessage<InterruptAgentResponse> = 
   messageDesc(file_agentmesh_v1_chat, 10);
 
 /**
+ * One command an agent's CLI accepts when it is typed at its prompt.
+ *
+ * @generated from message agentmesh.v1.AgentCommand
+ */
+export type AgentCommand = Message<"agentmesh.v1.AgentCommand"> & {
+  /**
+   * The name without the slash; a plugin's is `plugin:name`.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated string aliases = 2;
+   */
+  aliases: string[];
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * What follows the name, as the CLI shows it (`<path>`, `[on|off]`); empty when it takes nothing.
+   *
+   * @generated from field: string argument_hint = 4;
+   */
+  argumentHint: string;
+
+  /**
+   * Where it comes from: `builtin`, `project`, `user`, `plugin`, `skill`, `mcp` or `custom`.
+   *
+   * @generated from field: string source = 5;
+   */
+  source: string;
+
+  /**
+   * @generated from field: agentmesh.v1.CommandDialog dialog = 6;
+   */
+  dialog: CommandDialog;
+
+  /**
+   * Typing it ends the CLI's process or signs it out (`/exit`, `/logout`): an app asks first.
+   *
+   * @generated from field: bool danger = 7;
+   */
+  danger: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.AgentCommand.
+ * Use `create(AgentCommandSchema)` to create a new message.
+ */
+export const AgentCommandSchema: GenMessage<AgentCommand> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 11);
+
+/**
+ * @generated from message agentmesh.v1.ListAgentCommandsRequest
+ */
+export type ListAgentCommandsRequest = Message<"agentmesh.v1.ListAgentCommandsRequest"> & {
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 1;
+   */
+  agent: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ListAgentCommandsRequest.
+ * Use `create(ListAgentCommandsRequestSchema)` to create a new message.
+ */
+export const ListAgentCommandsRequestSchema: GenMessage<ListAgentCommandsRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 12);
+
+/**
+ * @generated from message agentmesh.v1.ListAgentCommandsResponse
+ */
+export type ListAgentCommandsResponse = Message<"agentmesh.v1.ListAgentCommandsResponse"> & {
+  /**
+   * False when the agent's CLI has no command list the daemon knows.
+   *
+   * @generated from field: bool supported = 1;
+   */
+  supported: boolean;
+
+  /**
+   * @generated from field: repeated agentmesh.v1.AgentCommand commands = 2;
+   */
+  commands: AgentCommand[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ListAgentCommandsResponse.
+ * Use `create(ListAgentCommandsResponseSchema)` to create a new message.
+ */
+export const ListAgentCommandsResponseSchema: GenMessage<ListAgentCommandsResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 13);
+
+/**
+ * @generated from message agentmesh.v1.GetPromptSuggestionRequest
+ */
+export type GetPromptSuggestionRequest = Message<"agentmesh.v1.GetPromptSuggestionRequest"> & {
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 1;
+   */
+  agent: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.GetPromptSuggestionRequest.
+ * Use `create(GetPromptSuggestionRequestSchema)` to create a new message.
+ */
+export const GetPromptSuggestionRequestSchema: GenMessage<GetPromptSuggestionRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 14);
+
+/**
+ * @generated from message agentmesh.v1.GetPromptSuggestionResponse
+ */
+export type GetPromptSuggestionResponse = Message<"agentmesh.v1.GetPromptSuggestionResponse"> & {
+  /**
+   * The prompt the CLI suggests next, shown as grey text in its empty input box; empty when it shows none (or the
+   * CLI has no such feature, or the agent is not at its prompt).
+   *
+   * @generated from field: string text = 1;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.GetPromptSuggestionResponse.
+ * Use `create(GetPromptSuggestionResponseSchema)` to create a new message.
+ */
+export const GetPromptSuggestionResponseSchema: GenMessage<GetPromptSuggestionResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 15);
+
+/**
  * @generated from enum agentmesh.v1.TranscriptKind
  */
 export enum TranscriptKind {
@@ -408,6 +547,13 @@ export enum TranscriptKind {
    * @generated from enum value: TRANSCRIPT_KIND_MESH = 5;
    */
   MESH = 5,
+
+  /**
+   * What a command the user typed printed (`/context`, `/usage`): the CLI's own output, not the model's.
+   *
+   * @generated from enum value: TRANSCRIPT_KIND_COMMAND_OUTPUT = 6;
+   */
+  COMMAND_OUTPUT = 6,
 }
 
 /**
@@ -415,4 +561,38 @@ export enum TranscriptKind {
  */
 export const TranscriptKindSchema: GenEnum<TranscriptKind> = /*@__PURE__*/
   enumDesc(file_agentmesh_v1_chat, 0);
+
+/**
+ * Whether a command opens a dialog or picker in the agent's terminal, which the chat view can't show.
+ *
+ * @generated from enum agentmesh.v1.CommandDialog
+ */
+export enum CommandDialog {
+  /**
+   * Runs and answers (in the chat or as a turn), or a skill or prompt that goes to the model.
+   *
+   * @generated from enum value: COMMAND_DIALOG_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Opens one when typed bare; with an argument it runs (`/model` picks, `/model opus` sets).
+   *
+   * @generated from enum value: COMMAND_DIALOG_BARE = 1;
+   */
+  BARE = 1,
+
+  /**
+   * Opens one whatever follows it (`/resume`, `/permissions`).
+   *
+   * @generated from enum value: COMMAND_DIALOG_ALWAYS = 2;
+   */
+  ALWAYS = 2,
+}
+
+/**
+ * Describes the enum agentmesh.v1.CommandDialog.
+ */
+export const CommandDialogSchema: GenEnum<CommandDialog> = /*@__PURE__*/
+  enumDesc(file_agentmesh_v1_chat, 1);
 

@@ -55,6 +55,14 @@ public enum TranscriptKind
    * <code>TRANSCRIPT_KIND_MESH = 5;</code>
    */
   TRANSCRIPT_KIND_MESH(5),
+  /**
+   * <pre>
+   * What a command the user typed printed (`/context`, `/usage`): the CLI's own output, not the model's.
+   * </pre>
+   *
+   * <code>TRANSCRIPT_KIND_COMMAND_OUTPUT = 6;</code>
+   */
+  TRANSCRIPT_KIND_COMMAND_OUTPUT(6),
   UNRECOGNIZED(-1),
   ;
 
@@ -102,6 +110,14 @@ public enum TranscriptKind
    * <code>TRANSCRIPT_KIND_MESH = 5;</code>
    */
   public static final int TRANSCRIPT_KIND_MESH_VALUE = 5;
+  /**
+   * <pre>
+   * What a command the user typed printed (`/context`, `/usage`): the CLI's own output, not the model's.
+   * </pre>
+   *
+   * <code>TRANSCRIPT_KIND_COMMAND_OUTPUT = 6;</code>
+   */
+  public static final int TRANSCRIPT_KIND_COMMAND_OUTPUT_VALUE = 6;
 
 
   @java.lang.Override
@@ -130,6 +146,7 @@ public enum TranscriptKind
       case 3: return TRANSCRIPT_KIND_TOOL_CALL;
       case 4: return TRANSCRIPT_KIND_TOOL_RESULT;
       case 5: return TRANSCRIPT_KIND_MESH;
+      case 6: return TRANSCRIPT_KIND_COMMAND_OUTPUT;
       default: return null;
     }
   }

@@ -20,6 +20,8 @@ enum TranscriptKind {
   TRANSCRIPT_KIND_TOOL_RESULT = 4;
   // A mesh doorbell or another agent's message: not the user's words.
   TRANSCRIPT_KIND_MESH = 5;
+  // What a command the user typed printed (`/context`, `/usage`): the CLI's own output, not the model's.
+  TRANSCRIPT_KIND_COMMAND_OUTPUT = 6;
 }
 
 // One line of the conversation, in the order the CLI wrote it. Thinking, subagents' own turns and the CLI's
@@ -114,4 +116,51 @@ message InterruptAgentResponse {
   // True once the agent was seen back at its prompt; false when the key was sent but it hadn't stopped yet when the
   // daemon stopped looking (its state follows when it does).
   bool stopped = 1;
+}
+
+// Whether a command opens a dialog or picker in the agent's terminal, which the chat view can't show.
+enum CommandDialog {
+  // Runs and answers (in the chat or as a turn), or a skill or prompt that goes to the model.
+  COMMAND_DIALOG_UNSPECIFIED = 0;
+  // Opens one when typed bare; with an argument it runs (`/model` picks, `/model opus` sets).
+  COMMAND_DIALOG_BARE = 1;
+  // Opens one whatever follows it (`/resume`, `/permissions`).
+  COMMAND_DIALOG_ALWAYS = 2;
+}
+
+// One command an agent's CLI accepts when it is typed at its prompt.
+message AgentCommand {
+  // The name without the slash; a plugin's is `plugin:name`.
+  string name = 1;
+  repeated string aliases = 2;
+  string description = 3;
+  // What follows the name, as the CLI shows it (`<path>`, `[on|off]`); empty when it takes nothing.
+  string argument_hint = 4;
+  // Where it comes from: `builtin`, `project`, `user`, `plugin`, `skill`, `mcp` or `custom`.
+  string source = 5;
+  CommandDialog dialog = 6;
+  // Typing it ends the CLI's process or signs it out (`/exit`, `/logout`): an app asks first.
+  bool danger = 7;
+}
+
+message ListAgentCommandsRequest {
+  // Agent id or name.
+  string agent = 1;
+}
+
+message ListAgentCommandsResponse {
+  // False when the agent's CLI has no command list the daemon knows.
+  bool supported = 1;
+  repeated AgentCommand commands = 2;
+}
+
+message GetPromptSuggestionRequest {
+  // Agent id or name.
+  string agent = 1;
+}
+
+message GetPromptSuggestionResponse {
+  // The prompt the CLI suggests next, shown as grey text in its empty input box; empty when it shows none (or the
+  // CLI has no such feature, or the agent is not at its prompt).
+  string text = 1;
 }

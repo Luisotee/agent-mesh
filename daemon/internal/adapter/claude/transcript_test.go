@@ -266,10 +266,28 @@ func TestTranscriptLeavesOutWhatTheCLIWritesForItselfAndShowsACommandAsTyped(t *
 	if es := entries(t, pasted); len(es) != 1 || es[0].Text != "<local-command-notes> are what I pasted" {
 		t.Errorf("a user's own text that opens like the CLI's tags: %v", es)
 	}
-	for name, line := range map[string]string{"summary": summary, "visible only": visible, "stdout": stdout, "caveat": caveat} {
+	for name, line := range map[string]string{"summary": summary, "visible only": visible, "caveat": caveat} {
 		if es := entries(t, line); len(es) != 0 {
 			t.Errorf("%s shown: %v", name, es)
 		}
+	}
+	// What a command printed shows as the command's output, without colour codes; an empty one and the caveat don't.
+	if es := entries(t, stdout); len(es) != 1 || es[0].Kind != agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_COMMAND_OUTPUT || es[0].Text != "Compacted" {
+		t.Errorf("a command's output: %v", es)
+	}
+	const (
+		colour = `{"type":"user","uuid":"o1","message":{"role":"user","content":"<local-command-stdout>\u001b[1mContext\u001b[22m 12k/200k</local-command-stdout>"}}`
+		errOut = `{"type":"user","uuid":"o2","message":{"role":"user","content":"<local-command-stderr>no such command</local-command-stderr>"}}`
+		empty  = `{"type":"user","uuid":"o3","message":{"role":"user","content":"<local-command-stdout></local-command-stdout>"}}`
+	)
+	if es := entries(t, colour); len(es) != 1 || es[0].Text != "Context 12k/200k" {
+		t.Errorf("a command's coloured output: %v", es)
+	}
+	if es := entries(t, errOut); len(es) != 1 || !es[0].IsError || es[0].Text != "no such command" {
+		t.Errorf("a command's error output: %v", es)
+	}
+	if es := entries(t, empty); len(es) != 0 {
+		t.Errorf("an empty output shown: %v", es)
 	}
 	for line, want := range map[string]string{command: "/compact keep the plan", bare: "/clear", mentions: "what does <command-name> do in the record?"} {
 		es := entries(t, line)

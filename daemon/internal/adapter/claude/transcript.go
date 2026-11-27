@@ -39,12 +39,14 @@ const doorbellMark = transcript.DoorbellMark
 var (
 	systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
 	// A slash command the user typed is recorded as tags: its name, then its arguments (the CLI also writes its
-	// output as <local-command-stdout>, which is dropped).
+	// output as <local-command-stdout>, which is shown as a command-output entry; its caveat is dropped).
 	// Bash mode (`! cmd` in the box) is recorded as <bash-input>cmd</bash-input>, its output as <bash-stdout> and
 	// <bash-stderr> in a user line of their own.
 	bashInput   = regexp.MustCompile(`(?s)^<bash-input>\s*(.*?)\s*</bash-input>`)
 	bashOutput  = regexp.MustCompile(`^<bash-(stdout|stderr)>`)
 	localOutput = regexp.MustCompile(`^<local-command-(stdout|stderr|caveat)>`)
+	commandOut  = regexp.MustCompile(`(?s)^<local-command-(stdout|stderr)>(.*?)(?:</local-command-(?:stdout|stderr)>)?\s*$`)
+	ansi        = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 	commandName = regexp.MustCompile(`(?s)<command-name>\s*(.*?)\s*</command-name>`)
 	commandArgs = regexp.MustCompile(`(?s)<command-args>\s*(.*?)\s*</command-args>`)
 )
@@ -142,6 +144,14 @@ func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
 	if rest := strings.TrimSpace(strings.TrimPrefix(text, doorbellPrefix)); strings.HasPrefix(rest, doorbellMark) {
 		line, _, _ := strings.Cut(rest, "\n")
 		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_MESH, Text: line}
+	}
+	if m := commandOut.FindStringSubmatch(text); m != nil && !meta {
+		// What a slash command printed (`/context`, `/usage`): the CLI's own words, kept so the chat answers it.
+		out := strings.TrimSpace(ansi.ReplaceAllString(m[2], ""))
+		if out == "" {
+			return nil
+		}
+		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_COMMAND_OUTPUT, Text: out, IsError: m[1] == "stderr"}
 	}
 	if meta || text == "" || localOutput.MatchString(text) || bashOutput.MatchString(text) {
 		return nil

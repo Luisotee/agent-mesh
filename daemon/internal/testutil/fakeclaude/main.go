@@ -130,6 +130,41 @@ var (
 	turnMu     sync.Mutex
 )
 
+// answerInitialize is `claude -p --input-format stream-json` asked for its commands (the SDK's `initialize`
+// control request, which the daemon's command list sends): one control response with a fixed list, or the JSON in
+// FAKECLAUDE_COMMANDS, then the process ends at the end of its input. FAKECLAUDE_PROBE_FAIL makes it fail.
+func answerInitialize() {
+	if os.Getenv("FAKECLAUDE_PROBE_FAIL") != "" {
+		fmt.Fprintln(os.Stderr, "fakeclaude: initialize failed")
+		os.Exit(1)
+	}
+	commands := os.Getenv("FAKECLAUDE_COMMANDS")
+	if commands == "" {
+		commands = `[{"name":"compact","description":"Free up context by summarizing the conversation so far","argumentHint":"<optional custom summarization instructions>"},` +
+			`{"name":"model","description":"Set the AI model for Claude Code","argumentHint":"<model>"},` +
+			`{"name":"context","description":"Show current context usage","argumentHint":""},` +
+			`{"name":"config","description":"Set a setting by key","argumentHint":"key=value"},` +
+			`{"name":"deploy","description":"Ship it (project)","argumentHint":"[env]"},` +
+			`{"name":"delegate","description":"hands work to agents","argumentHint":""},` +
+			`{"name":"agent-mesh:delegate","description":"(agent-mesh) hands work to agents","argumentHint":""}]`
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	sc.Buffer(make([]byte, 0, 1<<20), 16<<20)
+	for sc.Scan() {
+		var req struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Type != "control_request" || req.Request.Subtype != "initialize" {
+			continue
+		}
+		fmt.Printf(`{"type":"control_response","response":{"subtype":"success","request_id":%q,"response":{"commands":%s}}}`+"\n", req.RequestID, commands)
+	}
+}
+
 func envInt(name string) int {
 	n, _ := strconv.Atoi(os.Getenv(name))
 	return n
@@ -169,11 +204,14 @@ func main() {
 			f.Close()
 		}
 	}
-	source, printMode := "startup", false
+	source, printMode, streamIn := "startup", false, false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "-p":
 			printMode = true
+		case "--input-format":
+			i++
+			streamIn = args[i] == "stream-json"
 		case "--session-id":
 			i++
 			session = args[i]
@@ -197,6 +235,10 @@ func main() {
 				i++
 			}
 		}
+	}
+	if printMode && streamIn {
+		answerInitialize()
+		return
 	}
 	if printMode {
 		prompt := args[len(args)-1]
@@ -739,6 +781,12 @@ func recordTurn(prompt string) {
 		b, _ := json.Marshal(map[string]any{"type": kind, "uuid": uuid, "timestamp": now(), "sessionId": session, "isSidechain": false,
 			"message": map[string]any{"role": kind, "content": content}})
 		f.Write(append(b, '\n'))
+	}
+	if prompt == "/context" {
+		// A local command: its name as typed, then what it printed (no model turn), as Claude Code records it.
+		line("user", id+"-u", "<command-name>/context</command-name>\n<command-message>context</command-message>\n<command-args></command-args>")
+		line("user", id+"-o", "<local-command-stdout>\x1b[1mContext\x1b[22m 12k/200k tokens</local-command-stdout>")
+		return
 	}
 	line("user", id+"-u", prompt)
 	line("assistant", id+"-a1", []map[string]any{
