@@ -32,6 +32,8 @@ In [`scripts/`](scripts/), stdlib Python, run from an empty scratch directory (t
 
 `sessions.jsonl` holds each session's first message, so the data stays out of git. The 2026-10-28 snapshot is in the run's `data/cost/`, and the language study's texts, counts and e2e runs in `data/lang/`.
 
+`scripts/rootweight.py` (stdlib; arguments are root transcripts) gives the root's calls, dollars and context per worker task and what an earlier reset would cost: [`roles-and-reviews.md`](roles-and-reviews.md), "The root's weight per worker task".
+
 [`scripts/lang/`](scripts/lang/) is the language study: `count.sh` counts a text's tokens with a lean headless call (`claude -p --system-prompt "Reply tersely." --tools "" --strict-mcp-config --setting-sources "" --effort low`, whose base is a constant 610–614 tokens, so text tokens are exact), `gemma.py` counts with Gemma 3's tokenizer as a Gemini proxy, `e2e*.sh` run the end-to-end task (`WORK` is the work directory, default the current one), `e2e_check.py` is its 23-case checker and `e2e_analyze.py` prices the runs.
 
 ## Baseline: the week of 2026-10-21 → 10-27
