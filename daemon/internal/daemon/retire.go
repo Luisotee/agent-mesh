@@ -639,20 +639,49 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 	return o
 }
 
-// branchMerged says whether every commit of a branch is in a default branch of a remote of the repo (`origin/HEAD`,
-// `origin/main` or `origin/master`, as the repo last saw them: it is in any of those that exist). A branch
-// squash-merged is not: its own commits are not in the default branch, so it is kept.
+// branchMerged says whether a branch holds nothing a default branch of a remote of the repo (`origin/HEAD`, `origin/main`
+// or `origin/master`, as the repo last saw them: any of those that exist) has not: every commit of it is in the default
+// branch, or merging it into the default branch changes nothing (`merge-tree`: the merge's tree is the default's own),
+// which is what a squash or a rebase merge leaves, as the branch's own commits are not in the default branch then.
 func branchMerged(ctx context.Context, repo, branch string) bool {
 	tip, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
 	if err != nil || tip == "" {
 		return false
 	}
 	for _, ref := range []string{"refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"} {
-		if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", ref); err == nil && gitIsAncestor(ctx, repo, tip, ref) {
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", ref); err != nil {
+			continue
+		}
+		if gitIsAncestor(ctx, repo, tip, ref) || mergeAddsNothing(ctx, repo, ref, tip) {
 			return true
 		}
 	}
 	return false
+}
+
+// treeOf is the tree a commit has ("" when git can't say).
+func treeOf(ctx context.Context, repo, commit string) string {
+	out, err := gitRO(ctx, repo, "rev-parse", "--verify", "-q", commit+"^{tree}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// mergeAddsNothing says whether merging `tip` into `ref` would leave `ref`'s tree as it is: the change the branch made is
+// already there (a conflict, or a git too old for `merge-tree --write-tree`, says no).
+func mergeAddsNothing(ctx context.Context, repo, ref, tip string) bool {
+	// A branch whose commits change no file (empty ones) has no change that could be "already there": its commits are its
+	// own work, kept as before.
+	if base, err := gitRO(ctx, repo, "merge-base", ref, tip); err != nil || base == "" || treeOf(ctx, repo, base) == treeOf(ctx, repo, tip) {
+		return false
+	}
+	merged, err := gitRO(ctx, repo, "merge-tree", "--write-tree", ref, tip)
+	if err != nil {
+		return false
+	}
+	own := treeOf(ctx, repo, ref)
+	return own != "" && strings.TrimSpace(strings.SplitN(merged, "\n", 2)[0]) == own
 }
 
 // branchHasWork reports whether a branch is worth keeping: it moved past the commit it started at (its own work,
