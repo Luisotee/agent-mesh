@@ -247,31 +247,44 @@ func ghDir(a *v1.Agent) string {
 	return a.Repo
 }
 
-// branchPRs reads the PRs from an agent's branch: all states, those whose head is on the branch.
+// branchPRs reads the PRs from an agent's branches: all states, those whose head is on one of its stack's branches
+// (`stackBranches`: the recorded one and the `-2`, `-3` … it moved on to).
 func (d *Daemon) branchPRs(ctx context.Context, a *v1.Agent) ([]ghPRState, error) {
 	remotes := githubRepos(ctx, a.Repo)
 	if len(remotes) == 0 {
 		return nil, nil // not a GitHub repo: no PRs to find
 	}
-	remote := prRemote(ctx, a.Repo, a.Branch, remotes)
-	args := []string{"pr", "list", "--repo", remotes[remote], "--head", a.Branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
-	out, err := d.runGH(ctx, ghDir(a), args...)
-	if err != nil {
-		return nil, err
-	}
-	var prs []ghPRState
-	if err := json.Unmarshal(out, &prs); err != nil {
-		return nil, err
-	}
 	dir := ghDir(a)
 	atHead := a.Worktree != "" && dir == a.Worktree // else dir is the main checkout, whose HEAD is not the branch
 	var own []ghPRState
-	for _, p := range prs {
-		if prOnBranch(ctx, dir, p.HeadRefOid, a.Branch, a.BaseCommit, atHead) {
-			own = append(own, p)
+	seen := map[string]bool{} // by URL: two repos' PRs may share a number
+	for _, branch := range stackBranches(ctx, d.store.Read(ctx), a, dir) {
+		remote := prRemote(ctx, a.Repo, branch, remotes)
+		args := []string{"pr", "list", "--repo", remotes[remote], "--head", branch, "--state", "all", "--json", prJSON, "--limit", prListLimit}
+		out, err := d.runGH(ctx, dir, args...)
+		if err != nil {
+			return nil, err
+		}
+		var prs []ghPRState
+		if err := json.Unmarshal(out, &prs); err != nil {
+			return nil, err
+		}
+		for _, p := range prs {
+			if key := prSeenKey(p); !seen[key] && prOnBranch(ctx, dir, p.HeadRefOid, branch, a.BaseCommit, atHead) {
+				seen[key] = true
+				own = append(own, p)
+			}
 		}
 	}
 	return own, nil
+}
+
+// prSeenKey is what makes two rows one PR: its URL, else its number.
+func prSeenKey(p ghPRState) string {
+	if p.URL != "" {
+		return p.URL
+	}
+	return strconv.Itoa(int(p.Number))
 }
 
 func (d *Daemon) viewPR(ctx context.Context, a *v1.Agent, url string) (ghPRState, error) {
@@ -321,7 +334,6 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 	if !ownsPRs(a) {
 		return
 	}
-	a = onItsBranch(ctx, a) // the branch it is on now: the PR lookup below is by branch
 	now := d.nowTime()
 	// A claim first, so two readers at once make one round of calls (the tracker is the throttle). It stays open
 	// until what GitHub said is recorded: a reader meanwhile hears the last finished read, never "no PR" for one

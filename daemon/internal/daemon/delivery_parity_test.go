@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,6 +65,26 @@ func lines(t *testing.T, path string) []string {
 		out = append(out, l)
 	}
 	return out
+}
+
+// waitLines waits until the agent has logged n lines. A delivery counts as made when the daemon sees the agent take
+// it (the typed text on its screen, the frame accepted), which can come before the fake writes its log line: a test
+// that reads the log right after the delivery reads too early on a loaded host.
+func waitLines(t *testing.T, path string, n int) {
+	t.Helper()
+	waitFor(t, fmt.Sprintf("%d lines logged by the agent", n), func() bool { return len(lines(t, path)) >= n })
+}
+
+// waitLinesIn is waitLines that says more (what the lines and `more` were) when it gives up.
+func waitLinesIn(t *testing.T, path string, n int, more func() string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for len(lines(t, path)) < n {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d lines logged by the agent: %q; %s", n, lines(t, path), more())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // events are a run's events so far.
@@ -169,18 +190,18 @@ func TestADraftLeftInTheBoxByAUserWhoDetachedHoldsTheDoorbell(t *testing.T) {
 
 func TestAPlaceholderInTheBoxNeverHoldsADoorbell(t *testing.T) {
 	w, _ := boxWorld(t, map[string]string{"FAKECLAUDE_PLACEHOLDER": "1"})
+	// A doorbell held for a draft says so (a DoorbellHeld event) as soon as it is held: that, not how long delivery
+	// took on a loaded host, is what tells a placeholder read as a draft.
+	w.set(t, "delivery.draft_hold_alert", 0.05)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{})
-	if screen := w.screen(t, worker); !strings.Contains(screen, `Try "fix lint errors"`) {
-		t.Fatalf("no placeholder drawn:\n%s", screen)
-	}
+	waitFor(t, "the placeholder drawn", func() bool { return strings.Contains(w.screen(t, worker), `Try "fix lint errors"`) })
 	for _, typ := range []v1.MessageType{v1.MessageType_MESSAGE_TYPE_TASK, v1.MessageType_MESSAGE_TYPE_INFO} {
-		sent := time.Now()
 		msg := send(t, asLead, worker.Id, typ, "hello")
 		waitFor(t, "the doorbell over a placeholder", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
-		if held := w.deliveredAt(t, worker.Id, msg.Id).Sub(sent); held > time.Second {
-			t.Errorf("a %s was held %s by a placeholder", typ, held)
+		if n := w.count(t, run.Id, func(ev *v1.Event) bool { return ev.GetDoorbellHeld() != nil }); n != 0 {
+			t.Errorf("a %s was held by a placeholder (%d DoorbellHeld events)", typ, n)
 		}
 		w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	}
@@ -199,6 +220,7 @@ func TestADoorbellTheAgentDroppedIsTypedAgainWithANewToken(t *testing.T) {
 
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
+	waitLines(t, log, 2)
 	rung := doorbells(lines(t, log))
 	if len(rung) != 2 {
 		t.Fatalf("doorbells typed: %q, want the dropped one and its retry", rung)
@@ -224,6 +246,7 @@ func TestADoorbellLeftInTheBoxIsSubmittedWithEnterAlone(t *testing.T) {
 	}
 	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
 	// One doorbell was typed: the retry sent Enter, not a second doorbell fused to the first.
+	waitLines(t, log, 1)
 	if rung := doorbells(lines(t, log)); len(rung) != 1 {
 		t.Errorf("doorbells typed: %q", rung)
 	}
@@ -290,6 +313,7 @@ func TestAClaudeAgentIsRungThroughItsInboxSocketNotItsTerminal(t *testing.T) {
 
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_TASK, "over the socket")
 	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
+	waitLines(t, log, 1)
 	got := lines(t, log)
 	if len(got) != 1 || !strings.HasPrefix(got[0], "frame: 📬 [mesh] task from") || !strings.Contains(got[0], "(ref ") {
 		t.Fatalf("what the agent was given: %q", got)
@@ -313,6 +337,7 @@ func TestTheSocketLaneStepsAsideForASettingOrAHeldFrame(t *testing.T) {
 		worker := w.spawnUnder(t, asLead, "typed", &v1.SpawnAgentRequest{})
 		msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 		waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
+		waitLines(t, log, 1)
 		if got := lines(t, log); len(got) != 1 || strings.HasPrefix(got[0], "frame:") {
 			t.Errorf("what the agent was given: %q", got)
 		}
@@ -335,6 +360,7 @@ func TestTheSocketLaneStepsAsideForASettingOrAHeldFrame(t *testing.T) {
 		worker := w.spawnUnder(t, asLead, "held-by-policy", &v1.SpawnAgentRequest{})
 		msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 		waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
+		waitLines(t, log, 1)
 		if got := lines(t, log); len(got) != 1 || strings.HasPrefix(got[0], "frame:") {
 			t.Errorf("what the agent was given: %q", got)
 		}
@@ -350,6 +376,9 @@ func TestTheSocketLaneStepsAsideForASettingOrAHeldFrame(t *testing.T) {
 		w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 		second := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "two")
 		waitFor(t, "the second delivery", func() bool { return !w.deliveredAt(t, worker.Id, second.Id).IsZero() })
+		waitLinesIn(t, log, 3, func() string {
+			return fmt.Sprintf("first %+v, second %+v", w.deliveries(t, run.Id, first.Id), w.deliveries(t, run.Id, second.Id))
+		})
 		got := lines(t, log)
 		var frames, typed int
 		for _, l := range got {
@@ -385,6 +414,7 @@ func TestABusySessionIsGivenLongerBeforeItsFrameIsTakenForLost(t *testing.T) {
 	if waited := w.deliveredAt(t, worker.Id, msg.Id).Sub(sent); waited < 1700*time.Millisecond {
 		t.Errorf("the frame was taken for lost after %s, while the session was drawing", waited)
 	}
+	waitLines(t, log, 2)
 	if got := lines(t, log); len(got) != 2 || !strings.HasPrefix(got[0], "frame:") || !strings.HasPrefix(got[1], "📬") {
 		t.Errorf("what the agent was given: %q", got)
 	}
@@ -432,6 +462,7 @@ func TestAMessageTheAgentReadsBeforeAnyOtherSignIsDeliveredViaRead(t *testing.T)
 	if got := w.deliveries(t, run.Id, msg.Id); len(got) != 1 || got[0].Via != "read" || got[0].Tries != 1 {
 		t.Errorf("delivery events %+v, want one via read after 1 try", got)
 	}
+	waitLines(t, log, 1)
 	if rung := doorbells(lines(t, log)); len(rung) != 1 {
 		t.Errorf("doorbells typed: %q", rung)
 	}

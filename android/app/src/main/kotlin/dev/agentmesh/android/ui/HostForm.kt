@@ -86,7 +86,7 @@ fun HostFormScreen(hostId: String?, onDone: () -> Unit) {
             navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
     }) { pad ->
-        Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.inScaffoldWithKeyboard(pad).padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
                 url, { url = it }, label = { Text(if (relayed) "Address (optional: it has a relay route)" else "Address") }, singleLine = true, modifier = Modifier.fillMaxWidth(),

@@ -356,7 +356,7 @@ class NotificationsTest {
         container.pushRegistrar.onEndpoint(hostId, endpoint.copy(url = "https://ntfy.example/upB?up=1"))
         container.disablePush()
         gate.complete(Unit)
-        waitFor("both UnregisterPush calls") { api.push.count { it == "unregister" } == 2 }
+        waitFor("both UnregisterPush calls") { api.push.snapshot().count { it == "unregister" } == 2 }
         Thread.sleep(200)
         assertTrue(api.push.toList().toString(), "register https://ntfy.example/upB?up=1" !in api.push)
         assertNull(container.pushRegistrar.status.value[hostId])

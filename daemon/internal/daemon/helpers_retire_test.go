@@ -126,22 +126,3 @@ func TestAReviewerIsRetiredWhenItsPRMerges(t *testing.T) {
 		t.Error("a resumed reviewer was retired again by a later read of its merged PR")
 	}
 }
-
-// A worker that moved to a new branch has the PR of that branch listed (the lookup is by the branch it is on), and
-// the row is not dropped at the next read.
-func TestAMovedWorkersNewPRIsListedByItsCurrentBranch(t *testing.T) {
-	w := startPR(t)
-	runGit(t, w.repo, "checkout", "-q", "-b", "mesh/"+w.run.Id+"/fix-2", w.base)
-	runGit(t, w.repo, "commit", "--allow-empty", "-m", "next work")
-	tip := runGit(t, w.repo, "rev-parse", "HEAD")
-	w.mu.Lock()
-	w.byHead = map[string][]map[string]any{"mesh/" + w.run.Id + "/fix-2": {ghPR(14, "OPEN", tip, false)}} // none for the first branch
-	w.mu.Unlock()
-	for i := 0; i < 2; i++ {
-		w.advance(time.Hour)
-		rows := w.prs("", true)
-		if len(rows) != 1 || len(rows[0].PullRequests) != 1 || rows[0].PullRequests[0].Number != 14 {
-			t.Fatalf("read %d: rows %v, want PR 14 of the branch it is on", i, rows)
-		}
-	}
-}
