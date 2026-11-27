@@ -304,6 +304,47 @@ public  final class RecordVerdictRequest extends
     blocking_ = 0;
   }
 
+  public static final int DECLINED_BLOCKING_FIELD_NUMBER = 8;
+  private int declinedBlocking_;
+  /**
+   * <pre>
+   * Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+   * makes the PR's review outcome NEEDS YOU: the root settles it.
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 8 [json_name = "declinedBlocking"];</code>
+   * @return The declinedBlocking.
+   */
+  @java.lang.Override
+  public int getDeclinedBlocking() {
+    return declinedBlocking_;
+  }
+  /**
+   * <pre>
+   * Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+   * makes the PR's review outcome NEEDS YOU: the root settles it.
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 8 [json_name = "declinedBlocking"];</code>
+   * @param value The declinedBlocking to set.
+   */
+  private void setDeclinedBlocking(int value) {
+    
+    declinedBlocking_ = value;
+  }
+  /**
+   * <pre>
+   * Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+   * makes the PR's review outcome NEEDS YOU: the root settles it.
+   * </pre>
+   *
+   * <code>int32 declined_blocking = 8 [json_name = "declinedBlocking"];</code>
+   */
+  private void clearDeclinedBlocking() {
+
+    declinedBlocking_ = 0;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.RecordVerdictRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -698,6 +739,49 @@ public  final class RecordVerdictRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+     * makes the PR's review outcome NEEDS YOU: the root settles it.
+     * </pre>
+     *
+     * <code>int32 declined_blocking = 8 [json_name = "declinedBlocking"];</code>
+     * @return The declinedBlocking.
+     */
+    @java.lang.Override
+    public int getDeclinedBlocking() {
+      return instance.getDeclinedBlocking();
+    }
+    /**
+     * <pre>
+     * Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+     * makes the PR's review outcome NEEDS YOU: the root settles it.
+     * </pre>
+     *
+     * <code>int32 declined_blocking = 8 [json_name = "declinedBlocking"];</code>
+     * @param value The declinedBlocking to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDeclinedBlocking(int value) {
+      copyOnWrite();
+      instance.setDeclinedBlocking(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+     * makes the PR's review outcome NEEDS YOU: the root settles it.
+     * </pre>
+     *
+     * <code>int32 declined_blocking = 8 [json_name = "declinedBlocking"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDeclinedBlocking() {
+      copyOnWrite();
+      instance.clearDeclinedBlocking();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.RecordVerdictRequest)
   }
   @java.lang.Override
@@ -722,10 +806,11 @@ public  final class RecordVerdictRequest extends
             "other_",
             "disagree_",
             "blocking_",
+            "declinedBlocking_",
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\u0208\u0004\u0004\u0005\u0004\u0006\u0004\u0007\u0004";
+              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
+              "\u0208\u0004\u0004\u0005\u0004\u0006\u0004\u0007\u0004\b\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

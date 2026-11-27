@@ -80,6 +80,9 @@ message Verdict {
   google.protobuf.Timestamp at = 9;
   // Who judged: "author" (the worker that wrote the PR and asked the round), "root" or "user" (a device).
   string judge = 10;
+  // How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
+  // is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
+  int32 declined_blocking = 11;
 }
 
 // Ask is the record of one `mesh ask` that started or reached agents.
@@ -193,6 +196,9 @@ message RecordVerdictRequest {
   int32 other = 5;
   int32 disagree = 6;
   int32 blocking = 7;
+  // Of the reviewer's blocking findings, how many you declined rather than fixed: at most disagree + other. Any
+  // makes the PR's review outcome NEEDS YOU: the root settles it.
+  int32 declined_blocking = 8;
 }
 
 message RecordVerdictResponse {
