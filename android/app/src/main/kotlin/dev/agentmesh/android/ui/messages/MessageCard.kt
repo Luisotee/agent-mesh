@@ -64,9 +64,11 @@ fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean
     }
     val mine = m.from.id == viewing
     var expanded by rememberSaveable(m.id) { mutableStateOf(false) }
+    // The size animates only for the user's own Show all / Show less: a card that scrolls into view is laid out at its height at once.
+    var toggled by remember { mutableStateOf(false) }
     val long = isLong(m.body)
     Card(
-        Modifier.fillMaxWidth().motionSize().testTag("message"),
+        Modifier.fillMaxWidth().then(if (toggled) Modifier.motionSize() else Modifier).testTag("message"),
         colors = CardDefaults.cardColors(containerColor = if (open) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -76,8 +78,8 @@ fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean
                 if (open) Text("waiting for you", style = MaterialTheme.typography.labelSmall, color = colors.needs)
                 Text(stamp(m, skewMs), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            MarkdownText(if (long && !expanded) preview(m.body) else m.body, large = long && expanded)
-            if (long) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all") }
+            MarkdownText(if (long && !expanded) preview(m.body) else m.body)
+            if (long) TextButton(onClick = { toggled = true; expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all") }
             if (open && canAnswer) AnswerForm(runtime, m)
         }
     }

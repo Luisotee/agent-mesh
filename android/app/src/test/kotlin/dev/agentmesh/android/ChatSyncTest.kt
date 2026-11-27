@@ -183,4 +183,24 @@ class ChatSyncTest {
         sync2.stop()
         assertFalse(sync2.state.value.earlierBusy)
     }
+
+    @Test fun `the texts of the assistant's entries are handed to be prepared before a page is shown`() = runTest {
+        val seen = mutableListOf<List<String>>()
+        val api = RecordingApi().apply { transcript = { _, _, _ -> page(listOf(e("u", TranscriptKind.TRANSCRIPT_KIND_USER, "mine"), e("a", text = "**one**"), e("b", text = "two")), atStart = true) } }
+        val sync = ChatSync(backgroundScope, { api }, "w1", warm = { seen += it; assertFalse("prepared before the page is shown", sync0.state.value.loaded) })
+        sync0 = sync
+        sync.sync(); runCurrent()
+        assertEquals(listOf(listOf("**one**", "two")), seen)
+        assertTrue(sync.state.value.loaded)
+    }
+
+    @Test fun `a failure to prepare a page does not stop it from being shown`() = runTest {
+        val api = RecordingApi().apply { transcript = { _, _, _ -> page(listOf(e("a")), atStart = true) } }
+        val sync = ChatSync(backgroundScope, { api }, "w1", warm = { error("no") })
+        sync.sync(); runCurrent()
+        assertTrue(sync.state.value.loaded)
+        assertEquals("", sync.state.value.error)
+    }
+
+    private lateinit var sync0: ChatSync
 }

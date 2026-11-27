@@ -112,6 +112,7 @@ import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.store.HostState
 import dev.agentmesh.android.ui.MonoSmall
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
+import dev.agentmesh.android.ui.messages.MarkdownCache
 import dev.agentmesh.android.ui.messages.MarkdownText
 import dev.agentmesh.gen.agentmesh.v1.ActorClass
 import dev.agentmesh.gen.agentmesh.v1.Agent
@@ -145,7 +146,7 @@ fun ChatTab(
 ) {
     val ownScope = rememberCoroutineScope()
     val scope = actionScope ?: ownScope
-    val sync = remember(runtime, agentId) { ChatSync(ownScope, runtime::api, agentId) }
+    val sync = remember(runtime, agentId) { ChatSync(ownScope, runtime::api, agentId, warm = { MarkdownCache.warm(it) }) }
     DisposableEffect(sync) { onDispose { sync.stop() } }
     val host by runtime.state.collectAsStateWithLifecycleCompat()
     val agent = host.agents[agentId] ?: return
@@ -530,7 +531,7 @@ private fun ChatBlock(block: Block, bubble: Color, quote: ((String) -> Unit)?, r
         // The reply: full-width prose, no bubble and no avatar.
         is Block.Assistant -> Box(Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { menu = true }).testTag("chat-assistant")) {
-                Maybe(select) { MarkdownText(block.entry.text, large = block.entry.text.length > 2_000) }
+                Maybe(select) { MarkdownText(block.entry.text) }
                 if (block.entry.truncated) Text("… cut here", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             MessageMenu(menu, { menu = false }, block.entry.text, quote) { select = true }
@@ -563,6 +564,9 @@ private fun ToolsBlock(block: Block.Tools, running: Boolean) {
     }
 }
 
+/** The lines of a tool's answer shown before Show all. */
+private const val TOOL_RESULT_LINES = 8
+
 @Composable
 private fun ToolCallRow(call: ToolCall) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -573,8 +577,18 @@ private fun ToolCallRow(call: ToolCall) {
         val r = call.result
         if (r == null) Skeleton(Modifier.fillMaxWidth(0.4f).semantics { contentDescription = "Running" }, height = 10.dp)
         else if (r.text.isNotEmpty()) {
-            Box(Modifier.fillMaxWidth().heightIn(max = 200.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)).verticalScroll(rememberScrollState()).padding(8.dp)) {
-                Text(r.text + if (r.truncated) "\n… cut here" else "", style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            // No scroll of its own inside the chat's list (a drag that began on it would be taken from the list): a few lines, and Show all.
+            var all by rememberSaveable(call.id) { mutableStateOf(false) }
+            val long = r.text.length > 400 || r.text.count { it == '\n' } >= TOOL_RESULT_LINES
+            Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)).padding(8.dp)) {
+                Text(
+                    r.text + if (r.truncated && all) "\n… cut here" else "", style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    maxLines = if (all) Int.MAX_VALUE else TOOL_RESULT_LINES, overflow = TextOverflow.Ellipsis,
+                )
+                if (long) Text(
+                    if (all) "Show less" else "Show all", Modifier.clickable { all = !all }.padding(top = 6.dp).testTag("tool-result-toggle"),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }

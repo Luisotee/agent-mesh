@@ -34,7 +34,13 @@ fun say(e: Throwable): String = (e.message ?: e.javaClass.simpleName).replace(Re
  * for meanwhile follows it), a read of an earlier conversation is dropped, a record that was rewritten is read again
  * from its tail. [reset] starts over when the conversation changes (a reopen, `/clear`).
  */
-class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi?, private val agentId: String) {
+class ChatSync(
+    private val scope: CoroutineScope,
+    private val api: () -> MeshApi?,
+    private val agentId: String,
+    /** Gets the texts of a page ready before it is shown (the screen parses their Markdown off the main thread), so rows have their height when composed. */
+    private val warm: suspend (List<String>) -> Unit = {},
+) {
     private val _state = MutableStateFlow(ChatState())
     val state: StateFlow<ChatState> get() = _state
 
@@ -59,6 +65,11 @@ class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi
         scope.launch { run() }
     }
 
+    private suspend fun warmed(res: dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse) {
+        // A failure to prepare is never a failure to show.
+        try { warm(res.entriesList.filter { it.kind == dev.agentmesh.gen.agentmesh.v1.TranscriptKind.TRANSCRIPT_KIND_ASSISTANT }.map { it.text }) } catch (e: CancellationException) { throw e } catch (e: Exception) { }
+    }
+
     private suspend fun run() {
         if (busy) { again = true; return }
         val api = api() ?: return
@@ -72,9 +83,13 @@ class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi
                 if (!held.loaded) {
                     val res = api.readTranscript(agentId, -1, true)
                     if (mine != gen) return
+                    warmed(res)
+                    if (mine != gen) return
                     _state.value = held.copy(transcript = fromTail(res), loaded = true, error = "")
                 } else {
                     val res = api.readTranscript(agentId, from, false)
+                    if (mine != gen) return
+                    warmed(res)
                     if (mine != gen) return
                     // What is held now, not what was when the read began: "Load earlier" may have put entries above since.
                     when (val next = withLater(_state.value.transcript, res, from)) {
@@ -114,6 +129,8 @@ class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi
             try {
                 val res = api.readTranscript(agentId, held.transcript.start, true)
                 // The conversation was reset while this read was out: it is another one's earlier part.
+                if (mine != gen) return@launch
+                warmed(res)
                 if (mine != gen) return@launch
                 val cur = _state.value.transcript
                 val next = withEarlier(cur, res)
