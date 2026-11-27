@@ -18,6 +18,7 @@ public  final class SendMessageRequest extends
     to_ = "";
     body_ = "";
     until_ = "";
+    re_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -303,6 +304,83 @@ public  final class SendMessageRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     until_ = value.toStringUtf8();
+
+  }
+
+  public static final int RE_FIELD_NUMBER = 6;
+  private java.lang.String re_;
+  /**
+   * <pre>
+   * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+   * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+   * current task. Only a plan, question, done or failed to your parent takes it.
+   * </pre>
+   *
+   * <code>string re = 6 [json_name = "re"];</code>
+   * @return The re.
+   */
+  @java.lang.Override
+  public java.lang.String getRe() {
+    return re_;
+  }
+  /**
+   * <pre>
+   * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+   * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+   * current task. Only a plan, question, done or failed to your parent takes it.
+   * </pre>
+   *
+   * <code>string re = 6 [json_name = "re"];</code>
+   * @return The bytes for re.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(re_);
+  }
+  /**
+   * <pre>
+   * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+   * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+   * current task. Only a plan, question, done or failed to your parent takes it.
+   * </pre>
+   *
+   * <code>string re = 6 [json_name = "re"];</code>
+   * @param value The re to set.
+   */
+  private void setRe(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    re_ = value;
+  }
+  /**
+   * <pre>
+   * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+   * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+   * current task. Only a plan, question, done or failed to your parent takes it.
+   * </pre>
+   *
+   * <code>string re = 6 [json_name = "re"];</code>
+   */
+  private void clearRe() {
+
+    re_ = getDefaultInstance().getRe();
+  }
+  /**
+   * <pre>
+   * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+   * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+   * current task. Only a plan, question, done or failed to your parent takes it.
+   * </pre>
+   *
+   * <code>string re = 6 [json_name = "re"];</code>
+   * @param value The bytes for re to set.
+   */
+  private void setReBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    re_ = value.toStringUtf8();
 
   }
 
@@ -699,6 +777,85 @@ public  final class SendMessageRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+     * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+     * current task. Only a plan, question, done or failed to your parent takes it.
+     * </pre>
+     *
+     * <code>string re = 6 [json_name = "re"];</code>
+     * @return The re.
+     */
+    @java.lang.Override
+    public java.lang.String getRe() {
+      return instance.getRe();
+    }
+    /**
+     * <pre>
+     * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+     * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+     * current task. Only a plan, question, done or failed to your parent takes it.
+     * </pre>
+     *
+     * <code>string re = 6 [json_name = "re"];</code>
+     * @return The bytes for re.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReBytes() {
+      return instance.getReBytes();
+    }
+    /**
+     * <pre>
+     * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+     * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+     * current task. Only a plan, question, done or failed to your parent takes it.
+     * </pre>
+     *
+     * <code>string re = 6 [json_name = "re"];</code>
+     * @param value The re to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRe(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setRe(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+     * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+     * current task. Only a plan, question, done or failed to your parent takes it.
+     * </pre>
+     *
+     * <code>string re = 6 [json_name = "re"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRe() {
+      copyOnWrite();
+      instance.clearRe();
+      return this;
+    }
+    /**
+     * <pre>
+     * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+     * a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
+     * current task. Only a plan, question, done or failed to your parent takes it.
+     * </pre>
+     *
+     * <code>string re = 6 [json_name = "re"];</code>
+     * @param value The bytes for re to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setReBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SendMessageRequest)
   }
   @java.lang.Override
@@ -721,10 +878,11 @@ public  final class SendMessageRequest extends
             "type_",
             "body_",
             "until_",
+            "re_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\f\u0004\u0208\u0005\u0208";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\f\u0004\u0208\u0005\u0208\u0006\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

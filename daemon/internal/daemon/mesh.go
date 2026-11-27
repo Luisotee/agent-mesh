@@ -526,6 +526,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			movedFrom, to.ParentId = to.ParentId, id
 		}
 		var asked *collectRef // the round this report answers, when it is a member's
+		var reTask string     // the task this report answers (a report to the sender's parent)
 		if IsAgent(actor.Class) {
 			self, err := d.getAgent(t.Reader, actor.Id)
 			if err != nil {
@@ -545,6 +546,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				if err := unreadInstructions(t.Reader, self); err != nil {
 					return err
 				}
+				if reTask, err = reportTask(t.Reader, self, req.Msg.Type, strings.TrimSpace(req.Msg.Re)); err != nil {
+					return err
+				}
 			}
 			// A plan from an agent with no plan phase (a direct task that turned out to need one, or an approved one
 			// given a follow-up) enters one, so approving it moves it to an execution tier. It plans on the model
@@ -560,6 +564,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					return err
 				}
 			}
+		}
+		if reTask == "" && strings.TrimSpace(req.Msg.Re) != "" {
+			return invalid("--re names the task a report answers: only a plan, question, done or failed to your parent takes it")
 		}
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			model, effort, _ := target(to)
@@ -692,7 +699,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			}
 		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
-			Type: req.Msg.Type, Body: msgBody, CreatedAt: tsOf(t.Now())}
+			Type: req.Msg.Type, Body: msgBody, CreatedAt: tsOf(t.Now()), Re: reTask}
 		if asked != nil && (req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE || req.Msg.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
 			// A round's answer is held for its file: stored, but never rung (and read, so the caller's inbox keeps
 			// to what it has to act on); the caller gets one message when the round is in (collect.go).

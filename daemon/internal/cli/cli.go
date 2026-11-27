@@ -273,6 +273,7 @@ func usage(w io.Writer, reg *registry.Registry, hand map[string]func(Env, []stri
 	for _, n := range names {
 		fmt.Fprintf(w, "  %-14s\n", n)
 	}
+	fmt.Fprintln(w, "\nhow do I watch, talk to or approve an agent, or see what waits: mesh protocol how-do-i")
 }
 
 // command is one action's flag set over a dynamic request message.

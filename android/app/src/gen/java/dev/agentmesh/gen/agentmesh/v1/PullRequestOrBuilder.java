@@ -152,4 +152,26 @@ public interface PullRequestOrBuilder extends
    * @return The held.
    */
   boolean getHeld();
+
+  /**
+   * <pre>
+   * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+   * head is its branch.
+   * </pre>
+   *
+   * <code>string head_ref = 11 [json_name = "headRef"];</code>
+   * @return The headRef.
+   */
+  java.lang.String getHeadRef();
+  /**
+   * <pre>
+   * The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+   * head is its branch.
+   * </pre>
+   *
+   * <code>string head_ref = 11 [json_name = "headRef"];</code>
+   * @return The bytes for headRef.
+   */
+  com.google.protobuf.ByteString
+      getHeadRefBytes();
 }
