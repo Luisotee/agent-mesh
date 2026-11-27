@@ -14,6 +14,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 func resolve(h *harness, req *v1.ResolveModelRequest) (*v1.ResolveModelResponse, error) {
@@ -146,7 +147,7 @@ func TestRepoTopResolvesABareNameInReposDir(t *testing.T) {
 }
 
 func TestSpawnTakesABareRepoNameFromReposDir(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	run := startRun(t, h.device.Mesh, "")

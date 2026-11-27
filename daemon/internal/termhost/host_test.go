@@ -23,6 +23,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // The test binary is also the program the tests run in a PTY.
@@ -74,7 +75,7 @@ type fixture struct {
 
 func startHost(t *testing.T) *fixture {
 	t.Helper()
-	dir := t.TempDir()
+	dir := shortdir.New(t)
 	h, err := termhost.Open(termhost.Config{Dir: dir, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		KillGrace: 500 * time.Millisecond})
 	if err != nil {

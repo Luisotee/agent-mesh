@@ -24,6 +24,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 type fakeSys struct {
@@ -758,7 +759,7 @@ func TestRound1ReviewFixes(t *testing.T) {
 	})
 
 	// 4. adopt at boot runs finishRetire's sweep asynchronously without blocking daemon startup.
-	w2State := filepath.Join(t.TempDir(), "state2")
+	w2State := shortdir.State(t)
 	w2Home := t.TempDir()
 	fs2 := newFakeSys()
 	sys2 := fs2.ops()

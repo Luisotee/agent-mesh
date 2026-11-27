@@ -19,6 +19,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // resetWorld is a compactWorld whose fake claude logs every line typed into it, and which can make a fresh launch
@@ -31,7 +32,7 @@ type resetWorld struct {
 func startReset(t *testing.T, timings daemon.ResetTimings, tweaks ...func(*daemon.AgentConfig)) *resetWorld {
 	t.Helper()
 	rw := &resetWorld{}
-	dir, err := os.MkdirTemp("", "reset-")
+	dir, err := shortdir.Make("reset-")
 	if err != nil {
 		t.Fatal(err)
 	}
