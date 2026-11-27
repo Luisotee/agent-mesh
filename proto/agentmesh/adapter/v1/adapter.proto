@@ -32,6 +32,9 @@ service CliAdapterService {
   rpc ReadTranscript(ReadTranscriptRequest) returns (ReadTranscriptResponse);
   // PlanCompact says how to compact a stopped conversation headless, before it is reopened.
   rpc PlanCompact(PlanCompactRequest) returns (PlanCompactResponse);
+  // ListCommands lists the commands the CLI accepts at its prompt for an agent in `cwd`, for the composer's `/`
+  // completion. An adapter without it has none (the daemon answers `supported: false`).
+  rpc ListCommands(ListCommandsRequest) returns (ListCommandsResponse);
 }
 
 message DescribeRequest {}
@@ -162,6 +165,26 @@ message ReadInputBoxResponse {
   string text = 2;
   // Copies of the token above the input box (whitespace removed, so no wrap splits it).
   int32 token_above = 3;
+  // Ghost text in an empty box: what the box shows dimmed (a placeholder, or Claude Code's suggested next prompt).
+  // Set only where the adapter can tell a suggestion from its fixed hint; empty otherwise.
+  string ghost = 4;
+}
+
+message ListCommandsRequest {
+  // The agent's worktree and environment (where the CLI keeps its config), and the CLI's binary.
+  string cwd = 1;
+  map<string, string> env = 2;
+  string binary = 3;
+  // A read-only agent (an asker or a reviewer) may sit on a PR head nobody trusted: the CLI then reads only the
+  // user's own settings.
+  bool read_only = 4;
+  // What the agent's launch leaves out of its CLI (the plugins turned off, the claude.ai skills): the list is the one
+  // the launched CLI has. Only its `off_plugins` and `hide_claudeai_skills` are read.
+  LeanLaunch lean = 5;
+}
+
+message ListCommandsResponse {
+  repeated agentmesh.v1.AgentCommand commands = 1;
 }
 
 message DeliverNativeRequest {

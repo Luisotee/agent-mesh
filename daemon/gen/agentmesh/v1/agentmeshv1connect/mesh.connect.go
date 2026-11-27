@@ -117,6 +117,12 @@ const (
 	// MeshServiceReadTranscriptProcedure is the fully-qualified name of the MeshService's
 	// ReadTranscript RPC.
 	MeshServiceReadTranscriptProcedure = "/agentmesh.v1.MeshService/ReadTranscript"
+	// MeshServiceListAgentCommandsProcedure is the fully-qualified name of the MeshService's
+	// ListAgentCommands RPC.
+	MeshServiceListAgentCommandsProcedure = "/agentmesh.v1.MeshService/ListAgentCommands"
+	// MeshServiceGetPromptSuggestionProcedure is the fully-qualified name of the MeshService's
+	// GetPromptSuggestion RPC.
+	MeshServiceGetPromptSuggestionProcedure = "/agentmesh.v1.MeshService/GetPromptSuggestion"
 	// MeshServicePromptAgentProcedure is the fully-qualified name of the MeshService's PromptAgent RPC.
 	MeshServicePromptAgentProcedure = "/agentmesh.v1.MeshService/PromptAgent"
 	// MeshServiceListPromptsProcedure is the fully-qualified name of the MeshService's ListPrompts RPC.
@@ -333,6 +339,14 @@ type MeshServiceClient interface {
 	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
 	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
+	// The commands an agent's CLI accepts when typed at its prompt, with descriptions and argument hints, for the
+	// composer's `/` completion: the CLI's built-ins and what it loads for this agent (the repo's and the user's
+	// commands, skills, plugins). Read from the CLI where it can say (Claude Code), else from a table of its
+	// built-ins plus the files it reads.
+	ListAgentCommands(context.Context, *connect.Request[v1.ListAgentCommandsRequest]) (*connect.Response[v1.ListAgentCommandsResponse], error)
+	// The prompt Claude Code suggests next (grey text in its empty input box after a turn), read from the agent's
+	// screen. Empty when there is none, the agent is not at its prompt, or its CLI has no such feature.
+	GetPromptSuggestion(context.Context, *connect.Request[v1.GetPromptSuggestionRequest]) (*connect.Response[v1.GetPromptSuggestionResponse], error)
 	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
 	// with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
@@ -690,6 +704,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("ReadTranscript")),
 			connect.WithClientOptions(opts...),
 		),
+		listAgentCommands: connect.NewClient[v1.ListAgentCommandsRequest, v1.ListAgentCommandsResponse](
+			httpClient,
+			baseURL+MeshServiceListAgentCommandsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListAgentCommands")),
+			connect.WithClientOptions(opts...),
+		),
+		getPromptSuggestion: connect.NewClient[v1.GetPromptSuggestionRequest, v1.GetPromptSuggestionResponse](
+			httpClient,
+			baseURL+MeshServiceGetPromptSuggestionProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetPromptSuggestion")),
+			connect.WithClientOptions(opts...),
+		),
 		promptAgent: connect.NewClient[v1.PromptAgentRequest, v1.PromptAgentResponse](
 			httpClient,
 			baseURL+MeshServicePromptAgentProcedure,
@@ -965,87 +991,89 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // meshServiceClient implements MeshServiceClient.
 type meshServiceClient struct {
-	hello             *connect.Client[v1.HelloRequest, v1.HelloResponse]
-	startRun          *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
-	listRuns          *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
-	spawnAgent        *connect.Client[v1.SpawnAgentRequest, v1.SpawnAgentResponse]
-	listAgents        *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	getAgent          *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
-	stopAgent         *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
-	approveAgent      *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
-	switchAgent       *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
-	resumeAgent       *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
-	retireAgent       *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
-	renameRun         *connect.Client[v1.RenameRunRequest, v1.RenameRunResponse]
-	openView          *connect.Client[v1.OpenViewRequest, v1.OpenViewResponse]
-	stopRun           *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
-	sendMessage       *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
-	readInbox         *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
-	adoptSession      *connect.Client[v1.AdoptSessionRequest, v1.AdoptSessionResponse]
-	checkAgent        *connect.Client[v1.CheckAgentRequest, v1.CheckAgentResponse]
-	listMessages      *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
-	listWaiting       *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
-	subscribeEvents   *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
-	listSettings      *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
-	setSetting        *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
-	importSettings    *connect.Client[v1.ImportSettingsRequest, v1.ImportSettingsResponse]
-	resetSetting      *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
-	resetRoot         *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
-	listPullRequests  *connect.Client[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse]
-	holdPullRequest   *connect.Client[v1.HoldPullRequestRequest, v1.HoldPullRequestResponse]
-	listProjects      *connect.Client[v1.ListProjectsRequest, v1.ListProjectsResponse]
-	getBrief          *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
-	reportHook        *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
-	openTerminal      *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
-	openShell         *connect.Client[v1.OpenShellRequest, v1.OpenShellResponse]
-	listShells        *connect.Client[v1.ListShellsRequest, v1.ListShellsResponse]
-	closeShell        *connect.Client[v1.CloseShellRequest, v1.CloseShellResponse]
-	readTranscript    *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
-	promptAgent       *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
-	listPrompts       *connect.Client[v1.ListPromptsRequest, v1.ListPromptsResponse]
-	withdrawPrompt    *connect.Client[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse]
-	sendPromptAnyway  *connect.Client[v1.SendPromptAnywayRequest, v1.SendPromptAnywayResponse]
-	interruptAgent    *connect.Client[v1.InterruptAgentRequest, v1.InterruptAgentResponse]
-	rewindAgent       *connect.Client[v1.RewindAgentRequest, v1.RewindAgentResponse]
-	addAttachment     *connect.Client[v1.AddAttachmentRequest, v1.AddAttachmentResponse]
-	createPairing     *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
-	listDevices       *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
-	revokeDevice      *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
-	revokeSelf        *connect.Client[v1.RevokeSelfRequest, v1.RevokeSelfResponse]
-	registerPush      *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
-	unregisterPush    *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
-	testPush          *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
-	startSetup        *connect.Client[v1.StartSetupRequest, v1.StartSetupResponse]
-	tailnetStatus     *connect.Client[v1.TailnetStatusRequest, v1.TailnetStatusResponse]
-	getUsage          *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
-	setReserve        *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
-	ask               *connect.Client[v1.AskRequest, v1.AskResponse]
-	recordVerdict     *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
-	listAsks          *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
-	listPeers         *connect.Client[v1.ListPeersRequest, v1.ListPeersResponse]
-	addPeer           *connect.Client[v1.AddPeerRequest, v1.AddPeerResponse]
-	editPeer          *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
-	removePeer        *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
-	importPeers       *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
-	getCost           *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
-	checkModels       *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
-	resolveModel      *connect.Client[v1.ResolveModelRequest, v1.ResolveModelResponse]
-	checkConflicts    *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
-	listTools         *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
-	addTools          *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
-	requestPermission *connect.Client[v1.RequestPermissionRequest, v1.RequestPermissionResponse]
-	decidePermission  *connect.Client[v1.DecidePermissionRequest, v1.DecidePermissionResponse]
-	listPermissions   *connect.Client[v1.ListPermissionsRequest, v1.ListPermissionsResponse]
-	listMCPServers    *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
-	createWorktree    *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
-	streamLog         *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
-	getAgentChanges   *connect.Client[v1.GetAgentChangesRequest, v1.GetAgentChangesResponse]
-	getAgentProgress  *connect.Client[v1.GetAgentProgressRequest, v1.GetAgentProgressResponse]
-	archiveAgent      *connect.Client[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse]
-	openInEditor      *connect.Client[v1.OpenInEditorRequest, v1.OpenInEditorResponse]
-	setTailnet        *connect.Client[v1.SetTailnetRequest, v1.SetTailnetResponse]
-	ringAgent         *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
-	openAgent         *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
+	hello               *connect.Client[v1.HelloRequest, v1.HelloResponse]
+	startRun            *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
+	listRuns            *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
+	spawnAgent          *connect.Client[v1.SpawnAgentRequest, v1.SpawnAgentResponse]
+	listAgents          *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	getAgent            *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
+	stopAgent           *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
+	approveAgent        *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
+	switchAgent         *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
+	resumeAgent         *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
+	retireAgent         *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
+	renameRun           *connect.Client[v1.RenameRunRequest, v1.RenameRunResponse]
+	openView            *connect.Client[v1.OpenViewRequest, v1.OpenViewResponse]
+	stopRun             *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
+	sendMessage         *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	readInbox           *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
+	adoptSession        *connect.Client[v1.AdoptSessionRequest, v1.AdoptSessionResponse]
+	checkAgent          *connect.Client[v1.CheckAgentRequest, v1.CheckAgentResponse]
+	listMessages        *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
+	listWaiting         *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
+	subscribeEvents     *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
+	listSettings        *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
+	setSetting          *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
+	importSettings      *connect.Client[v1.ImportSettingsRequest, v1.ImportSettingsResponse]
+	resetSetting        *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
+	resetRoot           *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
+	listPullRequests    *connect.Client[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse]
+	holdPullRequest     *connect.Client[v1.HoldPullRequestRequest, v1.HoldPullRequestResponse]
+	listProjects        *connect.Client[v1.ListProjectsRequest, v1.ListProjectsResponse]
+	getBrief            *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
+	reportHook          *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
+	openTerminal        *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	openShell           *connect.Client[v1.OpenShellRequest, v1.OpenShellResponse]
+	listShells          *connect.Client[v1.ListShellsRequest, v1.ListShellsResponse]
+	closeShell          *connect.Client[v1.CloseShellRequest, v1.CloseShellResponse]
+	readTranscript      *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
+	listAgentCommands   *connect.Client[v1.ListAgentCommandsRequest, v1.ListAgentCommandsResponse]
+	getPromptSuggestion *connect.Client[v1.GetPromptSuggestionRequest, v1.GetPromptSuggestionResponse]
+	promptAgent         *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
+	listPrompts         *connect.Client[v1.ListPromptsRequest, v1.ListPromptsResponse]
+	withdrawPrompt      *connect.Client[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse]
+	sendPromptAnyway    *connect.Client[v1.SendPromptAnywayRequest, v1.SendPromptAnywayResponse]
+	interruptAgent      *connect.Client[v1.InterruptAgentRequest, v1.InterruptAgentResponse]
+	rewindAgent         *connect.Client[v1.RewindAgentRequest, v1.RewindAgentResponse]
+	addAttachment       *connect.Client[v1.AddAttachmentRequest, v1.AddAttachmentResponse]
+	createPairing       *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
+	listDevices         *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
+	revokeDevice        *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	revokeSelf          *connect.Client[v1.RevokeSelfRequest, v1.RevokeSelfResponse]
+	registerPush        *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
+	unregisterPush      *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
+	testPush            *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
+	startSetup          *connect.Client[v1.StartSetupRequest, v1.StartSetupResponse]
+	tailnetStatus       *connect.Client[v1.TailnetStatusRequest, v1.TailnetStatusResponse]
+	getUsage            *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
+	setReserve          *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
+	ask                 *connect.Client[v1.AskRequest, v1.AskResponse]
+	recordVerdict       *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
+	listAsks            *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
+	listPeers           *connect.Client[v1.ListPeersRequest, v1.ListPeersResponse]
+	addPeer             *connect.Client[v1.AddPeerRequest, v1.AddPeerResponse]
+	editPeer            *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
+	removePeer          *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
+	importPeers         *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
+	getCost             *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
+	checkModels         *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
+	resolveModel        *connect.Client[v1.ResolveModelRequest, v1.ResolveModelResponse]
+	checkConflicts      *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
+	listTools           *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	addTools            *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
+	requestPermission   *connect.Client[v1.RequestPermissionRequest, v1.RequestPermissionResponse]
+	decidePermission    *connect.Client[v1.DecidePermissionRequest, v1.DecidePermissionResponse]
+	listPermissions     *connect.Client[v1.ListPermissionsRequest, v1.ListPermissionsResponse]
+	listMCPServers      *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
+	createWorktree      *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
+	streamLog           *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
+	getAgentChanges     *connect.Client[v1.GetAgentChangesRequest, v1.GetAgentChangesResponse]
+	getAgentProgress    *connect.Client[v1.GetAgentProgressRequest, v1.GetAgentProgressResponse]
+	archiveAgent        *connect.Client[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse]
+	openInEditor        *connect.Client[v1.OpenInEditorRequest, v1.OpenInEditorResponse]
+	setTailnet          *connect.Client[v1.SetTailnetRequest, v1.SetTailnetResponse]
+	ringAgent           *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
+	openAgent           *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -1226,6 +1254,16 @@ func (c *meshServiceClient) CloseShell(ctx context.Context, req *connect.Request
 // ReadTranscript calls agentmesh.v1.MeshService.ReadTranscript.
 func (c *meshServiceClient) ReadTranscript(ctx context.Context, req *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error) {
 	return c.readTranscript.CallUnary(ctx, req)
+}
+
+// ListAgentCommands calls agentmesh.v1.MeshService.ListAgentCommands.
+func (c *meshServiceClient) ListAgentCommands(ctx context.Context, req *connect.Request[v1.ListAgentCommandsRequest]) (*connect.Response[v1.ListAgentCommandsResponse], error) {
+	return c.listAgentCommands.CallUnary(ctx, req)
+}
+
+// GetPromptSuggestion calls agentmesh.v1.MeshService.GetPromptSuggestion.
+func (c *meshServiceClient) GetPromptSuggestion(ctx context.Context, req *connect.Request[v1.GetPromptSuggestionRequest]) (*connect.Response[v1.GetPromptSuggestionResponse], error) {
+	return c.getPromptSuggestion.CallUnary(ctx, req)
 }
 
 // PromptAgent calls agentmesh.v1.MeshService.PromptAgent.
@@ -1556,6 +1594,14 @@ type MeshServiceHandler interface {
 	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
 	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
+	// The commands an agent's CLI accepts when typed at its prompt, with descriptions and argument hints, for the
+	// composer's `/` completion: the CLI's built-ins and what it loads for this agent (the repo's and the user's
+	// commands, skills, plugins). Read from the CLI where it can say (Claude Code), else from a table of its
+	// built-ins plus the files it reads.
+	ListAgentCommands(context.Context, *connect.Request[v1.ListAgentCommandsRequest]) (*connect.Response[v1.ListAgentCommandsResponse], error)
+	// The prompt Claude Code suggests next (grey text in its empty input box after a turn), read from the agent's
+	// screen. Empty when there is none, the agent is not at its prompt, or its CLI has no such feature.
+	GetPromptSuggestion(context.Context, *connect.Request[v1.GetPromptSuggestionRequest]) (*connect.Response[v1.GetPromptSuggestionResponse], error)
 	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
 	// with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
@@ -1909,6 +1955,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("ReadTranscript")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListAgentCommandsHandler := connect.NewUnaryHandler(
+		MeshServiceListAgentCommandsProcedure,
+		svc.ListAgentCommands,
+		connect.WithSchema(meshServiceMethods.ByName("ListAgentCommands")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceGetPromptSuggestionHandler := connect.NewUnaryHandler(
+		MeshServiceGetPromptSuggestionProcedure,
+		svc.GetPromptSuggestion,
+		connect.WithSchema(meshServiceMethods.ByName("GetPromptSuggestion")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServicePromptAgentHandler := connect.NewUnaryHandler(
 		MeshServicePromptAgentProcedure,
 		svc.PromptAgent,
@@ -2253,6 +2311,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceCloseShellHandler.ServeHTTP(w, r)
 		case MeshServiceReadTranscriptProcedure:
 			meshServiceReadTranscriptHandler.ServeHTTP(w, r)
+		case MeshServiceListAgentCommandsProcedure:
+			meshServiceListAgentCommandsHandler.ServeHTTP(w, r)
+		case MeshServiceGetPromptSuggestionProcedure:
+			meshServiceGetPromptSuggestionHandler.ServeHTTP(w, r)
 		case MeshServicePromptAgentProcedure:
 			meshServicePromptAgentHandler.ServeHTTP(w, r)
 		case MeshServiceListPromptsProcedure:
@@ -2494,6 +2556,14 @@ func (UnimplementedMeshServiceHandler) CloseShell(context.Context, *connect.Requ
 
 func (UnimplementedMeshServiceHandler) ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ReadTranscript is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListAgentCommands(context.Context, *connect.Request[v1.ListAgentCommandsRequest]) (*connect.Response[v1.ListAgentCommandsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListAgentCommands is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetPromptSuggestion(context.Context, *connect.Request[v1.GetPromptSuggestionRequest]) (*connect.Response[v1.GetPromptSuggestionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetPromptSuggestion is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error) {
