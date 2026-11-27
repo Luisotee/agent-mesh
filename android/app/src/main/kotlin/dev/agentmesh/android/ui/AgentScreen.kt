@@ -33,6 +33,7 @@ import dev.agentmesh.android.derive.statusSentence
 import dev.agentmesh.android.notify.Tab
 import dev.agentmesh.android.store.toMillis
 import dev.agentmesh.android.ui.chat.ChatTab
+import dev.agentmesh.android.ui.chat.isReadOnlyDevice
 import dev.agentmesh.android.ui.messages.MessagesTab
 import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.Run
@@ -75,13 +76,14 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
                     Text(roleLabel(agent.role), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            ModelLine(runtime, agent, canChange = !isReadOnlyDevice(state))
             TabRow(selectedTabIndex = tab.ordinal) {
                 Tab.entries.forEach { t ->
                     androidx.compose.material3.Tab(selected = tab == t, onClick = { tab = t }, text = { Text(t.name) })
                 }
             }
             when (tab) {
-                Tab.Overview -> Overview(agent, run, state.clockSkewMs)
+                Tab.Overview -> Overview(runtime, agent, run, state.clockSkewMs, canAct = !isReadOnlyDevice(state))
                 Tab.Chat -> ChatTab(runtime, agentId, Modifier.fillMaxSize(), openTerminal = { tab = Tab.Terminal })
                 Tab.Messages -> MessagesTab(runtime, agentId, Modifier.fillMaxSize())
                 Tab.Terminal -> TerminalTab(runtime, agentId, Modifier.fillMaxSize())
@@ -91,8 +93,9 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
 }
 
 @Composable
-private fun Overview(agent: Agent, run: Run?, skewMs: Long) {
+private fun Overview(runtime: HostRuntime, agent: Agent, run: Run?, skewMs: Long, canAct: Boolean) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        PullRequestsSection(runtime, agent.id, canAct)
         KeyValue("Run", run?.title?.ifEmpty { run.id } ?: agent.runId)
         KeyValue("Project", repoName(agent.repo))
         KeyValue("Branch", agent.branch, mono = true)

@@ -38,7 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
-import dev.agentmesh.android.derive.waitingOnYou
+import dev.agentmesh.android.derive.waitingFor
 import dev.agentmesh.android.hosts.Host
 import dev.agentmesh.android.hosts.UnpairResult
 import dev.agentmesh.android.hosts.unpairFromHost
@@ -168,7 +168,7 @@ private fun EmptyHosts(modifier: Modifier, recovered: Boolean, onAdd: () -> Unit
 @Composable
 private fun HostRow(host: Host, runtime: HostRuntime?, onOpen: () -> Unit, onEdit: () -> Unit, onRemove: () -> Unit) {
     val state by (runtime?.state ?: remember { kotlinx.coroutines.flow.MutableStateFlow(dev.agentmesh.android.store.HostState()) }).collectAsStateWithLifecycleCompat()
-    val waiting = remember(state.runs, state.agents, state.messages) { waitingOnYou(state.runs, state.agents, state.messages).size }
+    val waiting = remember(state.waiting, state.runs, state.agents, state.messages) { waitingFor(state).size }
     val open = state.runs.values.count { it.status == RunStatus.RUN_STATUS_OPEN }
     var menu by remember { mutableStateOf(false) }
     val now = rememberNowMs(state.conn is ConnState.Reconnecting)

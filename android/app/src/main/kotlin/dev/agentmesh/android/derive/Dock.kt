@@ -23,6 +23,9 @@ private fun alive(a: Agent) = a.state != AgentState.AGENT_STATE_EXITED && a.stat
 private fun attention(a: Agent) = a.state == AgentState.AGENT_STATE_NEEDS_INPUT || a.state == AgentState.AGENT_STATE_ERROR || a.state == AgentState.AGENT_STATE_LIMITED
 private fun at(a: Agent) = if (a.hasLastActivity()) a.lastActivity.toMillis() else 0L
 
+/** An agent's last activity as epoch milliseconds in the host's clock (0 when it has none). */
+fun activityMillis(a: Agent) = at(a)
+
 /** A tile per live agent of the open runs: those that need the user first, then the rest by latest activity. */
 fun dockTiles(runs: Map<String, Run>, agents: Map<String, Agent>, messages: Map<String, Message>): List<Tile> {
     val lastSent = HashMap<String, Message>()

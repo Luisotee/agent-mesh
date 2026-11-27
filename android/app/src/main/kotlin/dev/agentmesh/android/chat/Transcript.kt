@@ -23,12 +23,18 @@ data class Transcript(
 fun fromTail(res: ReadTranscriptResponse) =
     Transcript(res.supported, res.sessionId, res.entriesList, res.startOffset, res.endOffset, res.atStart)
 
+/** The entries of a page that aren't held already: an entry shows once (a list needs unique keys), however a record is re-read. */
+private fun fresh(t: Transcript, res: ReadTranscriptResponse): List<TranscriptEntry> {
+    val held = t.entries.mapTo(HashSet()) { it.id }
+    return res.entriesList.filter { held.add(it.id) }
+}
+
 /** Earlier entries, put before the ones held. */
 fun withEarlier(t: Transcript, res: ReadTranscriptResponse): Transcript {
     // A page of another conversation, or one that doesn't end where the held entries begin (the record was rewritten or
     // reloaded while it was out), would repeat or misplace entries.
     if (res.sessionId != t.sessionId || res.endOffset != t.start) return t
-    return t.copy(entries = res.entriesList + t.entries, start = res.startOffset, atStart = res.atStart)
+    return t.copy(entries = fresh(t, res) + t.entries, start = res.startOffset, atStart = res.atStart)
 }
 
 sealed interface Followed {
@@ -48,7 +54,7 @@ fun withLater(t: Transcript, res: ReadTranscriptResponse, from: Long = t.end): F
     if (res.sessionId != t.sessionId || res.endOffset < t.end) return Followed.Reload
     if (from != t.end) return Followed.Same
     if (res.entriesCount == 0 && res.endOffset == t.end) return Followed.Same
-    return Followed.More(t.copy(entries = t.entries + res.entriesList, end = res.endOffset))
+    return Followed.More(t.copy(entries = t.entries + fresh(t, res), end = res.endOffset))
 }
 
 /** What the chat shows, in order: a prompt, a mesh doorbell, a reply, or a run of tool calls with their answers. */

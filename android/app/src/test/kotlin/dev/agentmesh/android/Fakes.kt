@@ -96,7 +96,8 @@ class RecordingApi : MeshApi {
 
     override fun connectTerminal(path: String): TerminalSocket = sockets.removeFirstOrNull() ?: FakeSocket()
 
-    override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
+    @Volatile var settings: List<Setting> = emptyList()
+    override suspend fun listSettings(prefix: String): List<Setting> = settings
     override suspend fun setSetting(key: String, value: Value): Setting = error("unused")
     override suspend fun resetSetting(key: String): Setting = error("unused")
 

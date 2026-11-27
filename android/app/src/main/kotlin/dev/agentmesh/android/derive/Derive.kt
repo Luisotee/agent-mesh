@@ -1,5 +1,6 @@
 package dev.agentmesh.android.derive
 
+import dev.agentmesh.android.store.HostState
 import dev.agentmesh.android.store.MessageOrder
 import dev.agentmesh.android.store.createdMillis
 import dev.agentmesh.android.store.isBefore
@@ -163,6 +164,24 @@ fun waitingOnYou(runs: Map<String, Run>, agents: Map<String, Agent>, messages: M
         .map { Waiting(WaitingKind.Input, it, runs[it.runId], null) }
     return items + prompts
 }
+
+/** The host's `ListWaiting` rows as screens show them; a row whose agent the app doesn't know (yet) is left out. */
+fun waitingFrom(list: List<dev.agentmesh.gen.agentmesh.v1.Waiting>, runs: Map<String, Run>, agents: Map<String, Agent>): List<Waiting> = list.mapNotNull { w ->
+    val agent = agents[w.agentId] ?: return@mapNotNull null
+    val kind = when (w.kind) {
+        dev.agentmesh.gen.agentmesh.v1.WaitingKind.WAITING_KIND_PLAN -> WaitingKind.Plan
+        dev.agentmesh.gen.agentmesh.v1.WaitingKind.WAITING_KIND_QUESTION -> WaitingKind.Question
+        dev.agentmesh.gen.agentmesh.v1.WaitingKind.WAITING_KIND_INPUT -> WaitingKind.Input
+        else -> return@mapNotNull null
+    }
+    Waiting(kind, agent, runs[w.runId.ifEmpty { agent.runId }], if (w.hasMessage()) w.message else null)
+}
+
+/**
+ * What waits on the user: the host's own answer (`ListWaiting`, so both apps agree) once it has given one, and until then
+ * (or on a host too old to have the action) what [waitingOnYou] derives from the messages.
+ */
+fun waitingFor(s: HostState): List<Waiting> = s.waiting?.let { waitingFrom(it, s.runs, s.agents) } ?: waitingOnYou(s.runs, s.agents, s.messages)
 
 fun Agent.lastActivityMillis(): Long = if (hasLastActivity()) lastActivity.toMillis() else createdMillis
 

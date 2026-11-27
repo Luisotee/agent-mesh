@@ -23,6 +23,8 @@ object Routes {
     const val HOST = "host/{id}"
     const val LOG = "host/{id}/log"
     const val HOST_SETTINGS = "host/{id}/settings"
+    const val DOCK = "host/{id}/live"
+    const val USAGE = "host/{id}/usage"
     const val AGENT = "host/{id}/agent/{agent}?tab={tab}"
     const val SETTINGS = "settings"
 
@@ -30,6 +32,8 @@ object Routes {
     fun edit(id: String) = "host/$id/edit"
     fun log(id: String) = "host/$id/log"
     fun hostSettings(id: String) = "host/$id/settings"
+    fun dock(id: String) = "host/$id/live"
+    fun usage(id: String) = "host/$id/usage"
     fun agent(id: String, agent: String, tab: Tab = Tab.Overview) = "host/$id/agent/$agent?tab=${tab.name}"
 }
 
@@ -79,9 +83,15 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             if (rt == null) Gone { nav.popBackStack() } else HostScreen(
                 rt, onBack = { nav.popBackStack() }, onAgent = { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) },
                 onLog = { nav.navigate(Routes.log(id)) }, onSettings = { nav.navigate(Routes.hostSettings(id)) },
+                onDock = { nav.navigate(Routes.dock(id)) }, onUsage = { nav.navigate(Routes.usage(id)) },
             )
         }
         composable(Routes.LOG) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { LogScreen(it) { nav.popBackStack() } } }
+        composable(Routes.DOCK) { e ->
+            val id = e.arguments!!.getString("id")!!
+            runtimes[id]?.let { DockScreen(it, { nav.popBackStack() }) { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) } }
+        }
+        composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it) { nav.popBackStack() } } }
         composable(Routes.HOST_SETTINGS) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { HostSettingsScreen(it) { nav.popBackStack() } } }
         composable(
             Routes.AGENT,

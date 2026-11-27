@@ -83,7 +83,7 @@ private fun stamp(m: Message, skewMs: Long): String =
 
 /** The user's reply to a plan (approve it, or ask for changes) or a question (answer it): all go to the author. */
 @Composable
-private fun AnswerForm(runtime: HostRuntime, m: Message) {
+fun AnswerForm(runtime: HostRuntime, m: Message) {
     val author = m.from.id
     val isPlan = m.type == MessageType.MESSAGE_TYPE_PLAN
     var text by rememberSaveable(m.id) { mutableStateOf("") }
