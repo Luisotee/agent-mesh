@@ -54,12 +54,14 @@ type ghFeedback struct {
 	Rollup     []map[string]any `json:"statusCheckRollup"`
 	Reviews    []struct {
 		Author      struct{ Login string } `json:"author"`
+		Assoc       string                 `json:"authorAssociation"`
 		Body        string                 `json:"body"`
 		State       string                 `json:"state"`
 		SubmittedAt time.Time              `json:"submittedAt"`
 	} `json:"reviews"`
 	Comments []struct {
 		Author    struct{ Login string } `json:"author"`
+		Assoc     string                 `json:"authorAssociation"`
 		Body      string                 `json:"body"`
 		CreatedAt time.Time              `json:"createdAt"`
 	} `json:"comments"`
@@ -70,19 +72,35 @@ type ghInline struct {
 	User struct {
 		Login string `json:"login"`
 	} `json:"user"`
+	Assoc        string    `json:"author_association"`
 	Body         string    `json:"body"`
 	Path         string    `json:"path"`
 	Line         int       `json:"line"`
 	OriginalLine int       `json:"original_line"`
 	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 var prRepoRE = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)`)
 
-// agentAuthored is a comment an agent (or a bot) wrote: not feedback for a worker.
+// agentAuthored is a comment an agent (or a bot) wrote: not feedback for a worker. An agent's attribution is the
+// last line of what it wrote, so a person quoting one mid-comment is still heard.
 func agentAuthored(login, body string) bool {
-	return strings.HasSuffix(login, "[bot]") || strings.Contains(body, "Generated with [Claude Code]") ||
-		strings.Contains(body, "Co-Authored-By:") || strings.HasPrefix(strings.TrimSpace(body), "[mesh")
+	body = strings.TrimSpace(body)
+	last := body[strings.LastIndex(body, "\n")+1:]
+	return strings.HasSuffix(login, "[bot]") || strings.Contains(last, "Generated with [Claude Code]") ||
+		strings.HasPrefix(strings.TrimSpace(last), "Co-Authored-By:") || strings.HasPrefix(body, "[mesh")
+}
+
+// trusted is who may give a worker work through a PR: the repo's owner, its members and collaborators. Anyone
+// else (a drive-by commenter on a public repo, a first-time contributor) is skipped, and so is a comment whose
+// association GitHub did not say: what a worker is told is acted on, and on `resume` unattended.
+func trusted(assoc string) bool {
+	switch strings.ToUpper(assoc) {
+	case "OWNER", "MEMBER", "COLLABORATOR":
+		return true
+	}
+	return false
 }
 
 // clip cuts text to n characters, on a rune.
@@ -98,14 +116,14 @@ func clip(s string, n int) string {
 // items in time order, and the newest time seen of any (the cursor's next place, skipped ones included).
 func feedbackSince(v ghFeedback, inline []ghInline, cursor time.Time) (items []feedbackItem, newest time.Time) {
 	newest = cursor
-	add := func(at time.Time, login, where, body string) {
+	add := func(at time.Time, login, assoc, where, body string) {
 		if at.IsZero() || !at.After(cursor) {
 			return
 		}
 		if at.After(newest) {
 			newest = at
 		}
-		if strings.TrimSpace(body) == "" || agentAuthored(login, body) {
+		if strings.TrimSpace(body) == "" || !trusted(assoc) || agentAuthored(login, body) {
 			return
 		}
 		items = append(items, feedbackItem{at: at, author: login, where: where, text: body})
@@ -118,10 +136,10 @@ func feedbackSince(v ghFeedback, inline []ghInline, cursor time.Time) (items []f
 		if s := strings.ToLower(strings.ReplaceAll(rv.State, "_", " ")); s != "" && s != "commented" {
 			where += " (" + s + ")"
 		}
-		add(rv.SubmittedAt, rv.Author.Login, where, rv.Body)
+		add(rv.SubmittedAt, rv.Author.Login, rv.Assoc, where, rv.Body)
 	}
 	for _, c := range v.Comments {
-		add(c.CreatedAt, c.Author.Login, "", c.Body)
+		add(c.CreatedAt, c.Author.Login, c.Assoc, "", c.Body)
 	}
 	for _, c := range inline {
 		line := c.Line
@@ -132,7 +150,11 @@ func feedbackSince(v ghFeedback, inline []ghInline, cursor time.Time) (items []f
 		if line > 0 {
 			where = fmt.Sprintf("%s:%d", c.Path, line)
 		}
-		add(c.CreatedAt, c.User.Login, where, c.Body)
+		at := c.CreatedAt // a draft's comment is created when drafted: its submit moves the update time
+		if c.UpdatedAt.After(at) {
+			at = c.UpdatedAt
+		}
+		add(at, c.User.Login, c.Assoc, where, c.Body)
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].at.Before(items[j].at) })
 	return items, newest
@@ -165,7 +187,8 @@ func failingChecks(rollup []map[string]any) []string {
 }
 
 // feedbackText is what a worker is told: each item, the failing checks, and what to do with them.
-func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head string) string {
+func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head string) (string, int) {
+	included := len(items)
 	var b strings.Builder
 	fmt.Fprintf(&b, "[mesh pr-feedback #%d] %s has", p.Number, p.Url)
 	var parts []string
@@ -187,7 +210,8 @@ func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head
 		}
 		line := "- " + where + ": " + strings.ReplaceAll(clip(it.text, feedbackTextMax), "\n", "\n  ") + "\n"
 		if i >= feedbackItemMax || used+len(line) > feedbackBodyMax {
-			fmt.Fprintf(&b, "- … and %d more on the PR.\n", len(items)-i)
+			fmt.Fprintf(&b, "- … %d more follow at the next look (or read the PR).\n", len(items)-i)
+			included = i
 			break
 		}
 		used += len(line)
@@ -198,7 +222,7 @@ func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head
 	}
 	b.WriteString("Treat each as a claim (PROTOCOL.md rule 8): check it against the code, fix what holds, push, " +
 		"and say in your next report what you fixed and what you declined and why.")
-	return b.String()
+	return b.String(), included
 }
 
 // prWatchEvery is the seconds between passes (`prs.watch_every`; 0 is off).
@@ -312,7 +336,11 @@ func (d *Daemon) watchPR(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mo
 		}
 		return
 	}
-	d.tellFeedback(ctx, a, p, mode, feedbackText(p, items, checks, v.HeadRefOid), len(items)+len(checks), newest, failedHead)
+	body, included := feedbackText(p, items, checks, v.HeadRefOid)
+	if included < len(items) { // the rest is told at the next look: the cursor stops at the last one told
+		newest = items[included-1].at
+	}
+	d.tellFeedback(ctx, a, p, mode, body, included+len(checks), newest, failedHead)
 }
 
 func ternary(c bool, a, b string) string {
