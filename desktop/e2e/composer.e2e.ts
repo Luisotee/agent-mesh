@@ -14,7 +14,7 @@ const shots = path.resolve(import.meta.dirname, '../test-results')
 beforeAll(async () => {
   bins = mkdtempSync(path.join(os.tmpdir(), 'amd-bins-'))
   buildBinaries(bins)
-  host = makeHost(bins, { fakeClaudeEnv: { FAKECLAUDE_TRANSCRIPT: '1', FAKECLAUDE_BOX: '1' } })
+  host = makeHost(bins, { fakeClaudeEnv: { FAKECLAUDE_TRANSCRIPT: '1', FAKECLAUDE_BOX: '1', FAKECLAUDE_SUGGESTION: 'run the tests again' } })
   await host.start()
   mkdirSync(shots, { recursive: true })
   app = await launchApp({ state: host.state, home: host.home })
@@ -67,6 +67,15 @@ test('the composer\'s / popup lists the agent\'s commands, completes one, shows 
   await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('/context')
   await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('Context 12k/200k tokens')
   await page.screenshot({ path: path.join(shots, 'composer-output.png') })
+
+  // After the turn Claude draws its suggested next prompt in its box: the composer shows it as grey text, Tab takes it,
+  // and it goes once the box has anything in it.
+  await box.fill('')
+  await expect.poll(() => box.getAttribute('placeholder'), { timeout: 30_000 }).toBe('run the tests again')
+  await page.screenshot({ path: path.join(shots, 'composer-suggestion.png') })
+  await box.press('Tab')
+  await expect.poll(() => box.inputValue()).toBe('run the tests again')
+  await box.fill('')
 
   // A command that opens a dialog in the terminal takes the user there.
   await box.fill('/resume')

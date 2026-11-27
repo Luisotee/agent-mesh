@@ -78,3 +78,23 @@ func TestACommandTheUserTypedShowsItsOutputInTheChat(t *testing.T) {
 		t.Errorf("the command and its output: %q, %q", es[0].Text, es[1].Text)
 	}
 }
+
+func TestGetPromptSuggestionReadsTheGhostTextOfAnIdleBoxAfterATurn(t *testing.T) {
+	h, a := chatDaemon(t, map[string]string{"FAKECLAUDE_SUGGESTION": "run the tests again"})
+	get := func() string {
+		res, err := h.device.Mesh.GetPromptSuggestion(context.Background(), connect.NewRequest(&v1.GetPromptSuggestionRequest{Agent: a.Name}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Text
+	}
+	// A fresh start has no suggestion; after a turn there is one, with the cursor character in it whole.
+	if got := get(); got != "" {
+		t.Fatalf("a fresh agent has a suggestion: %q", got)
+	}
+	if err := h.promptWhenReady(a.Id, "fix the typo"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	waitFor(t, "the suggestion on the screen", func() bool { return get() == "run the tests again" })
+}
