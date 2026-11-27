@@ -93,7 +93,7 @@ func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeR
 		Kind:             Kind,
 		DisplayName:      "OpenCode",
 		VerifiedVersions: VerifiedVersions,
-		Capabilities:     []string{"session-lookup"},
+		Capabilities:     []string{"session-lookup", capTranscript},
 	}), nil
 }
 
