@@ -418,19 +418,63 @@ func marshalOrderedStringMap(pairs []orderedKV) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// sharePermission is the config's `permission` that lets an agent read the installed share folder (the protocol and
-// skills its first doorbell names), which sits outside its worktree: without it OpenCode stops at an "Access external
-// directory" dialog nobody answers. Reads only: the folder's edits are denied, and nothing else is opened. Nil when
-// the daemon has no absolute share path.
-func sharePermission(share string) map[string]any {
-	if !filepath.IsAbs(share) {
-		return nil
+// toolchainDirs are what an agent that runs a repo's tests reads outside its worktree: the Go and build tools the
+// daemon's own install uses (`daemon/CLAUDE.md`, "Toolchain"), the Go caches, and the scratch dirs tests write to.
+// Relative ones are under the agent's HOME.
+var toolchainDirs = []string{".local/go", "go", ".cache/go-build", ".local/opt", "/usr/local/go", "/usr/lib/go", "/tmp", "/var/tmp"}
+
+// externalPermission is the config's `permission` for what is outside an agent's worktree. OpenCode's dialog for
+// "Access external directory" (the default is ask) is never answered in a mesh: the agent hangs there until its
+// ask times out. So everything outside is denied, which gives the agent a refusal it carries on from, except what
+// it needs: the installed share folder (the protocol and skills its first doorbell names; read only, its edits are
+// denied), the run's folder (`$AGENT_MESH_RUN_DIR`: plans and reports), the toolchain dirs above, and, for an
+// agent that cannot edit (read-only or planning), its repo's main checkout. OpenCode evaluates the patterns last
+// match wins, so `*` comes first and the allows after it, in the order written here. Always set: the deny holds
+// when the daemon has no share path.
+func (a *Adapter) externalPermission(env map[string]string, repo string, noEdit bool) (map[string]any, error) {
+	share := ""
+	if s := env["AGENT_MESH_SHARE"]; filepath.IsAbs(s) {
+		share = filepath.ToSlash(filepath.Clean(s))
 	}
-	share = filepath.ToSlash(filepath.Clean(share))
-	return map[string]any{
-		"external_directory": map[string]string{share + "/*": "allow", share + "/**": "allow"},
-		"edit":               map[string]string{share + "/*": "deny", share + "/**": "deny"},
+	home := env["HOME"]
+	if home == "" {
+		home = a.userHome()
 	}
+	var dirs []string
+	add := func(d string) {
+		if d = filepath.ToSlash(filepath.Clean(d)); filepath.IsAbs(d) {
+			dirs = append(dirs, d)
+		}
+	}
+	if share != "" {
+		add(share)
+	}
+	if rd := env["AGENT_MESH_RUN_DIR"]; rd != "" {
+		add(rd)
+	}
+	for _, d := range toolchainDirs {
+		if filepath.IsAbs(d) {
+			add(d)
+		} else if home != "" {
+			add(filepath.Join(home, d))
+		}
+	}
+	if noEdit && repo != "" {
+		add(repo)
+	}
+	pairs := []orderedKV{{key: "*", val: "deny"}}
+	for _, d := range dirs {
+		pairs = append(pairs, orderedKV{key: d + "/*", val: "allow"}, orderedKV{key: d + "/**", val: "allow"})
+	}
+	raw, err := marshalOrderedStringMap(pairs)
+	if err != nil {
+		return nil, err
+	}
+	perm := map[string]any{"external_directory": json.RawMessage(raw)}
+	if share != "" {
+		perm["edit"] = map[string]string{share + "/*": "deny", share + "/**": "deny"}
+	}
+	return perm, nil
 }
 
 // PermissionJSON builds `OPENCODE_PERMISSION` for a read-only or planning agent: edits denied in the worktree
@@ -512,9 +556,11 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		}
 	}
 	cfg := map[string]any{"agent": map[string]any{agentName: agentCfg}}
-	if perm := sharePermission(env["AGENT_MESH_SHARE"]); perm != nil {
-		cfg["permission"] = perm
+	perm, err := a.externalPermission(env, m.Repo, adapter.ReadOnly(m.Role) || m.DenyEdits)
+	if err != nil {
+		return nil, err
 	}
+	cfg["permission"] = perm
 	cfgBytes, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
