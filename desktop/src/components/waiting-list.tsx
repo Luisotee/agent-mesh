@@ -22,11 +22,11 @@ const ICON = {
 }
 
 /**
- * What waits on the user, across the host's open runs: the plans and questions to answer, the prompts to deal with.
+ * What waits on the user, across the host's open runs (`label`: the host's name, with several hosts): the plans and questions to answer, the prompts to deal with.
  * An agent stopped at a permission prompt the host holds for its parent has Allow and Deny here (the parent may answer
  * first); any other prompt is for its terminal.
  */
-export function WaitingList({ host }: { host: HostRuntime }) {
+export function WaitingList({ host, label }: { host: HostRuntime; label?: string }) {
   const app = useApp()
   const rows = useHostState(host, (s) => s.waiting)
   const runs = useHostState(host, (s) => s.runs)
@@ -41,7 +41,7 @@ export function WaitingList({ host }: { host: HostRuntime }) {
   return (
     <section aria-label="Waiting on you" className="border-b px-2 pb-2">
       <h2 className="flex items-center gap-2 px-1 py-2 text-[13px] font-semibold">
-        Waiting on you
+        Waiting on you{label && <span className="font-normal text-muted-foreground">on {label}</span>}
         <span className="rounded-full bg-state-needs px-1.5 text-xs leading-4 font-bold text-primary-foreground">{count}</span>
       </h2>
       <ul>

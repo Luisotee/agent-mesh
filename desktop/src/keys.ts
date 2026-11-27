@@ -86,3 +86,6 @@ export function displayChord(text: string, mac = isMac): string {
 
 /** Whether a keyboard event comes from a chord recorder (where a key is being chosen, not used). */
 export const isRecorder = (t: EventTarget | null): boolean => t instanceof Element && !!t.closest('[data-shortcut-recorder]')
+
+/** Sent (bubbling) from a terminal's focused input to open that terminal's own search: the window's find can't read xterm's canvas. */
+export const TERMINAL_SEARCH = 'agent-mesh:terminal-search'

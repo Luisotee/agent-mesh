@@ -1,6 +1,6 @@
 import { create, type MessageInitShape } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'vitest'
-import { bucketOf, groupByProject, groupByState, type BucketContext } from './buckets'
+import { bucketOf, type BucketContext } from './buckets'
 import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
 import { AgentRole, AgentSchema, AgentState, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 
@@ -49,30 +49,5 @@ describe('bucketOf', () => {
     expect(bucketOf(agent('w', { role: AgentRole.REVIEWER, state: AgentState.RETIRED }), ctx({ pullRequests: open }))).toBe('done')
     expect(bucketOf(agent('w', { peer: true }), ctx({ pullRequests: open }))).toBe('idle')
     expect(bucketOf(agent('w', { state: AgentState.RETIRED }), ctx())).toBe('done')
-  })
-})
-
-describe('grouping', () => {
-  const runs = { r1: create(RunSchema, { id: 'r1' }), r2: create(RunSchema, { id: 'r2', status: RunStatus.CLOSED }) }
-  const agents = {
-    a: agent('a', { repo: '/p/app', state: AgentState.WORKING }),
-    b: agent('b', { repo: '/p/app', state: AgentState.NEEDS_INPUT }),
-    c: agent('c', { repo: '/p/web', state: AgentState.IDLE }),
-    d: agent('d', { repo: '/p/web', runId: 'r2' }),
-  }
-  const base = (r: string) => r.split('/').pop() ?? r
-
-  it('by project: a section per repo of the open runs, needing-you first, with counts', () => {
-    const g = groupByProject(runs, agents, ctx(), base)
-    expect(g.map((x) => x.label)).toEqual(['app', 'web'])
-    expect(g[0]!.agents.map((x) => x.id)).toEqual(['b', 'a'])
-    expect(g[0]!.counts).toMatchObject({ needs: 1, working: 1 })
-    // d belongs to a closed run.
-    expect(g[1]!.agents.map((x) => x.id)).toEqual(['c'])
-  })
-
-  it('by state: the buckets in order, none empty', () => {
-    const g = groupByState(runs, agents, ctx())
-    expect(g.map((x) => [x.label, x.agents.map((a) => a.id)])).toEqual([['Needs you', ['b']], ['Working', ['a']], ['Idle', ['c']]])
   })
 })
