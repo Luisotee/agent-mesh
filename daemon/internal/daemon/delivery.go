@@ -204,6 +204,16 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 			rg = nil
 		}
 	}
+	// The user's own queued prompts go before the doorbells, when no doorbell is in flight: the user is watching, and
+	// a doorbell only says to read the inbox, which the turn after does as well.
+	if d.promptInFlight(a) {
+		return nil // a prompt just typed hasn't started its turn: nothing goes in after it until it does
+	}
+	if rg == nil && takesDoorbell(a.State) {
+		if typed, err := d.typeQueuedPrompt(ctx, a); typed || err != nil {
+			return err
+		}
+	}
 	if len(msgs) == 0 {
 		d.setRing(agentID, nil)
 		d.clearHold(agentID)
@@ -662,6 +672,11 @@ func (d *Daemon) retryDoorbells(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	prompts, err := d.store.Read(ctx).AgentsWithQueuedPrompts()
+	if err != nil {
+		return
+	}
+	ids = append(ids, prompts...)
 	seen := map[string]bool{}
 	for _, a := range pending {
 		seen[a.Id] = true

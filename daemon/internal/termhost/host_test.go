@@ -485,3 +485,49 @@ func newHelloRequest() (*http.Request, error) {
 	}
 	return req, err
 }
+
+func TestFocusReportsPassThroughButOnlyKeysCountAsTyping(t *testing.T) {
+	f := startHost(t)
+	term := f.spawn("echo")
+	s := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_REPAINT, Cols: 80, Rows: 24})
+	var col collector
+	col.until(t, s, "ready")
+	ctx := context.Background()
+	s.Ready(ctx)
+	info := func() *termv1.Terminal {
+		t.Helper()
+		res, err := f.c.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, x := range res.Msg.Terminals {
+			if x.Id == term.Id {
+				return x
+			}
+		}
+		t.Fatal("terminal not listed")
+		return nil
+	}
+	waitFor := func(what string, ok func(*termv1.Terminal) bool) {
+		t.Helper()
+		for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+			if ok(info()) {
+				return
+			}
+		}
+		t.Fatalf("waiting for %s", what)
+	}
+	// Focus out and in, a cursor position report (what xterm.js sends while a user only looks), then a resize: the
+	// frames of one client are handled in order, so once the resize shows, the reports were handled too.
+	s.Input(ctx, []byte("\x1b[O"))
+	s.Input(ctx, []byte("\x1b[I\x1b[12;40R"))
+	s.Send(ctx, &termv1.TermFrame{Frame: &termv1.TermFrame_Resize{Resize: &termv1.Resize{Cols: 100, Rows: 24}}})
+	waitFor("the resize", func(x *termv1.Terminal) bool { return x.Cols == 100 })
+	if at := info().LastClientInput; at != nil {
+		t.Errorf("terminal replies alone stamped the terminal as typed into at %v", at.AsTime())
+	}
+	// A key does count, and the replies before it reached the program.
+	s.Input(ctx, []byte("mark\n"))
+	col.until(t, s, "mark")
+	waitFor("a typed line to count as typing", func(x *termv1.Terminal) bool { return x.LastClientInput != nil })
+}

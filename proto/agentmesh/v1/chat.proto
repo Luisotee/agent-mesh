@@ -76,4 +76,42 @@ message PromptAgentRequest {
   string text = 3;
 }
 
-message PromptAgentResponse {}
+message PromptAgentResponse {
+  // Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+  // its box): it is typed at the agent's next idle, and may be withdrawn until then.
+  QueuedPrompt queued = 1;
+}
+
+message ListPromptsRequest {
+  // Agent id or name.
+  string agent = 1;
+}
+
+message ListPromptsResponse {
+  // Oldest first: the order they are typed in.
+  repeated QueuedPrompt prompts = 1;
+}
+
+message WithdrawPromptRequest {
+  RequestMeta meta = 1;
+  // Agent id or name.
+  string agent = 2;
+  // The prompt to take back; empty takes the newest one queued.
+  string prompt_id = 3;
+}
+
+message WithdrawPromptResponse {
+  QueuedPrompt prompt = 1;
+}
+
+message InterruptAgentRequest {
+  RequestMeta meta = 1;
+  // Agent id or name.
+  string agent = 2;
+}
+
+message InterruptAgentResponse {
+  // True once the agent was seen back at its prompt; false when the key was sent but it hadn't stopped yet when the
+  // daemon stopped looking (its state follows when it does).
+  bool stopped = 1;
+}

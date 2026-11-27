@@ -279,9 +279,13 @@ func (h *Host) serveWS(w http.ResponseWriter, r *http.Request) {
 		case *termv1.TermFrame_Input:
 			// Input before Ready is the client answering replayed queries: dropped.
 			if t.canType(c) {
-				t.mu.Lock()
-				t.lastInput = time.Now()
-				t.mu.Unlock()
+				// A terminal's own replies (focus in/out, a cursor position, its attributes) are not a person typing:
+				// they pass through, but don't make the daemon wait as if someone were.
+				if !OnlyReports(v.Input.Data) {
+					t.mu.Lock()
+					t.lastInput = time.Now()
+					t.mu.Unlock()
+				}
 				t.ptmx.Write(v.Input.Data)
 			}
 		case *termv1.TermFrame_Resize:
