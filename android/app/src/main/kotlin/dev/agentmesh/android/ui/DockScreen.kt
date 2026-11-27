@@ -116,14 +116,21 @@ internal fun TileCard(t: Tile, skewMs: Long, now: Long, onClick: () -> Unit) {
 fun AllHostsDockScreen(onBack: () -> Unit, onAgent: (hostId: String, agentId: String, tab: Tab) -> Unit) {
     val container = LocalContainer.current
     val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
-    // Every host's state in one list: it changes when any of them does.
-    val statesFlow = remember(runtimes) {
-        if (runtimes.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList<Pair<HostRuntime, dev.agentmesh.android.store.HostState>>())
-        else kotlinx.coroutines.flow.combine(runtimes.values.map { rt -> rt.state }) { arr -> runtimes.values.toList().zip(arr.toList()) }
+    // A host's name is the list's, which changes on a rename without any host's state changing.
+    val hostList by container.hosts.hosts.collectAsStateWithLifecycleCompat()
+    val list = remember(runtimes) { runtimes.values.toList() }
+    // Every host's state in one list: it changes when any of them does. Collected only while the screen is on show, and from what
+    // the hosts hold now, so there is no empty frame before the first answer.
+    val statesFlow = remember(list) {
+        if (list.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList<Pair<HostRuntime, dev.agentmesh.android.store.HostState>>())
+        else kotlinx.coroutines.flow.combine(list.map { rt -> rt.state }) { arr -> list.zip(arr.toList()) }
     }
-    val states by statesFlow.collectAsState(emptyList())
-    val tiles = remember(states) {
-        dockTilesAcross(states.map { (rt, st) -> DockHost(rt.hostId, rt.host?.name ?: "", st.clockSkewMs, st.runs, st.agents, st.messages) })
+    // The current values are only the first frame's: after it the flow is what is read.
+    @Suppress("StateFlowValueCalledInComposition")
+    val first = list.map { it to it.state.value }
+    val states by statesFlow.collectAsStateWithLifecycleCompat(first)
+    val tiles = remember(states, hostList) {
+        dockTilesAcross(states.map { (rt, st) -> DockHost(rt.hostId, hostList.firstOrNull { it.id == rt.hostId }?.name ?: rt.host?.name ?: "", st.clockSkewMs, st.runs, st.agents, st.messages) })
     }
     val unreachable = states.count { (_, st) -> st.conn !is dev.agentmesh.android.store.ConnState.Ready }
     val now = rememberNowMs(true)

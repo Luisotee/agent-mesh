@@ -86,6 +86,8 @@ class SpawnSheetTest {
         assertTrue(spawnProblem(ok.copy(repo = " "))!!.contains("repository"))
         assertTrue(spawnProblem(ok.copy(slug = ""))!!.contains("short name"))
         assertTrue(spawnProblem(ok.copy(slug = "Fix_it"))!!.contains("lower-case"))
+        assertTrue(spawnProblem(ok.copy(slug = "a".repeat(41)))!!.contains("40"))
+        assertNull(spawnProblem(ok.copy(slug = "a".repeat(40))))
         assertTrue(spawnProblem(ok.copy(kind = ""))!!.contains("CLI"))
         assertTrue(spawnProblem(ok.copy(tier = ""))!!.contains("tier or a model"))
         assertNull(spawnProblem(ok.copy(tier = "", model = "opus")))

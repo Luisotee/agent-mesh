@@ -8,6 +8,7 @@ import dev.agentmesh.android.term.TermClient
 import dev.agentmesh.android.term.TermScreen
 import dev.agentmesh.android.term.TermState
 import dev.agentmesh.android.term.pasteBytes
+import dev.agentmesh.android.term.glyphRange
 import dev.agentmesh.android.term.selectedText
 import dev.agentmesh.android.term.wordRange
 import dev.agentmesh.android.term.CellPos
@@ -412,5 +413,35 @@ class TermClientTest {
         val plain = TermScreen(); plain.reset(20, 2)
         plain.write("git commit -m fix".toByteArray())
         assertEquals(4..9, plain.wordRange(0, 6)); assertEquals(0..2, plain.wordRange(0, 0))
+    }
+
+    @Test fun `a selection made before the screen was made again is cut to the new screen, and the tab is told by a count`() {
+        val screen = TermScreen(); screen.reset(120, 5)
+        screen.write("x".repeat(110).toByteArray())
+        val sel = Selection(CellPos(100, screen.absoluteRow(0)), CellPos(108, screen.absoluteRow(0)))
+        val before = screen.resets
+        screen.reset(80, 5)
+        assertEquals(before + 1, screen.resets)
+        // Columns past the narrower screen are cut, not read: this used to throw out of the emulator.
+        assertEquals("", screen.selectedText(sel))
+        // A selection that spans onto the new screen's own rows stays within them.
+        screen.write("hello".toByteArray())
+        assertEquals("hello", screen.selectedText(Selection(CellPos(0, screen.absoluteRow(0)), CellPos(500, screen.absoluteRow(9)))))
+    }
+
+    @Test fun `an end that lands on either half of a wide character takes the whole of it, as the highlight does`() {
+        val screen = TermScreen(); screen.reset(20, 2)
+        // a at 0, 世 at 1-2, 界 at 3-4, b at 5.
+        screen.write("a世界b".toByteArray())
+        val r = screen.absoluteRow(0)
+        assertEquals(1..2, screen.glyphRange(0, 1)); assertEquals(1..2, screen.glyphRange(0, 2)); assertEquals(0..0, screen.glyphRange(0, 0))
+        // Forward, ending on the left half of 世: it is selected (this copied just "a").
+        assertEquals("a世", screen.selectedText(Selection(CellPos(0, r), CellPos(1, r))))
+        // Ending on the right half.
+        assertEquals("a世", screen.selectedText(Selection(CellPos(0, r), CellPos(2, r))))
+        // Backward, from b to the right half of 世: the whole of 世 (the highlight says so too).
+        assertEquals("世界b", screen.selectedText(Selection(CellPos(5, r), CellPos(2, r))))
+        // Starting on a left half takes it as well.
+        assertEquals("界b", screen.selectedText(Selection(CellPos(3, r), CellPos(5, r))))
     }
 }

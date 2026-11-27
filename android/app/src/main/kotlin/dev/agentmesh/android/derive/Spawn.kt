@@ -18,6 +18,9 @@ data class SpawnForm(
     val task: String = "",
 )
 
+/** The daemon's own limit on a branch and agent name (`daemon/internal/daemon/agents.go`). */
+const val SLUG_MAX = 40
+
 private val SLUG = Regex("^[a-z0-9][a-z0-9-]*$")
 
 /** The first agent of a run is its lead, every later one a worker. */
@@ -31,12 +34,13 @@ fun defaultTier(role: AgentRole, tiers: List<String>): String =
     if (role == AgentRole.AGENT_ROLE_ROOT) "" else if ("mid" in tiers) "mid" else tiers.firstOrNull().orEmpty()
 
 /** A branch and agent name from a run's title: lower case, runs of other characters as one dash. */
-fun slugOf(title: String): String = title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(40)
+fun slugOf(title: String): String = title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(SLUG_MAX)
 
 /** Why the form can't be sent yet, or null when it can. */
 fun spawnProblem(f: SpawnForm): String? = when {
     f.repo.isBlank() -> "Name the repository (a path on the host, or a folder of its repos directory)."
     f.slug.isBlank() -> "Give it a short name: it names the branch and the agent."
+    f.slug.length > SLUG_MAX -> "The name is at most $SLUG_MAX characters."
     !SLUG.matches(f.slug) -> "The name is lower-case letters, digits and dashes, starting with a letter or a digit."
     f.kind.isBlank() -> "Name the CLI."
     f.role != AgentRole.AGENT_ROLE_ROOT && f.tier.isBlank() && f.model.isBlank() -> "A worker runs on a tier or a model: choose one."

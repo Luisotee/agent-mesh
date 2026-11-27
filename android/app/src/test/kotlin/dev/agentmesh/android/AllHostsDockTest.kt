@@ -89,4 +89,16 @@ class AllHostsDockTest {
         compose.onNodeWithTag("live-all").performClick()
         assertEquals(1, live)
     }
+
+    @Test fun `a renamed host shows its new name at once, and the first frame is not the empty one`() {
+        NotificationsTest.api = RecordingApi()
+        val home = host("Home", true, agent("a1", name = "home-fix", state = AgentState.AGENT_STATE_WORKING))
+        compose.setContent {
+            CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { AllHostsDockScreen({}) { _, _, _ -> } } }
+        }
+        compose.onAllNodesWithTag("dock-empty").assertCountEquals(0)
+        compose.onNodeWithText("Home · Run of Home", substring = true).assertIsDisplayed()
+        container.hosts.update(home.hostId, "Cottage", home.host!!.routes)
+        compose.onNodeWithText("Cottage · Run of Home", substring = true).assertIsDisplayed()
+    }
 }

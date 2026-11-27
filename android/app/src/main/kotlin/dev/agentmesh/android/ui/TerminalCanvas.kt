@@ -93,7 +93,7 @@ private const val READABLE_SP = 8f
  * resizes it.
  */
 @Composable
-fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier, selection: Selection? = null, onSelection: (Selection?) -> Unit = {}) {
+fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier, selection: Selection? = null, onSelection: (Selection?) -> Unit = {}, onTap: () -> Unit = {}) {
     // The state is the screen's: a new screen (another agent) starts from the fitted size and no pan.
     // 0 fits the host's width to the screen; a pinch sets a size of the user's own.
     var userSp by remember(screen) { mutableFloatStateOf(0f) }
@@ -128,7 +128,7 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                     }
                 }
             }
-            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }, onTap = { onSelection(null) }) }
+            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }, onTap = { onSelection(null); onTap() }) }
             // A long press selects the word under the finger, and dragging on extends it from there.
             .pointerInput(screen) {
                 var anchor: CellPos? = null
@@ -221,7 +221,7 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
             if (w == 0) { ci += chars; continue }
             val x = x0 + col * cell.w
             if (bg != theme.background) drawRect(bg, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
-            if (selection != null && selection.contains(col, absRow, cols)) drawRect(theme.selection, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
+            if (selection != null && (col until col + w).any { selection.contains(it, absRow, cols) }) drawRect(theme.selection, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
             if (chars > 0 && cp != ' '.code && fx and TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE == 0) {
                 val p = if (boldFx) bold else regular
                 p.color = fg.toArgb()

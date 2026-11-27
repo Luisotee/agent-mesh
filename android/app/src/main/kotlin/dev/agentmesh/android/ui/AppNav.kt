@@ -93,8 +93,8 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             val id = e.arguments!!.getString("id")!!
             runtimes[id]?.let { DockScreen(it, { nav.popBackStack() }, onLog = { nav.navigate(Routes.log(id)) }) { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) } }
         }
-        composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it, onBack = { nav.popBackStack() }, onLog = { nav.navigate(Routes.log(e.arguments!!.getString("id")!!)) }) } }
-        composable(Routes.HOST_SETTINGS) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { HostSettingsScreen(it) { nav.popBackStack() } } }
+        composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it, onBack = { nav.popBackStack() }, onLog = { nav.navigate(Routes.log(e.arguments!!.getString("id")!!)) }) } ?: Gone { nav.popBackStack() } }
+        composable(Routes.HOST_SETTINGS) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { HostSettingsScreen(it) { nav.popBackStack() } } ?: Gone { nav.popBackStack() } }
         composable(
             Routes.AGENT,
             arguments = listOf(
@@ -102,7 +102,8 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             ),
         ) { e ->
             val tab = runCatching { Tab.valueOf(e.arguments?.getString("tab").orEmpty()) }.getOrDefault(Tab.Overview)
-            runtimes[e.arguments!!.getString("id")!!]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!, { nav.popBackStack() }, tab) }
+            // A host removed while this was open (or a tile that was tapped as it went) has nothing to show.
+            runtimes[e.arguments!!.getString("id")!!]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!, { nav.popBackStack() }, tab) } ?: Gone { nav.popBackStack() }
         }
     }
 }

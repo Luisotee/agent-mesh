@@ -151,4 +151,11 @@ class DockModelsUsageTest {
         // One host alone gives what its own dock gives.
         assertEquals(dockTiles(home.runs, home.agents, home.messages).map { it.agent.id }, dockTilesAcross(listOf(home)).map { it.agent.id })
     }
+
+    @Test fun `agents with no activity sort by name whatever their host's clock says`() {
+        fun ag(id: String) = agent(id, state = AgentState.AGENT_STATE_WORKING, name = id)
+        val a = DockHost("h1", "Home", skewMs = 0, runs = mapOf("r1" to run("r1")), agents = mapOf("z" to ag("z")), messages = emptyMap())
+        val b = DockHost("h2", "Work", skewMs = 3_600_000, runs = mapOf("r1" to run("r1")), agents = mapOf("a" to ag("a")), messages = emptyMap())
+        assertEquals(listOf("a", "z"), dockTilesAcross(listOf(a, b)).map { it.agent.name })
+    }
 }

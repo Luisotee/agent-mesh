@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -25,9 +27,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,7 +48,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.store.ConnState
@@ -95,9 +98,13 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
     }
     val state by client.state.collectAsStateWithLifecycleCompat()
     val typing by client.typing.collectAsStateWithLifecycleCompat()
-    var selection by remember(screen) { mutableStateOf<Selection?>(null) }
-    var ctrl by remember { mutableStateOf(false) }
-    var alt by remember { mutableStateOf(false) }
+    // A selection names cells of one screen: a repaint (the desktop resized the terminal, the keyboard flipped) makes another.
+    var selection by remember(screen, screen.resets) { mutableStateOf<Selection?>(null) }
+    // The sticky modifiers are for the keyboard that is open: not carried over a Hide.
+    var ctrl by remember(typingOn) { mutableStateOf(false) }
+    var alt by remember(typingOn) { mutableStateOf(false) }
+    // Counts the taps that ask for the soft keyboard again (it can be dismissed with Back while the switch is on).
+    var showKeyboard by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
 
     fun send(bytes: ByteArray) {
@@ -122,7 +129,7 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            TerminalCanvas(screen, LocalMeshTheme.current.terminal, selection = selection, onSelection = { selection = it })
+            TerminalCanvas(screen, LocalMeshTheme.current.terminal, selection = selection, onSelection = { selection = it }, onTap = { if (typingOn) showKeyboard++ })
             if (state is TermState.Failed) {
                 Button(onClick = client::retry, modifier = Modifier.align(Alignment.Center).testTag("terminal-retry")) { Text("Try again") }
             }
@@ -132,6 +139,7 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
         }
         if (typingOn) {
             ImeCapture(
+                showKeyboard = showKeyboard,
                 onBackspace = { send(KeyEncoder.key(Key.Backspace, ctrl = ctrl, alt = alt)) },
                 onEnter = { send(KeyEncoder.key(Key.Enter, ctrl = ctrl, alt = alt)) },
                 ime = { old, new -> ImeBuffer.change(old, new, ctrl, alt).first.also { if (it.isNotEmpty()) send(it) } },
@@ -148,21 +156,31 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
 }
 
 /**
- * A text field the user can't see, to take the soft keyboard's input: it keeps one invisible character, so the keyboard's
- * typing and Backspace both show as a change of it, handed to [ime] (the bytes go out there). Enter is the keyboard's Send
- * action or a hardware Enter; no suggestions or composition (the keyboard is told it is a password field).
+ * A text field the user can't see, to take the soft keyboard's input: it holds one invisible character, and each edit is
+ * handed to [ime] (the bytes go out there) and then reverted, at once and inside the edit, so the next edit, even one that
+ * comes before the next frame, is again a change from that character: a typed letter is text after it and Backspace is the
+ * character deleted. Enter is the keyboard's Send action or a hardware Enter; no suggestions or composition (the keyboard
+ * is told it is a password field). [showKeyboard] counts the taps that ask for the soft keyboard again.
  */
 @Composable
-private fun ImeCapture(onBackspace: () -> Unit, onEnter: () -> Unit, ime: (String, String) -> ByteArray) {
+private fun ImeCapture(showKeyboard: Int, onBackspace: () -> Unit, onEnter: () -> Unit, ime: (String, String) -> ByteArray) {
     val focus = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    LaunchedEffect(Unit) {
+    LaunchedEffect(showKeyboard) {
         focus.requestFocus()
         keyboardController?.show()
     }
+    val state = remember { TextFieldState(ImeBuffer.SENTINEL, TextRange(ImeBuffer.SENTINEL.length)) }
+    val handle by rememberUpdatedState(ime)
+    val capture = remember {
+        InputTransformation {
+            handle(originalText.toString(), asCharSequence().toString())
+            revertAllChanges()
+        }
+    }
     BasicTextField(
-        value = TextFieldValue(ImeBuffer.SENTINEL, TextRange(ImeBuffer.SENTINEL.length)),
-        onValueChange = { ime(ImeBuffer.SENTINEL, it.text) },
+        state = state,
+        inputTransformation = capture,
         modifier = Modifier.size(1.dp).focusRequester(focus).testTag("ime-capture").onPreviewKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when (e.key) {
@@ -172,7 +190,7 @@ private fun ImeCapture(onBackspace: () -> Unit, onEnter: () -> Unit, ime: (Strin
             }
         },
         keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password, imeAction = ImeAction.Send),
-        keyboardActions = KeyboardActions(onSend = { onEnter() }),
+        onKeyboardAction = KeyboardActionHandler { onEnter() },
     )
 }
 
