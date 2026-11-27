@@ -143,7 +143,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
       const res = await spawnAgent(host.client, { runId, repo: repo.trim(), slug: slug.trim(), role, kind: kind.trim(), tier, model: '', effort: '', task: task.trim(), base: startPoint(effective) })
       started.current = undefined
       onDone()
-      if (res.agent) app.selectAgent(host.info.id, res.agent.id, 'terminal')
+      if (res.agent) app.selectAgent(host.info.id, res.agent.id, 'chat')
     } catch (err) {
       setError(message(err))
     } finally {

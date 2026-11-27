@@ -141,7 +141,7 @@ export function TabBar() {
     </div>
     {tabs.length === 0 && <span className="self-center px-2 text-xs text-muted-foreground">No agent open</span>}
     <Tip label={project ? `New lead in ${repoName(project.repo)}` : 'New lead'}>
-      <Button size="icon" variant="ghost" className="mb-1 ml-1 size-7" aria-label="New lead" onClick={newLead}>
+      <Button size="icon" variant="ghost" className="mb-1 ml-1 size-7" aria-label={project ? `New lead in ${repoName(project.repo)}` : 'New lead in this project'} onClick={newLead}>
         <Plus />
       </Button>
     </Tip>

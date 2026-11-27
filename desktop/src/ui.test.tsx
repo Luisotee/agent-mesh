@@ -69,7 +69,7 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
     agents: Object.fromEntries(agents.map((a) => [a.id, a])),
     messageLoad: { r1: 'loaded' },
   })
-  const client = { startRun: vi.fn(async (_req: unknown): Promise<unknown> => ({})), setSetting: vi.fn(async (_req: unknown) => ({})), holdPullRequest: vi.fn(async (_req: unknown) => ({})), listProjects: vi.fn(async (_req: unknown) => create(ListProjectsResponseSchema)), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})), getCost: vi.fn(async (_req: unknown) => create(GetCostResponseSchema)), getUsage: vi.fn(async (_req: unknown) => create(GetUsageResponseSchema)) }
+  const client = { startRun: vi.fn(async (_req: unknown): Promise<unknown> => ({})), setSetting: vi.fn(async (_req: unknown) => ({})), holdPullRequest: vi.fn(async (_req: unknown) => ({})), listProjects: vi.fn(async (_req: unknown) => create(ListProjectsResponseSchema)), spawnAgent: vi.fn(async (_req: unknown) => ({})), stopAgent: vi.fn(async () => ({})), sendMessage: vi.fn(async (_req: unknown) => ({})), getCost: vi.fn(async (_req: unknown) => create(GetCostResponseSchema)), getUsage: vi.fn(async (_req: unknown) => create(GetUsageResponseSchema)), listPrompts: vi.fn(async (_req: unknown) => ({ prompts: [] })) }
   const connection = { retryNow: vi.fn(), stop: vi.fn() }
   const host = { info: { id: 'h1', name: 'home', kind: 'state-dir', target: '/s' }, store, client, connection, loadMessages: vi.fn() } as unknown as HostRuntime
   const api = { hosts: { list: async () => [], add: vi.fn(), remove: vi.fn(), fixed: false }, request: vi.fn(), links: noLinks, shell: { notify: vi.fn(), setWaiting: vi.fn(), configure: vi.fn(), onNotificationClick: vi.fn(() => () => {}) } } as unknown as DesktopApi
@@ -594,7 +594,7 @@ describe('Dock and TabBar', () => {
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-fix', 'app-lead'])
     act(() => model.selectAgent('h1', 'o1'))
     expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['web-lead'])
-    await userEvent.click(screen.getByRole('button', { name: 'New lead' }))
+    await userEvent.click(screen.getByRole('button', { name: 'New lead in web' }))
     expect(model.store.getState()).toMatchObject({ workspaceOpen: true, workspaceRepo: '/p/web', workspaceHost: 'h1' })
   })
 
@@ -983,7 +983,7 @@ describe('NewWorkspaceDialog', () => {
     await waitFor(() => expect(client.spawnAgent).toHaveBeenCalledTimes(1))
     expect(client.startRun.mock.calls[0]![0]).toMatchObject({ title: 'fix-cart' })
     expect(client.spawnAgent.mock.calls[0]![0]).toMatchObject({ runId: 'r9', repo: '/p/shop', slug: 'fix-cart', role: AgentRole.ROOT, kind: 'claude', base: 'origin/mesh/r/fix-cart', task: 'start with the cart' })
-    await waitFor(() => expect(model.store.getState()).toMatchObject({ workspaceOpen: false, agentId: 'new1', tab: 'terminal' }))
+    await waitFor(() => expect(model.store.getState()).toMatchObject({ workspaceOpen: false, agentId: 'new1', tab: 'chat' }))
   })
 
   it('starts from a branch, joins an open run as a worker, and needs a choice before it starts', async () => {

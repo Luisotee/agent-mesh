@@ -35,7 +35,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   await page.getByText(/No projects yet/).waitFor()
 
   // Start a lead from the UI: the empty sidebar's New lead, on the project, in a run of its own.
-  await page.getByRole('button', { name: 'New lead' }).click()
+  await page.getByRole('button', { name: 'New lead', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Project').fill(host.repo)
   await dialog.getByLabel('Project').blur()
@@ -120,7 +120,7 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   const panel = page.getByRole('article', { name: 'repo-lead' })
   await panel.getByRole('button', { name: 'Terminal' }).click()
   // The toggle shows the terminal in the chat's place; the hidden chat is not in the a11y tree.
-  expect(await panel.getByRole('button', { name: 'Terminal' }).getAttribute('aria-pressed')).toBe('true')
+  await expect.poll(() => panel.getByRole('button', { name: 'Terminal' }).getAttribute('aria-pressed')).toBe('true')
   await panel.getByRole('region', { name: 'Terminal' }).waitFor({ state: 'visible' })
   expect(await panel.getByRole('region', { name: 'Chat' }).count()).toBe(0)
   const status = panel.getByTestId('terminal-status')
