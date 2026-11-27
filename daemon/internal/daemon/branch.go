@@ -75,24 +75,42 @@ func onItsBranch(ctx context.Context, a *v1.Agent) *v1.Agent {
 	return out
 }
 
-// followBranch records the branch a change worker's worktree is on now (and the base re-derived for it, `onItsBranch`)
-// on its row when the worker moved there itself (`git checkout -b fix-2`): the apps, the PR stack, the finished-PR move and
-// a worktree recreated from the branch read the recorded one. It runs when the agent goes idle, outside any write (the
-// base is read with git, so the hook that reported the idle does not wait for it). The row is read again in the write, so a move the daemon made meanwhile is not undone.
+// followBranch records the branch a change worker's worktree is on now, with the base derived for it (where it left the
+// default branch), on its row when the worker moved on itself (`git checkout -b fix-2`): the apps, the PR stack, the
+// finished-PR move and a worktree recreated from the branch read the recorded one. Only a branch of the worker's own
+// series is taken (`inSeriesOf`: `fix`, `fix-2`, `fix-3`), never `main` or another worker's branch it merely switched to
+// (`worker_review.go`: that does not make a PR the worker's own), and only when the base can be derived (else the next idle
+// tries again). It runs after the idle's hook has replied, under the worktree's lock (a daemon move that failed and rolled
+// its branch back is not recorded half-way), outside any write: the base is read with git. The row is read again in the
+// write, so a move the daemon made meanwhile is not undone.
 func (d *Daemon) followBranch(ctx context.Context, a *v1.Agent) {
-	moved := onItsBranch(ctx, a)
-	if moved.Branch == a.Branch {
+	if a.Worktree == "" {
 		return
 	}
-	err := d.store.Write(ctx, nil, "", func(t *store.Tx) error {
-		cur, err := t.GetAgent(a.Id)
-		if err != nil || cur.Branch != a.Branch || cur.State == v1.AgentState_AGENT_STATE_RETIRED {
+	mu := d.worktreeLock(a.Worktree)
+	mu.Lock()
+	defer mu.Unlock()
+	cur := movedBranch(a)
+	if cur == "" || !inSeriesOf(a.Branch, cur) {
+		return
+	}
+	tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+cur)
+	if err != nil {
+		return
+	}
+	base, err := gitRO(ctx, a.Repo, "merge-base", defaultBaseRO(ctx, a.Repo), tip)
+	if err != nil || base == "" {
+		return
+	}
+	err = d.store.Write(ctx, nil, "", func(t *store.Tx) error {
+		row, err := t.GetAgent(a.Id)
+		if err != nil || row.Branch != a.Branch || row.State == v1.AgentState_AGENT_STATE_RETIRED {
 			return err
 		}
-		cur.Branch, cur.BaseCommit = moved.Branch, moved.BaseCommit
-		return t.PutAgent(cur)
+		row.Branch, row.BaseCommit = cur, base
+		return t.PutAgent(row)
 	})
 	if err != nil {
-		d.log.Warn("recording the branch a worker moved to", "agent", a.Name, "branch", moved.Branch, "err", err)
+		d.log.Warn("recording the branch a worker moved to", "agent", a.Name, "branch", cur, "err", err)
 	}
 }

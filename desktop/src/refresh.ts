@@ -144,6 +144,9 @@ export function hostRefresher(
   /** At most one call per `debounceMs`, however many events come: a burst is one call, and a steady stream can't starve it. */
   const schedule = () => {
     if (stopped || pause !== undefined) return
+    // This pause reads the idle agents' words too: one for the burst, not one more from `scheduleWaits`.
+    timers.clearTimeout(waitsPause)
+    waitsPause = undefined
     pause = timers.setTimeout(() => {
       pause = undefined
       void loadWaiting()

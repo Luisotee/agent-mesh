@@ -475,7 +475,7 @@ type MeshServiceClient interface {
 	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
 	// What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
 	// dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
-	// agents that are idle now (not archived); an agent reads its own run's.
+	// agents that are idle now (not archived); a root reads its own run's unless it names another.
 	ListAgentWaits(context.Context, *connect.Request[v1.ListAgentWaitsRequest]) (*connect.Response[v1.ListAgentWaitsResponse], error)
 	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
 	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
@@ -1775,7 +1775,7 @@ type MeshServiceHandler interface {
 	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
 	// What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
 	// dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
-	// agents that are idle now (not archived); an agent reads its own run's.
+	// agents that are idle now (not archived); a root reads its own run's unless it names another.
 	ListAgentWaits(context.Context, *connect.Request[v1.ListAgentWaitsRequest]) (*connect.Response[v1.ListAgentWaitsResponse], error)
 	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
 	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or

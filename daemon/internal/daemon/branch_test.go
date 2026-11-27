@@ -104,6 +104,12 @@ func TestTheRecordedBranchFollowsAWorkerThatMovedItself(t *testing.T) {
 	if got := stored(); got.Branch != spawned.Branch || got.BaseCommit != spawned.BaseCommit {
 		t.Fatalf("a worker on its branch: recorded %q at %s, want %q at %s", got.Branch, got.BaseCommit, spawned.Branch, spawned.BaseCommit)
 	}
+	// A branch that is not of its series (`main`'s, another worker's) is a switch, not a next branch of its own: not recorded.
+	gitIn(t, spawned.Worktree, "checkout", "-q", "-b", "feature-x", "origin/main")
+	w.d.FollowBranch(ctx, worker.Id)
+	if got := stored(); got.Branch != spawned.Branch || got.BaseCommit != spawned.BaseCommit {
+		t.Fatalf("a worker that switched to another branch: recorded %q at %s, want %q at %s", got.Branch, got.BaseCommit, spawned.Branch, spawned.BaseCommit)
+	}
 	next := "mesh/" + run.Id + "/fix-2"
 	gitIn(t, spawned.Worktree, "checkout", "-q", "-b", next, "origin/main")
 	stop()

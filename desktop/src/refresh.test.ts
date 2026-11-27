@@ -345,6 +345,16 @@ describe('what the idle agents wait on', () => {
     r.stop()
   })
 
+  it('reads once for a burst of events that change the words and what waits on the user', async () => {
+    const { client, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    r.event(sent(MessageType.WAIT))
+    r.event(sent(MessageType.PLAN))
+    await vi.advanceTimersByTimeAsync(300)
+    expect(client.listAgentWaits).toHaveBeenCalledTimes(1)
+    expect(client.listWaiting).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the object of a wait that did not change, drops an agent the host no longer lists, and says nothing when nothing changed', async () => {
     const { store, client, r } = setup()
     client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))

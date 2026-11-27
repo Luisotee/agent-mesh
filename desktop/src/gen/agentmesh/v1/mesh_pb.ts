@@ -5249,7 +5249,7 @@ export const MeshService: GenService<{
   /**
    * What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
    * dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
-   * agents that are idle now (not archived); an agent reads its own run's.
+   * agents that are idle now (not archived); a root reads its own run's unless it names another.
    *
    * @generated from rpc agentmesh.v1.MeshService.ListAgentWaits
    */

@@ -77,7 +77,7 @@ func TestListAgentWaitsSaysWhatEachIdleAgentWaitsOn(t *testing.T) {
 	if err != nil || one.Msg.Wait.Kind != waits("")[declared.Id].Kind {
 		t.Errorf("progress says %v (%v), the list %v", one, err, waits("")[declared.Id])
 	}
-	// A run that does not exist lists nothing; a worker may read its own run only.
+	// A run that does not exist lists nothing; a worker is not an actor of the call at all.
 	if got := waits("nosuch"); len(got) != 0 {
 		t.Errorf("an unknown run lists %v", got)
 	}
