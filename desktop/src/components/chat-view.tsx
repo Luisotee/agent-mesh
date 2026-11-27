@@ -3,7 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/input'
+import { MarkdownField } from '@/components/ui/markdown-field'
+import { loadDraft, saveDraft } from '@/layout'
 import { useApp, useAppState, useHostState } from '@/context'
 import { statusSentence } from '@/derive'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
@@ -331,7 +332,18 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   const settings = useHostState(first, (s) => s.settings)
   const keys = useMemo(() => chatKeys(settings), [settings])
   const fill = useAppState((s) => s.composerFill)
-  const [text, setText] = useState('')
+  // What was being written to this agent, kept on this device until it is sent.
+  const [text, setTextNow] = useState(() => loadDraft(host.info.id, agentId))
+  const setText = useCallback(
+    (next: string | ((cur: string) => string)) =>
+      setTextNow((cur) => {
+        const v = typeof next === 'function' ? next(cur) : next
+        saveDraft(host.info.id, agentId, v)
+        return v
+      }),
+    [host, agentId],
+  )
+  useEffect(() => setTextNow(loadDraft(host.info.id, agentId)), [host, agentId])
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
   // Refs, not state: a second key press before the first's re-render must see the call in flight.
@@ -345,7 +357,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
       setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${fill.text}` : fill.text))
       app.store.setState({ composerFill: undefined })
     }
-  }, [fill, agentId, app])
+  }, [fill, agentId, app, setText])
   const hasQueue = useHostState(host, (s) => (s.prompts[agentId]?.length ?? 0) > 0)
   if (!agent) return null
   const gone = agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED || !agent.terminalId
@@ -426,14 +438,14 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
         </p>
       )}
       <div className="flex items-end gap-2">
-        <Textarea
+        <MarkdownField
           aria-label="Prompt"
-          className="max-h-40 min-h-9 flex-1 resize-none text-sm focus-visible:ring-identity"
-          rows={Math.min(6, Math.max(1, text.split('\n').length))}
+          className="flex-1 text-sm focus-visible:ring-identity"
           value={text}
           disabled={!!why}
           placeholder={why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
-          onChange={(e) => setText(e.target.value)}
+          onValueChange={setText}
+          onSend={() => void send()}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return
             const interrupt = parseChord(keys.interrupt)
@@ -446,11 +458,6 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
             if (back && !text && hasQueue && matches(e.nativeEvent, back)) {
               e.preventDefault()
               if (!e.repeat) void recall()
-              return
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void send()
             }
           }}
         />

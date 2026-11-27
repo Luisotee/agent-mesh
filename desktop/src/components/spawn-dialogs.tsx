@@ -1,10 +1,11 @@
 import { Plus } from 'lucide-react'
+import { MarkdownField } from '@/components/ui/markdown-field'
 import { useMemo, useState, type ReactElement } from 'react'
 import { spawnAgent, startRun } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/label'
-import { Input, Select, Textarea } from '@/components/ui/input'
+import { Input, Select } from '@/components/ui/input'
 import { useHostState } from '@/context'
 import { knownRepos } from '@/derive'
 import { AgentRole } from '@/gen/agentmesh/v1/types_pb'
@@ -161,7 +162,7 @@ export function SpawnDialog({ host, runId, trigger }: { host: HostRuntime; runId
             </Field>
           </div>
           <Field label="First message" hint="Sent as a task once the agent is ready.">
-            <Textarea value={task} onChange={(e) => setTask(e.target.value)} />
+            <MarkdownField className="min-h-20" value={task} onValueChange={setTask} />
           </Field>
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
           <Button type="submit" disabled={busy}>Start agent</Button>

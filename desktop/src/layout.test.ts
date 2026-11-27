@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'vitest'
-import { layoutOf, parseLayout, pruneHost, restoreOf, type LayoutSource } from './layout'
+import { layoutOf, loadDraft, parseLayout, pruneHost, restoreOf, saveDraft, type LayoutSource } from './layout'
 import { AgentSchema, type Agent } from './gen/agentmesh/v1/types_pb'
 import { emptyWorkspace } from './workspace'
 
@@ -54,5 +54,28 @@ describe('pruneHost', () => {
     const s = src({ tabs: [ref('h', 'a')], hostId: 'h', agentId: 'a' })
     expect(pruneHost(s, 'h', agents('a'))).toBeUndefined()
     expect(pruneHost(s, 'h', agents())).toMatchObject({ tabs: [], agentId: undefined })
+  })
+})
+
+describe('drafts', () => {
+  const mem = () => {
+    const m = new Map<string, string>()
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
+  }
+  it('keeps a draft per agent and host, drops an empty one, and keeps the newest 50', () => {
+    const s = mem()
+    saveDraft('h1', 'a', 'half a thought', s)
+    saveDraft('h2', 'a', 'other host', s)
+    expect(loadDraft('h1', 'a', s)).toBe('half a thought')
+    expect(loadDraft('h2', 'a', s)).toBe('other host')
+    saveDraft('h1', 'a', '  ', s)
+    expect(loadDraft('h1', 'a', s)).toBe('')
+    for (let i = 0; i < 60; i++) saveDraft('h1', `n${i}`, `d${i}`, s)
+    expect(loadDraft('h1', 'n59', s)).toBe('d59')
+    expect(loadDraft('h1', 'n0', s)).toBe('')
+    expect(loadDraft('h2', 'a', s)).toBe('')
+  })
+  it('reads a broken store as no drafts', () => {
+    expect(loadDraft('h', 'a', { getItem: () => '{nope' })).toBe('')
   })
 })

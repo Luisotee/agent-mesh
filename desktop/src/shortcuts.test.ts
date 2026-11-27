@@ -27,6 +27,16 @@ describe('commandFor', () => {
     expect(commandFor(press(inTerm, 'w', { metaKey: true }), mac)).toBe('tab_close')
   })
 
+  it('leaves Ctrl+B and Ctrl+K to a markdown field, and runs them with Shift added there', () => {
+    const md = document.createElement('textarea')
+    md.setAttribute('data-markdown-field', '')
+    expect(commandFor(press(md, 'b', { ctrlKey: true }), keys)).toBeUndefined()
+    expect(commandFor(press(md, 'k', { ctrlKey: true }), keys)).toBeUndefined()
+    expect(commandFor(press(md, 'B', { ctrlKey: true, shiftKey: true }), keys)).toBe('sidebar')
+    // Other Ctrl chords run as in any field.
+    expect(commandFor(press(md, 'w', { ctrlKey: true }), keys)).toBe('tab_close')
+  })
+
   it('takes the same chord with Shift added in a terminal (Ctrl+Shift+W closes there)', () => {
     expect(commandFor(press(inTerm, 'W', { ctrlKey: true, shiftKey: true }), keys)).toBe('tab_close')
     // A chord that has Shift already keeps it, in a terminal too.

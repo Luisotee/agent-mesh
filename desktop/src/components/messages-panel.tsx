@@ -1,10 +1,10 @@
 import { CheckCircle2, ChevronDown, ChevronUp, ClipboardList, FileText, MessageCircleQuestion, XCircle } from 'lucide-react'
+import { MarkdownField } from '@/components/ui/markdown-field'
 import { useEffect, useMemo, useState } from 'react'
 import { answer } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SkeletonLines } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/input'
 import { useHostState } from '@/context'
 import { MESSAGE_LABEL, messagesOf } from '@/derive'
 import { MessageType, type Message } from '@/gen/agentmesh/v1/types_pb'
@@ -124,10 +124,11 @@ export function AnswerForm({ host, message: m }: { host: HostRuntime; message: M
         if (text.trim()) void send(text.trim())
       }}
     >
-      <Textarea
+      <MarkdownField
         aria-label={isPlan ? 'Changes to ask for' : 'Your answer'}
+        className="min-h-16"
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onValueChange={setText}
         placeholder={isPlan ? 'What should change? (to approve, no text needed)' : 'Answer for the agent'}
       />
       <div className="flex items-center gap-2">
