@@ -136,7 +136,7 @@ func (d *Daemon) relayStep(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	if n > 0 {
 		job.of = done[0].Id
 	}
-	author := prAuthorKind(ctx, r, top, pr.HeadRef)
+	author := d.reviewAuthorKind(ctx, r, actor, top, pr.HeadRef)
 	all, _, err := d.pickReviewers(r, "all", cm.Size, cm.Tier, author, nil, top)
 	if err != nil {
 		return nil, err

@@ -290,6 +290,19 @@ func prAuthorKind(ctx context.Context, r store.Reader, top, headRef string) stri
 	return ""
 }
 
+// reviewAuthorKind is prAuthorKind, or the asking worker's own kind when no worker's branch says whose the PR is: a
+// worker is let ask rounds only on its own PR (`workerGuard`), including one from a branch of its run it made a worktree
+// for, which no agent's branch names.
+func (d *Daemon) reviewAuthorKind(ctx context.Context, r store.Reader, actor *v1.Actor, top, headRef string) string {
+	if kind := prAuthorKind(ctx, r, top, headRef); kind != "" {
+		return kind
+	}
+	if self := d.selfWorker(r, actor); self != nil {
+		return self.Kind
+	}
+	return ""
+}
+
 // authorLast moves the PR author's kind later in a slot's chain: the author is removed and reinserted right
 // after the slot's last non-OpenCode kind, so the order is the other CLIs, then the author's CLI in a fresh
 // session, with OpenCode wherever the slot put it relative to them (first for a small PR, last for a large one).

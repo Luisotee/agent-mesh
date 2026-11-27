@@ -57,7 +57,7 @@ fun WaitingRow(runtime: HostRuntime, w: Waiting, canAct: Boolean, onOpen: () -> 
             Column(Modifier.padding(start = 52.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 var all by rememberSaveable(m.id) { mutableStateOf(false) }
                 val long = isLong(m.body)
-                MarkdownText(if (long && !all) preview(m.body) else m.body, large = long && all)
+                MarkdownText(if (long && !all) preview(m.body) else m.body)
                 if (long) TextButton(onClick = { all = !all }) { Text(if (all) "Show less" else "Show all") }
                 if (canAct) AnswerForm(runtime, m) else Text("This device is read-only: it can read, not answer.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 TextButton(onClick = onOpen) { Text("Open the conversation") }
