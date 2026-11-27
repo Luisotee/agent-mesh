@@ -28,9 +28,8 @@ class NoticeTest {
     @Test fun `only the host decision notifies, a UserNotice for the user and live`() {
         val n = notice(userNotice(1, "plan", title = "shop-fix sent a plan", body = "Change the typo", at = now))!!
         assertEquals(NoticeKind.Plan, n.kind); assertEquals("shop-fix sent a plan", n.title); assertEquals("Change the typo", n.body)
-        assertEquals("w1", n.agentId); assertEquals(Tab.Chat, n.tab); assertEquals(1L, n.seq); assertEquals("w1", n.tag)
+        assertEquals("w1", n.agentId); assertEquals(Tab.Chat, n.tab); assertEquals(1L, n.seq)
         assertEquals(Tab.Terminal, notice(userNotice(2, "input", tab = "terminal", at = now))!!.tab)
-        assertEquals("run-1", notice(userNotice(3, "finished", tag = "run-1", at = now))!!.tag)
     }
 
     @Test fun `a notice that is not for the user, one of a kind this app does not know, and one about no agent are the Activity list's alone`() {

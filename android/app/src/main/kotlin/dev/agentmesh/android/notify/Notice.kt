@@ -20,8 +20,6 @@ class Notice(
     val tab: Tab,
     /** The host's event this came from (0: none): the same event from the live stream and from a push posts once. */
     val seq: Long = 0,
-    /** A later notice with the same tag replaces the earlier (one per agent, or one per run). */
-    val tag: String = "",
 )
 
 /** An event older than this wasn't "just now": history replayed after a reconnect doesn't notify. */
@@ -58,5 +56,5 @@ fun noticeFor(e: Event, nowMs: Long, clockSkewMs: Long = 0): Notice? {
     val n = e.userNotice
     val kind = NoticeKind.entries.firstOrNull { it.key == n.kind } ?: return null
     if (n.agentId.isEmpty()) return null
-    return Notice(kind, n.title, n.body, n.agentId, if (n.tab == "terminal") Tab.Terminal else Tab.Chat, e.seq, n.tag.ifEmpty { n.agentId })
+    return Notice(kind, n.title, n.body, n.agentId, if (n.tab == "terminal") Tab.Terminal else Tab.Chat, e.seq)
 }

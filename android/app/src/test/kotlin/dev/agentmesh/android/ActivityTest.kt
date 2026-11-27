@@ -57,6 +57,13 @@ class ActivityTest {
         assertEquals("n${MAX_ACTIVITY + 10}", s.activity.last().notice.title)
     }
 
+    @Test fun `a frame replayed after a resume is listed once`() {
+        var s = applyFrame(HostState(), userNotice(1, "plan", title = "a", at = 1_000))
+        s = applyFrame(s, userNotice(1, "plan", title = "a", at = 1_000))
+        s = applyFrame(s, userNotice(2, "plan", title = "b", at = 2_000))
+        assertEquals(listOf("a", "b"), s.activity.map { it.notice.title })
+    }
+
     @Test fun `the list is newest first across hosts`() {
         val a = ActivityRow("h1", "wsl", dev.agentmesh.android.store.ActivityItem(1, 1_000, userNotice(1, "plan").event.userNotice))
         val b = ActivityRow("h2", "vps", dev.agentmesh.android.store.ActivityItem(1, 3_000, userNotice(1, "report").event.userNotice))

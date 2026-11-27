@@ -200,7 +200,9 @@ private fun applyEvent(s: HostState, e: Event): HostState {
             next.copy(runs = s.runs + (r.id to r.toBuilder().setTitle(e.runRenamed.title).build()))
         } ?: next
         // The chat's queue: a prompt joins it, and leaves it once typed or taken back.
-        Event.PayloadCase.USER_NOTICE -> next.copy(activity = (s.activity + ActivityItem(e.seq, if (e.hasTime()) e.time.toMillis() else 0L, e.userNotice)).takeLast(MAX_ACTIVITY))
+        // A frame seen twice (a resume replays) is listed once.
+        Event.PayloadCase.USER_NOTICE -> if (e.seq > 0 && s.activity.any { it.seq == e.seq }) next
+        else next.copy(activity = (s.activity + ActivityItem(e.seq, if (e.hasTime()) e.time.toMillis() else 0L, e.userNotice)).takeLast(MAX_ACTIVITY))
         Event.PayloadCase.PROMPT_QUEUED -> if (e.promptQueued.hasPrompt()) {
             val q = e.promptQueued.prompt
             // A requeue (its typing never reached the terminal) is queued again, so it is no longer done.
