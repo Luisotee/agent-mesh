@@ -100,4 +100,19 @@ class ParityE2ETest {
             client.stop()
         }
     }
+
+    @Test fun `a run and its agent started from the phone's calls appear on the real host`() = runBlocking {
+        val d = daemon!!
+        val repo = d.repo("shop-api")
+        val api = api()
+        val run = api.startRun("from the phone")
+        assertEquals("from the phone", run.title)
+        val spawned = api.spawnAgent(run.id, repo.path, "fix", dev.agentmesh.gen.agentmesh.v1.AgentRole.AGENT_ROLE_WORKER, "claude", tier = "", model = "haiku", task = "")
+        assertEquals(run.id, spawned.agent.runId)
+        assertEquals("fix", spawned.agent.name.substringAfterLast('-'))
+        // The host lists it, and the repo is one it knows now.
+        assertTrue(api.listAgents().any { it.id == spawned.agent.id })
+        assertTrue(api.listProjects().any { it.path.endsWith("shop-api") })
+        Unit
+    }
 }

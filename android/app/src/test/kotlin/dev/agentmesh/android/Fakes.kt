@@ -237,6 +237,36 @@ class RecordingApi : MeshApi {
         failCost?.let { throw it }
         return cost
     }
+    // ── Starting runs and spawning agents ──
+
+    val runsStarted = java.util.Collections.synchronizedList(mutableListOf<String>())
+    @Volatile var failStartRun: Exception? = null
+
+    override suspend fun startRun(title: String): dev.agentmesh.gen.agentmesh.v1.Run {
+        failStartRun?.let { throw it }
+        runsStarted += title
+        return run("run-${runsStarted.size}", title)
+    }
+
+    /** What each SpawnAgent asked: run, repo, slug, role, kind, tier, model, task. */
+    val spawns = java.util.Collections.synchronizedList(mutableListOf<List<String>>())
+    @Volatile var failSpawn: Exception? = null
+
+    override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: dev.agentmesh.gen.agentmesh.v1.AgentRole, kind: String, tier: String, model: String, task: String): dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse {
+        failSpawn?.let { throw it }
+        spawns += listOf(runId, repo, slug, role.name, kind, tier, model, task)
+        return dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse.newBuilder().setAgent(agent("spawned-${spawns.size}", runId = runId)).build()
+    }
+
+    @Volatile var projects: List<dev.agentmesh.gen.agentmesh.v1.Project> = emptyList()
+    var projectListings = 0
+    @Volatile var failProjects: Exception? = null
+
+    override suspend fun listProjects(): List<dev.agentmesh.gen.agentmesh.v1.Project> {
+        projectListings++
+        failProjects?.let { throw it }
+        return projects
+    }
 }
 
 /** A terminal stream a test scripts: what the host sends is put in with [host], what the app sent is in [sent]. */

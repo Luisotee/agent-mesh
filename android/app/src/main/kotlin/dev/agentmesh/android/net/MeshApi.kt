@@ -10,6 +10,13 @@ import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
 import dev.agentmesh.gen.agentmesh.v1.Agent
+import dev.agentmesh.gen.agentmesh.v1.AgentRole
+import dev.agentmesh.gen.agentmesh.v1.ListProjectsRequest
+import dev.agentmesh.gen.agentmesh.v1.Project
+import dev.agentmesh.gen.agentmesh.v1.Run
+import dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest
+import dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse
+import dev.agentmesh.gen.agentmesh.v1.StartRunRequest
 import dev.agentmesh.gen.agentmesh.v1.AgentPullRequests
 import dev.agentmesh.gen.agentmesh.v1.CheckModelsRequest
 import dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse
@@ -80,6 +87,7 @@ val UI_ACTIONS = listOf(
     "hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal",
     "registerPush", "unregisterPush", "testPush", "revokeSelf",
     "readTranscript", "promptAgent", "switchAgent", "checkModels", "listAgents", "listWaiting", "listPullRequests", "holdPullRequest", "getUsage", "getCost",
+    "startRun", "spawnAgent", "listProjects",
 )
 
 /** What a terminal stream delivers: frames, then how it ended. */
@@ -168,6 +176,18 @@ interface MeshApi {
     suspend fun holdPullRequest(url: String, release: Boolean): List<PullRequest>
 
     suspend fun getUsage(refresh: Boolean = false): GetUsageResponse
+
+    /** Opens a run with a title (a device may start one; its lead is spawned into it next). */
+    suspend fun startRun(title: String): Run
+
+    /**
+     * Starts an agent in a new git worktree of [repo] on a branch of [runId]: a lead or a worker, of [kind] (a CLI), on a [tier]
+     * or a named [model] (a worker always has one of the two), given [task] as its first message once ready.
+     */
+    suspend fun spawnAgent(runId: String, repo: String, slug: String, role: AgentRole, kind: String, tier: String, model: String, task: String): SpawnAgentResponse
+
+    /** The repos the host knows (its `repos.dir` folders and where agents worked), with their branches. */
+    suspend fun listProjects(): List<Project>
 
     /** What `mesh cost` prints: for a run, or (with [since], a span back from now such as `7d`) a window. */
     suspend fun getCost(runId: String = "", since: String = "", agents: Boolean = false): GetCostResponse
@@ -285,6 +305,16 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
 
     override suspend fun getCost(runId: String, since: String, agents: Boolean): GetCostResponse =
         service.getCost(GetCostRequest.newBuilder().setRunId(runId).setSince(since).setAgents(agents).build()).ok()
+
+    override suspend fun startRun(title: String): Run = service.startRun(StartRunRequest.newBuilder().setMeta(newMeta()).setTitle(title).build()).ok().run
+
+    override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: AgentRole, kind: String, tier: String, model: String, task: String): SpawnAgentResponse =
+        service.spawnAgent(
+            SpawnAgentRequest.newBuilder().setMeta(newMeta()).setRunId(runId).setRepo(repo).setSlug(slug).setRole(role).setKind(kind)
+                .setTier(tier).setModel(model).setTask(task).build(),
+        ).ok()
+
+    override suspend fun listProjects(): List<Project> = service.listProjects(ListProjectsRequest.getDefaultInstance()).ok().projectsList
 
     private fun Throwable.asApiException(): ApiException = when (this) {
         is ApiException -> this

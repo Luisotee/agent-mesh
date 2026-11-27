@@ -63,6 +63,9 @@ private object Silent : MeshApi {
     override suspend fun holdPullRequest(url: String, release: Boolean): List<dev.agentmesh.gen.agentmesh.v1.PullRequest> = error("unused")
     override suspend fun getUsage(refresh: Boolean): dev.agentmesh.gen.agentmesh.v1.GetUsageResponse = error("unused")
     override suspend fun getCost(runId: String, since: String, agents: Boolean): dev.agentmesh.gen.agentmesh.v1.GetCostResponse = error("unused")
+    override suspend fun startRun(title: String): dev.agentmesh.gen.agentmesh.v1.Run = error("unused")
+    override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: dev.agentmesh.gen.agentmesh.v1.AgentRole, kind: String, tier: String, model: String, task: String): dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse = error("unused")
+    override suspend fun listProjects(): List<dev.agentmesh.gen.agentmesh.v1.Project> = error("unused")
 }
 
 @RunWith(RobolectricTestRunner::class)
