@@ -26,9 +26,9 @@ afterAll(async () => {
   if (bins) rmSync(bins, { recursive: true, force: true })
 })
 
-test('the sidebar groups the agents by run, project and status bucket', async () => {
+test('the sidebar shows the project, its run as the lead and the worker under it; the dock and the panel follow the open agent', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Host local, ready' }).waitFor()
+  await page.getByRole('status', { name: 'Host local, ready' }).waitFor()
   const { run } = await host.client().startRun({ title: 'group run' })
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
   await until('the lead', async () => (await host.client().listAgents({})).agents.length === 1)
@@ -39,32 +39,36 @@ test('the sidebar groups the agents by run, project and status bucket', async ()
   const prs = await host.client().listPullRequests({ runId: run!.id })
   expect(prs.agents.map((a) => a.agentName)).toContain('repo-fix')
 
-  const nav = page.getByRole('navigation', { name: 'Runs' })
-  await nav.getByRole('button', { name: /repo-fix/ }).waitFor()
-  const group = nav.getByRole('group', { name: 'Group the agents by' })
-  await group.getByRole('button', { name: 'Projects' }).click()
-  const project = nav.getByRole('region', { name: 'repo' })
-  await project.getByRole('button', { name: /repo-lead/ }).waitFor()
-  await project.getByRole('button', { name: /repo-fix/ }).waitFor()
+  const nav = page.getByRole('navigation', { name: 'Projects' })
+  const project = nav.getByRole('listitem', { name: 'repo' })
+  const lead = project.getByRole('button', { name: 'group run, lead repo-lead' })
+  await lead.waitFor()
+  // The worker is folded under its lead until the chevron opens it.
+  expect(await project.getByRole('button', { name: 'repo-fix', exact: true }).count()).toBe(0)
+  await project.getByRole('button', { name: 'Show the workers of group run' }).click()
+  const fix = project.getByRole('button', { name: 'repo-fix', exact: true })
+  await fix.waitFor()
+  // The worker's CLI and model as chips.
+  await expect.poll(() => fix.innerText()).toContain('repo')
+  await page.screenshot({ path: path.join(shots, 'sidebar-projects.png') })
 
-  // Both stop at their prompt, which the host reports as idle: one bucket, with the run named on each row.
-  await group.getByRole('button', { name: 'Status' }).click()
-  const idle = nav.getByRole('region', { name: 'Idle' })
-  await expect.poll(() => idle.getByRole('button').count(), { timeout: 20_000 }).toBe(2)
-  // Each row's repo and run, as chips.
-  for (const chip of ['repo', 'group run']) expect(await idle.getByText(chip, { exact: true }).count()).toBe(2)
-  await page.screenshot({ path: path.join(shots, 'sidebar-status.png') })
-
-  // The side panel shows the open lead's run: its cost (nothing spent by a fake CLI), its place and the host's quota.
-  await nav.getByRole('button', { name: 'Runs', exact: true }).click()
-  await nav.getByRole('button', { name: /repo-lead/ }).click()
+  // The side panel shows the open lead's tree and its run total (nothing spent by a fake CLI).
+  await lead.click()
   const side = page.getByRole('complementary', { name: 'Side panel' })
-  await side.getByRole('region', { name: 'Run', exact: true }).waitFor()
-  await expect.poll(() => side.getByTestId('cost-total').innerText(), { timeout: 20_000 }).toBe('$0.00')
+  const tree = side.getByRole('list', { name: 'Agent tree' })
+  await tree.getByRole('button', { name: /repo-fix/ }).waitFor()
+  await expect.poll(() => side.getByRole('region', { name: 'Run total' }).innerText(), { timeout: 20_000 }).toContain('$0.00')
   expect(await side.getByRole('region', { name: 'Pull requests' }).innerText()).toContain('None yet')
+  // The dock shows this run only.
+  await expect.poll(() => page.getByRole('region', { name: 'Live dock' }).innerText()).toContain('in this run')
   await page.screenshot({ path: path.join(shots, 'side-panel.png') })
   await page.getByRole('button', { name: 'Hide the side panel' }).click()
   await side.waitFor({ state: 'detached' })
+
+  // A right-click on the project opens its menu.
+  await project.getByRole('button', { name: 'repo', exact: true }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Project settings…' }).click()
+  await page.getByRole('dialog', { name: /repo settings/ }).getByRole('button', { name: 'Done' }).click()
 
   // Watch all: a tile per live agent, the fake CLI's conversation under each.
   await page.getByRole('button', { name: 'Watch all' }).click()
@@ -74,15 +78,13 @@ test('the sidebar groups the agents by run, project and status bucket', async ()
   await page.screenshot({ path: path.join(shots, 'watch-all.png') })
   await grid.getByRole('button', { name: 'Open repo-fix' }).click()
   await page.getByRole('article', { name: 'repo-fix' }).waitFor()
-
-  // Back to runs: the tree again.
-  await group.getByRole('button', { name: 'Runs' }).click()
-  await nav.getByRole('region', { name: 'group run' }).waitFor()
+  await expect.poll(() => fix.getAttribute('aria-current')).toBe('true')
 })
 
 test('a new workspace starts a lead in a worktree of a project from the dialog, and holding a PR needs a PR the host lists', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Workspace' }).click()
+  await page.getByRole('button', { name: 'New', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'New lead' }).click()
   const dialog = page.getByRole('dialog')
   // The host lists the repos it has seen (the throwaway repo, used by the earlier test's agents), with its branches.
   await dialog.getByLabel('Project').fill(host.repo)

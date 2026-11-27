@@ -4,18 +4,18 @@ import { layoutOf, parseLayout, pruneHost, restoreOf, type LayoutSource } from '
 import { AgentSchema, type Agent } from './gen/agentmesh/v1/types_pb'
 import { emptyWorkspace } from './workspace'
 
-const src = (o: Partial<LayoutSource> = {}): LayoutSource => ({ ...emptyWorkspace(), tab: 'overview', sidebarGroup: 'run', panelOpen: true, ...o })
+const src = (o: Partial<LayoutSource> = {}): LayoutSource => ({ ...emptyWorkspace(), tab: 'overview', panelOpen: true, ...o })
 const ref = (hostId: string, agentId: string) => ({ hostId, agentId })
 const agents = (...ids: string[]): Record<string, Agent> => Object.fromEntries(ids.map((id) => [id, create(AgentSchema, { id })]))
 
 describe('layout', () => {
-  const state = src({ tabs: [ref('h', 'a'), ref('h', 'b'), ref('g', 'c')], hostId: 'h', agentId: 'b', tab: 'chat', views: { 'h/a': 'terminal' }, side: [{ ...ref('g', 'c'), tab: 'messages' }], splitDir: 'column', sidebarGroup: 'state', dockOpen: false, panelOpen: false })
+  const state = src({ tabs: [ref('h', 'a'), ref('h', 'b'), ref('g', 'c')], hostId: 'h', agentId: 'b', tab: 'chat', views: { 'h/a': 'terminal' }, side: [{ ...ref('g', 'c'), tab: 'messages' }], splitDir: 'column', sidebarCollapsed: true, hidden: { h: ['/w/old'] }, dockOpen: false, panelOpen: false })
 
   it('round-trips through JSON, with the open tab\'s view among the views', () => {
     const l = parseLayout(JSON.stringify(layoutOf(state)))!
     expect(l.active).toEqual({ hostId: 'h', agentId: 'b', tab: 'chat' })
     expect(l.views).toEqual({ 'h/a': 'terminal', 'h/b': 'chat' })
-    expect(restoreOf(l, new Set(['h', 'g']))).toMatchObject({ tabs: state.tabs, hostId: 'h', agentId: 'b', tab: 'chat', side: state.side, splitDir: 'column', sidebarGroup: 'state', dockOpen: false, panelOpen: false })
+    expect(restoreOf(l, new Set(['h', 'g']))).toMatchObject({ tabs: state.tabs, hostId: 'h', agentId: 'b', tab: 'chat', side: state.side, splitDir: 'column', sidebarCollapsed: true, hidden: { h: ['/w/old'] }, dockOpen: false, panelOpen: false })
   })
 
   it('restores nothing from text that is not a layout, or one of another version', () => {
@@ -29,7 +29,7 @@ describe('layout', () => {
     expect(l.views).toEqual({ 'h/a': 'overview' })
     expect(l.active).toBeUndefined()
     expect(l.side).toEqual([{ ...ref('h', 'b'), tab: 'chat' }])
-    expect(l).toMatchObject({ splitDir: 'row', sidebarGroup: 'run', dockOpen: true, panelOpen: true })
+    expect(l).toMatchObject({ splitDir: 'row', sidebarCollapsed: false, hidden: {}, dockOpen: true, panelOpen: true })
   })
 
   it('leaves out the tabs of a host that is no longer there', () => {

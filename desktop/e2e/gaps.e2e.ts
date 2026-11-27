@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { expect, test, beforeAll, afterAll } from 'vitest'
 import { AgentRole } from '../src/gen/agentmesh/v1/types_pb'
-import { launchApp, type App } from './electron'
+import { launchApp, openFromSidebar, type App } from './electron'
 import { buildBinaries, makeHost, until, type Host } from './harness'
 
 let host: Host
@@ -26,7 +26,7 @@ afterAll(async () => {
 
 test('a run is renamed in place, a held permission prompt is allowed from the app, and an agent opens a view in it', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Host local, ready' }).waitFor()
+  await page.getByRole('status', { name: 'Host local, ready' }).waitFor()
   const { run } = await host.client().startRun({ title: 'first title' })
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
   await until('the lead', async () => (await host.client().listAgents({})).agents.length === 1)
@@ -34,18 +34,18 @@ test('a run is renamed in place, a held permission prompt is allowed from the ap
   const asLead = host.client(host.agentToken(lead.id))
   const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
 
-  // Rename: the pencil edits the title in place; the host's event updates the sidebar (and so would another device's).
-  const nav = page.getByRole('navigation', { name: 'Runs' })
-  await nav.getByRole('region', { name: 'first title' }).waitFor()
-  await nav.getByRole('button', { name: 'Rename first title' }).click()
+  // Rename: the run's menu (or F2) edits the title in place; the host's event updates the sidebar (and so would another device's).
+  const nav = page.getByRole('navigation', { name: 'Projects' })
+  await nav.getByRole('button', { name: 'Menu of first title' }).click()
+  await page.getByRole('menuitem', { name: /Rename/ }).click()
   await page.getByLabel('Run title').fill('the shop checkout')
   await page.getByLabel('Run title').press('Enter')
-  await nav.getByRole('region', { name: 'the shop checkout' }).waitFor()
+  await nav.getByRole('listitem', { name: 'the shop checkout' }).waitFor()
   expect((await host.client().listRuns({})).runs.find((r) => r.id === run!.id)?.title).toBe('the shop checkout')
 
   // A worker at a permission prompt the host holds for its lead: Allow and Deny are in "Waiting on you".
   // Type the fake CLI's `/perm` line in the worker's terminal, as a person would.
-  await nav.getByRole('button', { name: /repo-fix/ }).click()
+  await openFromSidebar(page, 'repo-fix')
   const panel = page.getByRole('article', { name: 'repo-fix' })
   await panel.getByRole('tab', { name: 'terminal' }).click()
   await expect.poll(() => panel.getByTestId('terminal-status').innerText(), { timeout: 20_000 }).toBe('Live')
