@@ -37,6 +37,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
 	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/cleanenv"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 var bins string
@@ -296,7 +297,7 @@ func (w *world) text(args ...string) string {
 // The policy file of bin/mesh is imported at meshd's first start, `mesh import-settings` applies it again, and
 // `mesh model` shows what a spawn would run (with the setting the file brought).
 func TestPolicyFileAndModelEndToEnd(t *testing.T) {
-	root := t.TempDir()
+	root := shortdir.New(t)
 	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
 	os.MkdirAll(w.home, 0o700)
 	t.Cleanup(w.stopAll)
@@ -336,7 +337,7 @@ func TestPolicyFileAndModelEndToEnd(t *testing.T) {
 }
 
 func TestEndToEnd(t *testing.T) {
-	root := t.TempDir()
+	root := shortdir.New(t)
 	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
 	os.MkdirAll(w.home, 0o700)
 	t.Cleanup(w.stopAll)
@@ -600,7 +601,7 @@ func TestEndToEnd(t *testing.T) {
 }
 
 func TestAgyEndToEnd(t *testing.T) {
-	root := t.TempDir()
+	root := shortdir.New(t)
 	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
 	os.MkdirAll(w.home, 0o700)
 	t.Cleanup(w.stopAll)
@@ -653,7 +654,7 @@ func TestAgyEndToEnd(t *testing.T) {
 }
 
 func TestRelayAndPairingEndToEnd(t *testing.T) {
-	root := t.TempDir()
+	root := shortdir.New(t)
 	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
 	os.MkdirAll(w.home, 0o700)
 	t.Cleanup(w.stopAll)
@@ -861,7 +862,7 @@ func lookPath(env []string, name string) string {
 // An attached `mesh open` survives meshd being killed and started again (an install, a drop-in change): it prints one
 // status line, asks the new meshd for a fresh way in, repaints, and shows what the agent says from then on.
 func TestMeshOpenReattachesAfterMeshdRestarts(t *testing.T) {
-	root := t.TempDir()
+	root := shortdir.New(t)
 	w := &world{t: t, state: filepath.Join(root, "state"), home: filepath.Join(root, "home")}
 	os.MkdirAll(w.home, 0o700)
 	t.Cleanup(w.stopAll)

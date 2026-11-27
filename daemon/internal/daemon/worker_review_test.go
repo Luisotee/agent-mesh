@@ -693,3 +693,90 @@ func TestAWorkerReviewsNoPRByURLOfAnotherGitHubRepo(t *testing.T) {
 		t.Errorf("a PR on its upstream remote: %v", err)
 	}
 }
+
+// A worker registered on mesh/<run>/<slug> that moved its work to another branch (and opened its PR from it) still
+// reviews its own PR: the branch checked out in its own worktree counts. Another PR's head still does not.
+func TestAWorkerThatMovedToAnotherBranchStillReviewsItsPR(t *testing.T) {
+	a := startAuthor(t, "")
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	if out, err := exec.Command("git", "-C", a.worker.Worktree, "switch", "-q", "-c", "moved-on").CombinedOutput(); err != nil {
+		t.Fatalf("git switch: %v %s", err, out)
+	}
+	a.commit(t) // work of its own on the branch it moved to
+	a.pr.headRef = "moved-on"
+	a.pr.push(t, "the feature")
+	res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+	if err != nil {
+		t.Fatalf("a PR from the branch its worktree is on: %v", err)
+	}
+	if len(res.Agents) != 1 {
+		t.Errorf("round %v", res)
+	}
+	a.pr.headRef = "somebody-elses"
+	a.pr.push(t, "again")
+	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+		t.Errorf("another PR: %v", err)
+	}
+	// Switching its worktree onto another worker's branch does not make that worker's PR its own.
+	other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+	if out, err := exec.Command("git", "-C", a.worker.Worktree, "checkout", "-q", "--ignore-other-worktrees", other.Branch).CombinedOutput(); err != nil {
+		t.Fatalf("git checkout: %v %s", err, out)
+	}
+	a.pr.headRef = other.Branch
+	a.pr.push(t, "theirs")
+	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+		t.Errorf("another worker's branch checked out in its worktree: %v", err)
+	}
+}
+
+// movedAskRefused is a worker whose worktree is on `head` asking a review of the PR from it: refused as another's.
+func (a *authorWorld) movedAskRefused(t *testing.T, why, head string) {
+	t.Helper()
+	a.pr.headRef = head
+	a.pr.push(t, why)
+	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+		t.Errorf("%s: %v", why, err)
+	}
+}
+
+// The branch checked out in a worker's own worktree is its own PR's only when nothing says it is someone else's:
+// the repo's default branch, a branch with no commit of the worker's own, a branch another worker has checked out
+// in its worktree, and a PR another worker owns are all refused.
+func TestAMovedBranchIsTheWorkersOwnOnlyWhenNothingMakesItAnothers(t *testing.T) {
+	t.Run("the default branch", func(t *testing.T) {
+		a := startAuthor(t, "")
+		gitIn(t, a.worker.Worktree, "checkout", "-q", "--ignore-other-worktrees", "main")
+		a.commit(t) // work on it, so that only its being the default branch refuses it
+		a.movedAskRefused(t, "main is nobody's PR", "main")
+	})
+	t.Run("no commit of its own", func(t *testing.T) {
+		a := startAuthor(t, "")
+		gitIn(t, a.worker.Worktree, "switch", "-q", "-c", "empty-branch")
+		a.movedAskRefused(t, "a branch with no work of its own", "empty-branch")
+	})
+	t.Run("checked out by another worker", func(t *testing.T) {
+		a := startAuthor(t, "")
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		gitIn(t, other.Worktree, "switch", "-q", "-c", "feat-b") // it moved, as this worker will claim to have
+		gitIn(t, other.Worktree, "commit", "-q", "--allow-empty", "-m", "theirs")
+		a.commit(t)
+		gitIn(t, a.worker.Worktree, "checkout", "-q", "--ignore-other-worktrees", "feat-b")
+		a.movedAskRefused(t, "a branch another worker has checked out", "feat-b")
+	})
+	t.Run("a PR another worker owns", func(t *testing.T) {
+		a := startAuthor(t, "")
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		gitIn(t, a.worker.Worktree, "switch", "-q", "-c", "moved-on")
+		a.commit(t)
+		a.pr.headRef = "moved-on"
+		a.pr.push(t, "the feature")
+		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: other.Id, Url: a.pr.url(), Number: 7, State: "open", Source: "report"})
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+			t.Errorf("a PR another worker's record holds: %v", err)
+		}
+	})
+}

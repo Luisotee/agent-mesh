@@ -2,8 +2,8 @@
   "name": "Nord",
   "dark": true,
   "font": {
-    "sans": "Inter",
-    "mono": "Cascadia Code"
+    "sans": "Geist",
+    "mono": "JetBrains Mono"
   },
   "density": "comfortable",
   "tokens": {
@@ -13,7 +13,7 @@
     "card": "#343b49",
     "popover": "#3b4252",
     "muted": "#3b4252",
-    "muted-foreground": "#a7b1c4",
+    "muted-foreground": "#bcc4d4",
     "border": "#4c566a",
     "input": "#4c566a",
     "ring": "#88c0d0",
@@ -30,7 +30,22 @@
     "state-idle": "#616e88",
     "state-done": "#a3be8c",
     "state-failed": "#bf616a",
-    "state-unknown": "#ebcb8b"
+    "state-unknown": "#ebcb8b",
+    "hue-1": "#88c0d0",
+    "hue-2": "#81a1c1",
+    "hue-3": "#8fbcbb",
+    "hue-4": "#a3be8c",
+    "hue-5": "#ebcb8b",
+    "hue-6": "#d08770",
+    "hue-7": "#e0959c",
+    "hue-8": "#b48ead",
+    "vendor-claude": "#e8906f",
+    "vendor-gemini": "#a58be0",
+    "vendor-openai": "#eceff4",
+    "vendor-copilot": "#eceff4",
+    "vendor-opencode": "#eceff4",
+    "vendor-deepseek": "#8fa1ff",
+    "glow": "#d08770"
   },
   "terminal": {
     "background": "#2e3440",

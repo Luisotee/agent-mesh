@@ -123,7 +123,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
               {view.claude.map((w) => (
                 <Bar key={w.key} bar={w} reserve={view.reserve} now={now} />
               ))}
-              {view.claude.length > 0 && view.claudeSource && view.claudeSource !== 'live' && <p className="text-[11px] text-muted-foreground">From the {view.claudeSource}{view.claudeFetchedAt ? `, read ${view.claudeFetchedAt.toLocaleTimeString()}` : ''}.</p>}
+              {view.claude.length > 0 && view.claudeSource && view.claudeSource !== 'live' && <p className="text-xs text-muted-foreground">From the {view.claudeSource}{view.claudeFetchedAt ? `, read ${view.claudeFetchedAt.toLocaleTimeString()}` : ''}.</p>}
             </div>
             <div className="flex flex-col gap-2">
               <h3 className="text-xs font-semibold">agy</h3>
@@ -153,7 +153,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
                 </p>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground">Reserve: the host starts nothing new on a quota once {view.reserve}% of it is used (<code className="font-mono">quota_stop</code>).</p>
+            <p className="text-xs text-muted-foreground">Reserve: the host starts nothing new on a quota once {view.reserve}% of it is used (<code className="font-mono">quota_stop</code>).</p>
           </div>
         )}
       </Card>
@@ -221,7 +221,7 @@ function Bar({ bar, reserve, now }: { bar: QuotaBar; reserve: number; now: Date 
         <div className={cn('h-full rounded-full', bar.atReserve ? 'bg-state-needs' : 'bg-primary')} style={{ width: `${used}%` }} />
         {reserve > 0 && reserve < 100 && <div title={`reserve: ${reserve}%`} className="absolute -top-0.5 h-3 w-0.5 bg-foreground/70" style={{ left: `${reserve}%` }} />}
       </div>
-      <p className="text-[11px] text-muted-foreground">{resetText(bar.resetsAt, now)}</p>
+      <p className="text-xs text-muted-foreground">{resetText(bar.resetsAt, now)}</p>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -123,12 +124,12 @@ func TestPlanLaunchFreshResumeVariantsAndOrderedPermissions(t *testing.T) {
 		t.Errorf("OPENCODE_CONFIG_CONTENT = %s", res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
 	}
 	perm := res.Msg.Env["OPENCODE_PERMISSION"]
-	// Verify edit keys preserve exact order: "*" -> "../*" -> "../../proj/*" (last match wins).
-	iStar := strings.Index(perm, `"*":"deny"`)
-	iUp := strings.Index(perm, `"../*":"allow"`)
-	iRepo := strings.Index(perm, `"../../proj/*":"deny"`)
-	if iStar < 0 || iUp <= iStar || iRepo <= iUp {
+	// Edits: everything denied first, the run folder's outputs allowed after it (no run dir in this env: none).
+	if !strings.HasPrefix(perm, `{"edit":{"*":"deny"`) || strings.Contains(perm, `"../*"`) {
 		t.Fatalf("OPENCODE_PERMISSION edit order wrong: %s", perm)
+	}
+	if !strings.Contains(perm, `"../../proj/*":"deny"`) {
+		t.Errorf("OPENCODE_PERMISSION does not deny the main checkout: %s", perm)
 	}
 	if !strings.Contains(perm, `"git push*":"deny"`) || !strings.Contains(perm, `"gh pr create*":"deny"`) {
 		t.Errorf("OPENCODE_PERMISSION missing bash deny rules: %s", perm)
@@ -415,42 +416,107 @@ func TestPlanLaunchStandalone(t *testing.T) {
 	}
 }
 
-func TestPlanLaunchAllowsReadingTheShareFolderAndNothingWider(t *testing.T) {
-	a := New()
-	share := "/opt/mesh/share"
-	launch := func(env map[string]string, role agentmeshv1.AgentRole) map[string]any {
-		res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
-			AgentId: "w1", Role: role, Cwd: t.TempDir(), Binary: "/opt/opencode", Env: env}))
+// externalRules is the launch's `permission.external_directory` as written: its patterns in order (OpenCode takes
+// the last match, so the order is the rule), with their actions.
+func externalRules(t *testing.T, cfgJSON string) (keys []string, actions map[string]string) {
+	t.Helper()
+	var top struct {
+		Permission struct {
+			External json.RawMessage `json:"external_directory"`
+		} `json:"permission"`
+	}
+	if err := json.Unmarshal([]byte(cfgJSON), &top); err != nil {
+		t.Fatal(err)
+	}
+	if top.Permission.External == nil {
+		return nil, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(top.Permission.External))
+	if _, err := dec.Token(); err != nil { // {
+		t.Fatal(err)
+	}
+	actions = map[string]string{}
+	for dec.More() {
+		k, err := dec.Token()
 		if err != nil {
 			t.Fatal(err)
 		}
-		var cfg map[string]any
-		if err := json.Unmarshal([]byte(res.Msg.Env["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
+		var v string
+		if err := dec.Decode(&v); err != nil {
 			t.Fatal(err)
 		}
-		return cfg
+		keys = append(keys, k.(string))
+		actions[k.(string)] = v
 	}
+	return keys, actions
+}
+
+// What is outside the worktree answers deny (OpenCode's ask is never answered in a mesh and the agent hangs there),
+// except the share folder, the run folder and the toolchain; the share and the toolchain are not for editing.
+func TestPlanLaunchDeniesEveryExternalDirectoryButWhatTheAgentNeeds(t *testing.T) {
+	a := New()
+	share, home, runDir, repo := "/opt/mesh/share", "/home/u", "/state/runs/r1", "/work/shop-api"
+	launch := func(env map[string]string, role agentmeshv1.AgentRole, deny bool) string {
+		res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+			AgentId: "w1", Role: role, Cwd: t.TempDir(), Repo: repo, DenyEdits: deny, Binary: "/opt/opencode", Env: env}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Env["OPENCODE_CONFIG_CONTENT"]
+	}
+	env := map[string]string{"AGENT_MESH_SHARE": share + "/", "HOME": home, "AGENT_MESH_RUN_DIR": runDir}
 	for _, role := range []agentmeshv1.AgentRole{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER} {
-		cfg := launch(map[string]string{"AGENT_MESH_SHARE": share + "/"}, role)
-		perm, _ := cfg["permission"].(map[string]any)
-		want := func(key, action string) {
-			got, _ := perm[key].(map[string]any)
-			if len(got) != 2 || got[share+"/*"] != action || got[share+"/**"] != action {
-				t.Errorf("%v: permission.%s = %v, want %s on %s/* and %s/** only", role, key, perm[key], action, share, share)
+		for _, deny := range []bool{false, true} {
+			cfgJSON := launch(env, role, deny)
+			keys, actions := externalRules(t, cfgJSON)
+			if len(keys) == 0 || keys[0] != "*" || actions["*"] != "deny" {
+				t.Fatalf("%v: external_directory = %v, want the deny of everything first", role, keys)
+			}
+			for _, d := range []string{share, runDir, home + "/.local/go", home + "/go", home + "/.cache/go-build", "/usr/local/go", "/tmp"} {
+				if actions[d+"/*"] != "allow" || actions[d+"/**"] != "allow" {
+					t.Errorf("%v: %s is not allowed: %v", role, d, actions)
+				}
+			}
+			for _, k := range keys[1:] {
+				if actions[k] != "allow" {
+					t.Errorf("%v: %s = %s, want allow after the deny", role, k, actions[k])
+				}
+			}
+			// Its repo's main checkout is not opened: its untracked files are the user's.
+			if _, ok := actions[repo+"/*"]; ok {
+				t.Errorf("%v: the repo is allowed", role)
+			}
+			var cfg map[string]any
+			if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			perm, _ := cfg["permission"].(map[string]any)
+			edit, _ := perm["edit"].(map[string]any)
+			// The share and the toolchain can be read, not edited; scratch dirs and the run folder are not listed.
+			for _, d := range []string{share, home + "/.local/go", home + "/go", home + "/.local/opt", "/usr/local/go"} {
+				if edit[d+"/*"] != "deny" || edit[d+"/**"] != "deny" {
+					t.Errorf("%v: edits in %s are not denied: %v", role, d, edit)
+				}
+			}
+			for _, d := range []string{runDir, "/tmp", "/var/tmp"} {
+				if _, ok := edit[d+"/*"]; ok {
+					t.Errorf("%v: edits in %s are denied: %v", role, d, edit)
+				}
+			}
+			if len(perm) != 2 {
+				t.Errorf("%v: permission = %v, want external_directory and edit only", role, perm)
 			}
 		}
-		// The protocol and skills outside the worktree can be read (OpenCode's dialog for it is never answered)...
-		want("external_directory", "allow")
-		// ...but not edited, and no other permission key is set.
-		want("edit", "deny")
-		if len(perm) != 2 {
-			t.Errorf("%v: permission = %v, want only external_directory and edit", role, perm)
-		}
 	}
-	// A daemon with no absolute share path adds nothing.
-	for _, env := range []map[string]string{nil, {"AGENT_MESH_SHARE": "share"}} {
-		if cfg := launch(env, agentmeshv1.AgentRole_AGENT_ROLE_WORKER); cfg["permission"] != nil {
-			t.Errorf("env %v: permission = %v, want none", env, cfg["permission"])
+	// No absolute share path: nothing of it is allowed or edit-denied, but the deny of the rest stays.
+	for _, e := range []map[string]string{{"HOME": home}, {"AGENT_MESH_SHARE": "share", "HOME": home}} {
+		cfgJSON := launch(e, agentmeshv1.AgentRole_AGENT_ROLE_WORKER, false)
+		keys, actions := externalRules(t, cfgJSON)
+		if len(keys) == 0 || keys[0] != "*" || actions["*"] != "deny" {
+			t.Errorf("env %v: external_directory = %v", e, keys)
+		}
+		if strings.Contains(cfgJSON, "share/*") {
+			t.Errorf("env %v: a share rule without a share: %s", e, cfgJSON)
 		}
 	}
 }

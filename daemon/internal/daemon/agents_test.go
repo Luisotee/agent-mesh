@@ -27,6 +27,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
 	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/cleanenv"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // bins holds mesh-term, mesh and the fake claude, built once for the package's tests.
@@ -215,7 +216,7 @@ func stateChanges(t *testing.T, s *connect.ServerStreamForClient[v1.SubscribeEve
 }
 
 func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()
@@ -402,7 +403,7 @@ func (h *agentsHarness) openTerminal(ctx context.Context, a *v1.Agent, input boo
 }
 
 func TestTheTerminalSurvivesADaemonRestartAndSpooledHooksApply(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	home := t.TempDir()
 	h := startWithAgents(t, state, home)
 	t.Cleanup(func() { stopTermHost(t, state) })
@@ -503,7 +504,7 @@ func TestTheTerminalSurvivesADaemonRestartAndSpooledHooksApply(t *testing.T) {
 }
 
 func TestAnAgentWhoseTerminalVanishedIsMarkedLost(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	home := t.TempDir()
 	h := startWithAgents(t, state, home)
 	run := startRun(t, h.device.Mesh, "")
@@ -533,7 +534,7 @@ func TestAnAgentWhoseTerminalVanishedIsMarkedLost(t *testing.T) {
 }
 
 func TestAStopRecordedForAProcessAlreadyGoneIsStoredAsStopped(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	run := startRun(t, h.device.Mesh, "")
@@ -549,7 +550,7 @@ func TestAStopRecordedForAProcessAlreadyGoneIsStoredAsStopped(t *testing.T) {
 }
 
 func TestACLIThatExitsAtOnceIsRecordedExited(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) { c.Binaries["claude"] = "/bin/false" })
 	t.Cleanup(func() { stopTermHost(t, state) })
 	run := startRun(t, h.device.Mesh, "")
@@ -561,7 +562,7 @@ func TestACLIThatExitsAtOnceIsRecordedExited(t *testing.T) {
 }
 
 func TestAFailedLaunchFreesItsSlug(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) { c.Binaries["claude"] = "/nonexistent/claude" })
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()
@@ -598,7 +599,7 @@ func TestOnlyAdoptAcknowledgesTheTerminalOfAnAgentAlreadyRecordedExited(t *testi
 
 func adoptAcknowledgesAnExitedTerminal(t *testing.T, tweak ...func(*daemon.AgentConfig)) {
 	t.Helper()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	home := t.TempDir()
 	h := startWithAgents(t, state, home)
 	t.Cleanup(func() { stopTermHost(t, state) })
@@ -647,7 +648,7 @@ func adoptAcknowledgesAnExitedTerminal(t *testing.T, tweak ...func(*daemon.Agent
 // The tool an agent's hooks report changes no state, so it writes no event; a live subscriber gets it as an
 // ephemeral frame, and a resumed one gets no replay of it.
 func TestToolActivityReachesLiveSubscribersAsEphemeralFrames(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()
@@ -688,7 +689,7 @@ func TestToolActivityReachesLiveSubscribersAsEphemeralFrames(t *testing.T) {
 // AgentSpawned is written before the terminal exists, so the stream says which terminal it is once the launch recorded
 // it: an app learns it from the event, not from the next listing of the agents.
 func TestALaunchTellsTheStreamWhichTerminalTheAgentGot(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/pairing"
 	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 func pairingClient(state, hostURL string) agentmeshv1connect.PairingServiceClient {
@@ -252,7 +252,7 @@ func TestRevokeSelf(t *testing.T) {
 
 func TestReadOnlyAndExpiredPairing(t *testing.T) {
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
-	state := t.TempDir() + "/state"
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{StateDir: state, Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
@@ -382,7 +382,7 @@ func TestCreatePairingRelayOverrideAndTTLOverflow(t *testing.T) {
 
 func TestRevokeDeviceInvalidatesPendingTerminalTicketAndSubscribeRace(t *testing.T) {
 	home := t.TempDir()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, home)
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()
@@ -624,7 +624,7 @@ func TestSameRelayURL(t *testing.T) {
 
 func TestTerminalTicketStoreErrorIs503(t *testing.T) {
 	home := t.TempDir()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, home)
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()

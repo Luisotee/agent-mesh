@@ -39,7 +39,8 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
   const box = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal>(null)
   const search = useRef<SearchAddon>(null)
-  const fit = useRef<FitAddon>(null)
+  // Fits the terminal to its box and, the first time it has one, attaches it.
+  const refitRef = useRef<() => void>(undefined)
   const [state, setState] = useState<TermState>({ kind: 'connecting' })
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
@@ -63,7 +64,6 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     t.open(el)
     term.current = t
     search.current = s
-    fit.current = f
     const session = new TerminalSession({
       ticket: async () => {
         const r = await openTerminal(host.client, agentId, true)
@@ -80,12 +80,21 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     t.onData((d) => session.input(encoder.encode(d)))
     t.onBinary((d) => session.input(Uint8Array.from(d, (ch) => ch.charCodeAt(0))))
     t.onResize(({ cols, rows }) => session.resize(cols, rows))
+    let started = false
     const refit = () => {
       // A box that is hidden or not laid out yet has no size to fit to.
-      if (el.clientWidth > 0 && el.clientHeight > 0) f.fit()
+      // Nor does one whose cells xterm couldn't measure yet (fit would keep 80x24).
+      if (el.clientWidth === 0 || el.clientHeight === 0 || !f.proposeDimensions()) return
+      f.fit()
+      // Attached only once it has its real size: a repaint drawn at xterm's default 80x24 and then reflowed to the
+      // box's width loses lines (the trailing blanks of a row wrap), and the host would shrink the program to 80x24.
+      if (!started) {
+        started = true
+        session.start()
+      }
     }
+    refitRef.current = refit
     refit()
-    session.start()
     const ro = new ResizeObserver(refit)
     ro.observe(el)
     // Another theme repaints this terminal in its colours and font.
@@ -100,12 +109,14 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
       session.dispose()
       t.dispose()
       term.current = null
+      search.current = null
+      refitRef.current = undefined
     }
   }, [host, agentId])
 
   useEffect(() => {
     if (active) {
-      fit.current?.fit()
+      refitRef.current?.()
       term.current?.focus()
     }
   }, [active])

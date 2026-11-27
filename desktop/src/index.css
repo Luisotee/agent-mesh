@@ -1,6 +1,8 @@
 @import 'tailwindcss';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/jetbrains-mono';
 
-/* Tailwind's setup and nothing else: the theme's tokens (src/theme.ts) become utilities. */
+/* Tailwind's setup and nothing else: the theme's tokens (src/theme.ts) become utilities, the bundled fonts load from the app's own files, and two animations (the skeleton's shimmer, the working pulse) are named here. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -26,8 +28,35 @@
   --color-state-done: var(--state-done);
   --color-state-failed: var(--state-failed);
   --color-state-unknown: var(--state-unknown);
-  --font-sans: var(--font-ui, Inter, ui-sans-serif, system-ui, sans-serif);
-  --font-mono: var(--font-code, 'JetBrains Mono', ui-monospace, 'Cascadia Code', Menlo, monospace);
+  --color-hue-1: var(--hue-1);
+  --color-hue-2: var(--hue-2);
+  --color-hue-3: var(--hue-3);
+  --color-hue-4: var(--hue-4);
+  --color-hue-5: var(--hue-5);
+  --color-hue-6: var(--hue-6);
+  --color-hue-7: var(--hue-7);
+  --color-hue-8: var(--hue-8);
+  --color-vendor-claude: var(--vendor-claude);
+  --color-vendor-gemini: var(--vendor-gemini);
+  --color-vendor-openai: var(--vendor-openai);
+  --color-vendor-copilot: var(--vendor-copilot);
+  --color-vendor-opencode: var(--vendor-opencode);
+  --color-vendor-deepseek: var(--vendor-deepseek);
+  --color-glow: var(--glow);
+  /* A project's identity hue (src/hue.ts sets --hue on the element that carries it). */
+  --color-identity: var(--hue, var(--primary));
+  --font-sans: var(--font-ui, 'Geist Variable', ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-code, 'JetBrains Mono Variable', ui-monospace, 'Cascadia Code', Menlo, monospace);
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-working: working 2s ease-in-out infinite;
+  @keyframes shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+  @keyframes working {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
 }
 
 @layer base {

@@ -20,6 +20,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 type fakeCopilotLaunch struct {
@@ -62,7 +63,7 @@ func copilotLaunches(t *testing.T, path string) []fakeCopilotLaunch {
 // a log of its launches. The returned log and home are the test's to read.
 func copilotTweak(t *testing.T, env map[string]string) (tweak func(*daemon.AgentConfig), argvLog, home string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "cop-")
+	dir, err := shortdir.Make("cop-")
 	if err != nil {
 		t.Fatal(err)
 	}

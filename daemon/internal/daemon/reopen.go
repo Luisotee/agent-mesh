@@ -367,6 +367,46 @@ func lastReport(r store.Reader, a *v1.Agent) (*v1.Message, error) {
 	return report, nil
 }
 
+// plannerOwesItsPlan reports whether the agent is a planner at work on its plan: in its plan phase, with no report
+// (plan, question, done or failed) since its last task or answer, and either starting, in a turn (WORKING) or held at a
+// prompt (NEEDS_INPUT: a permission dialog is part of the turn), or idle
+// with that task still unread (it has not seen it yet). A task sent to it now is an addition to the plan it is
+// making. One that finds it idle with its task read and no plan (its turn ended: a silent stop), or after its
+// plan, is not: that is the parent's own choice to skip the plan.
+func plannerOwesItsPlan(r store.Reader, a *v1.Agent) (bool, error) {
+	if a.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING {
+		return false, nil
+	}
+	switch a.State {
+	case v1.AgentState_AGENT_STATE_STARTING, v1.AgentState_AGENT_STATE_WORKING, v1.AgentState_AGENT_STATE_NEEDS_INPUT,
+		v1.AgentState_AGENT_STATE_IDLE:
+	default:
+		return false, nil
+	}
+	report, err := lastReport(r, a)
+	if err != nil || report != nil {
+		return false, err
+	}
+	if a.State != v1.AgentState_AGENT_STATE_IDLE {
+		return true, nil
+	}
+	unread, err := r.Inbox(a.Id, false)
+	if err != nil {
+		return false, err
+	}
+	for _, m := range unread {
+		if m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// additionNote is what a planner hears when a `Direct task` reaches it mid-plan: the task is more work for its plan.
+const additionNote = "The task you were just sent says \"Direct task (no plan)\", but you are still planning: it is an addition to " +
+	"your task, not a decision to skip the plan. Cover it in your plan and send the plan; editing stays off until your " +
+	"parent approves it."
+
 // mayMove is who may approve, switch or resume an agent: a device, or the agent's parent.
 func mayMove(actor *v1.Actor, a *v1.Agent, what string) error {
 	if IsAgent(actor.Class) && a.ParentId != actor.Id {
@@ -416,7 +456,11 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 		if err != nil {
 			return err
 		}
+		// A planner with no plan yet (none since its last task or answer) can still be approved: that is the
+		// parent skipping its plan, and the answer says so. An agent with no plan phase has nothing to skip.
+		skipped := report == nil && a.Phase == v1.AgentPhase_AGENT_PHASE_PLANNING
 		switch {
+		case skipped:
 		case report == nil:
 			return failedPrecondition("%s has sent no plan since its last task or answer: nothing to approve", a.Name)
 		case report.Type != v1.MessageType_MESSAGE_TYPE_PLAN:
@@ -467,6 +511,9 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			return err
 		}
 		body := "approved"
+		if skipped {
+			body += ": you had not sent a plan, so your plan phase is skipped. Make the change, verify it, open the PR and report `done`."
+		}
 		if extra := strings.TrimSpace(m.Body); extra != "" {
 			body += "\n\n" + extra
 		}
@@ -483,7 +530,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if out.Reopen, err = requestReopen(tx, a, model, effort, deny, "plan approved", m.Why); err != nil {
 				return err
 			}
-			if err := d.requestApproveCompaction(tx, a, model); err != nil {
+			if err := d.requestApproveCompaction(tx, a, model, skipped); err != nil {
 				return err
 			}
 		}
