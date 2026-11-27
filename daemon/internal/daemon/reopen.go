@@ -928,12 +928,23 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	}
 	spec := reviveSpec{task: task != "", plan: m.Plan, tier: m.Tier, model: m.Model, effort: m.Effort, why: m.Why,
 		compact: m.Compact, focus: strings.TrimSpace(m.Focus), taskText: task}
+	// An asker or reviewer that this task makes a worker (takeChange, or the cross-run follow-up below) is prepared as
+	// one: its worktree recreated if StopRun removed it, moved off a finished PR's branch.
+	probe := a0
+	if targetRunID != a0.RunId {
+		probe = proto.Clone(a0).(*v1.Agent) // the follow-up's parent is whoever resumes it
+		probe.ParentId = ""
+		if IsAgent(actor.Class) {
+			probe.ParentId = actor.Id
+		}
+	}
 	if task != "" && a0.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 		pm, pe, err := d.previewReviveTarget(r1, a0, spec)
 		if err != nil {
 			return nil, err
 		}
-		if err := d.reserveCheck(r1, targetRunID, a0.Kind, pm, pe, "resuming "+a0.Name, d.reviewWork(r1, a0, task)); err != nil {
+		// Held as the work it will be: a change task makes a reviewer a worker, so past the reviews-only line it is refused.
+		if err := d.reserveCheck(r1, targetRunID, a0.Kind, pm, pe, "resuming "+a0.Name, d.reviewWork(r1, probe, task)); err != nil {
 			return nil, err
 		}
 	}
@@ -950,16 +961,6 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			mu := d.worktreeLock(a0.Worktree)
 			mu.Lock()
 			defer mu.Unlock()
-		}
-		// An asker or reviewer that this task makes a worker (takeChange, or the cross-run follow-up below) is
-		// prepared as one: its worktree recreated if StopRun removed it, moved off a finished PR's branch.
-		probe := a0
-		if targetRunID != a0.RunId {
-			probe = proto.Clone(a0).(*v1.Agent) // the follow-up's parent is whoever resumes it
-			probe.ParentId = ""
-			if IsAgent(actor.Class) {
-				probe.ParentId = actor.Id
-			}
 		}
 		asWorker := a0
 		if task != "" && d.becomesWorker(r1, probe, task) {

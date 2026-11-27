@@ -47,7 +47,8 @@ class UsageView(
 
 fun usageView(u: GetUsageResponse): UsageView {
     val reserve = u.quotaStop
-    // A host that predates the weekly reserve says 0 for it: its one reserve held every window.
+    // A host that predates the weekly reserve sends no `splitReserves`: its one reserve held every window, and the new
+    // fields are unset (0 is then not a setting).
     val split = u.splitReserves
     val reserveWeekly = if (split) u.quotaStopWeekly else reserve
     val claude = u.claude.windowsList.map { w ->

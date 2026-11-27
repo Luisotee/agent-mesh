@@ -302,6 +302,19 @@ func TestAChangeTaskToAReviewerIsHeldToTheReviewsOnlyLine(t *testing.T) {
 	if got, _ := w.d.Store().Read(ctx).GetAgent(rev.Id); got.Role != v1.AgentRole_AGENT_ROLE_REVIEWER {
 		t.Errorf("the refused task still made the reviewer a %v", got.Role)
 	}
+	// A read-only task is a review's own kind of work: it goes through, and the agent stays a reviewer.
+	if err := send("Question (read-only): which files does the change touch?"); err != nil {
+		t.Errorf("a read-only task to a reviewer past the line: %v", err)
+	}
+	if got, _ := w.d.Store().Read(ctx).GetAgent(rev.Id); got.Role != v1.AgentRole_AGENT_ROLE_REVIEWER {
+		t.Errorf("the read-only task made the reviewer a %v", got.Role)
+	}
+	// A stopped reviewer resumed with a change task is held as well (`mesh resume --task`).
+	w.waitState(rev.Id, v1.AgentState_AGENT_STATE_IDLE)
+	retired := retireStoppedWorker(t, w, rev)
+	if _, err := root.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: retired.Id, Task: "Direct task (no plan): fix the thing"})); code(err) != connect.CodeResourceExhausted {
+		t.Errorf("a stopped reviewer resumed with a change task past the line: %v", err)
+	}
 	claudeWindows(t, w, map[string]float64{"five_hour": 92})
 	if err := guard(w, run.Id, "claude", "sonnet", false); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "quota_stop 90%") || strings.Contains(err.Error(), "only PR reviews") {
 		t.Errorf("a task at the reserve with a reviews-only line set: %v, want the reserve refusal", err)
