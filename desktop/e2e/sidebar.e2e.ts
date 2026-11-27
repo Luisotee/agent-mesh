@@ -56,6 +56,10 @@ test('the sidebar shows the project, its run as the lead and the worker under it
   await lead.click()
   const side = page.getByRole('complementary', { name: 'Side panel' })
   const tree = side.getByRole('list', { name: 'Agent tree' })
+  // The idle worker rests behind a count (the tree lists live agents); a worker still starting is in it.
+  const resting = side.getByRole('button', { name: /^\d+ resting$/ })
+  await resting.or(tree.getByRole('button', { name: /repo-fix/ })).first().waitFor()
+  if (await resting.isVisible()) await resting.click()
   await tree.getByRole('button', { name: /repo-fix/ }).waitFor()
   await expect.poll(() => side.getByRole('region', { name: 'Run total' }).innerText(), { timeout: 20_000 }).toContain('$0.00')
   expect(await side.getByRole('region', { name: 'Pull requests' }).innerText()).toContain('None yet')
@@ -83,8 +87,8 @@ test('the sidebar shows the project, its run as the lead and the worker under it
 
 test('a new workspace starts a lead in a worktree of a project from the dialog, and holding a PR needs a PR the host lists', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'New', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'New lead' }).click()
+  await page.getByRole('button', { name: /^New in / }).click()
+  await page.getByRole('menuitem', { name: 'New lead…' }).click()
   const dialog = page.getByRole('dialog')
   // The host lists the repos it has seen (the throwaway repo, used by the earlier test's agents), with its branches.
   await dialog.getByLabel('Project').fill(host.repo)

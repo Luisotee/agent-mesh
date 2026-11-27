@@ -1,9 +1,9 @@
-import { create } from '@bufbuild/protobuf'
+import { create, type MessageInitShape } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { AgyUsageRowSchema, ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema } from './gen/agentmesh/v1/mesh_pb'
 import { GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
-import { costView, quotaRows, resetText, tokens, usageView } from './usage'
+import { costView, quotaSections, resetText, tokens, usageView } from './usage'
 
 const NOW = new Date('2026-11-26T12:00:00Z')
 
@@ -136,21 +136,39 @@ describe('tokens', () => {
   })
 })
 
-describe('the side panel\'s quota rows', () => {
-  it('shows Claude\'s windows with the host\'s at-reserve marks, and agy\'s fullest row', () => {
-    const u = create(GetUsageResponseSchema, {
+describe("the footer's quota sections", () => {
+  const win = (key: string, label: string, used: number) => create(ClaudeUsageWindowSchema, { key, label, used })
+  const base = (over: MessageInitShape<typeof GetUsageResponseSchema> = {}) =>
+    create(GetUsageResponseSchema, {
       quotaStop: 90,
       minQuota: 10,
-      claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: 'weekly window', used: 95, resetsAt: timestampFromMs(5000) }), create(ClaudeUsageWindowSchema, { label: 'five-hour window', used: 20 })], atReserve: ['weekly window'] }),
-      agyRows: [create(AgyUsageRowSchema, { group: 'Gemini', label: 'Pro', left: 60 }), create(AgyUsageRowSchema, { group: 'Gemini', label: 'Flash', left: 8 })],
+      claude: create(ClaudeUsageSchema, { windows: [win('five_hour', 'five-hour window', 20), win('seven_day', 'seven-day window', 40), win('seven_day_opus', 'seven-day Opus', 10), win('seven_day_sonnet', 'seven-day Sonnet', 5)] }),
+      agyRows: [create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 60, resets: '3h' }), create(AgyUsageRowSchema, { group: 'Gemini and Claude models', label: 'Shared', left: 80, resets: '2h' })],
+      agyTiers: [{ tier: 'strong', model: 'Gemini 4 Neon', hasLeft: true, left: 60, notes: [] }],
+      ...over,
     })
-    const q = quotaRows(u)
+
+  it('has a section per provider, the short windows named 5h and 7d, and leaves out the minor ones', () => {
+    const q = quotaSections(base())
     expect(q.reserve).toBe(90)
-    expect(q.rows.map((r) => [r.label, r.used, r.atReserve])).toEqual([['Claude weekly window', 95, true], ['Claude five-hour window', 20, false], ['agy Gemini Flash', 92, true]])
-    expect(q.rows[0]!.resetsAt?.getTime()).toBe(5000)
+    expect(q.sections.map((s) => [s.vendor, s.name, s.lines.map((l) => [l.label, l.used])])).toEqual([
+      ['claude', 'Claude', [['5h', 20], ['7d', 40]]],
+      ['gemini', 'agy', [['Neon', 40]]],
+    ])
   })
 
-  it('has no rows when the host has no reading', () => {
-    expect(quotaRows(create(GetUsageResponseSchema)).rows).toEqual([])
+  it('brings a minor window back once it is at the reserve', () => {
+    const u = base({ claude: create(ClaudeUsageSchema, { windows: [win('five_hour', 'five-hour window', 20), win('seven_day_opus', 'seven-day Opus', 95)], atReserve: ['seven-day Opus'] }) })
+    expect(quotaSections(u).sections[0]!.lines.map((l) => [l.label, l.atReserve])).toEqual([['5h', false], ['7d Opus', true]])
+  })
+
+  it('shows the fullest agy row when no tier says which one is used, and an unused pool at the reserve', () => {
+    expect(quotaSections(base({ agyTiers: [] })).sections[1]!.lines.map((l) => l.label)).toEqual(['Neon'])
+    const spent = base({ agyRows: [create(AgyUsageRowSchema, { group: 'Gemini and Claude models', label: 'Shared', left: 5 }), create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 60 })] })
+    expect(quotaSections(spent).sections[1]!.lines.map((l) => [l.label, l.atReserve])).toEqual([['Shared', true], ['Neon', false]])
+  })
+
+  it('has no sections when the host has no reading', () => {
+    expect(quotaSections(create(GetUsageResponseSchema)).sections).toEqual([])
   })
 })

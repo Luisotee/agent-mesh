@@ -1,4 +1,4 @@
-import { Plus, Server, Settings } from 'lucide-react'
+import { Server, Settings } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { getUsage } from '@/actions'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,8 @@ import { displayChord } from '@/keys'
 import type { HostRuntime } from '@/model'
 import { usePolled } from '@/polled'
 import { useKeys } from '@/hooks'
-import { quotaRows, resetText, type QuotaRow } from '@/usage'
+import { quotaSections, resetText, type QuotaLine } from '@/usage'
+import { VendorIcon } from './vendor-icon'
 import { AddHostDialog, RemoveHostDialog } from './host-dialogs'
 import { ActivityBell } from './activity-list'
 import { canPair } from './pair-panel'
@@ -27,17 +28,13 @@ export function SidebarFooter() {
   const [removing, setRemoving] = useState<HostRuntime>()
   const fixed = app.api.hosts.fixed
   const many = hosts.length > 1
-  const plus: MenuEntry[] = [
-    { label: 'New lead', onSelect: () => app.openWorkspace(true), disabled: !host },
-    ...(fixed ? [] : [{ label: 'Connect a host…', onSelect: () => setAdding(true) }]),
-    { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !mayPair },
-  ]
+  // One way to each thing: the gear opens the settings and the quota opens Usage and cost; a new lead starts from a tab's
+  // + or a project's menu. The Hosts menu is for the hosts themselves (and each one's settings when there are several).
   const hostEntries: MenuEntry[] = [
-    ...hosts.flatMap((h) => [
-      { label: many ? `${h.info.name}: settings` : 'Host settings', onSelect: () => { pickHost(app, h.info.id); app.openSettings(true) } },
-      { label: many ? `${h.info.name}: usage and cost` : 'Usage and cost', onSelect: () => toggleUsage(app, h.info.id) },
-    ]),
-    ...(fixed ? [] : (['separator', ...hosts.map((h) => ({ label: `Remove ${h.info.name}…`, onSelect: () => setRemoving(h), destructive: true })), { label: 'Connect a host…', onSelect: () => setAdding(true) }] as MenuEntry[])),
+    ...(many ? hosts.map((h) => ({ label: `${h.info.name}: settings`, onSelect: () => { pickHost(app, h.info.id); app.openSettings(true) } })) : []),
+    ...(fixed ? [] : ([...(many ? ['separator' as const] : []), { label: 'Connect a host…', onSelect: () => setAdding(true) }] as MenuEntry[])),
+    { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !mayPair },
+    ...(fixed ? [] : (['separator', ...hosts.map((h) => ({ label: `Remove ${h.info.name}…`, onSelect: () => setRemoving(h), destructive: true }))] as MenuEntry[])),
   ]
   return (
     <footer className="border-t px-2 pt-2 pb-2.5">
@@ -51,7 +48,6 @@ export function SidebarFooter() {
         {host && <ActivityBell host={host} />}
         <ActionMenu side="top" entries={hostEntries} trigger={<Button size="icon" variant="ghost" aria-label="Hosts"><Server /></Button>} />
         <span className="min-w-0 flex-1 truncate px-1 text-xs text-muted-foreground">{host && <HostLine host={host} />}</span>
-        <ActionMenu side="top" align="end" entries={plus} trigger={<Button size="icon" variant="ghost" aria-label="New"><Plus /></Button>} />
       </div>
       {!fixed && <AddHostDialog open={adding} onOpenChange={setAdding} />}
       {removing && <RemoveHostDialog host={removing} open onOpenChange={(o) => !o && setRemoving(undefined)} />}
@@ -82,32 +78,48 @@ function pickHost(app: ReturnType<typeof useApp>, hostId: string) {
   if (app.store.getState().hostId !== hostId) app.selectHost(hostId)
 }
 
-const toneOf = (r: QuotaRow): MeterTone => (r.used >= 100 ? 'over' : r.atReserve ? 'warn' : 'ok')
+const toneOf = (r: QuotaLine): MeterTone => (r.used >= 100 ? 'over' : r.atReserve ? 'warn' : 'ok')
 
-/** One host's quota: a line per window, green, amber from the reserve on, red when used up; a click opens Usage and cost. */
+/** What a quota bar says in its tip: the window, how full, when it resets and where the host stops starting work. */
+const lineTip = (l: QuotaLine, reserve: number) =>
+  [`${l.title}: ${Math.round(l.used)}% used`, l.resetsAt ? resetText(l.resetsAt) : l.resetsIn ? `resets in ${l.resetsIn}` : '', reserve < 100 ? `the host starts nothing new from ${reserve}%` : ''].filter(Boolean).join(', ')
+
+/**
+ * One host's quota, a section per provider: its mark and name, then a bar per window labelled "5h" or "7d" with its percent
+ * and a line at the reserve. Words are in the tips. Green, amber from the reserve on, red when used up; a click opens Usage and cost.
+ */
 function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
   const app = useApp()
   const up = useHostState(host, (s) => s.conn.kind === 'ready')
   const usage = usePolled(() => getUsage(host.client), host.info.id, 60_000, up)
-  const q = useMemo(() => (usage.value ? quotaRows(usage.value) : undefined), [usage.value])
-  if (!q || q.rows.length === 0) return null
+  const q = useMemo(() => (usage.value ? quotaSections(usage.value) : undefined), [usage.value])
+  if (!q || q.sections.length === 0) return null
   return (
     <button
       type="button"
       aria-label={`Quota${many ? ` of ${host.info.name}` : ''}: open usage and cost`}
       onClick={() => toggleUsage(app, host.info.id)}
-      className="mb-1 flex w-full flex-col gap-1 rounded-md px-1.5 py-1 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+      className="mb-1 flex w-full flex-col gap-1.5 rounded-md px-1.5 py-1 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
     >
       {many && <span className="text-xs font-medium text-muted-foreground">{host.info.name}</span>}
-      <ul aria-label="Quota" className="flex flex-col gap-1">
-        {q.rows.map((r) => (
-          <li key={r.label} className="grid grid-cols-[minmax(0,8rem)_1fr_2.5rem] items-center gap-2 text-xs">
-            <span className="truncate text-muted-foreground" title={r.resetsAt ? resetText(r.resetsAt) : undefined}>{r.label}</span>
-            <Meter label={`${r.label}${r.resetsAt ? `, ${resetText(r.resetsAt)}` : ''}`} value={r.used} tone={toneOf(r)} />
-            <span className={toneOf(r) === 'ok' ? 'text-right tabular-nums text-muted-foreground' : 'text-right font-semibold tabular-nums text-state-needs'}>{Math.round(r.used)}%</span>
-          </li>
-        ))}
-      </ul>
+      {q.sections.map((s) => (
+        <section key={s.name} aria-label={`${s.name} quota`} className="flex flex-col gap-1">
+          <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <VendorIcon vendor={s.vendor} /> {s.name}
+          </span>
+          <ul aria-label="Quota" className="flex flex-col gap-1">
+            {s.lines.map((l) => (
+              <Tip key={l.title} label={lineTip(l, q.reserve)}>
+                <li className="grid grid-cols-[minmax(0,3.25rem)_1fr_2.5rem] items-center gap-2 text-xs">
+                  <span className="truncate text-muted-foreground">{l.label}</span>
+                  <Meter label={`${s.name} ${l.label}`} value={l.used} tone={toneOf(l)} mark={q.reserve} />
+                  <span className={toneOf(l) === 'ok' ? 'text-right tabular-nums text-muted-foreground' : 'text-right font-semibold tabular-nums text-state-needs'}>{Math.round(l.used)}%</span>
+                </li>
+              </Tip>
+            ))}
+          </ul>
+        </section>
+      ))}
     </button>
   )
 }

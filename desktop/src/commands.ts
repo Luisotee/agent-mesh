@@ -276,7 +276,7 @@ function agentCommands(app: AppModel, h: HostRuntime, a: Agent, many: boolean, r
   })
   cmds.push(act('Ring', ringAgent))
   cmds.push(act('Retire', retireAgent, { confirm: `Retire ${a.name}? Its process stops and its conversation is kept; a task or an answer brings it back.` }))
-  cmds.push(act('Stop', stopAgent, { confirm: `Stop ${a.name}? Its process ends.` }))
+  cmds.push(act('Shut down', stopAgent, { confirm: `Shut down ${a.name}? Its process ends.` }))
   if (a.state === AgentState.LIMITED) cmds.push(act('Switch', switchToNextModel, { title: `Move ${a.name} to its next model${on}` }))
   if (hasPlan) cmds.push(act('Approve', approveAgent, { title: `Approve the plan of ${a.name}${on}`, confirm: `Approve ${a.name}'s plan? It goes on at its execution tier.` }))
   return cmds

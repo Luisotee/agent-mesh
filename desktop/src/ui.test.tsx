@@ -178,9 +178,9 @@ describe('ProjectSidebar', () => {
     await userEvent.type(field, 'ship it now{Enter}')
     await waitFor(() => expect((client as unknown as { renameRun: ReturnType<typeof vi.fn> }).renameRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r1', title: 'ship it now' })))
     await userEvent.click(screen.getByRole('button', { name: 'Menu of ship it' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Stop' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Shut down' }))
     expect(client.stopAgent).not.toHaveBeenCalled()
-    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop' }))
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Shut down' }))
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledTimes(1))
   })
 
@@ -338,9 +338,9 @@ describe('AgentPanel', () => {
     let releaseStop!: () => void
     client.stopAgent.mockImplementationOnce(() => new Promise((r) => (releaseStop = () => r({}))))
     await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Stop…' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Shut down…' }))
     expect(client.stopAgent).not.toHaveBeenCalled()
-    const confirm = await screen.findByRole('button', { name: 'Stop app-fix' })
+    const confirm = await screen.findByRole('button', { name: 'Shut down app-fix' })
     fireEvent.click(confirm)
     fireEvent.click(confirm)
     releaseStop()
@@ -366,7 +366,7 @@ describe('AgentPanel', () => {
     panel(wrap)
     expect(screen.getByTestId('chat-status')).toHaveTextContent('Exited with code 7')
     await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
-    expect(await screen.findByRole('menuitem', { name: 'Stop…' })).toHaveAttribute('aria-disabled', 'true')
+    expect(await screen.findByRole('menuitem', { name: 'Shut down…' })).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeDisabled()
   })
 })
@@ -457,7 +457,7 @@ describe('App', () => {
     expect(within(dialog).getByLabelText('Pairing link')).toHaveValue(OPENED.link)
     await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    await userEvent.click(screen.getByRole('button', { name: 'New' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Connect a host…' }))
     const fresh = within(await screen.findByRole('dialog'))
     expect(fresh.queryByLabelText('Pairing link')).toBeNull() // a fresh form: a state dir, not the dropped link
@@ -819,6 +819,22 @@ describe('Dock and TabBar', () => {
   })
 })
 
+describe('Dock resting agents', () => {
+  it('lists the live agents of the run and keeps the idle ones behind a count, until asked', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, w2: agent('w2', { name: 'app-docs', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.WORKING }) } }))
+    render(wrap(<Dock />))
+    const dock = screen.getByRole('region', { name: 'Live dock' })
+    expect(within(dock).getAllByRole('listitem').map((l) => l.getAttribute('aria-label')).sort()).toEqual(['app-docs in the dock', 'app-lead in the dock'])
+    expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Show 1 resting' }))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Hide 1 resting' }))
+    expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+  })
+})
+
 describe('Splits', () => {
   it('shows an agent beside the open one from its tab or the dock, stacks and unstacks, swaps and closes a pane', async () => {
     const { host, wrap, model } = fixture()
@@ -910,8 +926,12 @@ describe('SidePanel', () => {
     host.store.setState((s) => ({ agents: { ...s.agents, rv: agent('rv', { role: AgentRole.REVIEWER, name: 'rev', parentId: 'w1' }) } }))
     render(wrap(<SidePanel host={host} agentId="lead" />))
     const tree = screen.getByRole('list', { name: 'Agent tree' })
-    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker', 'revreviewer'])
+    // Live agents only: the idle reviewer rests behind a count (the idle worker shows because its plan waits).
+    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker'])
     expect(within(tree).getByRole('button', { name: /app-lead/ })).toHaveAttribute('aria-current', 'true')
+    await userEvent.click(screen.getByRole('button', { name: '1 resting' }))
+    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker', 'revreviewer'])
+    await userEvent.click(screen.getByRole('button', { name: 'Hide resting' }))
     const prs = screen.getByRole('region', { name: 'Pull requests' })
     expect(prs).toHaveTextContent('#12')
     expect(within(prs).getByRole('img', { name: 'Checks failing' })).toBeInTheDocument()
@@ -1091,6 +1111,8 @@ describe('SidebarFooter', () => {
     const meter = await screen.findByRole('meter', { name: 'Claude 7d' })
     expect(meter).toHaveAttribute('aria-valuenow', '95')
     expect(screen.getByRole('meter', { name: 'Claude 5h' })).toHaveAttribute('aria-valuenow', '42')
+    // The reserve (quota_stop 90) is a line on each bar.
+    expect(screen.getAllByTestId('meter-mark').map((m) => m.style.left)).toEqual(['90%', '90%'])
     await userEvent.click(screen.getByRole('button', { name: /Quota: open usage and cost/ }))
     expect(model.store.getState().usageOpen).toBe(true)
   })
@@ -1144,15 +1166,14 @@ describe('SidebarFooter', () => {
     await waitFor(() => expect(model.store.getState().pins).toEqual({ h1: ['/p/new'] }))
   })
 
-  it('offers New lead, a project, a host and pairing from +, and the host\'s settings from Hosts', async () => {
+  it('has one way to each thing: the gear for the settings, Hosts for a host and pairing, and no + for a new lead', async () => {
     const { wrap, model } = fixture()
     render(wrap(<SidebarFooter />))
-    await userEvent.click(screen.getByRole('button', { name: 'New' }))
-    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New lead', 'Connect a host…', 'Pair a device'])
-    await userEvent.click(screen.getByRole('menuitem', { name: 'New lead' }))
-    expect(model.store.getState().workspaceOpen).toBe(true)
+    expect(screen.queryByRole('button', { name: 'New' })).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Host settings' }))
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Connect a host…', 'Pair a device', expect.stringMatching(/^Remove /)])
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(model.store.getState().settingsOpen).toBe(true)
   })
 })
@@ -1476,13 +1497,13 @@ describe('the command palette and shortcuts', () => {
     await waitFor(() => expect(model.store.getState().paletteOpen).toBe(false))
 
     act(() => model.openPalette(true))
-    await userEvent.type(await screen.findByRole('combobox', { name: 'Search commands' }), 'stop app-fix')
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Search commands' }), 'shut down app-fix')
     await userEvent.keyboard('{Enter}')
     expect(client.stopAgent).not.toHaveBeenCalled()
     expect(await screen.findByText(/Its process ends/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await userEvent.keyboard('{Enter}') // the filter is still there
-    await userEvent.click(await screen.findByRole('button', { name: 'Stop app-fix' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Shut down app-fix' }))
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1' })))
   })
 

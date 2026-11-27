@@ -331,7 +331,7 @@ function RowDialogs({ host, dialog, onClose }: { host?: HostRuntime; dialog: Row
   const a = dialog.agent
   if (dialog.kind === 'archive') return <ArchiveDialog host={host} agent={a} open onOpenChange={(o) => !o && onClose()} />
   return dialog.kind === 'stop' ? (
-    <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Stop ${a.name}?`} description="Its process ends; its conversation is kept." action="Stop" run={() => stopAgent(host.client, a.id)} />
+    <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Shut down ${a.name}?`} description="Its process ends; its conversation is kept." action="Shut down" run={() => stopAgent(host.client, a.id)} />
   ) : (
     <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Retire ${a.name}?`} description="Its process stops and its conversation is kept; a task or an answer brings it back." action="Retire" run={() => retireAgent(host.client, a.id)} />
   )
@@ -350,7 +350,7 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
     'separator',
     { label: 'Copy worktree path', onSelect: () => copy(a.worktree), disabled: !a.worktree },
     'separator',
-    { label: 'Stop', onSelect: () => open({ kind: 'stop', agent: a }), disabled: !live(a), destructive: true },
+    { label: 'Shut down', onSelect: () => open({ kind: 'stop', agent: a }), disabled: !live(a), destructive: true },
     { label: 'Retire', onSelect: () => open({ kind: 'retire', agent: a }), disabled: !live(a), destructive: true },
   ]
 }
