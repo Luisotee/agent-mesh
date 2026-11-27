@@ -3,8 +3,8 @@ package dev.agentmesh.android.chat
 /**
  * The Markdown edits of a multi-line field (the chat's composer, a message, an answer): pure, over the text and the
  * selection, so each is checked without a screen. The rules for Enter, Tab and the wrapping keys are the desktop's
- * (`desktop/src/composer-keys.ts`) and are pinned by one shared file, `shared/markdown-edit/cases.json`, that both apps'
- * tests read; the list and checklist buttons are the phone's own.
+ * (`desktop/src/composer-keys.ts`) and are pinned by one shared file, `shared/markdown-edit/cases.json`, that this app's
+ * test reads (the desktop's can read it too, `TODO.md`); the list and checklist buttons are the phone's own.
  */
 data class Field(val value: String, val start: Int, val end: Int)
 
@@ -22,7 +22,8 @@ object MarkdownEdit {
     private fun nextMarker(m: MatchResult): String {
         val (indent, marker, gap, task) = m.destructured
         val num = Regex("^(\\d+)([.)])$").find(marker)
-        val next = if (num != null) "${num.groupValues[1].toLong() + 1}${num.groupValues[2]}" else marker
+        // A number of any length (pasted digits) counts on: no fixed-size integer to overflow.
+        val next = if (num != null) "${num.groupValues[1].toBigInteger() + java.math.BigInteger.ONE}${num.groupValues[2]}" else marker
         return "$indent$next$gap${if (task.isNotEmpty()) "[ ] " else ""}"
     }
 
@@ -71,7 +72,7 @@ object MarkdownEdit {
         }
         if (out && total == 0) return null
         val selStart = maxOf(from, f.start + first)
-        val selEnd = if (f.start == f.end) selStart else f.end + total
+        val selEnd = if (f.start == f.end) selStart else maxOf(selStart, f.end + total)
         return Edit(from, to, next.joinToString("\n"), selStart, selEnd)
     }
 
@@ -111,10 +112,13 @@ object MarkdownEdit {
         val to = lineEnd(f.value, if (f.end > f.start && f.value[f.end - 1] == '\n') f.end - 1 else f.end)
         val lines = f.value.substring(from, to).split('\n')
         fun kind(l: String): Boolean = ITEM.find(l)?.let { m -> m.groupValues[2] == "-" && (m.groupValues[4].isNotEmpty() == task) } ?: false
-        val remove = lines.all(::kind)
+        // A blank line inside a selection of several is left as it is (it would become an empty item).
+        val skip = lines.size > 1
+        val remove = lines.filter { !skip || it.isNotBlank() }.all(::kind)
         var first = 0
         var total = 0
         val next = lines.mapIndexed { i, l ->
+            if (skip && l.isBlank()) { if (i == 0) first = 0; return@mapIndexed l }
             val m = ITEM.find(l)
             val indent = m?.groupValues?.get(1) ?: l.takeWhile { it == ' ' || it == '\t' }
             val body = if (m != null) l.substring(m.value.length) else l.substring(indent.length)

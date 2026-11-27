@@ -222,4 +222,16 @@ class StoreTest {
         // A snapshot drops the queues of agents the host no longer lists.
         assertTrue(applyFrame(live, snapshot(listOf(run("r1")), emptyList())).prompts.isEmpty())
     }
+
+    @Test fun `a snapshot forgets which prompts were typed, so one the host requeued is listed again`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))
+        s = applyFrame(s, promptTyped(1, "a1", "p1"))
+        val asked = s.promptTouch["a1"] ?: 0
+        // The stream drops, the host requeues p1 (typing failed), a snapshot comes: a listing now brings it.
+        s = applyFrame(s, snapshot(listOf(run("r1")), listOf(a1), seq = 9))
+        assertTrue(s.promptsDone.isEmpty())
+        // A listing asked before the snapshot is stale; one asked after it is taken.
+        assertTrue(withPrompts(s, "a1", listOf(queuedPrompt("p1", "a1")), asked).prompts["a1"].isNullOrEmpty())
+        assertEquals(listOf("p1"), withPrompts(s, "a1", listOf(queuedPrompt("p1", "a1")), s.promptTouch["a1"] ?: 0).prompts["a1"]!!.map { it.id })
+    }
 }

@@ -13,6 +13,7 @@ import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.AgentPhase
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import dev.agentmesh.gen.agentmesh.v1.Message
 import dev.agentmesh.gen.agentmesh.v1.MessageType
@@ -162,6 +163,16 @@ class HostRuntime(
             val list = try { awaitApi().listPrompts(agentId) } catch (e: CancellationException) { throw e } catch (e: Exception) { return }
             if ((_state.value.promptTouch[agentId] ?: 0) == asked) { _state.update { withPrompts(it, agentId, list, asked) }; return }
         }
+    }
+
+    /**
+     * Sends a prompt to an agent's terminal ([MeshApi.promptAgent]) and shows it in the queue when the host queued it. It
+     * runs in the runtime's own scope, so leaving the chat while it is in flight neither cancels it nor repeats it: a caller
+     * that is gone gets no answer, and the prompt is either sent or not.
+     */
+    suspend fun prompt(agentId: String, text: String): QueuedPrompt? {
+        val api = connectedApi()
+        return scope.async { api.promptAgent(agentId, text)?.also(::noteQueued) }.await()
     }
 
     /** A prompt the host answered as queued, shown before its event arrives. */

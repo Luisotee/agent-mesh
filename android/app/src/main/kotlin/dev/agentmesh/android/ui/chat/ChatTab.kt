@@ -287,7 +287,7 @@ fun ChatTab(
                     }
                 }
             }
-            if (queued.isNotEmpty()) item(key = "queued", contentType = "queued") { QueuedList(runtime, agentId, queued, canEdit = !readOnly, draftState) }
+            if (queued.isNotEmpty()) item(key = "queued", contentType = "queued") { QueuedList(runtime, agentId, queued, canTake = !readOnly, canFill = promptRefusal(agent, readOnly).isEmpty(), scope, draftState) }
         }
         if (working && agent.stateDetail.isNotEmpty()) {
             Text(
@@ -323,8 +323,7 @@ private fun TextFieldState.fill(text: String) {
 
 /** The prompts that wait to be typed, under the conversation: dimmed bubbles that say what they wait for, each taken back to edit or dropped. */
 @Composable
-private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<QueuedPrompt>, canEdit: Boolean, draft: TextFieldState) {
-    val scope = rememberCoroutineScope()
+private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<QueuedPrompt>, canTake: Boolean, canFill: Boolean, scope: kotlinx.coroutines.CoroutineScope, draft: TextFieldState) {
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     fun take(p: QueuedPrompt, edit: Boolean) {
@@ -335,7 +334,8 @@ private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<Queu
             try {
                 val got = runtime.connectedApi().withdrawPrompt(agentId, p.id)
                 runtime.noteWithdrawn(agentId, p.id)
-                if (edit && got != null) draft.fill(got.text)
+                // Taken back into the box. A prompt the host typed just before is no longer there to take.
+                if (edit && got != null) draft.fill(got.text) else if (edit) error = "It was already sent."
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -356,8 +356,8 @@ private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<Queu
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(heldText(p.held), Modifier.weight(1f, fill = false).testTag("queued-held"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (canEdit) {
-                        IconButton(onClick = { take(p, edit = true) }, Modifier.size(32.dp).testTag("queued-edit-${p.id}")) { Icon(Icons.Default.Edit, "Take it back to edit", Modifier.size(16.dp)) }
+                    if (canTake) {
+                        if (canFill) IconButton(onClick = { take(p, edit = true) }, Modifier.size(32.dp).testTag("queued-edit-${p.id}")) { Icon(Icons.Default.Edit, "Take it back to edit", Modifier.size(16.dp)) }
                         IconButton(onClick = { take(p, edit = false) }, Modifier.size(32.dp).testTag("queued-drop-${p.id}")) { Icon(Icons.Default.Close, "Take it back", Modifier.size(16.dp)) }
                     }
                 }
@@ -390,15 +390,18 @@ private fun PromptComposer(
         if (body.isEmpty() || busy) return
         busy = true
         error = ""
+        // The box is emptied at the tap, so what is typed while the host answers is a new prompt, and a draft saved when the
+        // screen is left is not the one in flight (it would be sent twice). A failure puts the text back.
+        draft.clearText()
         scope.launch {
             try {
                 // Typed at once when the agent can take it, else queued by the host (it shows under the conversation).
-                runtime.connectedApi().promptAgent(agent.id, body)?.let(runtime::noteQueued)
-                draft.clearText()
+                runtime.prompt(agent.id, body)
                 onSent()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                draft.fill(body)
                 error = say(e)
             } finally {
                 busy = false
@@ -433,7 +436,7 @@ private fun PromptComposer(
         // works has Stop where Send is; typing turns it back into Send, which queues.
         MarkdownField(
             draft, tag = "prompt", enabled = why.isEmpty(), accent = hue, shape = RoundedCornerShape(24.dp),
-            placeholder = when { why.isNotEmpty() -> ""; working -> "Write to the agent: it is sent when it finishes its turn." + if (canStop) " The square stops it." else ""; else -> "Write to the agent" },
+            placeholder = when { why.isNotEmpty() -> ""; working -> "Write to the agent: it is sent when it finishes its turn." + if (canStop && !atPrompt) " The square stops it." else ""; else -> "Write to the agent" },
             trailing = {
                 if (asStop) IconButton(onClick = ::stop, enabled = !stopping && connected, modifier = Modifier.testTag("stop")) { Box(Modifier.size(16.dp).background(androidx.compose.material3.LocalContentColor.current, RoundedCornerShape(3.dp)).semantics { contentDescription = "Stop the agent" }) }
                 else IconButton(onClick = ::send, enabled = why.isEmpty() && connected && !busy && !blank, modifier = Modifier.testTag("send")) { Icon(Icons.AutoMirrored.Filled.Send, if (working) "Queue" else "Send") }

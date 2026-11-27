@@ -19,6 +19,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import dev.agentmesh.android.ui.chat.MarkdownField
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +60,7 @@ fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onSt
     val hasLead = runId != null && state.agents.values.any { it.runId == runId && it.role == AgentRole.AGENT_ROLE_ROOT }
     var title by remember { mutableStateOf("") }
     var form by remember { mutableStateOf(SpawnForm(repo = repo)) }
+    val taskBox = rememberTextFieldState()
     // A new run's agent is its lead; an added one is the lead if the run has none, else a worker.
     val role = if (runId == null) AgentRole.AGENT_ROLE_ROOT else defaultRole(hasLead)
     var chosenRole by remember(role) { mutableStateOf(role) }
@@ -79,7 +82,7 @@ fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onSt
     }
     val suggestions = remember(projects, state.agents) { (projects.map { it.first } + knownRepos(state.agents.values)).distinct().take(12) }
 
-    val current = form.copy(role = chosenRole, tier = tier, slug = form.slug.ifEmpty { slugOf(title) })
+    val current = form.copy(role = chosenRole, tier = tier, slug = form.slug.ifEmpty { slugOf(title) }, task = taskBox.text.toString())
     val problem = if (runId == null && title.isBlank()) "Give the run a title." else if (runId == null && !withAgent) null else spawnProblem(current)
 
     fun submit() {
@@ -143,7 +146,7 @@ fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onSt
                     tiers.forEach { t -> FilterChip(selected = tier == t, onClick = { chosenTier = t }, label = { Text(t) }, modifier = Modifier.testTag("tier-$t")) }
                 }
                 OutlinedTextField(form.model, { form = form.copy(model = it) }, Modifier.fillMaxWidth().testTag("model"), label = { Text("Or a model by name (optional)") }, singleLine = true)
-                OutlinedTextField(form.task, { form = form.copy(task = it) }, Modifier.fillMaxWidth().testTag("task"), label = { Text("First message (optional)") }, minLines = 2, maxLines = 6)
+                MarkdownField(taskBox, Modifier.fillMaxWidth(), tag = "task", placeholder = "First message (optional)", minLines = 2, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
             }
             if (!connected) Text("Not connected to the host: reconnect to start.", Modifier.testTag("spawn-offline"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             else if (problem != null) Text(problem, Modifier.testTag("spawn-problem"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

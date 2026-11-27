@@ -76,4 +76,21 @@ class MarkdownEditTest {
     @Test fun `a selection ending on a newline does not take the next line in`() {
         assertEquals("- «a\n»b", press("«a\n»b") { MarkdownEdit.list(it, task = false) })
     }
+
+    @Test fun `a list number of any length counts on instead of crashing`() {
+        assertEquals("12345678901234567890. one\n12345678901234567891. |", press("12345678901234567890. one|") { MarkdownEdit.enter(it) })
+    }
+
+    @Test fun `blank lines inside a selection are not made items`() {
+        assertEquals("- «a\n\n- b»", press("«a\n\nb»") { MarkdownEdit.list(it, task = false) })
+        assertEquals("«a\n\nb»", press("- «a\n\n- b»") { MarkdownEdit.list(it, task = false) })
+        // One blank line with the cursor in it is the user starting a list.
+        assertEquals("- |", press("|") { MarkdownEdit.list(it, task = false) })
+    }
+
+    @Test fun `outdenting a selection never ends it before it starts`() {
+        val f = field("  «a\n  b»")
+        val e = MarkdownEdit.indent(f, out = true)!!
+        assertTrue(e.selEnd >= e.selStart)
+    }
 }

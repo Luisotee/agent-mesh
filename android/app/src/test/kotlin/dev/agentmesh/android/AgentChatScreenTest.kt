@@ -302,6 +302,27 @@ class AgentChatScreenTest {
         compose.onNodeWithTag("queued-p1").assertIsDisplayed()
     }
 
+    @Test fun `a stopped agent's queue can be dropped but not taken back into a box that is off`() {
+        fresh()
+        api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later", held = "stopped"))
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_EXITED).build())
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithTag("queued-edit-p1").assertCountEquals(0)
+        compose.onNodeWithTag("queued-drop-p1").assertIsDisplayed()
+    }
+
+    @Test fun `Send empties the box at once and the host's refusal puts the text back`() {
+        fresh()
+        api.failPrompt = RuntimeException("its input box holds a draft")
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("try this")
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("prompt-error").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("prompt").assertTextContains("try this", substring = true)
+    }
+
     @Test fun `a read-only device sees the queue but not the buttons to change it`() {
         fresh()
         api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later"))

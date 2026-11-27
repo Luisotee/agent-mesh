@@ -79,7 +79,7 @@ class DevicePrefs(context: Context) {
     fun setDraft(hostId: String, agentId: String, text: String) {
         val key = "$hostId/$agentId"
         if (text.isBlank()) { if (drafts.contains(key)) drafts.edit().remove(key).apply() }
-        else if (drafts.getString(key, null) != text) drafts.edit().putString(key, text.take(MAX_DRAFT)).apply()
+        else if (drafts.getString(key, null) != text.take(MAX_DRAFT)) drafts.edit().putString(key, text.take(MAX_DRAFT)).apply()
     }
 
     /** Forgets a removed host's pins, hides and drafts, so a host paired again starts clean. */

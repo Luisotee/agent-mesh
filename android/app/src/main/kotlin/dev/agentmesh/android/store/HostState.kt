@@ -94,6 +94,9 @@ fun applyFrame(s: HostState, frame: Frame): HostState = when (frame.frameCase) {
             synced = true, runs = runs, agents = agents, messages = s.messages.filterValues { it.runId in runs },
             messagesLoaded = s.messagesLoaded.filterTo(HashSet()) { it in runs }, messagesFailed = s.messagesFailed.filterTo(HashSet()) { it in runs },
             earlyDeliveries = emptyMap(), cursor = snap.cursor, prompts = s.prompts.filterKeys { it in agents }, snapshots = s.snapshots + 1,
+            // What was typed or taken back before the snapshot may have been requeued since, so the ids are forgotten, and a
+            // listing asked before it is stale (the screens list again after a snapshot).
+            promptsDone = emptySet(), promptTouch = s.promptTouch.filterKeys { it in agents }.mapValues { it.value + 1 },
         )
     }
     SubscribeEventsResponse.FrameCase.RESUMED -> s.copy(synced = true)
