@@ -14,6 +14,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.core.app.ApplicationProvider
 import dev.agentmesh.android.hosts.HostRepository
@@ -74,7 +76,7 @@ class MessagesTest {
         rt.loadMessages()
     }
 
-    private fun show(rt: HostRuntime, agentId: String = "w1", tab: dev.agentmesh.android.notify.Tab = dev.agentmesh.android.notify.Tab.Messages) {
+    private fun show(rt: HostRuntime, agentId: String = "w1", tab: dev.agentmesh.android.notify.Tab = dev.agentmesh.android.notify.Tab.Chat) {
         val container = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> api })
         compose.setContent {
             CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { AgentScreen(rt, agentId, {}, tab) } }
@@ -201,8 +203,11 @@ class MessagesTest {
         val rt = runtime()
         sync(rt, listOf(lead, worker))
         show(rt)
-        compose.onNodeWithText("Message the agent").performTextInput("do it")
-        compose.onNodeWithContentDescriptionCompat("Send").performClick()
+        // A mesh message is sent from the details sheet (the chat's own composer types into the terminal).
+        compose.onNodeWithTag("details-open").performClick()
+        compose.onNodeWithTag("details-send").performClick()
+        compose.onNodeWithTag("message-text").performTextInput("do it")
+        compose.onNodeWithTag("message-send").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTextCompat("The host refused: agent cap") }
         compose.onNodeWithText("do it").assertIsDisplayed()
     }
@@ -239,7 +244,7 @@ class MessagesTest {
         compose.waitForIdle()
         compose.onNodeWithText("message number 2001").assertIsDisplayed()
         // Scrolled up, the user isn't dragged back down by the next one.
-        compose.onNodeWithTag("messages").performScrollToIndex(100)
+        compose.onNodeWithTag("chat").performTouchInput { repeat(6) { swipeDown() } }
         compose.waitForIdle()
         rt.onFrame(messageSent(5_001, message("big-2002", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO, body = "message number 2002", at = 9_001)))
         compose.waitForIdle()
@@ -252,12 +257,12 @@ class MessagesTest {
         sync(rt, listOf(lead, worker))
         show(rt)
         compose.waitForIdle()
-        compose.onNodeWithText("No messages yet.").assertIsDisplayed()
+        compose.onNodeWithTag("chat").assertIsDisplayed()
         val many = (1..300).map { message("late-%04d".format(it), from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO, body = "message number $it", at = 1_000L + it) }
         many.forEachIndexed { i, m -> rt.onFrame(messageSent(1L + i, m)) }
         compose.waitForIdle()
         compose.onNodeWithText("message number 300").assertIsDisplayed()
-        compose.onNodeWithTag("messages").performScrollToIndex(100)
+        compose.onNodeWithTag("chat").performTouchInput { repeat(6) { swipeDown() } }
         compose.waitForIdle()
         rt.onFrame(messageSent(900, message("late-0301", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO, body = "message number 301", at = 5_000)))
         compose.waitForIdle()
@@ -265,23 +270,22 @@ class MessagesTest {
         assertEquals(0, compose.onAllNodesWithText("message number 300").fetchSemanticsNodes().size)
     }
 
-    @Test fun `an empty tab shows a skeleton until the run's history is in, and offers a retry when the load gave up`() {
+    @Test fun `the chat offers a retry when the run's history gave up, and the cards come once it is in`() {
         val rt = runtime(retryMs = 5)
         rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
         show(rt)
         compose.waitForIdle()
-        compose.onNodeWithContentDescription("Loading the messages").assertIsDisplayed()
         // The loads gave up.
         api.failListings = 100
         rt.loadMessages()
         compose.waitUntil(10_000) { rt.state.value.messagesFailed.isNotEmpty() }
         compose.waitForIdle()
-        compose.onNodeWithText("Couldn't load the messages.").assertIsDisplayed()
+        compose.onNodeWithTag("messages-failed").assertIsDisplayed()
         api.failListings = 0
         compose.onNodeWithTag("reload-messages").performClick()
         compose.waitUntil(5_000) { rt.state.value.messagesLoaded.isNotEmpty() }
         compose.waitForIdle()
-        compose.onNodeWithText("No messages yet.").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTag("messages-failed").fetchSemanticsNodes().size)
     }
 
     /** A run a lead starts while the phone is connected: its plan can be approved at once, and its tab isn't left Loading. */

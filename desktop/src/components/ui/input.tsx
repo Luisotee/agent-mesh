@@ -8,7 +8,7 @@ export function Input({ className, ...props }: React.ComponentProps<'input'>) {
   return <input className={cn(field, 'h-8', className)} {...props} />
 }
 
-export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className, ...props }: React.ComponentProps<'textarea'>) {
   return <textarea className={cn(field, 'min-h-20 py-1.5', className)} {...props} />
 }
 

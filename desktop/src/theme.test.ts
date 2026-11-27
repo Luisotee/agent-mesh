@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_THEME, applyTheme, resolveTerminal, themeByName, themeNames, themes } from './theme'
+import { DEFAULT_THEME, applyTheme, codeColours, contrast, resolveTerminal, themeByName, themeNames, themes } from './theme'
 
 const dir = path.resolve(import.meta.dirname, '../../shared/themes')
 const ANSI = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
@@ -48,16 +48,6 @@ describe('themes', () => {
     }
   })
 
-  // WCAG's contrast ratio of two #rrggbb colours.
-  const contrast = (a: string, b: string) => {
-    const lum = (hex: string) => {
-      const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
-      return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!
-    }
-    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-    return (hi! + 0.05) / (lo! + 0.05)
-  }
-
   it('keeps muted text readable (4.5:1) and the hues, vendor marks and glow visible (3:1) on every surface, chips and selected rows included', () => {
     for (const t of themes) {
       // The surfaces text and marks sit on: the page, panels, cards, chips (muted) and selected rows and tiles (accent).
@@ -66,6 +56,16 @@ describe('themes', () => {
         for (const k of Object.keys(t.tokens).filter((k) => /^(hue-|vendor-|glow$)/.test(k))) {
           expect(contrast(t.tokens[k]!, t.tokens[bg]!), `${t.name} ${k} on ${bg}`).toBeGreaterThanOrEqual(3)
         }
+      }
+    }
+  })
+
+  it('keeps highlighted code readable (4.5:1): the terminal colours it takes, moved toward the text where too pale, on a code block\'s surface', () => {
+    // A colour that reads already is the terminal's own.
+    expect(codeColours(themeByName('Dracula')).green).toBe(themeByName('Dracula').terminal.green)
+    for (const t of themes) {
+      for (const k of ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan']) {
+        expect(contrast(codeColours(t)[k]!, t.tokens.surface!), `${t.name} code ${k} on surface`).toBeGreaterThanOrEqual(4.5)
       }
     }
   })

@@ -24,7 +24,7 @@ export interface HostState {
   agents: Record<string, Agent>
   /** Every message seen: loaded with ListMessages, then added by events. */
   messages: Record<string, Message>
-  /** How loading a run's stored messages went (`messages.ts`): they are read when a run's Messages tab is first shown. A run not in here wasn't asked for. */
+  /** How loading a run's stored messages went (`messages.ts`): they are read when a chat of the run is first shown. A run not in here wasn't asked for. */
   messageLoad: Record<string, MessageLoad>
   /** The host's settings with their schemas, by key: loaded with ListSettings, then kept by SettingChanged events. */
   settings: Record<string, Setting>
@@ -174,7 +174,7 @@ function applyEvent(s: HostState, e: Event): HostState {
     // An asker or reviewer given a change task is a worker from now on (daemon/internal/daemon/reopen.go, takeChange).
     case 'agentRoleChanged':
       return withAgent(next, e.agentId, (a) => ({ ...a, role: p.value.to }))
-    // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a message brings it back.
+    // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a task or an answer brings it back.
     case 'agentRetired':
       return withAgent(next, e.agentId, (a) => ({ ...a, state: AgentState.RETIRED, needsInput: 0, stateDetail: '', pendingReopen: undefined, lastActivity: e.time ?? a.lastActivity }))
     case 'runRenamed': {

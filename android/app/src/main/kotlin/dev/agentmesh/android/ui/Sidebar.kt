@@ -1,7 +1,5 @@
 package dev.agentmesh.android.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -79,6 +77,8 @@ import dev.agentmesh.android.notify.Tab
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.ui.chat.isReadOnlyDevice
 import dev.agentmesh.gen.agentmesh.v1.Agent
+import dev.agentmesh.gen.agentmesh.v1.AgentState
+import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -167,6 +167,14 @@ fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: Sideb
     val found = remember(model.projects, query) { searchProjects(model.projects, query) }
     val (shown, hiddenRows) = remember(found, hidden) { if (searching) found to emptyList() else visibleProjects(found, hidden) }
     var showHidden by rememberSaveable { mutableStateOf(false) }
+    // An action that ends or renames something waits here for the user's yes.
+    var pending by remember { mutableStateOf<Pair<String, AgentAction>?>(null) }
+    val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
+    pending?.let { (hostId, action) ->
+        val rt = runtimes[hostId]
+        if (rt == null) pending = null else AgentActionDialog(rt, action) { _ -> pending = null }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalAgentAction provides { host, action -> pending = host to action }) {
     Column(modifier.fillMaxHeight().testTag("sidebar")) {
         Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("agent-mesh", Modifier.weight(1f).clickable(onClick = a.home).testTag("sidebar-title"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -206,7 +214,7 @@ fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: Sideb
                     val p = hiddenRows[i]
                     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(p.name, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        TextButton(onClick = { container.prefs.toggleHidden(p.key) }) { Text("Show") }
+                        TextButton(onClick = { container.prefs.unhide(p.key) }) { Text("Show") }
                     }
                 }
             }
@@ -232,6 +240,7 @@ fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: Sideb
                 }
             }
         }
+    }
     }
 }
 
@@ -266,7 +275,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.foldItems(
 private fun androidx.compose.foundation.lazy.LazyListScope.leadItems(r: LeadRow, p: ProjectRow, current: Pair<String, String>?, a: SidebarActions, model: SidebarModel, prefix: String = "") {
     item(key = "l:$prefix:${p.key}:${r.run.id}", contentType = "lead") { LeadItem(r, current, a, canAct = model.hosts.none { it.hostId == r.hostId && it.readOnly }) }
     flatWorkers(r.workers, 0).forEach { (w, depth) ->
-        item(key = "w:$prefix:${p.key}:${w.agent.id}", contentType = "worker") { WorkerItem(r.hostId, w, depth, current, a) }
+        item(key = "w:$prefix:${p.key}:${w.agent.id}", contentType = "worker") { WorkerItem(r.hostId, w, depth, current, a, canAct = model.hosts.none { it.hostId == r.hostId && it.readOnly }) }
     }
 }
 
@@ -309,17 +318,15 @@ private fun ProjectHeader(p: ProjectRow, model: SidebarModel, open: Boolean, a: 
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu of ${p.name}") }
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text("New lead here") }, enabled = !readOnly && p.repo.isNotEmpty(), onClick = { menu = false; a.newLead(p.hostId, p.repo) })
-                DropdownMenuItem(text = { Text(if (p.pinned) "Unpin" else "Pin to the top") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; container.prefs.togglePin(p.hostId, p.repo) })
-                DropdownMenuItem(text = { Text(if (p.key in hidden) "Show again" else "Hide") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; container.prefs.toggleHidden(p.key) })
+                DropdownMenuItem(text = { Text(if (p.pinned) "Unpin" else "Pin to the top") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; if (p.pinned) container.prefs.unpin(p.hostId, p.repo) else container.prefs.pin(p.hostId, p.repo) })
+                DropdownMenuItem(text = { Text(if (p.key in hidden) "Show again" else "Hide") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; if (p.key in hidden) container.prefs.unhide(p.key) else container.prefs.hide(p.key) })
                 DropdownMenuItem(text = { Text("Copy the path") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; copy(context, p.repo) })
             }
         }
     }
 }
 
-private fun copy(context: Context, text: String) {
-    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("path", text))
-}
+private fun copy(context: Context, text: String) = copyToClipboard(context, text, "path")
 
 @Composable
 private fun Chip(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
@@ -334,7 +341,8 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
     val lead = r.lead
     val here = lead != null && current == (r.hostId to lead.id)
     var menu by remember { mutableStateOf(false) }
-    val canAdd = canAct && r.run.status == dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_OPEN
+    val canAdd = canAct && r.run.status == RunStatus.RUN_STATUS_OPEN
+    val act = LocalAgentAction.current
     Box {
         Row(
             Modifier.fillMaxWidth().then(if (here) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
@@ -355,20 +363,45 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
             }
             if (lead != null) VendorIcon(lead.kind, lead.model, size = 16.dp)
         }
-        // Held down, a run offers what a run can do (more with the row menus of the next change).
+        // Held down, a run offers what a run can do, and its lead what an agent can. A read-only device sees only what reads.
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text("Add an agent") }, enabled = canAdd, onClick = { menu = false; a.addAgent(r.hostId, r.run.id) })
+            if (canAct) {
+                DropdownMenuItem(text = { Text("Add an agent") }, enabled = canAdd, onClick = { menu = false; a.addAgent(r.hostId, r.run.id) }, modifier = Modifier.testTag("menu-add-agent"))
+                DropdownMenuItem(text = { Text("Rename the run…") }, onClick = { menu = false; act(r.hostId, AgentAction.RenameRun(r.run.id, r.run.title.ifEmpty { r.title })) }, modifier = Modifier.testTag("menu-rename-run"))
+                DropdownMenuItem(text = { Text("Stop the run…") }, enabled = r.run.status == RunStatus.RUN_STATUS_OPEN, onClick = { menu = false; act(r.hostId, AgentAction.StopRun(r.run.id, r.title)) }, modifier = Modifier.testTag("menu-stop-run"))
+            }
+            if (lead != null) AgentMenuItems(r.hostId, lead, canAct, a) { menu = false }
         }
     }
 }
 
+/** What an agent's row offers when held down: open it, open its terminal, stop or retire it (each asks first), copy its worktree path. */
 @Composable
-private fun WorkerItem(hostId: String, w: WorkerRow, depth: Int, current: Pair<String, String>?, a: SidebarActions) {
+private fun AgentMenuItems(hostId: String, agent: Agent, canAct: Boolean, a: SidebarActions, dismiss: () -> Unit) {
+    val act = LocalAgentAction.current
+    val context = LocalContext.current
+    val live = agent.state != AgentState.AGENT_STATE_EXITED && agent.state != AgentState.AGENT_STATE_RETIRED
+    DropdownMenuItem(text = { Text("Open") }, onClick = { dismiss(); a.openAgent(hostId, agent.id, Tab.Chat) }, modifier = Modifier.testTag("menu-open"))
+    if (canAct) {
+        DropdownMenuItem(text = { Text("Open its terminal") }, enabled = live && agent.terminalId.isNotEmpty(), onClick = { dismiss(); a.openAgent(hostId, agent.id, Tab.Terminal) }, modifier = Modifier.testTag("menu-terminal"))
+        DropdownMenuItem(text = { Text("Stop ${agent.name}…") }, enabled = live, onClick = { dismiss(); act(hostId, AgentAction.StopAgent(agent.id, agent.name)) }, modifier = Modifier.testTag("menu-stop-agent"))
+        DropdownMenuItem(text = { Text("Retire ${agent.name}…") }, enabled = live, onClick = { dismiss(); act(hostId, AgentAction.RetireAgent(agent.id, agent.name)) }, modifier = Modifier.testTag("menu-retire-agent"))
+    }
+    DropdownMenuItem(text = { Text("Copy the worktree path") }, enabled = agent.worktree.isNotEmpty(), onClick = { dismiss(); copy(context, agent.worktree) }, modifier = Modifier.testTag("menu-copy-worktree"))
+}
+
+/** What the drawer asks for when the user picks an action that must be confirmed: the host it is on, and the action. */
+private val LocalAgentAction = androidx.compose.runtime.staticCompositionLocalOf<(String, AgentAction) -> Unit> { { _, _ -> } }
+
+@Composable
+private fun WorkerItem(hostId: String, w: WorkerRow, depth: Int, current: Pair<String, String>?, a: SidebarActions, canAct: Boolean) {
     val agent: Agent = w.agent
     val here = current == (hostId to agent.id)
+    var menu by remember { mutableStateOf(false) }
+    Box {
     Row(
         Modifier.fillMaxWidth().then(if (here) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
-            .clickable { a.openAgent(hostId, agent.id, Tab.Chat) }
+            .combinedClickable(onClick = { a.openAgent(hostId, agent.id, Tab.Chat) }, onLongClick = { menu = true })
             .padding(start = 52.dp + 16.dp * depth, end = 16.dp, top = 4.dp, bottom = 4.dp).testTag("worker-${agent.id}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -379,6 +412,8 @@ private fun WorkerItem(hostId: String, w: WorkerRow, depth: Int, current: Pair<S
             HelperChip(w.helpers)
         }
         VendorIcon(agent.kind, agent.model, size = 14.dp)
+    }
+    DropdownMenu(menu, { menu = false }) { AgentMenuItems(hostId, agent, canAct, a) { menu = false } }
     }
 }
 

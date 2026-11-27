@@ -1,4 +1,5 @@
 import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
+import { MarkdownField } from '@/components/ui/markdown-field'
 import { useMemo, useState } from 'react'
 import { getAgent, getCost, holdPullRequest, sendMessage } from '@/actions'
 import { RUN_LEVEL_LABEL, runLevelOf } from '@/autonomy'
@@ -6,7 +7,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { Fold } from '@/components/ui/collapsible'
-import { Textarea } from '@/components/ui/input'
 import { SkeletonLines } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
 import { ModelControl } from './model-control'
@@ -237,7 +237,7 @@ function CommentBox({ host, pr, onDone }: { host: HostRuntime; pr: PrRow; onDone
         void send()
       }}
     >
-      <Textarea aria-label={`Comment on #${pr.number} for ${pr.agentName}`} rows={3} autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder={`Tell ${pr.agentName} what to change`} />
+      <MarkdownField aria-label={`Comment on #${pr.number} for ${pr.agentName}`} className="min-h-16" autoFocus value={text} onValueChange={setText} placeholder={`Tell ${pr.agentName} what to change`} />
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end gap-1">
         <Button size="sm" variant="ghost" onClick={onDone}>Cancel</Button>

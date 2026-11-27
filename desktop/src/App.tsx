@@ -6,7 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
 import { createAppModel, type HostRuntime } from '@/model'
 import type { DesktopApi, OpenedLink } from '../shared/api'
-import { AgentPanel } from '@/components/agent-panel'
+import { AgentPanel, SendMessageDialog } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
@@ -95,6 +95,7 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
           <ViewToasts />
           <WorkspaceSlot host={host} />
           <ProjectSettingsDialog />
+          <SendMessageDialog />
         </>
       )}
       {/* A pairing link the operating system opened the app with: the add-a-host form, filled in. */}

@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.navArgument
@@ -59,7 +60,7 @@ object Routes {
     fun log(id: String) = "host/$id/log"
     fun hostSettings(id: String) = "host/$id/settings"
     fun usage(id: String) = "host/$id/usage"
-    fun agent(id: String, agent: String, tab: Tab = Tab.Overview) = "host/$id/agent/$agent?tab=${tab.name}"
+    fun agent(id: String, agent: String, tab: Tab = Tab.Chat) = "host/$id/agent/$agent?tab=${tab.name}"
 }
 
 /** Below this width the drawer slides over the screen; from it, it stays open beside it. */
@@ -151,12 +152,15 @@ private fun Routed(
     val ms = 280
     val ease = androidx.compose.animation.core.FastOutSlowInEasing
     var newLead by rememberSaveable { mutableStateOf<String?>(null) }
+    // Another agent opened from an agent's strip or details is the same screen with other contents: it doesn't slide.
+    fun androidx.compose.animation.AnimatedContentTransitionScope<NavBackStackEntry>.agentToAgent() =
+        initialState.destination.route == Routes.AGENT && targetState.destination.route == Routes.AGENT
     NavHost(
         nav, startDestination = Routes.HOME,
-        enterTransition = { if (reduced) EnterTransition.None else slideInHorizontally(tween(ms, easing = ease)) { it } },
-        exitTransition = { if (reduced) ExitTransition.None else slideOutHorizontally(tween(ms, easing = ease)) { -it / 4 } },
-        popEnterTransition = { if (reduced) EnterTransition.None else slideInHorizontally(tween(ms, easing = ease)) { -it / 4 } },
-        popExitTransition = { if (reduced) ExitTransition.None else slideOutHorizontally(tween(ms, easing = ease)) { it } },
+        enterTransition = { if (reduced || agentToAgent()) EnterTransition.None else slideInHorizontally(tween(ms, easing = ease)) { it } },
+        exitTransition = { if (reduced || agentToAgent()) ExitTransition.None else slideOutHorizontally(tween(ms, easing = ease)) { -it / 4 } },
+        popEnterTransition = { if (reduced || agentToAgent()) EnterTransition.None else slideInHorizontally(tween(ms, easing = ease)) { -it / 4 } },
+        popExitTransition = { if (reduced || agentToAgent()) ExitTransition.None else slideOutHorizontally(tween(ms, easing = ease)) { it } },
     ) {
         composable(Routes.HOME) {
             HomeScreen(
@@ -187,13 +191,14 @@ private fun Routed(
         composable(
             Routes.AGENT,
             arguments = listOf(
-                navArgument("tab") { type = NavType.StringType; defaultValue = Tab.Overview.name },
+                navArgument("tab") { type = NavType.StringType; defaultValue = Tab.Chat.name },
             ),
         ) { e ->
-            val tab = runCatching { Tab.valueOf(e.arguments?.getString("tab").orEmpty()) }.getOrDefault(Tab.Overview)
+            val tab = runCatching { Tab.valueOf(e.arguments?.getString("tab").orEmpty()) }.getOrDefault(Tab.Chat)
             // A host removed while this was open (or a tile that was tapped as it went) has nothing to show.
-            runtimes[e.arguments!!.getString("id")!!]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!, { nav.popBackStack() }, tab, // Opened from Live, the agent keeps its Back arrow to it: the menu is for an agent opened from home or the drawer.
-                onMenu = openDrawer.takeIf { nav.previousBackStackEntry?.destination?.route == Routes.HOME }) } ?: Gone { nav.popBackStack() }
+            val host = e.arguments!!.getString("id")!!
+            runtimes[host]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!, { nav.popBackStack() }, tab, // Opened from Live, the agent keeps its Back arrow to it: the menu is for an agent opened from home or the drawer.
+                onMenu = openDrawer.takeIf { nav.previousBackStackEntry?.destination?.route == Routes.HOME }, onAgent = { id -> openAgent(host, id, Tab.Chat) }) } ?: Gone { nav.popBackStack() }
         }
     }
     // The new-lead sheet of Home's button (the drawer's own is at the app's root).

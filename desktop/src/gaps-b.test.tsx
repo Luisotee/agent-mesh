@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { Code, ConnectError } from '@connectrpc/connect'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
-import { Changes, Progress, WorktreeActions } from './components/agent-work'
+import { Changes, ContextRing, Progress, WorktreeActions } from './components/agent-work'
 import { LOCAL_DEVICE } from './components/pair-panel'
 import { TailnetPanel } from './components/tailnet-panel'
 import { AppContext } from './context'
@@ -56,11 +56,20 @@ describe('Progress', () => {
     expect(within(section).getByRole('progressbar', { name: 'Plan progress' })).toHaveAttribute('value', '1')
     expect(section).toHaveTextContent('Now: Write the fix')
     expect(within(within(section).getByRole('list', { name: 'Plan' })).getAllByRole('listitem')).toHaveLength(3)
-    expect(screen.getByTestId('context-text')).toHaveTextContent('128k of 200k tokens (64%)')
     expect(last(client.getAgentProgress)).toMatchObject({ agent: 'w1' })
   })
 
-  it('shows nothing for a CLI the host cannot read, or an agent with no plan and no context', async () => {
+  it('shows the context against the window as the composer\'s ring, amber from 70%', async () => {
+    const { host, client, wrap, agent: a } = fixture()
+    client.getAgentProgress.mockResolvedValue(create(GetAgentProgressResponseSchema, { supported: true, contextTokens: 160_000n, contextWindow: 200_000n }))
+    render(wrap(<ContextRing host={host} agent={a} active />))
+    const ring = await screen.findByRole('meter', { name: 'Context used' })
+    expect(ring).toHaveAttribute('aria-valuenow', '80')
+    expect(ring).toHaveAttribute('aria-valuetext', '160k of 200k tokens (80%)')
+    expect(ring.querySelector('svg')!.getAttribute('class')).toContain('text-state-needs')
+  })
+
+  it('shows nothing for a CLI the host cannot read, or an agent with no plan', async () => {
     const { host, client, wrap, agent: a } = fixture()
     render(wrap(<Progress host={host} agent={a} />))
     await waitFor(() => expect(client.getAgentProgress).toHaveBeenCalled())

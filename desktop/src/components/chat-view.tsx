@@ -1,11 +1,12 @@
-import { ChevronRight, Clock, Pencil, Send, Square, X } from 'lucide-react'
+import { Check, ChevronRight, Clock, Copy, Pencil, Quote, Send, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/input'
+import { MarkdownField } from '@/components/ui/markdown-field'
+import { loadDraft, saveDraft } from '@/layout'
 import { useApp, useAppState, useHostState } from '@/context'
-import { statusSentence } from '@/derive'
+import { messagesOf, statusSentence } from '@/derive'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 import type { TranscriptEntry } from '@/gen/agentmesh/v1/chat_pb'
 import type { QueuedPrompt } from '@/gen/agentmesh/v1/types_pb'
@@ -14,8 +15,13 @@ import { chatKeys } from '@/prefs'
 import { addPrompt, dropPrompt, setPrompts } from '@/store'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
-import { emptyTranscript, fromTail, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
+import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
+import { MessageCard } from './messages-panel'
+import { ContextRing } from './agent-work'
 import { Markdown } from './markdown'
+import { ago } from '@/dock'
+import { useNow } from '@/hooks'
+import { cn } from '@/lib/utils'
 import { hueStyle } from '@/hue'
 import { Tip } from '@/components/ui/tooltip'
 
@@ -154,12 +160,31 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
  * folded) and a composer that types into the same running process, as typing in its terminal does. The terminal is
  * the other view of the same agent.
  */
-export function ChatView({ host, agentId, active, panelId, tabId }: { host: HostRuntime; agentId: string; active: boolean; panelId: string; tabId: string }) {
+export function ChatView({ host, agentId, active, onTerminal }: { host: HostRuntime; agentId: string; active: boolean; /** Shows its terminal in the chat's place (the pane's own view). */ onTerminal?: () => void }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
   const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
   const { transcript, loaded, error, sync, loadEarlier, earlierBusy } = useTranscript(host, agentId, agent?.sessionId ?? '', active)
   const blocks = useMemo(() => toBlocks(transcript.entries), [transcript.entries])
+  // The agent's mesh messages, as cards where they were sent; read with the run's messages once the chat shows.
+  const runId = agent?.runId
+  const messageLoad = useHostState(host, (s) => (runId ? s.messageLoad[runId] : undefined))
+  const allMessages = useHostState(host, (s) => s.messages)
+  const waiting = useHostState(host, (s) => s.waiting)
+  const mine = useMemo(() => messagesOf(allMessages, agentId), [allMessages, agentId])
+  const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
+  // A plan an agent asked to show (`OpenView`) is shown like one waiting on the user, whatever the window held.
+  const focusId = useAppState((s) => (s.focusMessage?.hostId === host.info.id ? s.focusMessage.id : undefined))
+  const shown = useMemo(() => (focusId ? new Set([...open, focusId]) : open), [open, focusId])
+  useEffect(() => {
+    if (active && runId) host.loadMessages(runId)
+  }, [active, runId, host])
+  const working = agent?.state === AgentState.WORKING
+  const lastTools = useMemo(() => [...blocks].reverse().find((b) => b.kind !== 'mesh'), [blocks])
+  const items = useMemo(
+    () => timeline(blocks, messageLoad === 'loaded' ? mine : undefined, transcript.atStart || !transcript.supported, shown),
+    [blocks, messageLoad, mine, transcript.atStart, transcript.supported, shown],
+  )
   const queued = useQueue(host, agentId, active)
 
   // Scrolling: follow the end while the reader is at it; keep the place when earlier entries come in above.
@@ -188,7 +213,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
 
   if (!agent) return null
   return (
-    <div id={panelId} role="tabpanel" aria-labelledby={tabId} style={hueStyle(agent.repo)} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
+    <section aria-label="Chat" style={hueStyle(agent.repo)} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div
         ref={scroller}
         data-testid="chat"
@@ -221,12 +246,22 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
             {earlierBusy ? 'Loading…' : 'Load earlier'}
           </Button>
         )}
-        {loaded && transcript.supported && blocks.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">Nothing said yet.</p>}
-        {blocks.length > 0 && (
+        {loaded && transcript.supported && items.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">Nothing said yet.</p>}
+        {messageLoad === 'failed' && (
+          <div role="alert" className="flex items-center gap-2 text-xs text-destructive">
+            <span>Couldn't read this run's messages.</span>
+            <Button size="sm" variant="outline" onClick={() => runId && host.loadMessages(runId, true)}>Try again</Button>
+          </div>
+        )}
+        {items.length > 0 && (
           <ol aria-label="Conversation" className="flex flex-col gap-3">
-            {blocks.map((b) => (
+            {items.map((b) => (
               <li key={b.id}>
-                <ChatBlock block={b} />
+                {b.kind === 'message' ? (
+                  <MessageCard host={host} message={b.message} open={open.has(b.message.id)} />
+                ) : (
+                  <ChatBlock block={b} agentId={agentId} running={b === lastTools && working && b.kind === 'tools' && b.calls.some((c) => !c.result)} />
+                )}
               </li>
             ))}
           </ol>
@@ -236,8 +271,8 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
       <p role="status" data-testid="chat-status" className="truncate text-xs text-muted-foreground">
         {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
       </p>
-      <Composer host={host} agentId={agentId} readOnly={readOnly} onSent={afterSend} openTerminal={() => app.setTab('terminal')} />
-    </div>
+      <Composer host={host} agentId={agentId} readOnly={readOnly} active={active} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
+    </section>
   )
 }
 
@@ -297,7 +332,7 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
     <section aria-label="Queued prompts" className="flex flex-col items-end gap-1.5">
       {prompts.map((p) => (
         <div key={p.id} data-kind="queued" className="group flex max-w-[85%] flex-col items-end gap-0.5">
-          <div className="w-fit rounded-lg border border-dashed bg-accent/50 px-3 py-2 text-[13px] break-words whitespace-pre-wrap opacity-80">{p.text}</div>
+          <div className="w-fit min-w-0 max-w-full rounded-lg border border-dashed bg-accent/50 px-3 py-2 opacity-80"><Markdown breaks className="text-[13px] break-words">{p.text}</Markdown></div>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
@@ -323,7 +358,7 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
   )
 }
 
-function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void }) {
+function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void; active: boolean }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
   // The app follows its first host's keys, as for the shortcuts (Settings edits them there).
@@ -331,7 +366,18 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   const settings = useHostState(first, (s) => s.settings)
   const keys = useMemo(() => chatKeys(settings), [settings])
   const fill = useAppState((s) => s.composerFill)
-  const [text, setText] = useState('')
+  // What was being written to this agent, kept on this device until it is sent.
+  const [text, setTextNow] = useState(() => loadDraft(host.info.id, agentId))
+  const setText = useCallback(
+    (next: string | ((cur: string) => string)) =>
+      setTextNow((cur) => {
+        const v = typeof next === 'function' ? next(cur) : next
+        saveDraft(host.info.id, agentId, v)
+        return v
+      }),
+    [host, agentId],
+  )
+  useEffect(() => setTextNow(loadDraft(host.info.id, agentId)), [host, agentId])
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
   // Refs, not state: a second key press before the first's re-render must see the call in flight.
@@ -345,7 +391,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
       setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${fill.text}` : fill.text))
       app.store.setState({ composerFill: undefined })
     }
-  }, [fill, agentId, app])
+  }, [fill, agentId, app, setText])
   const hasQueue = useHostState(host, (s) => (s.prompts[agentId]?.length ?? 0) > 0)
   if (!agent) return null
   const gone = agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED || !agent.terminalId
@@ -357,7 +403,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   const why = readOnly
     ? 'This device is read-only: it can read the conversation, not type into the agent.'
     : gone
-      ? 'The agent has stopped, so there is no terminal to type into. Message it from the Overview tab to bring it back.'
+      ? 'The agent has stopped, so there is no terminal to type into. Send it a task from its menu (⋯) to bring it back.'
       : ''
   async function send() {
     const body = text.trim()
@@ -367,7 +413,14 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
     try {
       const res = await promptAgent(host.client, agentId, body)
       if (res.queued) host.store.setState(addPrompt(res.queued))
-      setText('')
+      // What was sent goes; text written while it was in flight stays. The saved draft too, directly: a composer
+      // unmounted meanwhile (another tab opened) runs no updater.
+      const left = (cur: string) => {
+        const now = cur.trimStart()
+        return now.startsWith(body) ? now.slice(body.length).trimStart() : cur
+      }
+      saveDraft(host.info.id, agentId, left(loadDraft(host.info.id, agentId)))
+      setText(left)
       onSent()
     } catch (e) {
       setError(say(e))
@@ -426,14 +479,14 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
         </p>
       )}
       <div className="flex items-end gap-2">
-        <Textarea
+        <MarkdownField
           aria-label="Prompt"
-          className="max-h-40 min-h-9 flex-1 resize-none text-sm focus-visible:ring-identity"
-          rows={Math.min(6, Math.max(1, text.split('\n').length))}
+          className="flex-1 text-sm focus-visible:ring-identity"
           value={text}
           disabled={!!why}
           placeholder={why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
-          onChange={(e) => setText(e.target.value)}
+          onValueChange={setText}
+          onSend={() => void send()}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return
             const interrupt = parseChord(keys.interrupt)
@@ -446,14 +499,10 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
             if (back && !text && hasQueue && matches(e.nativeEvent, back)) {
               e.preventDefault()
               if (!e.repeat) void recall()
-              return
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void send()
             }
           }}
         />
+        <ContextRing host={host} agent={agent} active={active} />
         {working && canStop && !why && (
           <Button type="button" variant="outline" disabled={stopping} aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
             <Square /> Stop
@@ -469,12 +518,55 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   )
 }
 
-function ChatBlock({ block }: { block: Block }) {
+/** Copy, quote into the composer, and when it was said: shown on hover or focus of a prompt or a reply. */
+function BlockActions({ agentId, text, at, align }: { agentId: string; text: string; at: number; align: 'start' | 'end' }) {
+  const app = useApp()
+  const now = useNow(30_000)
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  // Copied only once the write took (it fails when the window lost the focus, or without a clipboard).
+  const copy = () =>
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true)
+        clearTimeout(timer.current)
+        timer.current = setTimeout(() => setCopied(false), 1500)
+      },
+      () => setCopied(false),
+    )
+  const quote = () => app.store.setState({ composerFill: { agentId, text: `${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n` } })
+  return (
+    <div className={cn('flex h-6 items-center gap-0.5 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none', align === 'end' && 'justify-end')}>
+      {at > 0 && <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()} className="px-1">{ago(at, now)}</time>}
+      <Tip label={copied ? 'Copied' : 'Copy'}>
+        <button
+          type="button"
+          aria-label="Copy"
+          onClick={() => void copy()}
+          className="grid size-6 place-items-center rounded outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </button>
+      </Tip>
+      <Tip label="Quote in a reply">
+        <button type="button" aria-label="Quote in a reply" onClick={quote} className="grid size-6 place-items-center rounded outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+          <Quote className="size-3.5" />
+        </button>
+      </Tip>
+    </div>
+  )
+}
+
+function ChatBlock({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
   switch (block.kind) {
     case 'user':
       return (
-        <div className="ml-auto w-fit max-w-[min(85%,72ch)] rounded-lg border border-identity/25 bg-identity/12 px-3 py-2 text-[15px] leading-relaxed break-words whitespace-pre-wrap" data-kind="user">
-          {block.entry.text}
+        <div className="group ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end" data-kind="user">
+          <div className="rounded-lg border border-identity/25 bg-identity/12 px-3 py-2">
+            <Markdown breaks className="text-[15px] leading-relaxed">{block.entry.text}</Markdown>
+          </div>
+          <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="end" />
         </div>
       )
     case 'mesh':
@@ -485,9 +577,10 @@ function ChatBlock({ block }: { block: Block }) {
       )
     case 'assistant':
       return (
-        <div data-kind="assistant">
+        <div className="group" data-kind="assistant">
           <Markdown className="max-w-[72ch] text-[15px] leading-[1.6]">{block.entry.text}</Markdown>
           {block.entry.truncated && <p className="text-xs text-muted-foreground">… cut here</p>}
+          <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="start" />
         </div>
       )
     case 'tools':
@@ -495,7 +588,12 @@ function ChatBlock({ block }: { block: Block }) {
         <details className="rounded-md border bg-card text-xs" data-kind="tools">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1.5 text-muted-foreground [&::-webkit-details-marker]:hidden">
             <ChevronRight className="size-3.5 transition-transform [details[open]>summary>&]:rotate-90" />
-            {toolsSummary(block.calls)}
+            <span
+              data-running={running || undefined}
+              className={cn(running && 'animate-shimmer bg-linear-to-r from-muted-foreground via-foreground to-muted-foreground bg-size-[200%_100%] bg-clip-text text-transparent motion-reduce:animate-none motion-reduce:bg-none motion-reduce:text-muted-foreground')}
+            >
+              {toolsSummary(block.calls)}
+            </span>
           </summary>
           <ul className="flex flex-col gap-2 border-t p-2.5">
             {block.calls.map((c) => (
