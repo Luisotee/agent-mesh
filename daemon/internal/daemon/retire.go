@@ -57,6 +57,76 @@ func retireTx(tx *store.Tx, a *v1.Agent, reason string) (bool, error) {
 	return true, nil
 }
 
+// retireWithHelpersTx is retireTx and its reviewers too, in the same write
+// (stopping a run retires every agent of it on its own, so it uses retireTx).
+func retireWithHelpersTx(tx *store.Tx, a *v1.Agent, reason string) (bool, error) {
+	changed, err := retireTx(tx, a, reason)
+	if err != nil {
+		return false, err
+	}
+	return changed, retireHelpersTx(tx, a) // also for one retired before: helpers it left running go now
+}
+
+// helpersOf are the reviewers a worker spawned that are still running: they answer to it and have no use once it is
+// gone. (An asker may carry on a conversation with a parent that is resumed, so it stays.)
+func helpersOf(r store.Reader, parent *v1.Agent) ([]*v1.Agent, error) {
+	if parent.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
+		return nil, nil
+	}
+	all, err := r.ListAgents(parent.RunId)
+	if err != nil {
+		return nil, err
+	}
+	var out []*v1.Agent
+	for _, c := range all {
+		if c.ParentId == parent.Id && !c.Peer && c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER && (!stopped(c) || c.PendingReopen != nil) {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// retireHelpersTx retires a retired worker's reviewers in the same write; their processes are stopped
+// after it (stopRetiredHelpers).
+func retireHelpersTx(tx *store.Tx, parent *v1.Agent) error {
+	hs, err := helpersOf(tx.Reader, parent)
+	if err != nil {
+		return err
+	}
+	for _, h := range hs {
+		if _, err := retireTx(tx, h, "its parent "+parent.Name+" was retired"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// stopRetiredHelpers stops the processes of the reviewers a retire of parent retired with it.
+func (d *Daemon) stopRetiredHelpers(ctx context.Context, parentID string) error {
+	r := d.store.Read(ctx)
+	all, err := r.ListAgents("")
+	if err != nil {
+		return err
+	}
+	var errs []error // one that cannot be stopped does not leave the others running
+	for _, c := range all {
+		if c.ParentId == parentID && c.State == v1.AgentState_AGENT_STATE_RETIRED && c.TerminalId != "" &&
+			!c.Peer && c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
+			errs = append(errs, d.stopRetiredProcess(ctx, c.Id))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// mayRetire is who may retire an agent: a device, its parent, or the root of its run (a worker's reviewer outlives
+// the worker, and its parent is gone or busy; the root answers for the whole run).
+func mayRetire(actor *v1.Actor, a *v1.Agent) error {
+	if actor.Class == v1.ActorClass_ACTOR_CLASS_ROOT && actor.RunId == a.RunId && a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+		return nil
+	}
+	return mayMove(actor, a, "retire")
+}
+
 // stopRetiredProcess stops a retired agent's process and lets the terminal go, under the agent's lock. An exit
 // the host reports meanwhile finds the agent retired and only acknowledges the terminal.
 func (d *Daemon) stopRetiredProcess(ctx context.Context, agentID string) error {
@@ -107,8 +177,11 @@ func (d *Daemon) sweepAsync(agents []*v1.Agent) {
 // in the background.
 func (d *Daemon) finishRetire(ctx context.Context, agentID string) error {
 	ctx = context.WithoutCancel(ctx)
-	if err := d.stopRetiredProcess(ctx, agentID); err != nil {
-		return err
+	// The reviewers are stopped whether or not the worker's own stop worked: they are retired, token gone, and
+	// no later pass would stop them.
+	stopErr := errors.Join(d.stopRetiredProcess(ctx, agentID), d.stopRetiredHelpers(ctx, agentID))
+	if stopErr != nil {
+		return stopErr
 	}
 	if a, err := d.store.Read(ctx).GetAgent(agentID); err == nil {
 		d.sweepAsync([]*v1.Agent{a})
@@ -132,10 +205,10 @@ func (d *Daemon) RetireAgent(ctx context.Context, req *connect.Request[v1.Retire
 		if err != nil {
 			return err
 		}
-		if err := mayMove(tx.Actor, a, "retire"); err != nil {
+		if err := mayRetire(tx.Actor, a); err != nil {
 			return err
 		}
-		if _, err := retireTx(tx, a, "requested"); err != nil {
+		if _, err := retireWithHelpersTx(tx, a, "requested"); err != nil {
 			return err
 		}
 		out.Agent = a
@@ -269,7 +342,7 @@ func (d *Daemon) autoRetire(ctx context.Context, agentID, reportID string, after
 		if unread, err := tx.Inbox(a.Id, false); err != nil || len(unread) > 0 {
 			return err
 		}
-		retired, err = retireTx(tx, a, "idle after its report")
+		retired, err = retireWithHelpersTx(tx, a, "idle after its report")
 		return err
 	})
 	if err != nil || !retired {
@@ -615,4 +688,62 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// retireReviewersOfPR retires the reviewers of a PR that merged or closed: the review is over, and nothing will
+// ask them again. A reviewer still on a turn, or with mail unread, is left: it is looked at again when the PR is
+// next read.
+func (d *Daemon) retireReviewersOfPR(ctx context.Context, runID, prURL, state string) {
+	asks, err := prAsksByKey(d.store.Read(ctx), prURL)
+	if err != nil {
+		return
+	}
+	done := map[string]bool{}
+	for _, ask := range asks {
+		if ask.RunId != runID {
+			continue
+		}
+		for _, m := range ask.Members {
+			if m.AgentId == "" || done[m.AgentId] {
+				continue
+			}
+			done[m.AgentId] = true
+			if cur, err := d.store.Read(ctx).GetAgent(m.AgentId); err != nil || stopped(cur) {
+				continue // the common case once a PR has merged: nothing to write
+			}
+			if err := d.retireReviewer(ctx, m.AgentId, "its PR "+state); err != nil && ctx.Err() == nil {
+				d.log.Warn("retiring a reviewer of a finished PR", "agent", m.Name, "err", err)
+			}
+		}
+	}
+}
+
+// retireReviewer retires one idle reviewer, re-checking under the agent's lock and inside the write that nothing
+// arrived for it since (the rule autoRetire keeps).
+func (d *Daemon) retireReviewer(ctx context.Context, agentID, reason string) error {
+	mu := d.agentLock(agentID)
+	mu.Lock()
+	defer mu.Unlock()
+	retired := false
+	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(agentID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil // gone
+		}
+		if err != nil {
+			return err
+		}
+		if a.Role != v1.AgentRole_AGENT_ROLE_REVIEWER || a.Peer || !atPrompt(a.State) || a.PendingReopen != nil {
+			return nil
+		}
+		if unread, err := tx.Inbox(a.Id, false); err != nil || len(unread) > 0 {
+			return err
+		}
+		retired, err = retireTx(tx, a, reason)
+		return err
+	})
+	if err != nil || !retired {
+		return err
+	}
+	return d.finishRetire(ctx, agentID)
 }

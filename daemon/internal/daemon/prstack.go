@@ -93,9 +93,9 @@ func stackBranches(ctx context.Context, r store.Reader, a *v1.Agent, dir string)
 	}
 	current := ""
 	if a.Worktree != "" && dir == a.Worktree {
-		if out, err := git(ctx, dir, "branch", "--show-current"); err == nil && strings.HasPrefix(strings.TrimSpace(out), "mesh/"+a.RunId+"/") {
+		if b := headBranch(dir); strings.HasPrefix(b, "mesh/"+a.RunId+"/") {
 			// Only a branch the filter let in is the one that is never cut.
-			if b := strings.TrimSpace(out); add(b) || seen[b] {
+			if add(b) || seen[b] {
 				current = b
 			}
 		}

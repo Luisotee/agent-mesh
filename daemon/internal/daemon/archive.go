@@ -74,7 +74,7 @@ func (d *Daemon) ArchiveAgent(ctx context.Context, req *connect.Request[v1.Archi
 		if err != nil {
 			return err
 		}
-		_, err = retireTx(tx, a, "archived")
+		_, err = retireWithHelpersTx(tx, a, "archived")
 		return err
 	}); err != nil {
 		return nil, err
@@ -82,6 +82,9 @@ func (d *Daemon) ArchiveAgent(ctx context.Context, req *connect.Request[v1.Archi
 	// Its process is gone, and what it left running in the worktree with it, before the worktree is looked at again: what it did
 	// while this call was waiting for its lock is in the worktree now.
 	ctx = context.WithoutCancel(ctx)
+	if err := d.stopRetiredHelpers(ctx, cur.Id); err != nil {
+		return nil, failedPrecondition("%s is retired, but a reviewer of it could not be stopped: %v", cur.Name, err)
+	}
 	if err := d.stopRetiredProcess(ctx, cur.Id); err != nil {
 		return nil, failedPrecondition("%s is retired, but its process could not be stopped, so its worktree stays: %v", cur.Name, err)
 	}

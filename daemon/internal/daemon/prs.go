@@ -398,6 +398,7 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 	if timedOut && ferr == nil {
 		ferr = ghCtx.Err()
 	}
+	endedNow := map[string]bool{}
 	err = d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
 		old, err := tx.AgentPRs(a.Id)
 		if err != nil {
@@ -409,6 +410,9 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		}
 		for _, p := range found {
 			o := prev[prKey(p.Url)]
+			if (p.State == "merged" || p.State == "closed") && (o == nil || o.State != p.State) {
+				endedNow[prKey(p.Url)] = true // its reviewers end now, once (a resumed one is not retired again at each read)
+			}
 			delete(prev, prKey(p.Url))
 			if o != nil { // the watch's cursors are not GitHub's to say (prfeedback.go)
 				p.FeedbackCursor, p.FailingHead, p.FeedbackResumes = o.FeedbackCursor, o.FailingHead, o.FeedbackResumes
@@ -462,6 +466,16 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		return
 	}
 	complete = ferr == nil
+	for _, p := range found {
+		if (p.State == "merged" || p.State == "closed") && endedNow[prKey(p.Url)] {
+			// Off the reader's path: stopping a process waits for it, and a brief is waiting on this read.
+			d.goBG(func() {
+				bg, cancel := d.stopCtx()
+				defer cancel()
+				d.retireReviewersOfPR(bg, a.RunId, p.Url, p.State)
+			})
+		}
+	}
 }
 
 // refreshAll refreshes every change worker's PRs, prFetchers at a time.
@@ -486,6 +500,7 @@ func (d *Daemon) refreshAll(ctx, ghCtx context.Context, agents []*v1.Agent, forc
 // workEvidence is what an agent's branch and worktree show of its work: commits past its base, whether the tip is
 // on its upstream, whether the worktree has uncommitted changes. Each part is unset where it can't be told.
 func workEvidence(ctx context.Context, a *v1.Agent) *v1.WorkEvidence {
+	a = onItsBranch(ctx, a)
 	ev := &v1.WorkEvidence{}
 	if a.Repo != "" && a.Branch != "" {
 		if tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+a.Branch); err == nil {
