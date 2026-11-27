@@ -46,6 +46,8 @@ The message is stored when `mesh send` returns, and your parent's doorbell rings
 
 Claude Code: a background command you started and that is still running counts as a wait, declared or not (the daemon sees it), for 30 minutes from your last activity; after that you get one nudge to declare a wait or stop it. Declare one anyway for anything else you wait on, and always on the other CLIs.
 
+**Only some jobs wake you.** Start a long job with the Bash tool's `run_in_background` or with a Monitor: its end wakes you, and the daemon sees it. A job started with `nohup … &` or `setsid` sends nothing when it ends and nothing else wakes you: put a deadline on the wait (`--until 20m`, a little past when the job should be done), and when the deadline or the nudge comes, look at the job's log and report. A wait with no `--until` that the daemon sees nothing to wake you from (no background command in your terminal; always so on the other CLIs) holds for `accountability.wait_unseen` (15 min), then you get one nudge.
+
 A wait ends at your next wake: a background job's notification, a monitor event, a message. If you end that turn still waiting (another job is running), **declare a fresh wait first**, every time. A turn that ends waiting with no fresh wait is nudged, and after a nudge you did not answer with a wait or a report, your parent is told you went silent.
 
 **A permission prompt** (Claude Code): when your CLI is about to ask for a permission, your parent is told what and answers (`allow`, or `deny` with a reason you read and act on: do what it says instead, or ask with a `question`). Wait for it; don't retry the same call. If nobody answers in time, the prompt shows in your terminal for the person there. Never try to answer it yourself.

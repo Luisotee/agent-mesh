@@ -298,3 +298,31 @@ func TestExternalAllowsTheTmpdirAndTheBareDirectories(t *testing.T) {
 		}
 	}
 }
+
+// An asker or a reviewer launches without the project's OpenCode config, which a PR head can use to run code (a
+// plugin, an MCP server, a formatter); a worker and a planner work on their own repo and keep it.
+func TestAReadOnlyOpenCodeAgentIgnoresTheProjectsConfig(t *testing.T) {
+	for _, c := range []struct {
+		role agentmeshv1.AgentRole
+		deny bool
+		want string
+	}{
+		{agentmeshv1.AgentRole_AGENT_ROLE_ASKER, false, "1"},
+		{agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER, false, "1"},
+		{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, true, ""},
+		{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, false, ""},
+		{agentmeshv1.AgentRole_AGENT_ROLE_ROOT, false, ""},
+	} {
+		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+			AgentId: "a", Role: c.role, DenyEdits: c.deny, Cwd: t.TempDir(), Binary: "/opt/opencode"}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := res.Msg.Env["OPENCODE_DISABLE_PROJECT_CONFIG"]; got != c.want {
+			t.Errorf("%v deny=%v: OPENCODE_DISABLE_PROJECT_CONFIG = %q, want %q", c.role, c.deny, got, c.want)
+		}
+		if !strings.Contains(res.Msg.Env["OPENCODE_CONFIG_CONTENT"], `"external_directory"`) {
+			t.Errorf("%v: the mesh's own config is gone: %s", c.role, res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
+		}
+	}
+}

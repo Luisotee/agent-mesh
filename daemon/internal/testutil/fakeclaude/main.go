@@ -28,6 +28,10 @@
 // With $FAKECLAUDE_ESC set the terminal leaves canonical mode, so a lone Esc reaches it as a key: it interrupts a
 // /hold turn (no Stop hook, as Claude Code fires none for an interrupted turn) and does nothing between turns.
 //
+// Like Claude Code, it runs the hooks of the project's `.claude/settings.json` and `.claude/settings.local.json`
+// (under its working directory) along with the --settings ones, unless `--setting-sources` is given and leaves
+// `project` and `local` out: a test of what an untrusted PR head can run puts a hook there.
+//
 // With $FAKECLAUDE_INPUT_LOG set, every line typed into it is appended there, one per line.
 //
 // With $FAKECLAUDE_COMPACT_LOG set, the focus of every typed /compact is appended there, one per line.
@@ -87,6 +91,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,6 +119,8 @@ type settings struct {
 var (
 	session string
 	conf    settings
+	// sources is the --setting-sources list ("" = the flag is absent: user, project and local).
+	sources string
 	cwd, _  = os.Getwd()
 
 	box        = os.Getenv("FAKECLAUDE_BOX") != ""
@@ -179,6 +186,9 @@ func main() {
 				fmt.Fprintf(os.Stderr, "fakeclaude: bad --settings: %v\n", err)
 				os.Exit(2)
 			}
+		case "--setting-sources":
+			i++
+			sources = args[i]
 		case "--model", "--effort":
 			i++
 		case "--disallowedTools":
@@ -633,7 +643,21 @@ func hook(event string, fields map[string]any) []byte {
 		body[k] = v
 	}
 	payload, _ := json.Marshal(body)
-	for _, group := range conf.Hooks[event] {
+	groups := conf.Hooks[event]
+	for _, f := range []string{"settings.json", "settings.local.json"} {
+		src := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSuffix(f, ".json"), "settings"), ".")
+		if src == "" {
+			src = "project"
+		}
+		if sources != "" && !slices.Contains(strings.Split(sources, ","), src) {
+			continue
+		}
+		var proj settings
+		if b, err := os.ReadFile(filepath.Join(cwd, ".claude", f)); err == nil && json.Unmarshal(b, &proj) == nil {
+			groups = append(groups, proj.Hooks[event]...)
+		}
+	}
+	for _, group := range groups {
 		for _, h := range group.Hooks {
 			cmd := exec.Command("sh", "-c", h.Command)
 			cmd.Stdin = bytes.NewReader(payload)

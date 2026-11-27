@@ -386,6 +386,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds an agent idle after a task, with no report to its parent, waits before it is nudged once (and, if it ends another turn the same way, its parent told); 0 turns nudges off"},
 		Leaf{Key: "accountability.wait_max", Type: Seconds, Default: 14400.0,
 			Summary: "seconds a declared wait (a `wait` message to the parent) holds off the nudge, at most"},
+		Leaf{Key: "accountability.wait_unseen", Type: Seconds, Default: 900.0,
+			Summary: "seconds a declared wait with no deadline of its own (`--until`) holds off the nudge when nothing the daemon can see would wake the agent (a Claude agent's `run_in_background` command or Monitor sends a notification when it ends, and is seen; a job started with `nohup` is not, and neither is anything of another CLI's agent): then the agent is nudged once, to report if its job ended or to declare a new wait with a deadline; at most `accountability.wait_max`; 0 holds every wait for `accountability.wait_max`"},
 		Leaf{Key: "opencode.stall_after", Type: Seconds, Default: 900.0,
 			Summary: "seconds an OpenCode agent's open reply may go with no new part or token (a stalled stream, or one long tool call) before its parent is told once; 0 never tells"},
 		Leaf{Key: "accountability.input_after", Type: Seconds, Default: 120.0,
