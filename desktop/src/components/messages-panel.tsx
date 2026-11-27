@@ -95,7 +95,7 @@ function MessageCard({ host, message: m, open }: { host: HostRuntime; message: M
 }
 
 /** The user's reply: a plan is approved or sent back with changes, a question is answered; both go to the author as an `answer`. */
-function AnswerForm({ host, message: m }: { host: HostRuntime; message: Message }) {
+export function AnswerForm({ host, message: m }: { host: HostRuntime; message: Message }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

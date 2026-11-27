@@ -421,5 +421,27 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn getPromptWithdrawn();
 
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 39 [json_name = "runRenamed"];</code>
+   * @return Whether the runRenamed field is set.
+   */
+  boolean hasRunRenamed();
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 39 [json_name = "runRenamed"];</code>
+   * @return The runRenamed.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RunRenamed getRunRenamed();
+
+  /**
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 40 [json_name = "permissionChanged"];</code>
+   * @return Whether the permissionChanged field is set.
+   */
+  boolean hasPermissionChanged();
+  /**
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 40 [json_name = "permissionChanged"];</code>
+   * @return The permissionChanged.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PermissionChanged getPermissionChanged();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

@@ -95,4 +95,27 @@ public interface RunOrBuilder extends
    * @return The setup.
    */
   boolean getSetup();
+
+  /**
+   * <pre>
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+   * @return Whether the autonomy field is set.
+   */
+  boolean hasAutonomy();
+  /**
+   * <pre>
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+   * @return The autonomy.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RunAutonomy getAutonomy();
 }

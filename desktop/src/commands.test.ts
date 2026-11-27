@@ -75,6 +75,31 @@ describe('buildCommands', () => {
   })
 })
 
+describe('commands for runs and settings', () => {
+  it('offers to rename any run and to add an agent to an open one, which opens the workspace form on it', async () => {
+    const { model, rec } = fixture()
+    const cmds = buildCommands(model)
+    const titles = cmds.map((c) => c.title)
+    expect(titles).toEqual(expect.arrayContaining(['Rename run ship it…', 'Rename run old…', 'Add an agent to run ship it…']))
+    expect(titles).not.toContain('Add an agent to run old…')
+    await cmds.find((c) => c.title === 'Rename run old…')!.run('older')
+    expect(rec.calls.at(-1)).toMatchObject({ method: 'renameRun', req: { runId: 'r0', title: 'older' } })
+    // A blank title renames nothing.
+    const before = rec.calls.length
+    await cmds.find((c) => c.title === 'Rename run old…')!.run('  ')
+    expect(rec.calls).toHaveLength(before)
+    cmds.find((c) => c.title === 'Add an agent to run ship it…')!.run()
+    expect(model.store.getState()).toMatchObject({ workspaceOpen: true, workspaceRun: 'r1' })
+  })
+
+  it('opens the settings on a section, filtered to its keys', () => {
+    const { model } = fixture()
+    const cmd = buildCommands(model).find((c) => c.title === 'Settings: Model tiers')!
+    cmd.run()
+    expect(model.store.getState()).toMatchObject({ settingsOpen: true, settingsQuery: 'tiers.' })
+  })
+})
+
 describe('every command that touches a host goes through the registry actions', () => {
   it('calls only methods the UI is allowed (a device may call each: registry.test.ts)', async () => {
     const { model, rec } = fixture()
@@ -83,11 +108,12 @@ describe('every command that touches a host goes through the registry actions', 
     expect(acting.length).toBeGreaterThan(5)
     for (const c of acting) await c.run(c.ask ? 'a title' : undefined)
     const used = new Set(rec.calls.map((c) => c.method))
-    expect([...used].sort()).toEqual(['approveAgent', 'retireAgent', 'ringAgent', 'startRun', 'startSetup', 'stopAgent', 'switchAgent'])
+    expect([...used].sort()).toEqual(['approveAgent', 'renameRun', 'retireAgent', 'ringAgent', 'startRun', 'startSetup', 'stopAgent', 'switchAgent'])
     for (const m of used) expect(UI_ACTIONS, m).toContain(m)
     // Each is a write that carries its idempotency key, and says which agent.
     expect(rec.calls.every((c) => (c.req.meta as { mutationId?: string }).mutationId)).toBe(true)
     expect(rec.calls.find((c) => c.method === 'startRun')!.req).toMatchObject({ title: 'a title' })
+    expect(rec.calls.find((c) => c.method === 'renameRun')!.req).toMatchObject({ runId: expect.any(String), title: 'a title' })
     expect(rec.calls.find((c) => c.method === 'switchAgent')!.req).toMatchObject({ agent: 'w2', next: true })
     expect(rec.calls.find((c) => c.method === 'approveAgent')!.req).toMatchObject({ agent: 'w1' })
   })

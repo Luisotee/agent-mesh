@@ -99,5 +99,26 @@ public interface SubscribeEventsResponseOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.AgentActivity getActivity();
 
+  /**
+   * <pre>
+   * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+   * token only; ephemeral, like `activity`.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+   * @return Whether the view field is set.
+   */
+  boolean hasView();
+  /**
+   * <pre>
+   * An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+   * token only; ephemeral, like `activity`.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ViewRequest view = 6 [json_name = "view"];</code>
+   * @return The view.
+   */
+  dev.agentmesh.gen.agentmesh.v1.ViewRequest getView();
+
   public dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse.FrameCase getFrameCase();
 }

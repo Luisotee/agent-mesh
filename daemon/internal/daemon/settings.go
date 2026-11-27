@@ -192,7 +192,18 @@ var hostOnlySettings = map[string]bool{
 	"push.allow_private_endpoints": true, // what a device's push endpoint may reach (push.go)
 }
 
+// agentBarredSettings may be changed by a device (the user) but never by an agent: each decides what an agent may do to the
+// user's screen or machine, so an agent that could set it would grant itself the right.
+var agentBarredSettings = map[string]bool{
+	"app.open_views": true, // whether an agent's OpenView may switch the user's view by itself (view.go)
+}
+
 func hostOnly(ctx context.Context, key string) error {
+	if agentBarredSettings[key] {
+		if a := auth.ActorFrom(ctx); a == nil || IsAgent(a.Class) {
+			return denied("%s may be changed only by the user, from an app or the CLI as a device", key)
+		}
+	}
 	if !hostOnlySettings[key] {
 		return nil
 	}

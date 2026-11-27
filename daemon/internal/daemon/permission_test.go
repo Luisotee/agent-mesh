@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
@@ -272,6 +273,45 @@ func TestAPromptWhoseParentStoppedMeanwhileIsNotHeld(t *testing.T) {
 	}
 }
 
+// A write that fails before the prompt is listed (the request ends between the parent's read and the write) lists
+// nothing, so the handler has no decision to wait for and returns at once, with nothing left listed. The handler is
+// called directly: through the client, a canceled request never reaches it.
+func TestAPromptWhoseWriteFailsBeforeItIsListedReturnsAtOnce(t *testing.T) {
+	w := startReviews(t)
+	w.set(t, "permission.wait", 60)
+	wk := w.worker(t, "wk")
+	actor := &v1.Actor{Class: v1.ActorClass_ACTOR_CLASS_WORKER, Id: wk.Id, Name: wk.Name, RunId: wk.RunId}
+	t.Cleanup(func() { daemon.OnPermissionPlanned(nil) })
+	for name, arrange := range map[string]func(cancel context.CancelFunc){
+		"the request ends before the write":     func(cancel context.CancelFunc) { daemon.OnPermissionPlanned(cancel) },
+		"the request was canceled at the start": func(cancel context.CancelFunc) { daemon.OnPermissionPlanned(nil); cancel() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(auth.WithActor(context.Background(), actor))
+			defer cancel()
+			arrange(cancel)
+			done := make(chan struct{})
+			start := time.Now()
+			go func() {
+				defer close(done)
+				res, err := w.d.RequestPermission(ctx, connect.NewRequest(&v1.RequestPermissionRequest{Tool: "Bash", Summary: "ls"}))
+				if err == nil && res.Msg.Decision != "" {
+					t.Errorf("a decision from nobody: %v", res.Msg)
+				}
+			}()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatalf("the handler was still waiting after %s", time.Since(start))
+			}
+			res, err := w.asRoot.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+			if err != nil || len(res.Msg.Permissions) != 0 {
+				t.Errorf("listed: %v, %v", res, err)
+			}
+		})
+	}
+}
+
 // Outward actions PROTOCOL keeps for the user, and writes outside the worktree, are never passed to the root: the
 // hook gets no answer at once and the prompt stays with the person. An ordinary command and a write inside the
 // worktree are passed.
@@ -382,4 +422,62 @@ func TestAPermissionToolNameCantAddressTheRoot(t *testing.T) {
 		t.Errorf("the root's message: %v", m)
 	}
 	_ = w.decide(t, w.asRoot, p.Id, "deny", "test")
+}
+
+// permissionStates are the PermissionChanged events of a run, in order, as `state` (with the agent's name).
+func (w *reviewWorld) permissionStates(t *testing.T) []string {
+	t.Helper()
+	evs, err := w.d.Store().Read(context.Background()).ListEvents(w.run.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, ev := range evs {
+		if p := ev.GetPermissionChanged(); p != nil {
+			out = append(out, p.State+" "+p.AgentName)
+		}
+	}
+	return out
+}
+
+// An app lists the pending prompts again when told one was held or ended, so every way a prompt ends is an event: held,
+// then allowed or denied by an answer, or ended when it ran out unanswered.
+func TestPermissionPromptsTellTheAppsWhenTheyAreHeldAndEnded(t *testing.T) {
+	w := startReviews(t)
+	w.set(t, "permission.wait", 2)
+	wk := w.worker(t, "wk")
+	w.typeInto(wk, "/perm Bash rm -rf build\r")
+	p := w.pendingFor(t, wk.Id)
+	waitFor(t, "the held event", func() bool { return len(w.permissionStates(t)) == 1 })
+	if err := w.decide(t, w.device.Mesh, p.Id, "deny", "not now"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the denied event", func() bool { return len(w.permissionStates(t)) == 2 })
+	w.waitState(wk.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(wk, "/perm Bash make\r")
+	w.pendingFor(t, wk.Id)
+	waitFor(t, "the ended event after the wait", func() bool { return len(w.permissionStates(t)) == 4 })
+	got := strings.Join(w.permissionStates(t), "|")
+	if want := "asked " + wk.Name + "|denied " + wk.Name + "|asked " + wk.Name + "|ended " + wk.Name; got != want {
+		t.Errorf("permission events = %q, want %q", got, want)
+	}
+}
+
+// A prompt is listed and announced in the write that tells its parent, and only then: the parent stopped means nothing is
+// listed and no "asked" is said; and "asked" always comes before an answer.
+func TestAPermissionPromptIsListedAndAnnouncedOnlyOnceItsParentIsTold(t *testing.T) {
+	w := startReviews(t)
+	wk := w.worker(t, "wk")
+	if _, err := w.device.Mesh.StopAgent(context.Background(), connect.NewRequest(&v1.StopAgentRequest{Meta: meta(""), Agent: w.lead.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.typeInto(wk, "/perm Bash make\r")
+	waitFor(t, "the prompt left to the pane", func() bool { return strings.Contains(w.screen(t, wk), "permission: pane") })
+	if got := w.permissionStates(t); len(got) != 0 {
+		t.Errorf("events for a prompt nobody was told of: %v", got)
+	}
+	res, err := w.device.Mesh.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+	if err != nil || len(res.Msg.Permissions) != 0 {
+		t.Errorf("listed: %v, %v", res, err)
+	}
 }

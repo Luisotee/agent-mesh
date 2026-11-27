@@ -72,6 +72,8 @@ fun retired(seq: Long, agentId: String, runId: String = "r1", reason: String = "
     ev(seq, agentId = agentId, runId = runId) { setAgentRetired(dev.agentmesh.gen.agentmesh.v1.AgentRetired.newBuilder().setReason(reason)) }
 fun runStopped(seq: Long, runId: String) =
     ev(seq, runId = runId) { setRunStopped(dev.agentmesh.gen.agentmesh.v1.RunStopped.getDefaultInstance()) }
+fun runRenamed(seq: Long, runId: String, title: String) =
+    ev(seq, runId = runId) { setRunRenamed(dev.agentmesh.gen.agentmesh.v1.RunRenamed.newBuilder().setTitle(title)) }
 fun delivered(seq: Long, messageId: String, at: Long = 6_000) =
     ev(seq, at) { setMessageDelivered(dev.agentmesh.gen.agentmesh.v1.MessageDelivered.newBuilder().setMessageId(messageId)) }
 
