@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 
 /** What notifies by default until the host's settings arrive (the daemon's `DefaultNotifyEvents`). */
-val DEFAULT_EVENTS = setOf(NoticeKind.Input, NoticeKind.Plan, NoticeKind.Question, NoticeKind.Report, NoticeKind.Failed, NoticeKind.Error)
+val DEFAULT_EVENTS = setOf(NoticeKind.Input, NoticeKind.Plan, NoticeKind.Question, NoticeKind.Report, NoticeKind.Failed, NoticeKind.Error, NoticeKind.Finished, NoticeKind.Ready)
 
 /**
  * Whether [kind] notifies on this phone: the host's `app.notify.enabled` off silences everything; then this phone's own

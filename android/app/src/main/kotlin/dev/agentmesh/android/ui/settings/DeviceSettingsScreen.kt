@@ -157,6 +157,8 @@ val NOTICE_LABELS = listOf(
     "error" to "An agent whose last turn ended in an error",
     "limited" to "An agent at its usage limit",
     "exited" to "Any agent's clean exit",
+    "finished" to "A lead or a run that finished its work",
+    "ready" to "A pull request ready to merge",
 )
 
 /**

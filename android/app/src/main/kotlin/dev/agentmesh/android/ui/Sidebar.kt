@@ -96,7 +96,7 @@ data class HostStatus(val hostId: String, val name: String, val up: Boolean, val
 data class WaitingItem(val runtime: HostRuntime, val w: Waiting)
 
 /** Everything the drawer and the home screen draw, across hosts: built from each host's state, equal when nothing a row shows changed. */
-data class SidebarModel(val hosts: List<HostStatus>, val projects: List<ProjectRow>, val waiting: List<WaitingItem>) {
+data class SidebarModel(val hosts: List<HostStatus>, val projects: List<ProjectRow>, val waiting: List<WaitingItem>, val unread: Int = 0) {
     /** More than one host is paired: rows carry a host badge. */
     val many: Boolean get() = hosts.size > 1
     /** Hosts are paired but none has said anything yet. */
@@ -117,7 +117,8 @@ fun rememberSidebar(): SidebarModel {
     val hosts by container.hosts.hosts.collectAsStateWithLifecycleCompat()
     val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
     val pins by container.prefs.pins.collectAsStateWithLifecycleCompat()
-    val flow = remember(hosts, runtimes, pins) {
+    val seen by container.prefs.activitySeen.collectAsStateWithLifecycleCompat()
+    val flow = remember(hosts, runtimes, pins, seen) {
         val rts = hosts.mapNotNull { runtimes[it.id] }
         // Hosts paired but their runtimes not built yet: still loading, not "no hosts".
         val loading = SidebarModel(hosts.map { HostStatus(it.id, it.name, up = false, loading = true, readOnly = false, note = "") }, emptyList(), emptyList())
@@ -126,6 +127,7 @@ fun rememberSidebar(): SidebarModel {
             val side = ArrayList<SidebarHost>()
             val status = ArrayList<HostStatus>()
             val waiting = ArrayList<WaitingItem>()
+            var unread = 0
             rts.forEachIndexed { i, rt ->
                 val s = states[i]
                 val w = waitingFor(s)
@@ -134,8 +136,10 @@ fun rememberSidebar(): SidebarModel {
                 side.add(SidebarHost(rt.hostId, name, up, !s.synced && s.conn !is ConnState.Stopped && s.conn !is ConnState.Reconnecting, s.runs, s.agents, w.mapTo(HashSet()) { it.agent.id }, s.shells.orEmpty().map { ShellRow(it.id, it.repo, if (it.hasStartedAt()) it.startedAt.seconds * 1000 else 0L, it.exited) }))
                 status.add(HostStatus(rt.hostId, name, up, !s.synced && s.conn !is ConnState.Stopped && s.conn !is ConnState.Reconnecting, isReadOnlyDevice(s), noteOf(s.conn)))
                 w.forEach { waiting.add(WaitingItem(rt, it)) }
+                // Only what is for the user counts: the rest is in the list, but is no news.
+                unread += s.activity.count { it.notice.forUser && it.seq > (seen[rt.hostId] ?: 0L) }
             }
-            SidebarModel(status, buildProjects(side, pins), waiting)
+            SidebarModel(status, buildProjects(side, pins), waiting, unread)
         }.flowOn(Dispatchers.Default).distinctUntilChanged()
     }
     // Until the first model is built, the paired hosts are loading (not "no hosts").
@@ -152,6 +156,8 @@ class SidebarActions(
     val newLead: (hostId: String, repo: String) -> Unit,
     val addAgent: (hostId: String, runId: String) -> Unit,
     val addProject: (hostId: String) -> Unit,
+    /** The Activity list: what the hosts decided to tell the user. */
+    val activity: () -> Unit = {},
     /** A project's shell: open it, or start one in a folder (ending one is asked in a dialog, like stopping an agent). */
     val openShell: (hostId: String, shellId: String) -> Unit = { _, _ -> },
     val newShell: (hostId: String, repo: String) -> Unit = { _, _ -> },
@@ -229,6 +235,7 @@ fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: Sideb
         Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = a.settings, Modifier.testTag("open-settings")) { Icon(Icons.Default.Settings, "Settings") }
             TextButton(onClick = a.live, Modifier.testTag("open-dock")) { Text("Live") }
+            TextButton(onClick = a.activity, Modifier.testTag("open-activity")) { Text(if (model.unread > 0) "Activity (${if (model.unread > 99) "99+" else model.unread})" else "Activity") }
             Box(Modifier.weight(1f))
             var menu by remember { mutableStateOf(false) }
             Box {

@@ -47,14 +47,14 @@ class NotifyEventsSettingsTest {
         compose.onNodeWithTag("choose-events").performScrollTo().assertIsOff()
         assertNull(container.prefs.notifyEvents.value)
         compose.onNodeWithTag("choose-events").performClick()
-        assertEquals(setOf("input", "plan", "question", "report", "failed", "error"), container.prefs.notifyEvents.value)
+        assertEquals(setOf("input", "plan", "question", "report", "failed", "error", "finished", "ready"), container.prefs.notifyEvents.value)
         // Why the last one can't be turned off is said.
         compose.onNodeWithTag("events-note").performScrollTo().assertIsDisplayed()
         // The usage-limit kind is on request, as on the desktop.
         compose.onNodeWithTag("event-limited").performScrollTo().assertIsOff().performClick()
         assertTrue("limited" in container.prefs.notifyEvents.value!!)
         // Turn every kind off but one: the last stays on (none at all is the host's own off switch).
-        for (k in listOf("input", "plan", "question", "report", "failed", "error", "limited").dropLast(1)) compose.onNodeWithTag("event-$k").performScrollTo().performClick()
+        for (k in listOf("input", "plan", "question", "report", "failed", "error", "finished", "ready", "limited").dropLast(1)) compose.onNodeWithTag("event-$k").performScrollTo().performClick()
         assertEquals(setOf("limited"), container.prefs.notifyEvents.value)
         compose.onNodeWithTag("event-limited").performScrollTo().assertIsNotEnabled()
         // Back to following the hosts.
