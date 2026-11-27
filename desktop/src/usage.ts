@@ -1,5 +1,6 @@
 import type { GetUsageResponse } from './gen/agentmesh/v1/mesh_pb'
 import type { GetCostResponse } from './gen/agentmesh/v1/report_pb'
+import type { Vendor } from './vendor'
 
 /** What `mesh usage` and `mesh cost` show, as rows the screen draws. Nothing here asks the host for anything. */
 
@@ -62,22 +63,64 @@ export function usageView(u: GetUsageResponse): UsageView {
   return { reserve, claude, claudeSource: u.claude?.source ?? '', claudeFetchedAt: date(u.claude?.fetchedAt), agy, tiers, warnings }
 }
 
-/** One line of the side panel's quota: a Claude window, or agy's fullest row. */
-export interface QuotaRow {
+/** One bar of the footer's quota: a window of a provider. */
+export interface QuotaLine {
+  /** What the bar says: "5h", "7d", an agy row's name. */
   label: string
+  /** The window in words, for its tip. */
+  title: string
   /** Percent used, 0 to 100. */
   used: number
   atReserve: boolean
   resetsAt?: Date
+  /** agy gives its reset as text ("1h"), not a time. */
+  resetsIn?: string
 }
 
-/** The compact reading the side panel shows, from the same view as the usage screen: Claude's windows with the reserve line, and agy's fullest quota row; empty when the host has no reading. */
-export function quotaRows(u: GetUsageResponse): { reserve: number; rows: QuotaRow[] } {
+/** A provider's bars, under its mark. */
+export interface QuotaSection {
+  vendor: Vendor
+  name: string
+  lines: QuotaLine[]
+}
+
+/** "five_hour" and "seven-day window" read "5h" and "7d"; the model windows keep their model ("7d Opus"). */
+function windowLabel(key: string, label: string): string {
+  const k = `${key} ${label}`.toLowerCase()
+  const base = /five.?hour|\b5h\b/.test(k) ? '5h' : /seven.?day|weekly|\b7d\b/.test(k) ? '7d' : ''
+  if (!base) return label
+  const model = /opus/.test(k) ? 'Opus' : /sonnet/.test(k) ? 'Sonnet' : ''
+  return model ? `${base} ${model}` : base
+}
+
+const minorWindow = (key: string, label: string) => /opus|sonnet/i.test(`${key} ${label}`)
+
+/** Whether a tier of the chain starts on the model an agy row measures: the names overlap, either way round. */
+function rowIsUsed(r: AgyRow, tiers: AgyTier[]): boolean {
+  const names = [r.group, r.label].map((n) => n.trim().toLowerCase()).filter(Boolean)
+  return tiers.some((t) => {
+    const m = t.model.trim().toLowerCase()
+    return m !== '' && names.some((n) => n.includes(m) || m.includes(n))
+  })
+}
+
+/**
+ * What the sidebar's footer shows of the quota, a section per provider: Claude's windows (the short ones, "5h" and "7d")
+ * and the agy rows a tier of the chain starts on. The minor ones (Claude's Opus and Sonnet windows, an agy pool no tier
+ * uses) are left out until one is at the reserve; Usage and cost has them all. With no reading, no sections.
+ */
+export function quotaSections(u: GetUsageResponse): { reserve: number; sections: QuotaSection[] } {
   const v = usageView(u)
-  const rows: QuotaRow[] = v.claude.map((w) => ({ label: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, resetsAt: w.resetsAt }))
-  const agy = [...v.agy].sort((a, b) => a.left - b.left)[0]
-  if (agy) rows.push({ label: `agy ${agy.group} ${agy.label}`.trim(), used: 100 - agy.left, atReserve: agy.atReserve })
-  return { reserve: v.reserve, rows }
+  const sections: QuotaSection[] = []
+  const claude: QuotaLine[] = v.claude
+    .filter((w) => !minorWindow(w.key, w.label) || w.atReserve)
+    .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, resetsAt: w.resetsAt }))
+  if (claude.length > 0) sections.push({ vendor: 'claude', name: 'Claude', lines: claude })
+  // With no tier to say what is used, the fullest row stands for agy; with tiers, the rows they start on.
+  const used = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || rowIsUsed(r, v.tiers)) : [...v.agy].sort((x, y) => x.left - y.left).slice(0, 1)
+  const agy: QuotaLine[] = used.sort((x, y) => x.left - y.left).slice(0, 3).map((r) => ({ label: r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, resetsIn: r.resets }))
+  if (agy.length > 0) sections.push({ vendor: 'gemini', name: 'agy', lines: agy })
+  return { reserve: v.reserve, sections }
 }
 
 /** When a window resets, as a span from `now` ("resets in 2 h 10 min") within a day, else the day and time. */

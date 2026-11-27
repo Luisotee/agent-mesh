@@ -83,8 +83,8 @@ test('the sidebar shows the project, its run as the lead and the worker under it
 
 test('a new workspace starts a lead in a worktree of a project from the dialog, and holding a PR needs a PR the host lists', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'New', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'New lead' }).click()
+  await page.getByRole('button', { name: /^New in / }).click()
+  await page.getByRole('menuitem', { name: 'New lead…' }).click()
   const dialog = page.getByRole('dialog')
   // The host lists the repos it has seen (the throwaway repo, used by the earlier test's agents), with its branches.
   await dialog.getByLabel('Project').fill(host.repo)

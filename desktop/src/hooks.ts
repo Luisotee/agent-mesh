@@ -32,14 +32,14 @@ export function useHostViews(hosts: HostRuntime[]): HostView[] {
   const snapshot = useCallback(() => {
     const next = hosts.map((h) => {
       const s = h.store.getState()
-      return { hostId: h.info.id, hostName: h.info.name, runs: s.runs, agents: s.agents, messages: s.messages, clockSkewMs: s.clockSkewMs }
+      return { hostId: h.info.id, hostName: h.info.name, runs: s.runs, agents: s.agents, messages: s.messages, clockSkewMs: s.clockSkewMs, waitingAll: s.waitingAll }
     })
     const prev = last.current
     const same =
       prev.length === next.length &&
       next.every((n, i) => {
         const p = prev[i]!
-        return p.hostId === n.hostId && p.hostName === n.hostName && p.runs === n.runs && p.agents === n.agents && p.messages === n.messages && p.clockSkewMs === n.clockSkewMs
+        return p.hostId === n.hostId && p.hostName === n.hostName && p.runs === n.runs && p.agents === n.agents && p.messages === n.messages && p.clockSkewMs === n.clockSkewMs && p.waitingAll === n.waitingAll
       })
     if (!same) last.current = next
     return last.current
