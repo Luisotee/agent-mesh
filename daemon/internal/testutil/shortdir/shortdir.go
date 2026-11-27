@@ -17,9 +17,18 @@ var (
 	tmpWritable bool // whether /tmp can be written does not change in a test binary's life
 )
 
-// Base is where the short dirs go: /tmp when it can be written, else the OS temp dir (read each time, so a test
-// that sets TMPDIR is followed).
+// EnvBase names the dir the short dirs go under, when it is set and exists: a gate (daemon/scripts/check.sh) makes
+// one and removes it when it ends, so what a killed or timed-out run left goes with it.
+const EnvBase = "AGENT_MESH_SHORT_TMP"
+
+// Base is where the short dirs go: $AGENT_MESH_SHORT_TMP when it names a dir, else /tmp when it can be written,
+// else the OS temp dir (read each time, so a test that sets TMPDIR is followed).
 func Base() string {
+	if d := os.Getenv(EnvBase); d != "" {
+		if st, err := os.Stat(d); err == nil && st.IsDir() {
+			return d
+		}
+	}
 	probeOnce.Do(func() {
 		if f, err := os.CreateTemp("/tmp", "am-probe"); err == nil {
 			f.Close()
@@ -31,6 +40,31 @@ func Base() string {
 		return "/tmp"
 	}
 	return os.TempDir()
+}
+
+// leftovers are the names of the dirs the suites make under Base and the OS temp dir. A run that is killed or times
+// out (the panic skips every cleanup) leaves them; Sweep removes the old ones at the next start.
+var leftovers = []string{"am[0-9]*", "reopen-*", "meshd-bins-*", "meshd-e2e-bins-*", "share-[0-9]*", "cop-*", "tc[0-9]*"}
+
+// Sweep removes the dirs a killed run left (see leftovers) that are older than maxAge, from Base and the OS temp
+// dir. The age is what keeps a run in progress in another process safe: pass more than the longest suite takes.
+func Sweep(maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	seen := map[string]bool{}
+	for _, base := range []string{Base(), os.TempDir()} {
+		if seen[base] {
+			continue
+		}
+		seen[base] = true
+		for _, pat := range leftovers {
+			names, _ := filepath.Glob(filepath.Join(base, pat))
+			for _, n := range names {
+				if st, err := os.Lstat(n); err == nil && st.IsDir() && st.ModTime().Before(cutoff) {
+					os.RemoveAll(n)
+				}
+			}
+		}
+	}
 }
 
 // Make is os.MkdirTemp under Base, for a test that removes the dir itself (keep the prefix short).

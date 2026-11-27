@@ -2,8 +2,10 @@ package shortdir
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestADirIsShortWhateverTMPDIRAndTheTestNameAre(t *testing.T) {
@@ -27,5 +29,41 @@ func TestADirIsRemovedWhenTheTestEnds(t *testing.T) {
 	})
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("%s still exists: %v", dir, err)
+	}
+}
+
+func TestADirFollowsTheGatesBase(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv(EnvBase, base)
+	if dir := New(t); filepath.Dir(dir) != base {
+		t.Fatalf("%q is not under %q", dir, base)
+	}
+	t.Setenv(EnvBase, filepath.Join(base, "gone"))
+	if Base() == filepath.Join(base, "gone") {
+		t.Fatal("a base that does not exist is used")
+	}
+}
+
+// A killed run leaves its dirs; the next start removes the old ones and leaves the young (a run in progress).
+func TestSweepRemovesOnlyOldLeftovers(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv(EnvBase, base)
+	t.Setenv("TMPDIR", base)
+	old, young, other := filepath.Join(base, "am123"), filepath.Join(base, "reopen-456"), filepath.Join(base, "keepme")
+	oldBins := filepath.Join(base, "meshd-bins-789")
+	for _, d := range []string{old, young, other, oldBins} {
+		if err := os.MkdirAll(filepath.Join(d, "state"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-5 * time.Hour)
+	for _, d := range []string{old, oldBins, other} {
+		os.Chtimes(d, past, past)
+	}
+	Sweep(3 * time.Hour)
+	for d, want := range map[string]bool{old: false, oldBins: false, young: true, other: true} {
+		if _, err := os.Stat(d); (err == nil) != want {
+			t.Errorf("%s: exists=%v, want %v", filepath.Base(d), err == nil, want)
+		}
 	}
 }

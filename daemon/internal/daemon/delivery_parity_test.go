@@ -169,18 +169,18 @@ func TestADraftLeftInTheBoxByAUserWhoDetachedHoldsTheDoorbell(t *testing.T) {
 
 func TestAPlaceholderInTheBoxNeverHoldsADoorbell(t *testing.T) {
 	w, _ := boxWorld(t, map[string]string{"FAKECLAUDE_PLACEHOLDER": "1"})
+	// A doorbell held for a draft says so (a DoorbellHeld event) as soon as it is held: that, not how long delivery
+	// took on a loaded host, is what tells a placeholder read as a draft.
+	w.set(t, "delivery.draft_hold_alert", 0.05)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{})
-	if screen := w.screen(t, worker); !strings.Contains(screen, `Try "fix lint errors"`) {
-		t.Fatalf("no placeholder drawn:\n%s", screen)
-	}
+	waitFor(t, "the placeholder drawn", func() bool { return strings.Contains(w.screen(t, worker), `Try "fix lint errors"`) })
 	for _, typ := range []v1.MessageType{v1.MessageType_MESSAGE_TYPE_TASK, v1.MessageType_MESSAGE_TYPE_INFO} {
-		sent := time.Now()
 		msg := send(t, asLead, worker.Id, typ, "hello")
 		waitFor(t, "the doorbell over a placeholder", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
-		if held := w.deliveredAt(t, worker.Id, msg.Id).Sub(sent); held > time.Second {
-			t.Errorf("a %s was held %s by a placeholder", typ, held)
+		if n := w.count(t, run.Id, func(ev *v1.Event) bool { return ev.GetDoorbellHeld() != nil }); n != 0 {
+			t.Errorf("a %s was held by a placeholder (%d DoorbellHeld events)", typ, n)
 		}
 		w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	}

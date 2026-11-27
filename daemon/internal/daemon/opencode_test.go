@@ -855,6 +855,29 @@ func TestOpenCodeFooterLimitLineRotatesTheAgent(t *testing.T) {
 	}
 }
 
+// A footer limit drawn before the DB has the reply (a loaded host, or the order of a real CLI's writes) is recorded
+// with no conversation yet; the DB's first sight of that reply must not read as a new turn that ends the limit, or
+// the agent is never moved on.
+func TestAFooterLimitSeenBeforeTheDBHasTheReplyStillRotatesTheAgent(t *testing.T) {
+	w := startReopen(t, fastPass, func(c *daemon.AgentConfig) { c.Env["FAKEOPENCODE_PANE_FIRST"] = "1" })
+	ctx := context.Background()
+	w.set(t, "tiers.opencode.mid.model", []any{"opencode/beam-free", "opencode/flint-40b-free"})
+	run := startRun(t, w.device.Mesh, "")
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-first", Kind: opencode.Kind, Tier: "mid",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := w.waitState(sp.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	oldTerm := a.TerminalId
+	w.typeInto(a, "/limit-pane-free\r")
+	re := w.waitReopened(t, a.Id, oldTerm)
+	if re.Model != "opencode/flint-40b-free" {
+		t.Fatalf("after the limit: model=%q, want flint-40b-free", re.Model)
+	}
+}
+
 // A round's OpenCode reviewer whose model is at a limit that outlasts the ask, with no other model on its tier to
 // move to, settles its member at once: the round ends with what the others answered instead of waiting out
 // `ask.timeout`. A limit that ends before the deadline stays pending (the agent is continued at the reset).

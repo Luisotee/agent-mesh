@@ -15,6 +15,7 @@
 //	               box while it retries a limit in its own loop (`■■⬝⬝⬝⬝⬝⬝ Too Many Requests [retrying in 30s attempt #4]`)
 //	/limit-pane-free  the same with `Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]` (seen live)
 //	/limit-pane-gutter  the same line in the `┃` callout older versions drew
+//	               FAKEOPENCODE_PANE_FIRST=1 draws the line first and writes the DB 600 ms later (a limit on the screen before the DB has the reply)
 //	/unavailable   writes "Upstream request failed: Model is unavailable." reply (status 400)
 //	/error         writes 500 error reply
 //	/exit          exits 0
@@ -253,6 +254,14 @@ func main() {
 			os.Exit(7)
 		}
 
+		// FAKEOPENCODE_PANE_FIRST: the footer line is drawn before anything is written to the DB, which comes a moment
+		// later (the order the daemon's poll can see on a loaded host: a limit on the screen, a DB with no reply).
+		panePrinted := false
+		if os.Getenv("FAKEOPENCODE_PANE_FIRST") != "" && strings.HasPrefix(line, "/limit-pane") {
+			fmt.Print(paneLine(line))
+			panePrinted = true
+			time.Sleep(600 * time.Millisecond)
+		}
 		db := openDB()
 		if sessionID == "" {
 			sessionID = "ses_" + newHex(6)
@@ -323,11 +332,17 @@ func main() {
 			writeAssistantMessage(db, sessionID, asstID, providerID, modelID, created, "", errObj)
 			fmt.Print("  \u2503  Too Many Requests\r\n")
 		case "/limit-pane":
-			fmt.Print("   \u25a0\u25a0\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d Too Many Requests [retrying in 30s attempt #4]        esc interrupt\r\n")
+			if !panePrinted {
+				fmt.Print(paneLine(line))
+			}
 		case "/limit-pane-free":
-			fmt.Print("   \u25a0\u25a0\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]        esc interrupt\r\n")
+			if !panePrinted {
+				fmt.Print(paneLine(line))
+			}
 		case "/limit-pane-gutter":
-			fmt.Print("  \u2503  Too Many Requests [retrying in 30s attempt #4]\r\n")
+			if !panePrinted {
+				fmt.Print(paneLine(line))
+			}
 		case "/unavailable":
 			errObj := map[string]any{
 				"name": "APIError",
@@ -358,6 +373,17 @@ func main() {
 		}
 		prompt()
 	}
+}
+
+// paneLine is the footer line a /limit-pane command draws.
+func paneLine(cmd string) string {
+	switch cmd {
+	case "/limit-pane":
+		return "   \u25a0\u25a0\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d Too Many Requests [retrying in 30s attempt #4]        esc interrupt\r\n"
+	case "/limit-pane-free":
+		return "   \u25a0\u25a0\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d\u2b1d Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]        esc interrupt\r\n"
+	}
+	return "  \u2503  Too Many Requests [retrying in 30s attempt #4]\r\n"
 }
 
 func prompt() {

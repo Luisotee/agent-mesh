@@ -6,7 +6,8 @@
 #   SKIP_PYTEST=1 daemon/scripts/check.sh
 #
 # Toolchains are looked for on PATH, then in the user-local spots docs name: ~/.local/go, ~/.local/opt/buf,
-# and ~/.local/opt/zigcc/cc as the C compiler the race detector needs when the machine has none.
+# and ~/.local/opt/zigcc/cc as the C compiler the race detector needs when the machine has none. Its scratch dirs are
+# removed when it ends, however it ends (not by a SIGKILL).
 set -euo pipefail
 
 daemon_dir=$(cd "$(dirname "$0")/.." && pwd)
@@ -19,6 +20,37 @@ export CGO_ENABLED=1
 # An agent of the daemon runs this with its own identity in the environment (AGENT_MESH_TOKEN, AGENT_MESH_STATE, …):
 # the tests start daemons of their own, which would refuse that token ("unknown or revoked token").
 for name in $(compgen -e | grep '^AGENT_MESH_' || true); do unset "$name"; done
+
+# The tests and the Go toolchain write scratch dirs (state dirs, built binaries, go-build trees). They go into dirs of
+# this run, removed when it ends, also when it is killed (TERM, INT) or a test run times out: /tmp is a tmpfs, and a
+# gate that leaves its dirs there fills it for every other one. TMPDIR keeps the user's own value as the parent (a long
+# one is the test of the suite); the short dir is for unix sockets (shortdir), which cannot take a long path.
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/ck.XXXXXX")
+short=$(mktemp -d /tmp/cs.XXXXXX 2>/dev/null || echo "$scratch")
+export TMPDIR="$scratch" GOTMPDIR="$scratch" AGENT_MESH_SHORT_TMP="$short"
+# The long steps run as a job of their own session, waited for: a TERM or INT to this script (a `pkill`, a Ctrl-C)
+# then stops at once instead of when `go test` ends, and takes the job's whole process group with it, tests' children
+# too, before the scratch dirs go.
+child=
+cleanup() {
+  if [ -n "$child" ]; then
+    kill -TERM -- "-$child" 2>/dev/null || true
+    sleep 1
+    kill -KILL -- "-$child" 2>/dev/null || true
+  fi
+  rm -rf "$scratch" "$short"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+run() {
+  setsid "$@" &
+  child=$!
+  local rc=0
+  wait "$child" || rc=$?
+  child=
+  return $rc
+}
 
 step() { printf '\n== %s\n' "$*"; }
 
@@ -56,11 +88,11 @@ step "go vet"
 
 step "go test -race"
 # The daemon package alone runs about 8 to 10 minutes under -race (more on a loaded host): past go test's default 10-minute timeout.
-(cd "$daemon_dir" && go test -race -count=1 -timeout 30m ./...)
+run go -C "$daemon_dir" test -race -count=1 -timeout 30m ./...
 
 if [ -z "${SKIP_PYTEST:-}" ]; then
   step "python suite"
-  (cd "$repo" && uvx pytest -q tests)
+  run bash -c 'cd "$1" && exec uvx pytest -q tests' _ "$repo"
 fi
 
 echo

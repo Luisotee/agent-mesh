@@ -428,6 +428,12 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 				if a.State == v1.AgentState_AGENT_STATE_LIMITED && info.MessageID == prevMsgID {
 					break
 				}
+				// The limit was read off the screen before the DB showed the reply (no DB yet, or no message): the
+				// reply the DB now shows is that turn, still at its limit, not a new turn that ends it.
+				if a.State == v1.AgentState_AGENT_STATE_LIMITED && prevMsgID == "" && prevMsgStatus == "limited" {
+					nextMsgID = info.MessageID
+					break
+				}
 				if a.State != v1.AgentState_AGENT_STATE_WORKING {
 					events = append(events, &adapterv1.AgentEvent{
 						Time: timestamppb.New(now),
@@ -492,6 +498,14 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 				curPS.lastOutput = lastOut
 				curPS.lastMsgID = nextMsgID
 				curPS.lastMsgStatus = nextMsgStatus
+			}
+			d.rt.openCode.mu.Unlock()
+		} else if dbErr != nil && paneHit && applyErr == nil {
+			// The limit is recorded though the DB could not be read (the output stays unread, so the poll comes
+			// back): remember that this turn is at its limit, or the DB's first sight of it would start a turn.
+			d.rt.openCode.mu.Lock()
+			if curPS := d.rt.openCode.polled[a.Id]; curPS != nil && curPS.terminalID == a.TerminalId {
+				curPS.lastMsgStatus = "limited"
 			}
 			d.rt.openCode.mu.Unlock()
 		}
