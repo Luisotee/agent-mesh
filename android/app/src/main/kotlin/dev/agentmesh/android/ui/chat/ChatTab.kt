@@ -209,7 +209,8 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
         sync.loadEarlier()
     }
     // A quoted message opens the reply with its lines marked, above what was already typed.
-    val quote: (String) -> Unit = { text -> draft = quoteReply(text) + draft }
+    // Offered only where the composer takes it (a read-only device or a stopped agent has no field to show it in).
+    val quote: ((String) -> Unit)? = if (promptRefusal(agent, readOnly).isEmpty()) ({ text -> draft = quoteReply(text) + draft }) else null
 
     Column(modifier.fillMaxSize().imePadding()) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("chat"), state = list, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -323,18 +324,18 @@ private fun PromptComposer(
 
 /** What a held-down message offers: copy it, quote it into the reply, or select part of it (a long press would otherwise be taken by the menu). */
 @Composable
-private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, quote: (String) -> Unit, onSelect: () -> Unit) {
+private fun MessageMenu(open: Boolean, onDismiss: () -> Unit, text: String, quote: ((String) -> Unit)?, onSelect: () -> Unit) {
     val context = LocalContext.current
     DropdownMenu(open, onDismiss) {
         DropdownMenuItem(text = { Text("Copy") }, onClick = { onDismiss(); copyToClipboard(context, text, "message") }, modifier = Modifier.testTag("msg-copy"))
-        DropdownMenuItem(text = { Text("Quote in reply") }, onClick = { onDismiss(); quote(text) }, modifier = Modifier.testTag("msg-quote"))
+        if (quote != null) DropdownMenuItem(text = { Text("Quote in reply") }, onClick = { onDismiss(); quote(text) }, modifier = Modifier.testTag("msg-quote"))
         DropdownMenuItem(text = { Text("Select text") }, onClick = { onDismiss(); onSelect() }, modifier = Modifier.testTag("msg-select"))
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatBlock(block: Block, bubble: Color, quote: (String) -> Unit, running: Boolean) {
+private fun ChatBlock(block: Block, bubble: Color, quote: ((String) -> Unit)?, running: Boolean) {
     var menu by remember { mutableStateOf(false) }
     var select by remember { mutableStateOf(false) }
     when (block) {

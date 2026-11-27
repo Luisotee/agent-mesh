@@ -222,6 +222,16 @@ class AgentChatScreenTest {
         compose.onNodeWithTag("prompt").assertTextContains("> On it.\n> Second line.", substring = true)
     }
 
+    @Test fun `a stopped agent has no composer to quote into, so the menu does not offer Quote`() {
+        fresh(listOf(entry("1", TranscriptKind.TRANSCRIPT_KIND_ASSISTANT, "On it.")))
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_EXITED).build())
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat-assistant").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("chat-assistant").performTouchInput { longClick() }
+        compose.onNodeWithTag("msg-copy").assertIsDisplayed()
+        compose.onAllNodesWithTag("msg-quote").assertCountEquals(0)
+    }
+
     @Test fun `the user's own words are a bubble and a pause starts a new time label`() {
         val at = { ms: Long -> com.google.protobuf.Timestamp.newBuilder().setSeconds(ms / 1000).build() }
         val now = System.currentTimeMillis()

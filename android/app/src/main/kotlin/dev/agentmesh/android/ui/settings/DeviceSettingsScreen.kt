@@ -4,14 +4,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -89,23 +88,27 @@ private fun ThemeRow(name: String, selected: Boolean, onClick: () -> Unit) {
     ) { RadioButton(selected, onClick = null) }
 }
 
-/** The themes as swatch cards drawn from their own files: the page, the accent and the state colours, under the name. */
-@OptIn(ExperimentalLayoutApi::class)
+/** The themes as swatch cards drawn from their own files: the page, the accent and the state colours, under the name. Two to a row; an odd last card keeps a card's width. */
 @Composable
 private fun ThemeCards(themes: List<Pair<String, dev.agentmesh.android.theme.MeshTheme>>, choice: String, onChoose: (String) -> Unit) {
-    FlowRow(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), maxItemsInEachRow = 2) {
-        themes.forEach { (name, t) ->
-            val on = choice == name
-            Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(t.scheme.background)
-                    .border(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                    .selectable(on, onClick = { onChoose(name) }, role = Role.RadioButton).padding(12.dp).testTag("theme-$name"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(name, style = MaterialTheme.typography.labelLarge, color = t.scheme.onBackground, maxLines = 1)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(t.scheme.primary, t.states.working, t.states.needs, t.states.done).forEach { Box(Modifier.size(14.dp).clip(CircleShape).background(it)) }
+    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        themes.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { (name, t) ->
+                    val on = choice == name
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).background(t.scheme.background)
+                            .border(if (on) 2.dp else 1.dp, if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                            .selectable(on, onClick = { onChoose(name) }, role = Role.RadioButton).padding(12.dp).testTag("theme-$name"),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(name, style = MaterialTheme.typography.labelLarge, color = t.scheme.onBackground, maxLines = 1)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(t.scheme.primary, t.states.working, t.states.needs, t.states.done).forEach { Box(Modifier.size(14.dp).clip(CircleShape).background(it)) }
+                        }
+                    }
                 }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }

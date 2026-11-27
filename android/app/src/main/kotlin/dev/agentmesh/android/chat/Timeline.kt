@@ -34,16 +34,20 @@ private val Entry.at: Long
  * chat still says a message came.
  */
 fun mergeTimeline(blocks: List<Block>, messages: List<Message>, cards: Boolean): List<Entry> {
-    val pending = ArrayDeque(messages.map { Entry.Card(it) })
+    // A message with no time stands where the one before it does (the first, with the next one's), so it never holds the rest back.
+    val cardsAt = messages.map { Entry.Card(it).at }.toMutableList()
+    for (i in 1 until cardsAt.size) if (cardsAt[i] == 0L) cardsAt[i] = cardsAt[i - 1]
+    for (i in cardsAt.size - 2 downTo 0) if (cardsAt[i] == 0L) cardsAt[i] = cardsAt[i + 1]
+    val pending = ArrayDeque(messages.mapIndexed { i, m -> Entry.Card(m) to cardsAt[i] })
     val out = ArrayList<Entry>(blocks.size + messages.size)
     var clock = 0L
     for (b in blocks) {
         if (cards && b is Block.Mesh) continue
         clock = maxOf(clock, b.at)
-        while (pending.isNotEmpty() && pending.first().at in 1..clock) out.add(pending.removeFirst())
+        while (pending.isNotEmpty() && pending.first().second in 1..clock) out.add(pending.removeFirst().first)
         out.add(Entry.Chat(b))
     }
-    out.addAll(pending)
+    out.addAll(pending.map { it.first })
     return out
 }
 

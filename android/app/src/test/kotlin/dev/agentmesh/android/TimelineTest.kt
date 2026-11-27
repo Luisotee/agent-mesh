@@ -57,6 +57,12 @@ class TimelineTest {
         assertEquals(listOf("u1", "msg:n"), ids(mergeTimeline(toBlocks(listOf(user("u1", 10_000))), listOf(noTime), cards = true)))
     }
 
+    @Test fun `a message with no time stands where the one before it does and holds nothing back`() {
+        val noTime = dev.agentmesh.gen.agentmesh.v1.Message.newBuilder().setId("n").setToId("lead").setType(MessageType.MESSAGE_TYPE_INFO).build()
+        val blocks = toBlocks(listOf(user("u1", 5_000), user("u2", 15_000), user("u3", 25_000)))
+        assertEquals(listOf("u1", "msg:a", "msg:n", "u2", "msg:c", "u3"), ids(mergeTimeline(blocks, listOf(plan("a", 10_000), noTime, plan("c", 20_000)), cards = true)))
+    }
+
     @Test fun `a time label opens the timeline and each group after a pause of five minutes`() {
         val m = 60_000L
         val blocks = toBlocks(listOf(user("u1", 0 + m), reply("a1", 2 * m), user("u2", 10 * m), reply("a2", 11 * m), user("u3", 30 * m)))
