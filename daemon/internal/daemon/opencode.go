@@ -414,6 +414,10 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 						})
 						if dbErr == nil && info.MessageID != "" {
 							nextMsgID = info.MessageID
+							if info.LastRole == "user" {
+								// Its reply has no row yet: the one that comes is this turn's, still at its limit.
+								nextMsgID = ""
+							}
 						}
 						nextMsgStatus = "limited"
 						paneHit = true
@@ -431,7 +435,9 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 				// The limit was read off the screen before the DB showed the reply (no DB yet, or no message): the
 				// reply the DB now shows is that turn, still at its limit, not a new turn that ends it.
 				if a.State == v1.AgentState_AGENT_STATE_LIMITED && prevMsgID == "" && prevMsgStatus == "limited" {
-					nextMsgID = info.MessageID
+					if info.LastRole != "user" { // the user's message is not its reply: wait for that
+						nextMsgID = info.MessageID
+					}
 					break
 				}
 				if a.State != v1.AgentState_AGENT_STATE_WORKING {
@@ -506,6 +512,7 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 			d.rt.openCode.mu.Lock()
 			if curPS := d.rt.openCode.polled[a.Id]; curPS != nil && curPS.terminalID == a.TerminalId {
 				curPS.lastMsgStatus = "limited"
+				curPS.lastMsgID = "" // whatever it was, the reply that comes is this turn's
 			}
 			d.rt.openCode.mu.Unlock()
 		}

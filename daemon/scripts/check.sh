@@ -31,8 +31,8 @@ scratch_base=${TMPDIR:-/var/tmp}
 [ -d "$scratch_base" ] && [ -w "$scratch_base" ] || scratch_base=/tmp
 scratch=$(mktemp -d "$scratch_base/ck.XXXXXX")
 short=$(mktemp -d /tmp/cs.XXXXXX 2>/dev/null || echo "$scratch")
-export TMPDIR="$scratch" GOTMPDIR="$scratch" AGENT_MESH_SHORT_TMP="$short"
-# The long steps run as a job of their own session, waited for: a TERM or INT to this script (a `pkill`, a Ctrl-C)
+export TMPDIR="$scratch" GOTMPDIR="$scratch" MESH_TEST_SHORT_TMP="$short"
+# Every step but the quick gofmt runs as a job of their own session, waited for: a TERM or INT to this script (a `pkill`, a Ctrl-C)
 # then stops at once instead of when `go test` ends, and takes the job's whole process group with it, tests' children
 # too, before the scratch dirs go.
 child=
@@ -55,24 +55,30 @@ run() {
   child=
   return $rc
 }
+# runin DIR CMD ARGS: run in DIR.
+runin() {
+  local dir=$1
+  shift
+  run bash -c 'cd "$1" && shift && exec "$@"' _ "$dir" "$@"
+}
 
 step() { printf '\n== %s\n' "$*"; }
 
 step "buf lint"
-(cd "$repo/proto" && buf lint)
+runin "$repo/proto" buf lint
 
 step "buf breaking"
 base=$(git -C "$repo" rev-parse --verify -q origin/main || git -C "$repo" rev-parse --verify -q main || true)
 if [ -n "$base" ] && [ -n "$(git -C "$repo" ls-tree -d "$base" proto)" ]; then
   gitdir=$(cd "$repo" && cd "$(git rev-parse --git-common-dir)" && pwd)
-  (cd "$repo/proto" && buf breaking --against "$gitdir#ref=$base,subdir=proto")
+  runin "$repo/proto" buf breaking --against "$gitdir#ref=$base,subdir=proto"
 else
   echo "skipped: main has no proto/ yet"
 fi
 
 step "generated code is current"
-(cd "$daemon_dir" && go tool protoc-gen-go --version >/dev/null && go tool protoc-gen-connect-go --version >/dev/null)
-(cd "$repo/proto" && buf generate)
+runin "$daemon_dir" bash -c 'go tool protoc-gen-go --version >/dev/null && go tool protoc-gen-connect-go --version >/dev/null'
+runin "$repo/proto" buf generate
 if [ -n "$(git -C "$repo" status --porcelain -- daemon/gen)" ]; then
   git -C "$repo" status --short -- daemon/gen
   echo "daemon/gen is stale: commit the output of 'cd proto && buf generate'" >&2
@@ -88,7 +94,7 @@ if [ -n "$unformatted" ]; then
 fi
 
 step "go vet"
-(cd "$daemon_dir" && go vet ./...)
+runin "$daemon_dir" go vet ./...
 
 step "go test -race"
 # The daemon package alone runs about 8 to 10 minutes under -race (more on a loaded host): past go test's default 10-minute timeout.

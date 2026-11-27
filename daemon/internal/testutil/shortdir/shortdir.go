@@ -7,7 +7,6 @@ package shortdir
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,9 +19,10 @@ var (
 
 // EnvBase names the dir the short dirs go under, when it is set and exists: a gate (daemon/scripts/check.sh) makes
 // one and removes it when it ends, so what a killed or timed-out run left goes with it.
-const EnvBase = "AGENT_MESH_SHORT_TMP"
+// Its name is outside AGENT_MESH_*, which cleanenv.Agent() unsets in the suites' TestMains.
+const EnvBase = "MESH_TEST_SHORT_TMP"
 
-// Base is where the short dirs go: $AGENT_MESH_SHORT_TMP when it names a dir, else /tmp when it can be written,
+// Base is where the short dirs go: $MESH_TEST_SHORT_TMP when it names a dir, else /tmp when it can be written,
 // else the OS temp dir (read each time, so a test that sets TMPDIR is followed).
 func Base() string {
 	if d := os.Getenv(EnvBase); d != "" {
@@ -43,14 +43,29 @@ func Base() string {
 	return os.TempDir()
 }
 
-// leftovers are the names of the dirs the suites make under Base and the OS temp dir. A run that is killed or times
-// out (the panic skips every cleanup) leaves them; Sweep removes the old ones at the next start.
-var leftovers = []string{"am[0-9]*", "reopen-*", "meshd-bins-*", "meshd-e2e-bins-*"}
+// marker is the file every dir Make creates holds: what Sweep removes is told by it, whatever the dir is called.
+const marker = ".shortdir"
 
-func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }
+// Make is os.MkdirTemp under Base, for a test that removes the dir itself (keep the prefix short). The dir holds a
+// marker file, which is how Sweep knows it as the suites' own.
+func Make(prefix string) (string, error) {
+	dir, err := os.MkdirTemp(Base(), prefix)
+	if err != nil {
+		return "", err
+	}
+	if f, err := os.Create(filepath.Join(dir, marker)); err == nil {
+		f.Close()
+	}
+	return dir, nil
+}
 
-// Sweep removes the dirs a killed run left (see leftovers) that are older than maxAge, from Base and the OS temp
-// dir. The age is what keeps a run in progress in another process safe: pass more than the longest suite takes.
+// binsPatterns are the dirs the TestMains make with os.MkdirTemp (the built fakes, 54 MB each): their names are
+// their own.
+var binsPatterns = []string{"meshd-bins-*", "meshd-e2e-bins-*"}
+
+// Sweep removes the dirs a killed or timed-out run left (its cleanups never ran) that are older than maxAge, from Base
+// and the OS temp dir: every dir Make made (it holds the marker file) and the built-binaries dirs. The age is what
+// keeps a run in progress in another process safe: pass more than the longest suite takes.
 func Sweep(maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 	seen := map[string]bool{}
@@ -59,25 +74,32 @@ func Sweep(maxAge time.Duration) {
 			continue
 		}
 		seen[base] = true
-		for _, pat := range leftovers {
-			names, _ := filepath.Glob(filepath.Join(base, pat))
-			for _, n := range names {
-				st, err := os.Lstat(n)
-				if err != nil || !st.IsDir() || !st.ModTime().Before(cutoff) {
+		entries, err := os.ReadDir(base)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			n := filepath.Join(base, e.Name())
+			ours := false
+			for _, pat := range binsPatterns {
+				if ok, _ := filepath.Match(pat, e.Name()); ok {
+					ours = true
+				}
+			}
+			if !ours {
+				if _, err := os.Lstat(filepath.Join(n, marker)); err != nil {
 					continue
 				}
-				// A generic name (am123) is the suites' only if it holds what they put there.
-				if strings.HasPrefix(filepath.Base(n), "am") && !pathExists(filepath.Join(n, "state")) {
-					continue
-				}
+			}
+			if st, err := os.Lstat(n); err == nil && st.ModTime().Before(cutoff) {
 				os.RemoveAll(n)
 			}
 		}
 	}
 }
-
-// Make is os.MkdirTemp under Base, for a test that removes the dir itself (keep the prefix short).
-func Make(prefix string) (string, error) { return os.MkdirTemp(Base(), prefix) }
 
 // New is an empty dir with a short path, removed when the test ends (after the cleanups registered later, as
 // t.TempDir's is).

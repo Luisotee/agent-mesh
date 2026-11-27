@@ -2,7 +2,6 @@ package dev.agentmesh.android
 
 import org.junit.Test
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 
 /** The fakes' recordings are read through snapshot(): counting a synchronizedList while another thread appends must not fail. */
 class FakesSnapshotTest {
@@ -10,13 +9,11 @@ class FakesSnapshotTest {
         val list = java.util.Collections.synchronizedList(mutableListOf<String>())
         val writer = Thread { repeat(200_000) { list += "x" } }
         writer.start()
-        var reads = 0
-        while (writer.isAlive) {
+        // At least one read, even when the writer has finished before this thread was scheduled.
+        do {
             list.snapshot().count { it == "x" }
-            reads++
-        }
+        } while (writer.isAlive)
         writer.join()
-        assertTrue(reads > 0)
         assertEquals(200_000, list.snapshot().count { it == "x" })
     }
 

@@ -15,7 +15,7 @@
 //	               box while it retries a limit in its own loop (`■■⬝⬝⬝⬝⬝⬝ Too Many Requests [retrying in 30s attempt #4]`)
 //	/limit-pane-free  the same with `Free usage exceeded, subscribe to Go [retrying in 5h 27m attempt #1]` (seen live)
 //	/limit-pane-gutter  the same line in the `┃` callout older versions drew
-//	               FAKEOPENCODE_PANE_FIRST=1 draws the line first and writes the DB 600 ms later (a limit on the screen before the DB has the reply)
+//	               FAKEOPENCODE_PANE_FIRST=1 draws the line first, writes the DB 600 ms later and the reply another 600 ms after the user's message (a limit on the screen before the DB has the reply)
 //	/unavailable   writes "Upstream request failed: Model is unavailable." reply (status 400)
 //	/error         writes 500 error reply
 //	/exit          exits 0
@@ -269,6 +269,10 @@ func main() {
 		ensureSession(db, sessionID)
 		userMsgID := "msg_" + newHex(8)
 		writeUserMessage(db, sessionID, userMsgID, line)
+		if panePrinted {
+			fmt.Print("working\r\n") // output that makes the daemon look: the user's message is in the DB, its reply is not yet
+			time.Sleep(600 * time.Millisecond)
+		}
 
 		providerID, modelID, _ := strings.Cut(model, "/")
 		asstID := "msg_" + newHex(8)
