@@ -30,7 +30,7 @@ class NavTest {
 
     private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
 
-    /** A tapped notification leaves hosts, the host and the agent on the stack, however often and from wherever it is tapped. */
+    /** A tapped notification leaves home and the agent on the stack, however often and from wherever it is tapped. */
     @Test fun `tapping notifications for the same agent again never stacks a second copy`() {
         NotificationsTest.api = RecordingApi()
         val container = (ApplicationProvider.getApplicationContext<Application>() as MeshApp).container
@@ -49,7 +49,7 @@ class NavTest {
         }
         tap(Tab.Messages)
         val first = stack()
-        assertEquals(listOf("hosts", "host/{id}", "host/{id}/agent/{agent}?tab={tab}"), first)
+        assertEquals(listOf("home", "host/{id}/agent/{agent}?tab={tab}"), first)
         tap(Tab.Messages)
         tap(Tab.Overview)
         assertEquals(first, stack())

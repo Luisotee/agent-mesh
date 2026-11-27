@@ -43,6 +43,50 @@ class DevicePrefs(context: Context) {
         _notifyEvents.value = v
     }
 
+    private val _pins = MutableStateFlow(readPins())
+
+    /** The projects the user pinned to the top of the drawer, as repo paths by host id, in the order they were pinned. */
+    val pins: StateFlow<Map<String, List<String>>> get() = _pins
+
+    fun togglePin(hostId: String, repo: String) {
+        val now = _pins.value[hostId].orEmpty()
+        val next = if (repo in now) now - repo else now + repo
+        _pins.value = _pins.value.toMutableMap().also { if (next.isEmpty()) it.remove(hostId) else it[hostId] = next }
+        val arr = org.json.JSONArray()
+        for ((h, repos) in _pins.value) for (r in repos) arr.put(org.json.JSONArray().put(h).put(r))
+        prefs.edit().putString(PINS, arr.toString()).apply()
+    }
+
+    private fun readPins(): Map<String, List<String>> = runCatching {
+        val arr = org.json.JSONArray(prefs.getString(PINS, null) ?: return emptyMap())
+        val out = LinkedHashMap<String, List<String>>()
+        for (i in 0 until arr.length()) arr.getJSONArray(i).let { out[it.getString(0)] = out[it.getString(0)].orEmpty() + it.getString(1) }
+        out
+    }.getOrDefault(emptyMap())
+
+    /** Forgets a removed host's pins and hides, so a host paired again starts clean. */
+    fun forgetHost(hostId: String) {
+        if (hostId in _pins.value) {
+            _pins.value = _pins.value - hostId
+            val arr = org.json.JSONArray()
+            for ((h, repos) in _pins.value) for (r in repos) arr.put(org.json.JSONArray().put(h).put(r))
+            prefs.edit().putString(PINS, arr.toString()).apply()
+        }
+        val keep = _hidden.value.filterTo(HashSet()) { !it.startsWith("$hostId\n") }
+        if (keep.size != _hidden.value.size) { prefs.edit().putStringSet(HIDDEN, keep).apply(); _hidden.value = keep }
+    }
+
+    private val _hidden = MutableStateFlow(prefs.getStringSet(HIDDEN, null).orEmpty().toSet())
+
+    /** The projects hidden from the drawer (`hostId`, a newline, the repo path: `projectKey`); one comes back while something in it waits on the user. */
+    val hidden: StateFlow<Set<String>> get() = _hidden
+
+    fun toggleHidden(key: String) {
+        val next = if (key in _hidden.value) _hidden.value - key else _hidden.value + key
+        prefs.edit().putStringSet(HIDDEN, next).apply()
+        _hidden.value = next
+    }
+
     /** Whether the notification permission was already asked for: it is asked once, then left to Settings. */
     var askedForNotifications: Boolean
         get() = prefs.getBoolean(ASKED, false)
@@ -53,5 +97,7 @@ class DevicePrefs(context: Context) {
         const val ASKED = "asked_notifications"
         const val PUSH = "push"
         const val EVENTS = "notify_events"
+        const val PINS = "pins"
+        const val HIDDEN = "hidden_projects"
     }
 }

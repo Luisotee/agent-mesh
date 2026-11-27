@@ -1,4 +1,4 @@
-import { FolderGit2, Pin, PinOff } from 'lucide-react'
+import { Pin, PinOff } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listProjects, spawnAgent, startRun } from '@/actions'
 import { Button } from '@/components/ui/button'
@@ -27,29 +27,18 @@ const message = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z
  * branch), and the run it joins (a new one by default): an agent in a new git worktree of the project, in a terminal the
  * user can open. The first agent of a run is its lead, every later one a worker.
  */
-export function NewWorkspaceDialog({ host, trigger }: { host: HostRuntime; trigger: React.ReactElement }) {
+export function NewWorkspaceDialog({ host, trigger }: { host: HostRuntime; trigger?: React.ReactElement }) {
   const app = useApp()
   const open = useAppState((s) => s.workspaceOpen)
   return (
     <Dialog open={open} onOpenChange={(o) => app.openWorkspace(o)}>
-      <DialogTrigger render={trigger} />
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent title="New workspace" description="Starts an agent in a new git worktree of a project on this host, on a branch of its own.">
         <WorkspaceForm host={host} onDone={() => app.openWorkspace(false)} />
       </DialogContent>
     </Dialog>
   )
 }
-
-export const WorkspaceButton = ({ host }: { host: HostRuntime }) => (
-  <NewWorkspaceDialog
-    host={host}
-    trigger={
-      <Button size="sm" variant="secondary" className="shrink-0">
-        <FolderGit2 /> Workspace
-      </Button>
-    }
-  />
-)
 
 function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void }) {
   const app = useApp()
@@ -58,7 +47,9 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
   const settings = useHostState(host, (s) => s.settings)
   const [projects, setProjects] = useState<Project[]>([])
   const [listError, setListError] = useState('')
-  const [repo, setRepo] = useState('')
+  // A project's "New lead here" opens the form on that project.
+  const initialRepo = useAppState((s) => s.workspaceRepo)
+  const [repo, setRepo] = useState(initialRepo ?? '')
   // What reading one project (fetch, branches, PRs) gave, for the path it was asked for.
   const [detail, setDetail] = useState<{ path: string; project?: Project; error?: string; loading: boolean }>()
   const [from, setFrom] = useState<StartFrom>({ kind: 'default' })
@@ -112,6 +103,14 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
       (e: unknown) => mine === read.current && setDetail({ path: p, error: message(e), loading: false }),
     )
   }
+
+  // The project the form opened on is read at once, as if it had been picked.
+  const opened = useRef(false)
+  useEffect(() => {
+    if (opened.current || !initialRepo) return
+    opened.current = true
+    load(initialRepo)
+  })
 
   const project = detail?.path === repo.trim() ? detail.project : undefined
   // A choice made for another project (the path was edited and the form sent without leaving the field) is no choice.

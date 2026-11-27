@@ -129,7 +129,7 @@ enum class WaitingKind { Plan, Question, Input }
  * Something that waits on the user: [agent] wrote the plan or asked the question ([message]), or is stopped at a
  * prompt in its terminal (no message).
  */
-class Waiting(val kind: WaitingKind, val agent: Agent, val run: Run?, val message: Message?)
+data class Waiting(val kind: WaitingKind, val agent: Agent, val run: Run?, val message: Message?)
 
 /**
  * What waits on the user (what `mesh status` calls waiting rows, for the person): a plan or a question sent to the

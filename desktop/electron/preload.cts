@@ -52,6 +52,16 @@ const api: DesktopApi = {
     fix: (id, fix) => ipcRenderer.invoke('local:fix', id, fix),
   },
   openExternal: (url) => ipcRenderer.send('shell:openExternal', url),
+  terminalFocus: (on) => ipcRenderer.send('input:terminal', on === true),
+  find: {
+    start: (text, forward, again) => ipcRenderer.send('find:start', text, forward, again),
+    stop: () => ipcRenderer.send('find:stop'),
+    onResult(cb) {
+      const handler = (_e: unknown, r: { active: number; total: number }) => cb(r)
+      ipcRenderer.on('find:result', handler)
+      return () => ipcRenderer.removeListener('find:result', handler)
+    },
+  },
   shell: {
     notify: (n) => ipcRenderer.send('shell:notify', n),
     setWaiting: (count) => ipcRenderer.send('shell:waiting', count),

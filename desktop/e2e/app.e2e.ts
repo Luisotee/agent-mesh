@@ -4,7 +4,7 @@ import path from 'node:path'
 import { expect, test, beforeAll, afterAll } from 'vitest'
 import { ActorClass } from '../src/gen/agentmesh/v1/actor_pb'
 import { AgentRole, MessageType } from '../src/gen/agentmesh/v1/types_pb'
-import { launchApp, type App } from './electron'
+import { launchApp, type App, openFromSidebar } from './electron'
 import { buildBinaries, makeHost, until, type Host } from './harness'
 
 let host: Host
@@ -31,29 +31,31 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   const { page } = app
 
   // Connected: the host's dot says ready, and the sidebar is empty.
-  await page.getByRole('button', { name: 'Host local, ready' }).waitFor()
-  await page.getByText('No runs yet').waitFor()
+  await page.getByRole('status', { name: 'Host local, ready' }).waitFor()
+  await page.getByText(/No projects yet/).waitFor()
 
-  // Start a run from the UI, then its lead.
-  await page.getByRole('button', { name: 'New run' }).click()
-  await page.getByLabel('Title').fill('e2e run')
-  await page.getByRole('button', { name: 'Start run' }).click()
-  const run = page.getByRole('region', { name: 'e2e run' })
-  await run.waitFor()
-
-  await run.getByRole('button', { name: /Add an agent to e2e run/ }).click()
-  await page.getByLabel('Repository').fill(host.repo)
-  await page.getByLabel('Slug').fill('lead')
-  await page.getByRole('button', { name: 'Start agent' }).click()
-  const lead = run.getByRole('button', { name: /repo-lead/ })
-  await lead.waitFor()
+  // Start a lead from the UI: the empty sidebar's New lead, on the project, in a run of its own.
+  await page.getByRole('button', { name: 'New lead' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Project').fill(host.repo)
+  await dialog.getByLabel('Project').blur()
+  await dialog.getByLabel('Run title').fill('e2e run')
+  await dialog.getByLabel('Name').fill('lead')
+  await dialog.getByRole('button', { name: 'Start workspace' }).click()
+  await dialog.waitFor({ state: 'detached' })
+  const nav = page.getByRole('navigation', { name: 'Projects' })
+  const run = nav.getByRole('listitem', { name: 'e2e run' })
+  const lead = run.getByRole('button', { name: 'e2e run, lead repo-lead' })
+  await lead.waitFor({ timeout: 20_000 })
   await expect.poll(() => lead.innerText(), { timeout: 20_000 }).toContain('Idle, waiting for a message')
 
   // A worker the lead starts (with the lead's own token, as an agent would) joins the tree under it, live.
   const leadId = await agentId('repo-lead')
   const asLead = host.client(host.agentToken(leadId))
   const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
-  const workerRow = run.getByRole('listitem').filter({ has: page.getByRole('button', { name: /repo-lead/ }) }).getByRole('list').getByRole('button', { name: /repo-fix/ })
+  // It joins the run under its lead, folded until the lead is opened.
+  await run.getByRole('button', { name: 'Show the workers of e2e run' }).click()
+  const workerRow = run.getByRole('button', { name: 'repo-fix', exact: true })
   await workerRow.waitFor()
   await expect.poll(() => workerRow.innerText(), { timeout: 20_000 }).toContain('Idle')
 
@@ -79,13 +81,13 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   // started afterwards still arrives live.
   await host.stopDaemon()
   await page.getByRole('status').getByText(/unreachable/).waitFor({ timeout: 20_000 })
-  await page.getByRole('button', { name: 'Host local, reconnecting' }).waitFor()
+  await page.getByRole('status', { name: 'Host local, reconnecting' }).waitFor()
   await page.screenshot({ path: path.join(shots, 'host-down.png') })
   await host.start()
-  await page.getByRole('button', { name: 'Host local, ready' }).waitFor({ timeout: 30_000 })
-  await run.getByRole('button', { name: /repo-lead/ }).waitFor()
+  await page.getByRole('status', { name: 'Host local, ready' }).waitFor({ timeout: 30_000 })
+  await lead.waitFor()
   await host.client().spawnAgent({ runId: await runId(), repo: host.repo, slug: 'after', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
-  await run.getByRole('button', { name: /repo-after/ }).waitFor()
+  await run.getByRole('button', { name: 'repo-after', exact: true }).waitFor()
 })
 
 async function runId(): Promise<string> {
@@ -110,7 +112,7 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   // The side panel takes a quarter of the width: a narrower terminal wraps the doorbells the lead gets and scrolls the
   // banner this test looks for off its screen, so it is hidden here (the side panel has its own test, `sidebar.e2e.ts`).
   await page.getByRole('button', { name: 'Hide the side panel' }).click().catch(() => {})
-  await page.getByRole('navigation', { name: 'Runs' }).getByRole('button', { name: /repo-lead/ }).click()
+  await openFromSidebar(page, 'repo-lead')
   const panel = page.getByRole('article', { name: 'repo-lead' })
   await panel.getByRole('tab', { name: 'terminal' }).click()
   // The selected tab controls a visible panel of the same name; the hidden one is not in the a11y tree.
@@ -161,10 +163,10 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
   const asWorker = host.client(host.agentToken(worker!.id))
   await asWorker.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n1. fix the typo\n2. add a test\n\nSee [the docs](https://example.com/docs).' })
 
-  // The sidebar and the host's badge say it waits on the user; the plan is a card to read.
+  // The sidebar and its project's badge say it waits on the user; the plan is a card to read.
   const waiting = page.getByRole('region', { name: 'Waiting on you' })
   await waiting.getByRole('button', { name: /repo-planner sent a plan/ }).waitFor()
-  await page.getByRole('button', { name: /Host local/ }).locator('xpath=.//span[contains(@class,"bg-state-needs")]').waitFor()
+  await page.getByRole('navigation', { name: 'Projects' }).getByLabel(/waiting on you/).first().waitFor()
   await waiting.getByRole('button', { name: /repo-planner sent a plan/ }).click()
   const panel = page.getByRole('article', { name: 'repo-planner' })
   const plan = panel.getByRole('article', { name: 'Plan from repo-planner' })
@@ -329,7 +331,8 @@ test('a repo is kept from free models by a switch in the settings, and the host 
 
 test('the usage and cost screen asks the host for what mesh usage and mesh cost print', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Usage and cost' }).click()
+  await page.getByRole('button', { name: 'Hosts' }).click()
+  await page.getByRole('menuitem', { name: 'Usage and cost' }).click()
   const panel = page.getByRole('region', { name: 'Usage' })
   await panel.getByRole('heading', { name: /Usage and cost of local/ }).waitFor()
   // A throwaway host has no Claude account (the screen says so), and the fake agy reports two quota rows, one nearly spent.
@@ -347,5 +350,6 @@ test('the usage and cost screen asks the host for what mesh usage and mesh cost 
   // A run is a scope of its own, named by its title.
   await panel.getByRole('combobox', { name: 'Cost of' }).selectOption({ label: 'e2e run' })
   await expect.poll(() => panel.getByTestId('cost-scope').innerText(), { timeout: 30_000 }).toContain('run ')
-  await page.getByRole('button', { name: 'Usage and cost' }).click() // back to the agents
+  await page.getByRole('button', { name: 'Hosts' }).click()
+  await page.getByRole('menuitem', { name: 'Usage and cost' }).click() // back to the agents
 })

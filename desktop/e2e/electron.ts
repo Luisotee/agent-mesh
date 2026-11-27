@@ -80,3 +80,20 @@ export async function launchApp(opts: { state?: string; home: string; /** Argume
     },
   }
 }
+
+/**
+ * Opens an agent from the sidebar by its name: a lead's row is named by its run ("<title>, lead <name>"), a worker's by
+ * its own name, and a worker shows once its lead is unfolded, so folded leads are opened until it is there.
+ */
+export async function openFromSidebar(page: Page, name: string, timeout = 20_000): Promise<void> {
+  const nav = page.getByRole('navigation', { name: 'Projects' })
+  const row = nav.locator(`[data-sidebar-row="agent"][aria-label="${name}"], [data-sidebar-row="agent"][aria-label$=", lead ${name}"]`).first()
+  const end = Date.now() + timeout
+  while (Date.now() < end) {
+    if ((await row.count()) > 0) return row.click()
+    const folded = nav.locator('button[aria-label^="Show the workers of"]')
+    for (let i = (await folded.count()) - 1; i >= 0; i--) await folded.nth(i).click()
+    await page.waitForTimeout(200)
+  }
+  throw new Error(`no row for ${name} in the sidebar`)
+}
