@@ -2,9 +2,11 @@ package daemon_test
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -535,6 +537,35 @@ func TestTheFooterTellsTheWorkersOwnPRByItsHeadBranch(t *testing.T) {
 	}
 }
 
+// A PR the worker opened from another branch of its run, checked out in a linked worktree of the repo, is its own in the
+// footer too: a done naming it, with no round asked, says so; the same PR on a branch of another run does not.
+func TestTheFooterTellsAPRFromAnotherBranchOfTheRunByItsWorktree(t *testing.T) {
+	a := startAuthor(t, "")
+	a.commit(t)
+	base := strings.TrimSuffix(a.pr.url(), "7")
+	extra := "mesh/" + a.worker.RunId + "/extra"
+	gitIn(t, a.pr.repo, "worktree", "add", "-q", "-b", extra, filepath.Join(shortdir.New(t), "extra"), "main")
+	gitIn(t, a.pr.repo, "branch", "mesh/other-run/extra", "main")
+	record := func(num int32, head string) {
+		t.Helper()
+		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: a.worker.Id, Url: base + strconv.Itoa(int(num)), Number: num, State: "open", Source: "report", HeadRef: head})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(8, extra)
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "done: PR "+base+"8")
+	if got := a.doneBody(t); !strings.Contains(got, "PR #8: NEEDS YOU: "+a.worker.Name+" asked no review round") {
+		t.Errorf("a PR from a branch of its run in a linked worktree:\n%s", got)
+	}
+	record(9, "mesh/other-run/extra")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "also "+base+"9")
+	if got := a.doneBody(t); strings.Contains(got, "PR #9") {
+		t.Errorf("a PR from a branch of another run:\n%s", got)
+	}
+}
+
 func TestAVerdictsNotFoundErrorSaysByYouOnlyToAWorker(t *testing.T) {
 	a := startAuthor(t, "")
 	a.pr.push(t, "the feature")
@@ -915,5 +946,35 @@ func TestAWorkerReviewsAPRFromAnotherBranchOfItsRunThatItMade(t *testing.T) {
 		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"}); err != nil {
 			t.Fatalf("a PR its report named: %v", err)
 		}
+	})
+	t.Run("the reviewer is of another CLI than its author's", func(t *testing.T) {
+		a := startAuthor(t, "")
+		a.set(t, "review.reviewers.small", []any{[]any{"claude", "agy"}})
+		head := "mesh/" + a.worker.RunId + "/extra"
+		newBranch(a, head, true)
+		a.pr.headRef = head
+		a.pr.push(t, "its other change")
+		res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Agents) != 1 || res.Agents[0].Kind != "agy" {
+			t.Errorf("a claude worker's PR from a branch no agent is registered on was reviewed by %v, want agy: its author's own CLI goes last", res.Agents)
+		}
+	})
+	t.Run("a worktree that was removed", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/extra"
+		dir := newBranch(a, head, true)
+		if err := os.RemoveAll(dir); err != nil { // gone without `git worktree remove`: git still lists it, as prunable
+			t.Fatal(err)
+		}
+		refused(a, "a branch no worktree has any more", head)
+	})
+	t.Run("its own worktree on a branch with no commit of its own", func(t *testing.T) {
+		a := startAuthor(t, "")
+		head := "mesh/" + a.worker.RunId + "/empty"
+		gitIn(t, a.worker.Worktree, "switch", "-q", "-c", head)
+		refused(a, "nobody's PR", head)
 	})
 }

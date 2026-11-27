@@ -147,7 +147,7 @@ func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Acto
 			"your PR's reviews are a relay (it is risky): no round and no single reviewer, only `mesh ask --repo <repo> --review <PR> --relay` (one step, then fix, then the next)"))
 	}
 	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr)) {
-		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest (a PR from another branch of your run, `mesh/%s/…`, is yours when no other agent owns it and the branch is checked out in a worktree of the repo you made, or your `done` names the PR)", self.Branch, pr.Number, pr.HeadRef, self.RunId)
+		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest (a PR from another branch of your run, `mesh/%s/…`, is yours when no other agent owns it and the branch is checked out in a linked worktree of the repo, or your `done` names the PR)", self.Branch, pr.Number, pr.HeadRef, self.RunId)
 	}
 	return nil
 }
@@ -211,8 +211,10 @@ func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *
 // runBranchIsItsOwn reports whether a PR on another branch of the worker's own run is the worker's: a worker that
 // opens a PR from a worktree it made itself (`git worktree add -b mesh/<run>/<other>`, a separate change, a fix for a
 // reviewer) has the branch checked out in a linked worktree of the repo, or has reported the PR (its `done` names it,
-// so the PR is recorded as its). The branch must be of its run, and the callers' checks that no other agent owns it
-// still apply. The repo's main checkout is the user's, not the worker's, and does not count.
+// so the PR is recorded as its: any PR the `done` names, whoever wrote it). The branch must be of its run, and the
+// callers' checks that no other agent owns it still apply. The daemon does not know who made a worktree, so any
+// linked worktree of the repo counts that no agent records, as does the worker's own worktree on a branch with
+// commits of its own; the repo's main checkout is the user's and does not count.
 func (d *Daemon) runBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, pr *prInfo) bool {
 	if !strings.HasPrefix(pr.HeadRef, "mesh/"+self.RunId+"/") {
 		return false
@@ -223,6 +225,9 @@ func (d *Daemon) runBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1
 				return true
 			}
 		}
+	}
+	if worktreeBranch(ctx, self) == pr.HeadRef && !hasBranchWork(ctx, self) {
+		return false // its own worktree on a branch with no commit of its own: nobody's PR
 	}
 	return linkedWorktreeBranches(ctx, self.Repo)[pr.HeadRef]
 }
@@ -239,13 +244,28 @@ func linkedWorktreeBranches(ctx context.Context, repo string) map[string]bool {
 		if i == 0 {
 			continue
 		}
+		var branch string
+		prunable := false
 		for _, line := range strings.Split(block, "\n") {
-			if b, ok := strings.CutPrefix(strings.TrimSpace(line), "branch refs/heads/"); ok {
-				branches[b] = true
+			line = strings.TrimSpace(line)
+			if b, ok := strings.CutPrefix(line, "branch refs/heads/"); ok {
+				branch = b
 			}
+			if line == "prunable" || strings.HasPrefix(line, "prunable ") {
+				prunable = true // its directory is gone: nothing is checked out there
+			}
+		}
+		if branch != "" && !prunable {
+			branches[branch] = true
 		}
 	}
 	return branches
+}
+
+// ownRunBranch is a recorded PR's head branch being another branch of the worker's run that is checked out in a linked
+// worktree of the repo (`runBranchIsItsOwn`, for a PR the worker has recorded: facts.linked was read before the write).
+func ownRunBranch(self *v1.Agent, head string, facts gitFacts) bool {
+	return strings.HasPrefix(head, "mesh/"+self.RunId+"/") && facts.linked[head]
 }
 
 // seriesRE is a branch name `mesh/<run>/<slug>` whose slug may end in `-N`.
@@ -428,6 +448,7 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, facts
 // the head its newest review round covered (-1: the head differs and the count can't be told).
 type gitFacts struct {
 	hasWork bool
+	linked  map[string]bool // the branches checked out in the repo's linked worktrees (linkedWorktreeBranches)
 	after   map[string]int
 	over    map[string]bool // by PR key, the PRs of its rounds that are merged or closed
 }
@@ -554,7 +575,7 @@ func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, fac
 		case p == nil:
 		case p.HeadRef != "":
 			decided[k] = true
-			own[k] = p.HeadRef == self.Branch || inSeriesOf(self.Branch, p.HeadRef)
+			own[k] = p.HeadRef == self.Branch || inSeriesOf(self.Branch, p.HeadRef) || ownRunBranch(self, p.HeadRef, facts)
 		case p.Source == "branch":
 			own[k] = true // found by `gh pr list --head <its branch>`
 		}
@@ -599,7 +620,7 @@ func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, fac
 	sort.Strings(open)
 	for _, k := range open {
 		p := recorded[k]
-		if p.State == "open" && len(byPR[k]) == 0 && (p.Source == "branch" || p.HeadRef == self.Branch || p.HeadRef != "" && inSeriesOf(self.Branch, p.HeadRef)) {
+		if p.State == "open" && len(byPR[k]) == 0 && (p.Source == "branch" || p.HeadRef == self.Branch || p.HeadRef != "" && (inSeriesOf(self.Branch, p.HeadRef) || ownRunBranch(self, p.HeadRef, facts))) {
 			line(k, p.Url)
 		}
 	}
