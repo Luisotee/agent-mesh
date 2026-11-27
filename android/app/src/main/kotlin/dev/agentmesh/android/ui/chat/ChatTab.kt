@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -312,7 +313,7 @@ private fun heldText(held: String): String = when (held) {
     "at_prompt" -> "Sent once the prompt in its terminal is answered"
     "limited" -> "Sent once it is off its usage limit"
     "stopped" -> "Sent when it runs again"
-    "draft" -> "Held: its input box holds a draft. Clear it in the terminal to send this"
+    "draft" -> "Held: its input box holds a draft. Clear it in the terminal, or send this anyway"
     "typing" -> "Held: someone is typing in its terminal"
     "no_box" -> "Held: its screen shows no input box (a dialog may be open in the terminal)"
     else -> "Queued: sent when it is idle"
@@ -341,6 +342,34 @@ private fun TextFieldState.restore(text: String) {
 @Composable
 private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<QueuedPrompt>, canTake: Boolean, canFill: Boolean, scope: kotlinx.coroutines.CoroutineScope, draft: TextFieldState, note: (String) -> Unit) {
     var busy by remember { mutableStateOf(false) }
+    // A prompt the user is being asked to send over the draft in the agent's box.
+    var over by remember { mutableStateOf<QueuedPrompt?>(null) }
+    fun sendAnyway(p: QueuedPrompt) {
+        if (busy) return
+        busy = true
+        note("")
+        scope.launch {
+            try {
+                runtime.connectedApi().sendPromptAnyway(agentId, p.id, p.heldText)
+                runtime.noteWithdrawn(agentId, p.id)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                note(say(e)) // the draft changed, someone types, or the agent is not at its prompt: the host says which
+            } finally {
+                busy = false
+            }
+        }
+    }
+    over?.let { p ->
+        AlertDialog(
+            onDismissRequest = { over = null },
+            title = { Text("Send over the draft?") },
+            text = { Text("Its input box holds this draft: \u201c${p.heldText}\u201d. Sending clears it and types your prompt instead. The draft is lost.", Modifier.testTag("send-anyway-draft")) },
+            confirmButton = { TextButton(onClick = { over = null; sendAnyway(p) }, Modifier.testTag("send-anyway-confirm")) { Text("Send anyway") } },
+            dismissButton = { TextButton(onClick = { over = null }) { Text("Cancel") } },
+        )
+    }
     fun take(p: QueuedPrompt, edit: Boolean) {
         if (busy) return
         busy = true
@@ -372,6 +401,7 @@ private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<Queu
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(heldText(p.held), Modifier.weight(1f, fill = false).testTag("queued-held"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (canTake) {
+                        if (p.held == "draft" && p.heldText.isNotEmpty()) TextButton(onClick = { over = p }, Modifier.testTag("queued-anyway-${p.id}")) { Text("Send anyway", style = MaterialTheme.typography.labelSmall) }
                         if (canFill) IconButton(onClick = { take(p, edit = true) }, Modifier.size(32.dp).testTag("queued-edit-${p.id}")) { Icon(Icons.Default.Edit, "Take it back to edit", Modifier.size(16.dp)) }
                         IconButton(onClick = { take(p, edit = false) }, Modifier.size(32.dp).testTag("queued-drop-${p.id}")) { Icon(Icons.Default.Close, "Take it back", Modifier.size(16.dp)) }
                     }

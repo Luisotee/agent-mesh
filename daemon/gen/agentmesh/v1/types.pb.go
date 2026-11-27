@@ -1935,7 +1935,11 @@ type QueuedPrompt struct {
 	// What it waits for now, for the app to say: "working", "starting", "at_prompt", "limited", "stopped", "draft" (a
 	// human's draft is in the agent's box), "typing" (someone types in its terminal), "no_box" (its screen shows no
 	// input box), or empty when it is due. Set by ListPrompts; the queue's order is the order they are typed in.
-	Held          string `protobuf:"bytes,6,opt,name=held,proto3" json:"held,omitempty"`
+	Held string `protobuf:"bytes,6,opt,name=held,proto3" json:"held,omitempty"`
+	// With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+	// 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+	// ListPrompts and by the answer that queued the prompt; never in the event log.
+	HeldText      string `protobuf:"bytes,7,opt,name=held_text,json=heldText,proto3" json:"held_text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2008,6 +2012,13 @@ func (x *QueuedPrompt) GetFrom() *Actor {
 func (x *QueuedPrompt) GetHeld() string {
 	if x != nil {
 		return x.Held
+	}
+	return ""
+}
+
+func (x *QueuedPrompt) GetHeldText() string {
+	if x != nil {
+		return x.HeldText
 	}
 	return ""
 }
@@ -4291,7 +4302,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x0eagent_archived\x18) \x01(\v2\x1b.agentmesh.v1.AgentArchivedH\x00R\ragentArchived\x12;\n" +
 	"\vuser_notice\x18* \x01(\v2\x18.agentmesh.v1.UserNoticeH\x00R\n" +
 	"userNoticeB\t\n" +
-	"\apayload\"\xc5\x01\n" +
+	"\apayload\"\xe2\x01\n" +
 	"\fQueuedPrompt\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x12\n" +
@@ -4299,7 +4310,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12'\n" +
 	"\x04from\x18\x05 \x01(\v2\x13.agentmesh.v1.ActorR\x04from\x12\x12\n" +
-	"\x04held\x18\x06 \x01(\tR\x04held\"B\n" +
+	"\x04held\x18\x06 \x01(\tR\x04held\x12\x1b\n" +
+	"\theld_text\x18\a \x01(\tR\bheldText\"B\n" +
 	"\fPromptQueued\x122\n" +
 	"\x06prompt\x18\x01 \x01(\v2\x1a.agentmesh.v1.QueuedPromptR\x06prompt\"*\n" +
 	"\vPromptTyped\x12\x1b\n" +

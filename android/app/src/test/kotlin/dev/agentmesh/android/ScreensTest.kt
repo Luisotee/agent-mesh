@@ -57,6 +57,7 @@ private object Silent : MeshApi {
     override suspend fun promptAgent(agent: String, text: String) = error("unused")
     override suspend fun listPrompts(agent: String) = error("unused")
     override suspend fun withdrawPrompt(agent: String, promptId: String) = error("unused")
+    override suspend fun sendPromptAnyway(agent: String, promptId: String, draft: String): String = error("unused")
     override suspend fun interruptAgent(agent: String) = error("unused")
     override suspend fun switchAgent(agent: String, tier: String, model: String, effort: String): dev.agentmesh.gen.agentmesh.v1.SwitchAgentResponse = error("unused")
     override suspend fun checkModels(): dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse = error("unused")

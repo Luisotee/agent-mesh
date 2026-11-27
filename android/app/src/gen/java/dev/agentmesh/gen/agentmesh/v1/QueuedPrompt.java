@@ -23,6 +23,7 @@ public  final class QueuedPrompt extends
     agentId_ = "";
     text_ = "";
     held_ = "";
+    heldText_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -354,6 +355,83 @@ public  final class QueuedPrompt extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     held_ = value.toStringUtf8();
+
+  }
+
+  public static final int HELD_TEXT_FIELD_NUMBER = 7;
+  private java.lang.String heldText_;
+  /**
+   * <pre>
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
+   * </pre>
+   *
+   * <code>string held_text = 7 [json_name = "heldText"];</code>
+   * @return The heldText.
+   */
+  @java.lang.Override
+  public java.lang.String getHeldText() {
+    return heldText_;
+  }
+  /**
+   * <pre>
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
+   * </pre>
+   *
+   * <code>string held_text = 7 [json_name = "heldText"];</code>
+   * @return The bytes for heldText.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHeldTextBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(heldText_);
+  }
+  /**
+   * <pre>
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
+   * </pre>
+   *
+   * <code>string held_text = 7 [json_name = "heldText"];</code>
+   * @param value The heldText to set.
+   */
+  private void setHeldText(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    heldText_ = value;
+  }
+  /**
+   * <pre>
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
+   * </pre>
+   *
+   * <code>string held_text = 7 [json_name = "heldText"];</code>
+   */
+  private void clearHeldText() {
+
+    heldText_ = getDefaultInstance().getHeldText();
+  }
+  /**
+   * <pre>
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+   * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+   * ListPrompts and by the answer that queued the prompt; never in the event log.
+   * </pre>
+   *
+   * <code>string held_text = 7 [json_name = "heldText"];</code>
+   * @param value The bytes for heldText to set.
+   */
+  private void setHeldTextBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    heldText_ = value.toStringUtf8();
 
   }
 
@@ -802,6 +880,85 @@ public  final class QueuedPrompt extends
       return this;
     }
 
+    /**
+     * <pre>
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
+     * </pre>
+     *
+     * <code>string held_text = 7 [json_name = "heldText"];</code>
+     * @return The heldText.
+     */
+    @java.lang.Override
+    public java.lang.String getHeldText() {
+      return instance.getHeldText();
+    }
+    /**
+     * <pre>
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
+     * </pre>
+     *
+     * <code>string held_text = 7 [json_name = "heldText"];</code>
+     * @return The bytes for heldText.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHeldTextBytes() {
+      return instance.getHeldTextBytes();
+    }
+    /**
+     * <pre>
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
+     * </pre>
+     *
+     * <code>string held_text = 7 [json_name = "heldText"];</code>
+     * @param value The heldText to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeldText(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHeldText(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
+     * </pre>
+     *
+     * <code>string held_text = 7 [json_name = "heldText"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeldText() {
+      copyOnWrite();
+      instance.clearHeldText();
+      return this;
+    }
+    /**
+     * <pre>
+     * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+     * 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+     * ListPrompts and by the answer that queued the prompt; never in the event log.
+     * </pre>
+     *
+     * <code>string held_text = 7 [json_name = "heldText"];</code>
+     * @param value The bytes for heldText to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeldTextBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHeldTextBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.QueuedPrompt)
   }
   @java.lang.Override
@@ -825,10 +982,11 @@ public  final class QueuedPrompt extends
             "createdAt_",
             "from_",
             "held_",
+            "heldText_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0208";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0208\u0007\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
