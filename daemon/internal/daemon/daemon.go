@@ -72,6 +72,13 @@ type Config struct {
 	// Tailnet, when set, is the host's own Tailscale node (`meshd --tailscale`, internal/tailnet): meshd serves its
 	// TLS API on it as on Listen, and pairing links carry its address. Tests give a fake: none joins a tailnet.
 	Tailnet Tailnet
+	// TailnetFromFlag says the node is on because meshd was started with --tailscale (or its environment twin), which the
+	// app's SetTailnet can't undo; otherwise a node that runs was started by the marker file SetTailnet writes.
+	TailnetFromFlag bool
+	// Restart, when set, makes meshd restart itself at the app's request (SetTailnet): it stops and exits with a failure
+	// status so its service manager starts it again. Set only by a meshd that runs under one; without it a change
+	// that needs a restart says so.
+	Restart func()
 	Now     func() time.Time
 	Logger  *slog.Logger
 

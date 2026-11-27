@@ -62,6 +62,24 @@ export function usageView(u: GetUsageResponse): UsageView {
   return { reserve, claude, claudeSource: u.claude?.source ?? '', claudeFetchedAt: date(u.claude?.fetchedAt), agy, tiers, warnings }
 }
 
+/** One line of the side panel's quota: a Claude window, or agy's fullest row. */
+export interface QuotaRow {
+  label: string
+  /** Percent used, 0 to 100. */
+  used: number
+  atReserve: boolean
+  resetsAt?: Date
+}
+
+/** The compact reading the side panel shows, from the same view as the usage screen: Claude's windows with the reserve line, and agy's fullest quota row; empty when the host has no reading. */
+export function quotaRows(u: GetUsageResponse): { reserve: number; rows: QuotaRow[] } {
+  const v = usageView(u)
+  const rows: QuotaRow[] = v.claude.map((w) => ({ label: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, resetsAt: w.resetsAt }))
+  const agy = [...v.agy].sort((a, b) => a.left - b.left)[0]
+  if (agy) rows.push({ label: `agy ${agy.group} ${agy.label}`.trim(), used: 100 - agy.left, atReserve: agy.atReserve })
+  return { reserve: v.reserve, rows }
+}
+
 /** When a window resets, as a span from `now` ("resets in 2 h 10 min") within a day, else the day and time. */
 export function resetText(at: Date | undefined, now = new Date()): string {
   if (!at) return 'reset time unknown'

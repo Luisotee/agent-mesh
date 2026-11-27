@@ -188,6 +188,20 @@ const (
 	MeshServiceCreateWorktreeProcedure = "/agentmesh.v1.MeshService/CreateWorktree"
 	// MeshServiceStreamLogProcedure is the fully-qualified name of the MeshService's StreamLog RPC.
 	MeshServiceStreamLogProcedure = "/agentmesh.v1.MeshService/StreamLog"
+	// MeshServiceGetAgentChangesProcedure is the fully-qualified name of the MeshService's
+	// GetAgentChanges RPC.
+	MeshServiceGetAgentChangesProcedure = "/agentmesh.v1.MeshService/GetAgentChanges"
+	// MeshServiceGetAgentProgressProcedure is the fully-qualified name of the MeshService's
+	// GetAgentProgress RPC.
+	MeshServiceGetAgentProgressProcedure = "/agentmesh.v1.MeshService/GetAgentProgress"
+	// MeshServiceArchiveAgentProcedure is the fully-qualified name of the MeshService's ArchiveAgent
+	// RPC.
+	MeshServiceArchiveAgentProcedure = "/agentmesh.v1.MeshService/ArchiveAgent"
+	// MeshServiceOpenInEditorProcedure is the fully-qualified name of the MeshService's OpenInEditor
+	// RPC.
+	MeshServiceOpenInEditorProcedure = "/agentmesh.v1.MeshService/OpenInEditor"
+	// MeshServiceSetTailnetProcedure is the fully-qualified name of the MeshService's SetTailnet RPC.
+	MeshServiceSetTailnetProcedure = "/agentmesh.v1.MeshService/SetTailnet"
 	// MeshServiceRingAgentProcedure is the fully-qualified name of the MeshService's RingAgent RPC.
 	MeshServiceRingAgentProcedure = "/agentmesh.v1.MeshService/RingAgent"
 	// MeshServiceOpenAgentProcedure is the fully-qualified name of the MeshService's OpenAgent RPC.
@@ -372,6 +386,22 @@ type MeshServiceClient interface {
 	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
 	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
 	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest]) (*connect.ServerStreamForClient[v1.StreamLogResponse], error)
+	// What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+	// uncommitted work, and commits no remote branch has.
+	GetAgentChanges(context.Context, *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error)
+	// An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+	// its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
+	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+	// ResumeAgent brings it back: the worktree is made again from the branch.
+	ArchiveAgent(context.Context, *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error)
+	// Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+	// path as one argument). The host's own device only: it runs a program on the host's machine.
+	OpenInEditor(context.Context, *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error)
+	// Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+	// manager it restarts itself. The host's own device only.
+	SetTailnet(context.Context, *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error)
 	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
 	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
 	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
@@ -781,6 +811,36 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
 			connect.WithClientOptions(opts...),
 		),
+		getAgentChanges: connect.NewClient[v1.GetAgentChangesRequest, v1.GetAgentChangesResponse](
+			httpClient,
+			baseURL+MeshServiceGetAgentChangesProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetAgentChanges")),
+			connect.WithClientOptions(opts...),
+		),
+		getAgentProgress: connect.NewClient[v1.GetAgentProgressRequest, v1.GetAgentProgressResponse](
+			httpClient,
+			baseURL+MeshServiceGetAgentProgressProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetAgentProgress")),
+			connect.WithClientOptions(opts...),
+		),
+		archiveAgent: connect.NewClient[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse](
+			httpClient,
+			baseURL+MeshServiceArchiveAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ArchiveAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		openInEditor: connect.NewClient[v1.OpenInEditorRequest, v1.OpenInEditorResponse](
+			httpClient,
+			baseURL+MeshServiceOpenInEditorProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("OpenInEditor")),
+			connect.WithClientOptions(opts...),
+		),
+		setTailnet: connect.NewClient[v1.SetTailnetRequest, v1.SetTailnetResponse](
+			httpClient,
+			baseURL+MeshServiceSetTailnetProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SetTailnet")),
+			connect.WithClientOptions(opts...),
+		),
 		ringAgent: connect.NewClient[v1.RingAgentRequest, v1.RingAgentResponse](
 			httpClient,
 			baseURL+MeshServiceRingAgentProcedure,
@@ -863,6 +923,11 @@ type meshServiceClient struct {
 	listMCPServers    *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
 	createWorktree    *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
 	streamLog         *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
+	getAgentChanges   *connect.Client[v1.GetAgentChangesRequest, v1.GetAgentChangesResponse]
+	getAgentProgress  *connect.Client[v1.GetAgentProgressRequest, v1.GetAgentProgressResponse]
+	archiveAgent      *connect.Client[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse]
+	openInEditor      *connect.Client[v1.OpenInEditorRequest, v1.OpenInEditorResponse]
+	setTailnet        *connect.Client[v1.SetTailnetRequest, v1.SetTailnetResponse]
 	ringAgent         *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
 	openAgent         *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
 }
@@ -1192,6 +1257,31 @@ func (c *meshServiceClient) StreamLog(ctx context.Context, req *connect.Request[
 	return c.streamLog.CallServerStream(ctx, req)
 }
 
+// GetAgentChanges calls agentmesh.v1.MeshService.GetAgentChanges.
+func (c *meshServiceClient) GetAgentChanges(ctx context.Context, req *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error) {
+	return c.getAgentChanges.CallUnary(ctx, req)
+}
+
+// GetAgentProgress calls agentmesh.v1.MeshService.GetAgentProgress.
+func (c *meshServiceClient) GetAgentProgress(ctx context.Context, req *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error) {
+	return c.getAgentProgress.CallUnary(ctx, req)
+}
+
+// ArchiveAgent calls agentmesh.v1.MeshService.ArchiveAgent.
+func (c *meshServiceClient) ArchiveAgent(ctx context.Context, req *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error) {
+	return c.archiveAgent.CallUnary(ctx, req)
+}
+
+// OpenInEditor calls agentmesh.v1.MeshService.OpenInEditor.
+func (c *meshServiceClient) OpenInEditor(ctx context.Context, req *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error) {
+	return c.openInEditor.CallUnary(ctx, req)
+}
+
+// SetTailnet calls agentmesh.v1.MeshService.SetTailnet.
+func (c *meshServiceClient) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error) {
+	return c.setTailnet.CallUnary(ctx, req)
+}
+
 // RingAgent calls agentmesh.v1.MeshService.RingAgent.
 func (c *meshServiceClient) RingAgent(ctx context.Context, req *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {
 	return c.ringAgent.CallUnary(ctx, req)
@@ -1380,6 +1470,22 @@ type MeshServiceHandler interface {
 	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
 	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
 	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error
+	// What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+	// uncommitted work, and commits no remote branch has.
+	GetAgentChanges(context.Context, *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error)
+	// An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+	// its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
+	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+	// ResumeAgent brings it back: the worktree is made again from the branch.
+	ArchiveAgent(context.Context, *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error)
+	// Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+	// path as one argument). The host's own device only: it runs a program on the host's machine.
+	OpenInEditor(context.Context, *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error)
+	// Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+	// manager it restarts itself. The host's own device only.
+	SetTailnet(context.Context, *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error)
 	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
 	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
 	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
@@ -1785,6 +1891,36 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceGetAgentChangesHandler := connect.NewUnaryHandler(
+		MeshServiceGetAgentChangesProcedure,
+		svc.GetAgentChanges,
+		connect.WithSchema(meshServiceMethods.ByName("GetAgentChanges")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceGetAgentProgressHandler := connect.NewUnaryHandler(
+		MeshServiceGetAgentProgressProcedure,
+		svc.GetAgentProgress,
+		connect.WithSchema(meshServiceMethods.ByName("GetAgentProgress")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceArchiveAgentHandler := connect.NewUnaryHandler(
+		MeshServiceArchiveAgentProcedure,
+		svc.ArchiveAgent,
+		connect.WithSchema(meshServiceMethods.ByName("ArchiveAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceOpenInEditorHandler := connect.NewUnaryHandler(
+		MeshServiceOpenInEditorProcedure,
+		svc.OpenInEditor,
+		connect.WithSchema(meshServiceMethods.ByName("OpenInEditor")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceSetTailnetHandler := connect.NewUnaryHandler(
+		MeshServiceSetTailnetProcedure,
+		svc.SetTailnet,
+		connect.WithSchema(meshServiceMethods.ByName("SetTailnet")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceRingAgentHandler := connect.NewUnaryHandler(
 		MeshServiceRingAgentProcedure,
 		svc.RingAgent,
@@ -1929,6 +2065,16 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceCreateWorktreeHandler.ServeHTTP(w, r)
 		case MeshServiceStreamLogProcedure:
 			meshServiceStreamLogHandler.ServeHTTP(w, r)
+		case MeshServiceGetAgentChangesProcedure:
+			meshServiceGetAgentChangesHandler.ServeHTTP(w, r)
+		case MeshServiceGetAgentProgressProcedure:
+			meshServiceGetAgentProgressHandler.ServeHTTP(w, r)
+		case MeshServiceArchiveAgentProcedure:
+			meshServiceArchiveAgentHandler.ServeHTTP(w, r)
+		case MeshServiceOpenInEditorProcedure:
+			meshServiceOpenInEditorHandler.ServeHTTP(w, r)
+		case MeshServiceSetTailnetProcedure:
+			meshServiceSetTailnetHandler.ServeHTTP(w, r)
 		case MeshServiceRingAgentProcedure:
 			meshServiceRingAgentHandler.ServeHTTP(w, r)
 		case MeshServiceOpenAgentProcedure:
@@ -2200,6 +2346,26 @@ func (UnimplementedMeshServiceHandler) CreateWorktree(context.Context, *connect.
 
 func (UnimplementedMeshServiceHandler) StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StreamLog is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetAgentChanges(context.Context, *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetAgentChanges is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetAgentProgress is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ArchiveAgent(context.Context, *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ArchiveAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) OpenInEditor(context.Context, *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenInEditor is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SetTailnet(context.Context, *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetTailnet is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {

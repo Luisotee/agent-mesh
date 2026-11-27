@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -100,6 +100,27 @@ export const promptAgent = (c: MeshClient, agent: string, text: string) => c.pro
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)
 
 /** What waits on the user across the host's open runs: plans and questions nobody answered, agents at a prompt. */
+/** What an agent's worktree holds that no remote has: the files changed since its branch started, uncommitted work, commits not pushed. */
+export const getAgentChanges = (c: MeshClient, agent: string) => c.getAgentChanges({ agent })
+
+/** An agent's plan (its todo list) and how much context its conversation holds, from its CLI's record (Claude Code only). */
+export const getAgentProgress = (c: MeshClient, agent: string) => c.getAgentProgress({ agent })
+
+/**
+ * Retires an agent and removes its worktree, keeping its branch. The host refuses while the worktree has uncommitted
+ * changes, and (without `force`) while the branch has commits no remote branch has.
+ */
+export const archiveAgent = (c: MeshClient, agent: string, force = false) => c.archiveAgent({ meta: meta(), agent, force })
+
+/** Brings a stopped, retired or archived agent back as it was: an archived agent's worktree is made again from its branch. */
+export const resumeAgent = (c: MeshClient, agent: string) => c.resumeAgent({ meta: meta(), agent })
+
+/** Opens a path of an agent's worktree (empty: the worktree) in the host's editor. Only the host's own device may: it runs a program on the host. */
+export const openInEditor = (c: MeshClient, agent: string, path = '') => c.openInEditor({ meta: meta(), agent, path })
+
+/** Turns the host's Tailscale node on or off; meshd restarts for it to take effect (itself, under a service manager). Only the host's own device may. */
+export const setTailnet = (c: MeshClient, enabled: boolean) => c.setTailnet({ meta: meta(), enabled })
+
 /** One agent, with the models it ran on (its spawn and each reopen that moved it). */
 export const getAgent = (c: MeshClient, agent: string) => c.getAgent({ agent })
 

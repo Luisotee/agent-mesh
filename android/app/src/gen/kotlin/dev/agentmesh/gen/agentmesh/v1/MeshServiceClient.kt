@@ -1030,6 +1030,87 @@ public class MeshServiceClient(
 
 
   /**
+   *  What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+   *  uncommitted work, and commits no remote branch has.
+   */
+  override suspend fun getAgentChanges(request: GetAgentChangesRequest, headers: Headers): ResponseMessage<GetAgentChangesResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetAgentChanges",
+      dev.agentmesh.gen.agentmesh.v1.GetAgentChangesRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetAgentChangesResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+   *  its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+   */
+  override suspend fun getAgentProgress(request: GetAgentProgressRequest, headers: Headers): ResponseMessage<GetAgentProgressResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetAgentProgress",
+      dev.agentmesh.gen.agentmesh.v1.GetAgentProgressRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetAgentProgressResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+   *  changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+   *  ResumeAgent brings it back: the worktree is made again from the branch.
+   */
+  override suspend fun archiveAgent(request: ArchiveAgentRequest, headers: Headers): ResponseMessage<ArchiveAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ArchiveAgent",
+      dev.agentmesh.gen.agentmesh.v1.ArchiveAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ArchiveAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+   *  path as one argument). The host's own device only: it runs a program on the host's machine.
+   */
+  override suspend fun openInEditor(request: OpenInEditorRequest, headers: Headers): ResponseMessage<OpenInEditorResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/OpenInEditor",
+      dev.agentmesh.gen.agentmesh.v1.OpenInEditorRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.OpenInEditorResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+   *  manager it restarts itself. The host's own device only.
+   */
+  override suspend fun setTailnet(request: SetTailnetRequest, headers: Headers): ResponseMessage<SetTailnetResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/SetTailnet",
+      dev.agentmesh.gen.agentmesh.v1.SetTailnetRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.SetTailnetResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
    */
   override suspend fun ringAgent(request: RingAgentRequest, headers: Headers): ResponseMessage<RingAgentResponse> = client.unary(

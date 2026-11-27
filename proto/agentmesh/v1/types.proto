@@ -168,6 +168,9 @@ message Agent {
   // daemon's, and the daemon never signals it.
   int32 adopted_pid = 40;
   uint64 adopted_pid_start = 41;
+  // Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+  // recreates the worktree from the branch and clears this.
+  bool archived = 42;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -274,6 +277,7 @@ message Event {
     PullRequestChanged pull_request_changed = 35;
     RunRenamed run_renamed = 36;
     PermissionChanged permission_changed = 37;
+    AgentArchived agent_archived = 38;
   }
 }
 
@@ -307,6 +311,16 @@ message PermissionChanged {
   // "asked" (held for the parent), "allowed" or "denied" (the parent or a device answered), "ended" (answered at the
   // agent's terminal, ran out, or the agent went on).
   string state = 3;
+}
+
+// An agent was archived: its worktree removed, its branch kept (`ArchiveAgent`).
+message AgentArchived {
+  string worktree = 1;
+  string branch = 2;
+  // Commits of its branch no remote branch has, when it was archived (0 for a branch that was pushed).
+  int32 unpushed = 3;
+  // Archived although it had unpushed commits (`force`).
+  bool forced = 4;
 }
 
 message RunStarted {

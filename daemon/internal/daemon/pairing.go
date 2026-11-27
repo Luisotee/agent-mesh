@@ -118,6 +118,10 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 			directURL = "https://" + d.info.Listen
 		}
 	}
+	if relayURL == "" && directURL == "" {
+		// A link with no address in it can't be redeemed from anywhere: say why, so the user can give the host one.
+		return nil, failedPrecondition("%s", d.noRouteCause())
+	}
 
 	out := &v1.CreatePairingResponse{}
 	replayed, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceCreatePairingProcedure, out, func(tx *store.Tx) error {
@@ -185,6 +189,21 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("pairing already redeemed"))
 	}
 	return connect.NewResponse(out), nil
+}
+
+// noRouteCause says why this host has no address a device could pair over, and the ways to give it one.
+func (d *Daemon) noRouteCause() string {
+	why := "this host has no address a device could pair over: it serves no TLS address (meshd --listen <address>), has no relay (--relay-url), and"
+	switch {
+	case d.cfg.Tailnet != nil:
+		why += " its Tailscale node isn't connected yet (see the tailnet's state: it may need a login)"
+	default:
+		why += " Tailscale is off (turn it on from the app's Pair screen, or start meshd with --tailscale)"
+	}
+	if d.info.Listen != "" {
+		why += "; --listen " + d.info.Listen + " names no single address a device could reach, so give one with `direct_url`"
+	}
+	return why + ". Give the host one of them, or pass a `direct_url`."
 }
 
 // sameRelayURL reports whether two relay URLs name the same endpoint: scheme and host compare

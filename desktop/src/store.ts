@@ -146,9 +146,12 @@ function applyEvent(s: HostState, e: Event): HostState {
       return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: p.value.reopen }))
     case 'agentReopenDropped':
       return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: undefined }))
+    case 'agentArchived':
+      return withAgent(next, e.agentId, (a) => ({ ...a, archived: true }))
     case 'agentReopened':
       return withAgent(next, e.agentId, (a) => ({
         ...a,
+        archived: false,
         pendingReopen: undefined,
         terminalId: p.value.terminalId,
         sessionId: p.value.sessionId,

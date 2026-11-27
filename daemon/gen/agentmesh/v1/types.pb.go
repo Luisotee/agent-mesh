@@ -646,8 +646,11 @@ type Agent struct {
 	// daemon's, and the daemon never signals it.
 	AdoptedPid      int32  `protobuf:"varint,40,opt,name=adopted_pid,json=adoptedPid,proto3" json:"adopted_pid,omitempty"`
 	AdoptedPidStart uint64 `protobuf:"varint,41,opt,name=adopted_pid_start,json=adoptedPidStart,proto3" json:"adopted_pid_start,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+	// recreates the worktree from the branch and clears this.
+	Archived      bool `protobuf:"varint,42,opt,name=archived,proto3" json:"archived,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
@@ -965,6 +968,13 @@ func (x *Agent) GetAdoptedPidStart() uint64 {
 		return x.AdoptedPidStart
 	}
 	return 0
+}
+
+func (x *Agent) GetArchived() bool {
+	if x != nil {
+		return x.Archived
+	}
+	return false
 }
 
 // Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -1299,6 +1309,7 @@ type Event struct {
 	//	*Event_PullRequestChanged
 	//	*Event_RunRenamed
 	//	*Event_PermissionChanged
+	//	*Event_AgentArchived
 	Payload       isEvent_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1642,6 +1653,15 @@ func (x *Event) GetPermissionChanged() *PermissionChanged {
 	return nil
 }
 
+func (x *Event) GetAgentArchived() *AgentArchived {
+	if x != nil {
+		if x, ok := x.Payload.(*Event_AgentArchived); ok {
+			return x.AgentArchived
+		}
+	}
+	return nil
+}
+
 type isEvent_Payload interface {
 	isEvent_Payload()
 }
@@ -1758,6 +1778,10 @@ type Event_PermissionChanged struct {
 	PermissionChanged *PermissionChanged `protobuf:"bytes,37,opt,name=permission_changed,json=permissionChanged,proto3,oneof"`
 }
 
+type Event_AgentArchived struct {
+	AgentArchived *AgentArchived `protobuf:"bytes,38,opt,name=agent_archived,json=agentArchived,proto3,oneof"`
+}
+
 func (*Event_RunStarted) isEvent_Payload() {}
 
 func (*Event_AgentSpawned) isEvent_Payload() {}
@@ -1813,6 +1837,8 @@ func (*Event_PullRequestChanged) isEvent_Payload() {}
 func (*Event_RunRenamed) isEvent_Payload() {}
 
 func (*Event_PermissionChanged) isEvent_Payload() {}
+
+func (*Event_AgentArchived) isEvent_Payload() {}
 
 type Worktree struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2076,6 +2102,77 @@ func (x *PermissionChanged) GetState() string {
 	return ""
 }
 
+// An agent was archived: its worktree removed, its branch kept (`ArchiveAgent`).
+type AgentArchived struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Worktree string                 `protobuf:"bytes,1,opt,name=worktree,proto3" json:"worktree,omitempty"`
+	Branch   string                 `protobuf:"bytes,2,opt,name=branch,proto3" json:"branch,omitempty"`
+	// Commits of its branch no remote branch has, when it was archived (0 for a branch that was pushed).
+	Unpushed int32 `protobuf:"varint,3,opt,name=unpushed,proto3" json:"unpushed,omitempty"`
+	// Archived although it had unpushed commits (`force`).
+	Forced        bool `protobuf:"varint,4,opt,name=forced,proto3" json:"forced,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentArchived) Reset() {
+	*x = AgentArchived{}
+	mi := &file_agentmesh_v1_types_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentArchived) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentArchived) ProtoMessage() {}
+
+func (x *AgentArchived) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_types_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentArchived.ProtoReflect.Descriptor instead.
+func (*AgentArchived) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AgentArchived) GetWorktree() string {
+	if x != nil {
+		return x.Worktree
+	}
+	return ""
+}
+
+func (x *AgentArchived) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
+}
+
+func (x *AgentArchived) GetUnpushed() int32 {
+	if x != nil {
+		return x.Unpushed
+	}
+	return 0
+}
+
+func (x *AgentArchived) GetForced() bool {
+	if x != nil {
+		return x.Forced
+	}
+	return false
+}
+
 type RunStarted struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Run           *Run                   `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
@@ -2085,7 +2182,7 @@ type RunStarted struct {
 
 func (x *RunStarted) Reset() {
 	*x = RunStarted{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[12]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2097,7 +2194,7 @@ func (x *RunStarted) String() string {
 func (*RunStarted) ProtoMessage() {}
 
 func (x *RunStarted) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[12]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2110,7 +2207,7 @@ func (x *RunStarted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunStarted.ProtoReflect.Descriptor instead.
 func (*RunStarted) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{12}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RunStarted) GetRun() *Run {
@@ -2129,7 +2226,7 @@ type AgentSpawned struct {
 
 func (x *AgentSpawned) Reset() {
 	*x = AgentSpawned{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[13]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2141,7 +2238,7 @@ func (x *AgentSpawned) String() string {
 func (*AgentSpawned) ProtoMessage() {}
 
 func (x *AgentSpawned) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[13]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2154,7 +2251,7 @@ func (x *AgentSpawned) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentSpawned.ProtoReflect.Descriptor instead.
 func (*AgentSpawned) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{13}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AgentSpawned) GetAgent() *Agent {
@@ -2176,7 +2273,7 @@ type AgentStateChanged struct {
 
 func (x *AgentStateChanged) Reset() {
 	*x = AgentStateChanged{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[14]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2188,7 +2285,7 @@ func (x *AgentStateChanged) String() string {
 func (*AgentStateChanged) ProtoMessage() {}
 
 func (x *AgentStateChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[14]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2201,7 +2298,7 @@ func (x *AgentStateChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentStateChanged.ProtoReflect.Descriptor instead.
 func (*AgentStateChanged) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{14}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AgentStateChanged) GetFrom() AgentState {
@@ -2241,7 +2338,7 @@ type MessageSent struct {
 
 func (x *MessageSent) Reset() {
 	*x = MessageSent{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[15]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2253,7 +2350,7 @@ func (x *MessageSent) String() string {
 func (*MessageSent) ProtoMessage() {}
 
 func (x *MessageSent) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[15]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2266,7 +2363,7 @@ func (x *MessageSent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageSent.ProtoReflect.Descriptor instead.
 func (*MessageSent) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{15}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *MessageSent) GetMessage() *Message {
@@ -2291,7 +2388,7 @@ type MessageDelivered struct {
 
 func (x *MessageDelivered) Reset() {
 	*x = MessageDelivered{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[16]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2303,7 +2400,7 @@ func (x *MessageDelivered) String() string {
 func (*MessageDelivered) ProtoMessage() {}
 
 func (x *MessageDelivered) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[16]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2316,7 +2413,7 @@ func (x *MessageDelivered) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageDelivered.ProtoReflect.Descriptor instead.
 func (*MessageDelivered) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{16}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MessageDelivered) GetMessageId() string {
@@ -2354,7 +2451,7 @@ type DoorbellFailed struct {
 
 func (x *DoorbellFailed) Reset() {
 	*x = DoorbellFailed{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[17]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2366,7 +2463,7 @@ func (x *DoorbellFailed) String() string {
 func (*DoorbellFailed) ProtoMessage() {}
 
 func (x *DoorbellFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[17]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2379,7 +2476,7 @@ func (x *DoorbellFailed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DoorbellFailed.ProtoReflect.Descriptor instead.
 func (*DoorbellFailed) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{17}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *DoorbellFailed) GetMessageIds() []string {
@@ -2417,7 +2514,7 @@ type DoorbellHeld struct {
 
 func (x *DoorbellHeld) Reset() {
 	*x = DoorbellHeld{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[18]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2526,7 @@ func (x *DoorbellHeld) String() string {
 func (*DoorbellHeld) ProtoMessage() {}
 
 func (x *DoorbellHeld) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[18]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2539,7 @@ func (x *DoorbellHeld) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DoorbellHeld.ProtoReflect.Descriptor instead.
 func (*DoorbellHeld) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{18}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DoorbellHeld) GetMessageIds() []string {
@@ -2478,7 +2575,7 @@ type AgentExited struct {
 
 func (x *AgentExited) Reset() {
 	*x = AgentExited{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[19]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2490,7 +2587,7 @@ func (x *AgentExited) String() string {
 func (*AgentExited) ProtoMessage() {}
 
 func (x *AgentExited) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[19]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2503,7 +2600,7 @@ func (x *AgentExited) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentExited.ProtoReflect.Descriptor instead.
 func (*AgentExited) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{19}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AgentExited) GetExitCode() int32 {
@@ -2540,7 +2637,7 @@ type AgentAdopted struct {
 
 func (x *AgentAdopted) Reset() {
 	*x = AgentAdopted{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[20]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2552,7 +2649,7 @@ func (x *AgentAdopted) String() string {
 func (*AgentAdopted) ProtoMessage() {}
 
 func (x *AgentAdopted) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[20]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2565,7 +2662,7 @@ func (x *AgentAdopted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentAdopted.ProtoReflect.Descriptor instead.
 func (*AgentAdopted) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{20}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AgentAdopted) GetTerminalId() string {
@@ -2592,7 +2689,7 @@ type AgentReopenRequested struct {
 
 func (x *AgentReopenRequested) Reset() {
 	*x = AgentReopenRequested{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[21]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2604,7 +2701,7 @@ func (x *AgentReopenRequested) String() string {
 func (*AgentReopenRequested) ProtoMessage() {}
 
 func (x *AgentReopenRequested) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[21]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2617,7 +2714,7 @@ func (x *AgentReopenRequested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentReopenRequested.ProtoReflect.Descriptor instead.
 func (*AgentReopenRequested) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{21}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *AgentReopenRequested) GetReopen() *Reopen {
@@ -2639,7 +2736,7 @@ type AgentReopened struct {
 
 func (x *AgentReopened) Reset() {
 	*x = AgentReopened{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[22]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2651,7 +2748,7 @@ func (x *AgentReopened) String() string {
 func (*AgentReopened) ProtoMessage() {}
 
 func (x *AgentReopened) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[22]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2664,7 +2761,7 @@ func (x *AgentReopened) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentReopened.ProtoReflect.Descriptor instead.
 func (*AgentReopened) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{22}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *AgentReopened) GetReopen() *Reopen {
@@ -2700,7 +2797,7 @@ type AgentReopenDropped struct {
 
 func (x *AgentReopenDropped) Reset() {
 	*x = AgentReopenDropped{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[23]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2712,7 +2809,7 @@ func (x *AgentReopenDropped) String() string {
 func (*AgentReopenDropped) ProtoMessage() {}
 
 func (x *AgentReopenDropped) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[23]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2725,7 +2822,7 @@ func (x *AgentReopenDropped) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentReopenDropped.ProtoReflect.Descriptor instead.
 func (*AgentReopenDropped) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{23}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *AgentReopenDropped) GetReopen() *Reopen {
@@ -2753,7 +2850,7 @@ type AgentRetired struct {
 
 func (x *AgentRetired) Reset() {
 	*x = AgentRetired{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[24]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2765,7 +2862,7 @@ func (x *AgentRetired) String() string {
 func (*AgentRetired) ProtoMessage() {}
 
 func (x *AgentRetired) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[24]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2778,7 +2875,7 @@ func (x *AgentRetired) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRetired.ProtoReflect.Descriptor instead.
 func (*AgentRetired) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{24}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AgentRetired) GetReason() string {
@@ -2797,7 +2894,7 @@ type RunStopped struct {
 
 func (x *RunStopped) Reset() {
 	*x = RunStopped{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[25]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2809,7 +2906,7 @@ func (x *RunStopped) String() string {
 func (*RunStopped) ProtoMessage() {}
 
 func (x *RunStopped) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[25]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2822,7 +2919,7 @@ func (x *RunStopped) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunStopped.ProtoReflect.Descriptor instead.
 func (*RunStopped) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{25}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{26}
 }
 
 // A run's quota reserve override changed (`mesh reserve on|off`).
@@ -2835,7 +2932,7 @@ type ReserveChanged struct {
 
 func (x *ReserveChanged) Reset() {
 	*x = ReserveChanged{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[26]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2847,7 +2944,7 @@ func (x *ReserveChanged) String() string {
 func (*ReserveChanged) ProtoMessage() {}
 
 func (x *ReserveChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[26]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2860,7 +2957,7 @@ func (x *ReserveChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReserveChanged.ProtoReflect.Descriptor instead.
 func (*ReserveChanged) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{26}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ReserveChanged) GetOverReserve() bool {
@@ -2882,7 +2979,7 @@ type AgentPhaseChanged struct {
 
 func (x *AgentPhaseChanged) Reset() {
 	*x = AgentPhaseChanged{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[27]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2894,7 +2991,7 @@ func (x *AgentPhaseChanged) String() string {
 func (*AgentPhaseChanged) ProtoMessage() {}
 
 func (x *AgentPhaseChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[27]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2907,7 +3004,7 @@ func (x *AgentPhaseChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentPhaseChanged.ProtoReflect.Descriptor instead.
 func (*AgentPhaseChanged) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{27}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *AgentPhaseChanged) GetFrom() AgentPhase {
@@ -2945,7 +3042,7 @@ type AgentRoleChanged struct {
 
 func (x *AgentRoleChanged) Reset() {
 	*x = AgentRoleChanged{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[28]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2957,7 +3054,7 @@ func (x *AgentRoleChanged) String() string {
 func (*AgentRoleChanged) ProtoMessage() {}
 
 func (x *AgentRoleChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[28]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2970,7 +3067,7 @@ func (x *AgentRoleChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentRoleChanged.ProtoReflect.Descriptor instead.
 func (*AgentRoleChanged) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{28}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *AgentRoleChanged) GetFrom() AgentRole {
@@ -3005,7 +3102,7 @@ type HookDecodeFailed struct {
 
 func (x *HookDecodeFailed) Reset() {
 	*x = HookDecodeFailed{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[29]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3017,7 +3114,7 @@ func (x *HookDecodeFailed) String() string {
 func (*HookDecodeFailed) ProtoMessage() {}
 
 func (x *HookDecodeFailed) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[29]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3030,7 +3127,7 @@ func (x *HookDecodeFailed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HookDecodeFailed.ProtoReflect.Descriptor instead.
 func (*HookDecodeFailed) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{29}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *HookDecodeFailed) GetEventName() string {
@@ -3063,7 +3160,7 @@ type SettingChanged struct {
 
 func (x *SettingChanged) Reset() {
 	*x = SettingChanged{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[30]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3075,7 +3172,7 @@ func (x *SettingChanged) String() string {
 func (*SettingChanged) ProtoMessage() {}
 
 func (x *SettingChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[30]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3088,7 +3185,7 @@ func (x *SettingChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SettingChanged.ProtoReflect.Descriptor instead.
 func (*SettingChanged) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{30}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SettingChanged) GetKey() string {
@@ -3148,7 +3245,7 @@ type SettingSchema struct {
 
 func (x *SettingSchema) Reset() {
 	*x = SettingSchema{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3160,7 +3257,7 @@ func (x *SettingSchema) String() string {
 func (*SettingSchema) ProtoMessage() {}
 
 func (x *SettingSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[31]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3173,7 +3270,7 @@ func (x *SettingSchema) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SettingSchema.ProtoReflect.Descriptor instead.
 func (*SettingSchema) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{31}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SettingSchema) GetType() string {
@@ -3224,7 +3321,7 @@ type Setting struct {
 
 func (x *Setting) Reset() {
 	*x = Setting{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3236,7 +3333,7 @@ func (x *Setting) String() string {
 func (*Setting) ProtoMessage() {}
 
 func (x *Setting) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[32]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3249,7 +3346,7 @@ func (x *Setting) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Setting.ProtoReflect.Descriptor instead.
 func (*Setting) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{32}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *Setting) GetKey() string {
@@ -3318,7 +3415,7 @@ type Device struct {
 
 func (x *Device) Reset() {
 	*x = Device{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[33]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3330,7 +3427,7 @@ func (x *Device) String() string {
 func (*Device) ProtoMessage() {}
 
 func (x *Device) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[33]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3343,7 +3440,7 @@ func (x *Device) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Device.ProtoReflect.Descriptor instead.
 func (*Device) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{33}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *Device) GetId() string {
@@ -3407,7 +3504,7 @@ type PushRegistration struct {
 
 func (x *PushRegistration) Reset() {
 	*x = PushRegistration{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[34]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3419,7 +3516,7 @@ func (x *PushRegistration) String() string {
 func (*PushRegistration) ProtoMessage() {}
 
 func (x *PushRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[34]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3432,7 +3529,7 @@ func (x *PushRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushRegistration.ProtoReflect.Descriptor instead.
 func (*PushRegistration) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{34}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *PushRegistration) GetDeviceId() string {
@@ -3489,7 +3586,7 @@ type DevicePaired struct {
 
 func (x *DevicePaired) Reset() {
 	*x = DevicePaired{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[35]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3501,7 +3598,7 @@ func (x *DevicePaired) String() string {
 func (*DevicePaired) ProtoMessage() {}
 
 func (x *DevicePaired) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[35]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3514,7 +3611,7 @@ func (x *DevicePaired) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DevicePaired.ProtoReflect.Descriptor instead.
 func (*DevicePaired) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{35}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *DevicePaired) GetDevice() *Device {
@@ -3541,7 +3638,7 @@ type DeviceRevoked struct {
 
 func (x *DeviceRevoked) Reset() {
 	*x = DeviceRevoked{}
-	mi := &file_agentmesh_v1_types_proto_msgTypes[36]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3553,7 +3650,7 @@ func (x *DeviceRevoked) String() string {
 func (*DeviceRevoked) ProtoMessage() {}
 
 func (x *DeviceRevoked) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_types_proto_msgTypes[36]
+	mi := &file_agentmesh_v1_types_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3566,7 +3663,7 @@ func (x *DeviceRevoked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceRevoked.ProtoReflect.Descriptor instead.
 func (*DeviceRevoked) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{36}
+	return file_agentmesh_v1_types_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *DeviceRevoked) GetDeviceId() string {
@@ -3610,7 +3707,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"userMerges\x12\x1d\n" +
 	"\n" +
 	"ask_before\x18\x03 \x03(\tR\taskBefore\x12&\n" +
-	"\x0fkeep_repo_lists\x18\x04 \x01(\bR\rkeepRepoLists\"\xe3\v\n" +
+	"\x0fkeep_repo_lists\x18\x04 \x01(\bR\rkeepRepoLists\"\xff\v\n" +
 	"\x05Agent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x12\n" +
@@ -3663,7 +3760,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\treview_by\x18' \x01(\tR\breviewBy\x12\x1f\n" +
 	"\vadopted_pid\x18( \x01(\x05R\n" +
 	"adoptedPid\x12*\n" +
-	"\x11adopted_pid_start\x18) \x01(\x04R\x0fadoptedPidStart\"\x9c\x02\n" +
+	"\x11adopted_pid_start\x18) \x01(\x04R\x0fadoptedPidStart\x12\x1a\n" +
+	"\barchived\x18* \x01(\bR\barchived\"\x9c\x02\n" +
 	"\x06Reopen\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x16\n" +
@@ -3692,7 +3790,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\n" +
 	"generation\x18\x01 \x01(\tR\n" +
 	"generation\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\x8c\x12\n" +
+	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xd2\x12\n" +
 	"\x05Event\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x1e\n" +
 	"\n" +
@@ -3735,7 +3833,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x14pull_request_changed\x18# \x01(\v2 .agentmesh.v1.PullRequestChangedH\x00R\x12pullRequestChanged\x12;\n" +
 	"\vrun_renamed\x18$ \x01(\v2\x18.agentmesh.v1.RunRenamedH\x00R\n" +
 	"runRenamed\x12P\n" +
-	"\x12permission_changed\x18% \x01(\v2\x1f.agentmesh.v1.PermissionChangedH\x00R\x11permissionChangedB\t\n" +
+	"\x12permission_changed\x18% \x01(\v2\x1f.agentmesh.v1.PermissionChangedH\x00R\x11permissionChanged\x12D\n" +
+	"\x0eagent_archived\x18& \x01(\v2\x1b.agentmesh.v1.AgentArchivedH\x00R\ragentArchivedB\t\n" +
 	"\apayload\"\xe1\x01\n" +
 	"\bWorktree\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
@@ -3758,7 +3857,12 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
 	"agent_name\x18\x02 \x01(\tR\tagentName\x12\x14\n" +
-	"\x05state\x18\x03 \x01(\tR\x05state\"1\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\"w\n" +
+	"\rAgentArchived\x12\x1a\n" +
+	"\bworktree\x18\x01 \x01(\tR\bworktree\x12\x16\n" +
+	"\x06branch\x18\x02 \x01(\tR\x06branch\x12\x1a\n" +
+	"\bunpushed\x18\x03 \x01(\x05R\bunpushed\x12\x16\n" +
+	"\x06forced\x18\x04 \x01(\bR\x06forced\"1\n" +
 	"\n" +
 	"RunStarted\x12#\n" +
 	"\x03run\x18\x01 \x01(\v2\x11.agentmesh.v1.RunR\x03run\"9\n" +
@@ -3923,7 +4027,7 @@ func file_agentmesh_v1_types_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_v1_types_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_agentmesh_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_agentmesh_v1_types_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_agentmesh_v1_types_proto_goTypes = []any{
 	(RunStatus)(0),                // 0: agentmesh.v1.RunStatus
 	(AgentRole)(0),                // 1: agentmesh.v1.AgentRole
@@ -3942,129 +4046,131 @@ var file_agentmesh_v1_types_proto_goTypes = []any{
 	(*WorktreeCreated)(nil),       // 14: agentmesh.v1.WorktreeCreated
 	(*RunRenamed)(nil),            // 15: agentmesh.v1.RunRenamed
 	(*PermissionChanged)(nil),     // 16: agentmesh.v1.PermissionChanged
-	(*RunStarted)(nil),            // 17: agentmesh.v1.RunStarted
-	(*AgentSpawned)(nil),          // 18: agentmesh.v1.AgentSpawned
-	(*AgentStateChanged)(nil),     // 19: agentmesh.v1.AgentStateChanged
-	(*MessageSent)(nil),           // 20: agentmesh.v1.MessageSent
-	(*MessageDelivered)(nil),      // 21: agentmesh.v1.MessageDelivered
-	(*DoorbellFailed)(nil),        // 22: agentmesh.v1.DoorbellFailed
-	(*DoorbellHeld)(nil),          // 23: agentmesh.v1.DoorbellHeld
-	(*AgentExited)(nil),           // 24: agentmesh.v1.AgentExited
-	(*AgentAdopted)(nil),          // 25: agentmesh.v1.AgentAdopted
-	(*AgentReopenRequested)(nil),  // 26: agentmesh.v1.AgentReopenRequested
-	(*AgentReopened)(nil),         // 27: agentmesh.v1.AgentReopened
-	(*AgentReopenDropped)(nil),    // 28: agentmesh.v1.AgentReopenDropped
-	(*AgentRetired)(nil),          // 29: agentmesh.v1.AgentRetired
-	(*RunStopped)(nil),            // 30: agentmesh.v1.RunStopped
-	(*ReserveChanged)(nil),        // 31: agentmesh.v1.ReserveChanged
-	(*AgentPhaseChanged)(nil),     // 32: agentmesh.v1.AgentPhaseChanged
-	(*AgentRoleChanged)(nil),      // 33: agentmesh.v1.AgentRoleChanged
-	(*HookDecodeFailed)(nil),      // 34: agentmesh.v1.HookDecodeFailed
-	(*SettingChanged)(nil),        // 35: agentmesh.v1.SettingChanged
-	(*SettingSchema)(nil),         // 36: agentmesh.v1.SettingSchema
-	(*Setting)(nil),               // 37: agentmesh.v1.Setting
-	(*Device)(nil),                // 38: agentmesh.v1.Device
-	(*PushRegistration)(nil),      // 39: agentmesh.v1.PushRegistration
-	(*DevicePaired)(nil),          // 40: agentmesh.v1.DevicePaired
-	(*DeviceRevoked)(nil),         // 41: agentmesh.v1.DeviceRevoked
-	(*timestamppb.Timestamp)(nil), // 42: google.protobuf.Timestamp
-	(*Actor)(nil),                 // 43: agentmesh.v1.Actor
-	(*PendingCompaction)(nil),     // 44: agentmesh.v1.PendingCompaction
-	(*RootReset)(nil),             // 45: agentmesh.v1.RootReset
-	(*AgentCompacted)(nil),        // 46: agentmesh.v1.AgentCompacted
-	(*RootResetRequested)(nil),    // 47: agentmesh.v1.RootResetRequested
-	(*RootResetFinished)(nil),     // 48: agentmesh.v1.RootResetFinished
-	(*PullRequestChanged)(nil),    // 49: agentmesh.v1.PullRequestChanged
-	(*structpb.Value)(nil),        // 50: google.protobuf.Value
-	(ActorClass)(0),               // 51: agentmesh.v1.ActorClass
+	(*AgentArchived)(nil),         // 17: agentmesh.v1.AgentArchived
+	(*RunStarted)(nil),            // 18: agentmesh.v1.RunStarted
+	(*AgentSpawned)(nil),          // 19: agentmesh.v1.AgentSpawned
+	(*AgentStateChanged)(nil),     // 20: agentmesh.v1.AgentStateChanged
+	(*MessageSent)(nil),           // 21: agentmesh.v1.MessageSent
+	(*MessageDelivered)(nil),      // 22: agentmesh.v1.MessageDelivered
+	(*DoorbellFailed)(nil),        // 23: agentmesh.v1.DoorbellFailed
+	(*DoorbellHeld)(nil),          // 24: agentmesh.v1.DoorbellHeld
+	(*AgentExited)(nil),           // 25: agentmesh.v1.AgentExited
+	(*AgentAdopted)(nil),          // 26: agentmesh.v1.AgentAdopted
+	(*AgentReopenRequested)(nil),  // 27: agentmesh.v1.AgentReopenRequested
+	(*AgentReopened)(nil),         // 28: agentmesh.v1.AgentReopened
+	(*AgentReopenDropped)(nil),    // 29: agentmesh.v1.AgentReopenDropped
+	(*AgentRetired)(nil),          // 30: agentmesh.v1.AgentRetired
+	(*RunStopped)(nil),            // 31: agentmesh.v1.RunStopped
+	(*ReserveChanged)(nil),        // 32: agentmesh.v1.ReserveChanged
+	(*AgentPhaseChanged)(nil),     // 33: agentmesh.v1.AgentPhaseChanged
+	(*AgentRoleChanged)(nil),      // 34: agentmesh.v1.AgentRoleChanged
+	(*HookDecodeFailed)(nil),      // 35: agentmesh.v1.HookDecodeFailed
+	(*SettingChanged)(nil),        // 36: agentmesh.v1.SettingChanged
+	(*SettingSchema)(nil),         // 37: agentmesh.v1.SettingSchema
+	(*Setting)(nil),               // 38: agentmesh.v1.Setting
+	(*Device)(nil),                // 39: agentmesh.v1.Device
+	(*PushRegistration)(nil),      // 40: agentmesh.v1.PushRegistration
+	(*DevicePaired)(nil),          // 41: agentmesh.v1.DevicePaired
+	(*DeviceRevoked)(nil),         // 42: agentmesh.v1.DeviceRevoked
+	(*timestamppb.Timestamp)(nil), // 43: google.protobuf.Timestamp
+	(*Actor)(nil),                 // 44: agentmesh.v1.Actor
+	(*PendingCompaction)(nil),     // 45: agentmesh.v1.PendingCompaction
+	(*RootReset)(nil),             // 46: agentmesh.v1.RootReset
+	(*AgentCompacted)(nil),        // 47: agentmesh.v1.AgentCompacted
+	(*RootResetRequested)(nil),    // 48: agentmesh.v1.RootResetRequested
+	(*RootResetFinished)(nil),     // 49: agentmesh.v1.RootResetFinished
+	(*PullRequestChanged)(nil),    // 50: agentmesh.v1.PullRequestChanged
+	(*structpb.Value)(nil),        // 51: google.protobuf.Value
+	(ActorClass)(0),               // 52: agentmesh.v1.ActorClass
 }
 var file_agentmesh_v1_types_proto_depIdxs = []int32{
-	42, // 0: agentmesh.v1.RequestMeta.expires_at:type_name -> google.protobuf.Timestamp
+	43, // 0: agentmesh.v1.RequestMeta.expires_at:type_name -> google.protobuf.Timestamp
 	0,  // 1: agentmesh.v1.Run.status:type_name -> agentmesh.v1.RunStatus
-	42, // 2: agentmesh.v1.Run.created_at:type_name -> google.protobuf.Timestamp
-	43, // 3: agentmesh.v1.Run.created_by:type_name -> agentmesh.v1.Actor
+	43, // 2: agentmesh.v1.Run.created_at:type_name -> google.protobuf.Timestamp
+	44, // 3: agentmesh.v1.Run.created_by:type_name -> agentmesh.v1.Actor
 	7,  // 4: agentmesh.v1.Run.autonomy:type_name -> agentmesh.v1.RunAutonomy
 	1,  // 5: agentmesh.v1.Agent.role:type_name -> agentmesh.v1.AgentRole
 	2,  // 6: agentmesh.v1.Agent.state:type_name -> agentmesh.v1.AgentState
-	42, // 7: agentmesh.v1.Agent.last_activity:type_name -> google.protobuf.Timestamp
-	42, // 8: agentmesh.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
+	43, // 7: agentmesh.v1.Agent.last_activity:type_name -> google.protobuf.Timestamp
+	43, // 8: agentmesh.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 9: agentmesh.v1.Agent.state_before_compact:type_name -> agentmesh.v1.AgentState
 	3,  // 10: agentmesh.v1.Agent.phase:type_name -> agentmesh.v1.AgentPhase
 	9,  // 11: agentmesh.v1.Agent.pending_reopen:type_name -> agentmesh.v1.Reopen
-	44, // 12: agentmesh.v1.Agent.pending_compaction:type_name -> agentmesh.v1.PendingCompaction
-	45, // 13: agentmesh.v1.Agent.pending_reset:type_name -> agentmesh.v1.RootReset
-	45, // 14: agentmesh.v1.Agent.last_reset:type_name -> agentmesh.v1.RootReset
-	42, // 15: agentmesh.v1.Reopen.requested_at:type_name -> google.protobuf.Timestamp
-	43, // 16: agentmesh.v1.Reopen.requested_by:type_name -> agentmesh.v1.Actor
-	43, // 17: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
+	45, // 12: agentmesh.v1.Agent.pending_compaction:type_name -> agentmesh.v1.PendingCompaction
+	46, // 13: agentmesh.v1.Agent.pending_reset:type_name -> agentmesh.v1.RootReset
+	46, // 14: agentmesh.v1.Agent.last_reset:type_name -> agentmesh.v1.RootReset
+	43, // 15: agentmesh.v1.Reopen.requested_at:type_name -> google.protobuf.Timestamp
+	44, // 16: agentmesh.v1.Reopen.requested_by:type_name -> agentmesh.v1.Actor
+	44, // 17: agentmesh.v1.Message.from:type_name -> agentmesh.v1.Actor
 	4,  // 18: agentmesh.v1.Message.type:type_name -> agentmesh.v1.MessageType
-	42, // 19: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	42, // 20: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
-	42, // 21: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
-	42, // 22: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
-	43, // 23: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
-	17, // 24: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
-	18, // 25: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
-	19, // 26: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
-	20, // 27: agentmesh.v1.Event.message_sent:type_name -> agentmesh.v1.MessageSent
-	21, // 28: agentmesh.v1.Event.message_delivered:type_name -> agentmesh.v1.MessageDelivered
-	24, // 29: agentmesh.v1.Event.agent_exited:type_name -> agentmesh.v1.AgentExited
-	25, // 30: agentmesh.v1.Event.agent_adopted:type_name -> agentmesh.v1.AgentAdopted
-	34, // 31: agentmesh.v1.Event.hook_decode_failed:type_name -> agentmesh.v1.HookDecodeFailed
-	35, // 32: agentmesh.v1.Event.setting_changed:type_name -> agentmesh.v1.SettingChanged
-	26, // 33: agentmesh.v1.Event.agent_reopen_requested:type_name -> agentmesh.v1.AgentReopenRequested
-	27, // 34: agentmesh.v1.Event.agent_reopened:type_name -> agentmesh.v1.AgentReopened
-	32, // 35: agentmesh.v1.Event.agent_phase_changed:type_name -> agentmesh.v1.AgentPhaseChanged
-	28, // 36: agentmesh.v1.Event.agent_reopen_dropped:type_name -> agentmesh.v1.AgentReopenDropped
-	40, // 37: agentmesh.v1.Event.device_paired:type_name -> agentmesh.v1.DevicePaired
-	41, // 38: agentmesh.v1.Event.device_revoked:type_name -> agentmesh.v1.DeviceRevoked
-	29, // 39: agentmesh.v1.Event.agent_retired:type_name -> agentmesh.v1.AgentRetired
-	30, // 40: agentmesh.v1.Event.run_stopped:type_name -> agentmesh.v1.RunStopped
-	31, // 41: agentmesh.v1.Event.reserve_changed:type_name -> agentmesh.v1.ReserveChanged
-	33, // 42: agentmesh.v1.Event.agent_role_changed:type_name -> agentmesh.v1.AgentRoleChanged
-	46, // 43: agentmesh.v1.Event.agent_compacted:type_name -> agentmesh.v1.AgentCompacted
-	47, // 44: agentmesh.v1.Event.root_reset_requested:type_name -> agentmesh.v1.RootResetRequested
-	48, // 45: agentmesh.v1.Event.root_reset_finished:type_name -> agentmesh.v1.RootResetFinished
-	22, // 46: agentmesh.v1.Event.doorbell_failed:type_name -> agentmesh.v1.DoorbellFailed
-	23, // 47: agentmesh.v1.Event.doorbell_held:type_name -> agentmesh.v1.DoorbellHeld
+	43, // 19: agentmesh.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	43, // 20: agentmesh.v1.Message.delivered_at:type_name -> google.protobuf.Timestamp
+	43, // 21: agentmesh.v1.Message.read_at:type_name -> google.protobuf.Timestamp
+	43, // 22: agentmesh.v1.Event.time:type_name -> google.protobuf.Timestamp
+	44, // 23: agentmesh.v1.Event.actor:type_name -> agentmesh.v1.Actor
+	18, // 24: agentmesh.v1.Event.run_started:type_name -> agentmesh.v1.RunStarted
+	19, // 25: agentmesh.v1.Event.agent_spawned:type_name -> agentmesh.v1.AgentSpawned
+	20, // 26: agentmesh.v1.Event.agent_state_changed:type_name -> agentmesh.v1.AgentStateChanged
+	21, // 27: agentmesh.v1.Event.message_sent:type_name -> agentmesh.v1.MessageSent
+	22, // 28: agentmesh.v1.Event.message_delivered:type_name -> agentmesh.v1.MessageDelivered
+	25, // 29: agentmesh.v1.Event.agent_exited:type_name -> agentmesh.v1.AgentExited
+	26, // 30: agentmesh.v1.Event.agent_adopted:type_name -> agentmesh.v1.AgentAdopted
+	35, // 31: agentmesh.v1.Event.hook_decode_failed:type_name -> agentmesh.v1.HookDecodeFailed
+	36, // 32: agentmesh.v1.Event.setting_changed:type_name -> agentmesh.v1.SettingChanged
+	27, // 33: agentmesh.v1.Event.agent_reopen_requested:type_name -> agentmesh.v1.AgentReopenRequested
+	28, // 34: agentmesh.v1.Event.agent_reopened:type_name -> agentmesh.v1.AgentReopened
+	33, // 35: agentmesh.v1.Event.agent_phase_changed:type_name -> agentmesh.v1.AgentPhaseChanged
+	29, // 36: agentmesh.v1.Event.agent_reopen_dropped:type_name -> agentmesh.v1.AgentReopenDropped
+	41, // 37: agentmesh.v1.Event.device_paired:type_name -> agentmesh.v1.DevicePaired
+	42, // 38: agentmesh.v1.Event.device_revoked:type_name -> agentmesh.v1.DeviceRevoked
+	30, // 39: agentmesh.v1.Event.agent_retired:type_name -> agentmesh.v1.AgentRetired
+	31, // 40: agentmesh.v1.Event.run_stopped:type_name -> agentmesh.v1.RunStopped
+	32, // 41: agentmesh.v1.Event.reserve_changed:type_name -> agentmesh.v1.ReserveChanged
+	34, // 42: agentmesh.v1.Event.agent_role_changed:type_name -> agentmesh.v1.AgentRoleChanged
+	47, // 43: agentmesh.v1.Event.agent_compacted:type_name -> agentmesh.v1.AgentCompacted
+	48, // 44: agentmesh.v1.Event.root_reset_requested:type_name -> agentmesh.v1.RootResetRequested
+	49, // 45: agentmesh.v1.Event.root_reset_finished:type_name -> agentmesh.v1.RootResetFinished
+	23, // 46: agentmesh.v1.Event.doorbell_failed:type_name -> agentmesh.v1.DoorbellFailed
+	24, // 47: agentmesh.v1.Event.doorbell_held:type_name -> agentmesh.v1.DoorbellHeld
 	14, // 48: agentmesh.v1.Event.worktree_created:type_name -> agentmesh.v1.WorktreeCreated
-	49, // 49: agentmesh.v1.Event.pull_request_changed:type_name -> agentmesh.v1.PullRequestChanged
+	50, // 49: agentmesh.v1.Event.pull_request_changed:type_name -> agentmesh.v1.PullRequestChanged
 	15, // 50: agentmesh.v1.Event.run_renamed:type_name -> agentmesh.v1.RunRenamed
 	16, // 51: agentmesh.v1.Event.permission_changed:type_name -> agentmesh.v1.PermissionChanged
-	42, // 52: agentmesh.v1.Worktree.created_at:type_name -> google.protobuf.Timestamp
-	13, // 53: agentmesh.v1.WorktreeCreated.worktree:type_name -> agentmesh.v1.Worktree
-	6,  // 54: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
-	8,  // 55: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
-	2,  // 56: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
-	2,  // 57: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
-	10, // 58: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
-	9,  // 59: agentmesh.v1.AgentReopenRequested.reopen:type_name -> agentmesh.v1.Reopen
-	9,  // 60: agentmesh.v1.AgentReopened.reopen:type_name -> agentmesh.v1.Reopen
-	9,  // 61: agentmesh.v1.AgentReopenDropped.reopen:type_name -> agentmesh.v1.Reopen
-	3,  // 62: agentmesh.v1.AgentPhaseChanged.from:type_name -> agentmesh.v1.AgentPhase
-	3,  // 63: agentmesh.v1.AgentPhaseChanged.to:type_name -> agentmesh.v1.AgentPhase
-	1,  // 64: agentmesh.v1.AgentRoleChanged.from:type_name -> agentmesh.v1.AgentRole
-	1,  // 65: agentmesh.v1.AgentRoleChanged.to:type_name -> agentmesh.v1.AgentRole
-	50, // 66: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
-	50, // 67: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
-	50, // 68: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
-	50, // 69: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
-	36, // 70: agentmesh.v1.Setting.schema:type_name -> agentmesh.v1.SettingSchema
-	42, // 71: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
-	43, // 72: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
-	51, // 73: agentmesh.v1.Device.class:type_name -> agentmesh.v1.ActorClass
-	42, // 74: agentmesh.v1.Device.created_at:type_name -> google.protobuf.Timestamp
-	42, // 75: agentmesh.v1.Device.revoked_at:type_name -> google.protobuf.Timestamp
-	39, // 76: agentmesh.v1.Device.push:type_name -> agentmesh.v1.PushRegistration
-	42, // 77: agentmesh.v1.PushRegistration.registered_at:type_name -> google.protobuf.Timestamp
-	42, // 78: agentmesh.v1.PushRegistration.last_ok_at:type_name -> google.protobuf.Timestamp
-	42, // 79: agentmesh.v1.PushRegistration.failing_since:type_name -> google.protobuf.Timestamp
-	38, // 80: agentmesh.v1.DevicePaired.device:type_name -> agentmesh.v1.Device
-	81, // [81:81] is the sub-list for method output_type
-	81, // [81:81] is the sub-list for method input_type
-	81, // [81:81] is the sub-list for extension type_name
-	81, // [81:81] is the sub-list for extension extendee
-	0,  // [0:81] is the sub-list for field type_name
+	17, // 52: agentmesh.v1.Event.agent_archived:type_name -> agentmesh.v1.AgentArchived
+	43, // 53: agentmesh.v1.Worktree.created_at:type_name -> google.protobuf.Timestamp
+	13, // 54: agentmesh.v1.WorktreeCreated.worktree:type_name -> agentmesh.v1.Worktree
+	6,  // 55: agentmesh.v1.RunStarted.run:type_name -> agentmesh.v1.Run
+	8,  // 56: agentmesh.v1.AgentSpawned.agent:type_name -> agentmesh.v1.Agent
+	2,  // 57: agentmesh.v1.AgentStateChanged.from:type_name -> agentmesh.v1.AgentState
+	2,  // 58: agentmesh.v1.AgentStateChanged.to:type_name -> agentmesh.v1.AgentState
+	10, // 59: agentmesh.v1.MessageSent.message:type_name -> agentmesh.v1.Message
+	9,  // 60: agentmesh.v1.AgentReopenRequested.reopen:type_name -> agentmesh.v1.Reopen
+	9,  // 61: agentmesh.v1.AgentReopened.reopen:type_name -> agentmesh.v1.Reopen
+	9,  // 62: agentmesh.v1.AgentReopenDropped.reopen:type_name -> agentmesh.v1.Reopen
+	3,  // 63: agentmesh.v1.AgentPhaseChanged.from:type_name -> agentmesh.v1.AgentPhase
+	3,  // 64: agentmesh.v1.AgentPhaseChanged.to:type_name -> agentmesh.v1.AgentPhase
+	1,  // 65: agentmesh.v1.AgentRoleChanged.from:type_name -> agentmesh.v1.AgentRole
+	1,  // 66: agentmesh.v1.AgentRoleChanged.to:type_name -> agentmesh.v1.AgentRole
+	51, // 67: agentmesh.v1.SettingChanged.value:type_name -> google.protobuf.Value
+	51, // 68: agentmesh.v1.SettingChanged.previous:type_name -> google.protobuf.Value
+	51, // 69: agentmesh.v1.Setting.value:type_name -> google.protobuf.Value
+	51, // 70: agentmesh.v1.Setting.default:type_name -> google.protobuf.Value
+	37, // 71: agentmesh.v1.Setting.schema:type_name -> agentmesh.v1.SettingSchema
+	43, // 72: agentmesh.v1.Setting.updated_at:type_name -> google.protobuf.Timestamp
+	44, // 73: agentmesh.v1.Setting.updated_by:type_name -> agentmesh.v1.Actor
+	52, // 74: agentmesh.v1.Device.class:type_name -> agentmesh.v1.ActorClass
+	43, // 75: agentmesh.v1.Device.created_at:type_name -> google.protobuf.Timestamp
+	43, // 76: agentmesh.v1.Device.revoked_at:type_name -> google.protobuf.Timestamp
+	40, // 77: agentmesh.v1.Device.push:type_name -> agentmesh.v1.PushRegistration
+	43, // 78: agentmesh.v1.PushRegistration.registered_at:type_name -> google.protobuf.Timestamp
+	43, // 79: agentmesh.v1.PushRegistration.last_ok_at:type_name -> google.protobuf.Timestamp
+	43, // 80: agentmesh.v1.PushRegistration.failing_since:type_name -> google.protobuf.Timestamp
+	39, // 81: agentmesh.v1.DevicePaired.device:type_name -> agentmesh.v1.Device
+	82, // [82:82] is the sub-list for method output_type
+	82, // [82:82] is the sub-list for method input_type
+	82, // [82:82] is the sub-list for extension type_name
+	82, // [82:82] is the sub-list for extension extendee
+	0,  // [0:82] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_types_proto_init() }
@@ -4104,6 +4210,7 @@ func file_agentmesh_v1_types_proto_init() {
 		(*Event_PullRequestChanged)(nil),
 		(*Event_RunRenamed)(nil),
 		(*Event_PermissionChanged)(nil),
+		(*Event_AgentArchived)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -4111,7 +4218,7 @@ func file_agentmesh_v1_types_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_types_proto_rawDesc), len(file_agentmesh_v1_types_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   37,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

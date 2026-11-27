@@ -138,7 +138,7 @@ func TestSetupRootMayPairButOthersMayNot(t *testing.T) {
 	asSetup := h.as(tok)
 
 	// The setup agent pairs and lists devices, and reads the tailnet.
-	if _, err := asSetup.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("p1"), Name: "phone"})); err != nil {
+	if _, err := asSetup.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("p1"), Name: "phone"})); err != nil {
 		t.Fatalf("setup root CreatePairing: %v", err)
 	}
 	if _, err := asSetup.ListDevices(ctx, connect.NewRequest(&v1.ListDevicesRequest{})); err != nil {
@@ -163,7 +163,7 @@ func TestSetupRootMayPairButOthersMayNot(t *testing.T) {
 		cl  func() error
 	}{
 		{"root", func() error {
-			_, err := h.as(rootTok).CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("p2")}))
+			_, err := h.as(rootTok).CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("p2")}))
 			return err
 		}},
 		{"root devices", func() error {

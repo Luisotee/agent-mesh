@@ -58,6 +58,7 @@ public  final class Event extends
     PULL_REQUEST_CHANGED(35),
     RUN_RENAMED(36),
     PERMISSION_CHANGED(37),
+    AGENT_ARCHIVED(38),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -101,6 +102,7 @@ public  final class Event extends
         case 35: return PULL_REQUEST_CHANGED;
         case 36: return RUN_RENAMED;
         case 37: return PERMISSION_CHANGED;
+        case 38: return AGENT_ARCHIVED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1865,6 +1867,56 @@ public  final class Event extends
    */
   private void clearPermissionChanged() {
     if (payloadCase_ == 37) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_ARCHIVED_FIELD_NUMBER = 38;
+  /**
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentArchived() {
+    return payloadCase_ == 38;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentArchived getAgentArchived() {
+    if (payloadCase_ == 38) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentArchived) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentArchived.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+   */
+  private void setAgentArchived(dev.agentmesh.gen.agentmesh.v1.AgentArchived value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 38;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+   */
+  private void mergeAgentArchived(dev.agentmesh.gen.agentmesh.v1.AgentArchived value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 38 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentArchived.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentArchived.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentArchived) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 38;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+   */
+  private void clearAgentArchived() {
+    if (payloadCase_ == 38) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3690,6 +3742,54 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentArchived() {
+      return instance.hasAgentArchived();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentArchived getAgentArchived() {
+      return instance.getAgentArchived();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+     */
+    public Builder setAgentArchived(dev.agentmesh.gen.agentmesh.v1.AgentArchived value) {
+      copyOnWrite();
+      instance.setAgentArchived(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+     */
+    public Builder setAgentArchived(
+        dev.agentmesh.gen.agentmesh.v1.AgentArchived.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentArchived(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+     */
+    public Builder mergeAgentArchived(dev.agentmesh.gen.agentmesh.v1.AgentArchived value) {
+      copyOnWrite();
+      instance.mergeAgentArchived(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentArchived agent_archived = 38 [json_name = "agentArchived"];</code>
+     */
+    public Builder clearAgentArchived() {
+      copyOnWrite();
+      instance.clearAgentArchived();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -3744,14 +3844,15 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.PullRequestChanged.class,
             dev.agentmesh.gen.agentmesh.v1.RunRenamed.class,
             dev.agentmesh.gen.agentmesh.v1.PermissionChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentArchived.class,
           };
           java.lang.String info =
-              "\u0000#\u0001\u0001\u0001%#\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
+              "\u0000$\u0001\u0001\u0001&$\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
               "\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b<\u0000" +
               "\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000" +
               "\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019" +
               "<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000" +
-              " <\u0000!<\u0000\"<\u0000#<\u0000$<\u0000%<\u0000";
+              " <\u0000!<\u0000\"<\u0000#<\u0000$<\u0000%<\u0000&<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -6,13 +6,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, Textarea } from '@/components/ui/input'
 import { ModelControl } from './model-control'
+import { Changes, Progress, WorktreeActions } from './agent-work'
 import { MessageType, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { costOf, costRows, dollars, historyRows, isLead, prRows, quotaRows, resetsIn, type PrRow } from '@/side-panel'
+import { costOf, costRows, dollars, historyRows, isLead, prRows, type PrRow } from '@/side-panel'
+import { quotaRows, resetText } from '@/usage'
 
 /**
  * Beside the open agent: for a run's lead the whole run (what it cost in total and per agent, what waits on the user,
@@ -87,6 +89,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           <dd>{ROLE_LABEL[agent.role]}</dd>
         </dl>
         <ModelControl host={host} agent={agent} className="mt-1.5" />
+        <WorktreeActions host={host} agent={agent} />
         <div className="mt-2 flex gap-1.5">
           {canTerminal && agent.terminalId && (
             <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>
@@ -100,6 +103,8 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           )}
         </div>
       </Section>
+      <Progress host={host} agent={agent} />
+      <Changes host={host} agent={agent} />
       <ModelHistory host={host} agent={agent} />
       <Autonomy host={host} repo={agent.repo} run={run} />
       <AskBefore host={host} run={run} />
@@ -266,7 +271,7 @@ function Quota({ host }: { host: HostRuntime }) {
                 <div className={cn('h-full rounded-full', r.atReserve ? 'bg-state-needs' : 'bg-primary')} style={{ width: `${Math.min(100, Math.max(0, r.used))}%` }} />
                 {q.reserve < 100 && <div className="absolute inset-y-0 w-px bg-foreground/60" style={{ left: `${q.reserve}%` }} title={`Reserve: nothing new starts at ${q.reserve}%`} />}
               </div>
-              {r.resetsAt && <p className="text-[11px] text-muted-foreground">{resetsIn(r.resetsAt)}</p>}
+              {r.resetsAt && <p className="text-[11px] text-muted-foreground">{resetText(r.resetsAt)}</p>}
             </li>
           ))}
         </ul>

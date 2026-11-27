@@ -1,9 +1,9 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { GetUsageResponseSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgyUsageRowSchema, ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema } from './gen/agentmesh/v1/mesh_pb'
 import { GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
-import { costView, resetText, tokens, usageView } from './usage'
+import { costView, quotaRows, resetText, tokens, usageView } from './usage'
 
 const NOW = new Date('2026-11-26T12:00:00Z')
 
@@ -133,5 +133,24 @@ describe('tokens', () => {
     expect(tokens(300n)).toBe('300')
     expect(tokens(999_600)).toBe('1.0M') // not 1000k
     expect(tokens(999_400)).toBe('999k')
+  })
+})
+
+describe('the side panel\'s quota rows', () => {
+  it('shows Claude\'s windows with the host\'s at-reserve marks, and agy\'s fullest row', () => {
+    const u = create(GetUsageResponseSchema, {
+      quotaStop: 90,
+      minQuota: 10,
+      claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: 'weekly window', used: 95, resetsAt: timestampFromMs(5000) }), create(ClaudeUsageWindowSchema, { label: 'five-hour window', used: 20 })], atReserve: ['weekly window'] }),
+      agyRows: [create(AgyUsageRowSchema, { group: 'Gemini', label: 'Pro', left: 60 }), create(AgyUsageRowSchema, { group: 'Gemini', label: 'Flash', left: 8 })],
+    })
+    const q = quotaRows(u)
+    expect(q.reserve).toBe(90)
+    expect(q.rows.map((r) => [r.label, r.used, r.atReserve])).toEqual([['Claude weekly window', 95, true], ['Claude five-hour window', 20, false], ['agy Gemini Flash', 92, true]])
+    expect(q.rows[0]!.resetsAt?.getTime()).toBe(5000)
+  })
+
+  it('has no rows when the host has no reading', () => {
+    expect(quotaRows(create(GetUsageResponseSchema)).rows).toEqual([])
   })
 })
