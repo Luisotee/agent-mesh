@@ -175,7 +175,7 @@ export const listAgentWaits = (c: MeshClient) => c.listAgentWaits({})
 export const listPullRequests = (c: MeshClient, runId: string, refresh = false) => c.listPullRequests({ runId, refresh })
 
 /** The repos the host can start work in (quick, from git); with `repo`, that one fetched, with its branches and open pull requests. */
-export const listProjects = (c: MeshClient, repo = '') => c.listProjects({ repo })
+export const listProjects = (c: MeshClient, repo = '', quick = false) => c.listProjects(quick ? { repo, quick } : { repo })
 
 /** Holds a pull request's merge, or releases it: a root never merges a held one. */
 export const holdPullRequest = (c: MeshClient, url: string, release = false) => c.holdPullRequest({ meta: meta(), url, release })

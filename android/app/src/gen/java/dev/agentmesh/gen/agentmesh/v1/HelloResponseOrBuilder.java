@@ -143,4 +143,57 @@ public interface HelloResponseOrBuilder extends
    * @return The serverTime.
    */
   com.google.protobuf.Timestamp getServerTime();
+
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @return A list containing the clis.
+   */
+  java.util.List<java.lang.String>
+      getClisList();
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @return The count of clis.
+   */
+  int getClisCount();
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param index The index of the element to return.
+   * @return The clis at the given index.
+   */
+  java.lang.String getClis(int index);
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+   * empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+   * offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param index The index of the element to return.
+   * @return The clis at the given index.
+   */
+  com.google.protobuf.ByteString
+      getClisBytes(int index);
 }

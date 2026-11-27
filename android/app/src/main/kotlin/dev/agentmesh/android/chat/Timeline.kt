@@ -61,6 +61,20 @@ fun mergeTimeline(blocks: List<Block>, messages: List<Message>, cards: Boolean, 
 fun indexOfEntry(entries: List<Entry>, key: String): Int =
     entries.indexOfFirst { it.id == key || (it is Entry.Chat && it.block is Block.Tools && it.block.calls.any { c -> c.id == key }) }
 
+/**
+ * How many entries came in after the one the reader was last at the end for ([seenLast]), while they are up in the history (not
+ * [stick]). 0 when [seenLast] is no longer in the list (the conversation was reloaded under them): [reanchor] says so, and the
+ * caller takes the new tail as the place they were at.
+ */
+fun unseenCount(entries: List<Entry>, seenLast: String?, stick: Boolean): Int {
+    if (stick || seenLast == null) return 0
+    val i = indexOfEntry(entries, seenLast)
+    return if (i < 0) 0 else entries.size - 1 - i
+}
+
+/** Whether the place the reader was at the end for is gone from the list, so the pill must count from the new tail. */
+fun reanchor(entries: List<Entry>, seenLast: String?): Boolean = seenLast != null && indexOfEntry(entries, seenLast) < 0
+
 /** Start a new group of the timeline after this long a pause. */
 const val GROUP_GAP_MS = 5 * 60_000L
 

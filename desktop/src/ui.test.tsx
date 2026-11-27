@@ -1311,6 +1311,8 @@ describe('SidebarFooter', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
     await userEvent.type(await screen.findByRole('textbox'), '/tmp/plain{Enter}')
     expect(await screen.findByRole('alert')).toHaveTextContent('/tmp/plain is not a git repository')
+    // The quick check: the host fetches nothing and reads no pull requests for it.
+    expect(client.listProjects).toHaveBeenCalledWith({ repo: '/tmp/plain', quick: true })
     expect(model.store.getState().pins).toEqual({})
     await userEvent.clear(screen.getByRole('textbox'))
     await userEvent.type(screen.getByRole('textbox'), '/p/new{Enter}')
@@ -2412,6 +2414,14 @@ describe('Project shells', () => {
     f.model.selectAgent('h1', 'lead')
     return { ...f, client: f.client as unknown as Record<'openShell' | 'closeShell' | 'listShells' | 'startRun' | 'spawnAgent', ReturnType<typeof vi.fn>> }
   }
+
+  it('offers a New agent only for the CLIs the host says it has installed', async () => {
+    const { wrap, host } = shells()
+    host.store.setState({ daemon: { capabilities: ['clis'], clis: ['claude'] } as never })
+    render(wrap(<TabBar />))
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New Claude agent', 'New lead…', 'New terminal'])
+  })
 
   it('offers New terminal from the +, starts a shell in the project, opens its tab, and keeps its tab across a restore', async () => {
     const { client, wrap, model } = shells()
