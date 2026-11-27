@@ -16,8 +16,9 @@ import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
 import type { ViewRequest } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole } from './gen/agentmesh/v1/types_pb'
-import { activate, cycleTab, closeTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
+import { activate, cycleTab, closeTab, projectTabs, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
+import { agentProject } from './sidebar'
 import type { DockNewAgents } from './prefs'
 
 /** A host the app is connected to (or trying to be): its state, its client, its connection. */
@@ -28,7 +29,7 @@ export interface HostRuntime {
   connection: HostConnection
   /** Stops the host's timers and calls (its connection is stopped separately). */
   stop(): void
-  /** Loads a run's stored messages (once; `retry` after a failure) for its Messages tab: they are read lazily, not at connect. */
+  /** Loads a run's stored messages (once; `retry` after a failure) for its agents' chats: they are read lazily, not at connect. */
   loadMessages(runId: string, retry?: boolean): void
   /** A terminal's stream, by the path `OpenTerminal` gave. */
   openSocket(path: string, onEvent: (e: SocketEvent) => void): SocketHandle
@@ -142,6 +143,8 @@ export interface AppState extends WorkspaceState {
   closedTabs: TabRef[]
   /** The side panel beside the open agent is shown. */
   panelOpen: boolean
+  /** The Send a message dialog, to this agent. */
+  messageTo?: { hostId: string; agentId: string }
   /** Set to show the open agent's model control (the panel opens and unfolds its Details); cleared once its Details unfolded, so a later mount of the panel opens folded. */
   modelShown: boolean
   /** The New workspace dialog is open. */
@@ -163,11 +166,11 @@ export interface AppState extends WorkspaceState {
   viewRequests: ViewRequestRow[]
   /** The projects the user pinned (the sidebar and the New workspace dialog list them first), by host id (device-local, with the layout). */
   pins: Record<string, string[]>
-  /** A message an `OpenView` plan names: its card scrolls into view and is marked for a moment, then the Messages tab clears this. */
+  /** A message an `OpenView` plan names: its card scrolls into view and is marked for a moment, then the card clears this. */
   focusMessage?: { hostId: string; id: string }
 }
 
-export type AgentTab = 'overview' | 'messages' | 'chat' | 'terminal'
+export type AgentTab = 'chat' | 'terminal'
 
 export interface AppModel {
   store: StoreApi<AppState>
@@ -186,7 +189,7 @@ export interface AppModel {
   closeTab(ref: TabRef): void
   /** Moves a tab to where another is in the strip (a tab dragged onto another). */
   moveTab(ref: TabRef, to: TabRef): void
-  /** The tab after (1) or before (-1) the open one. */
+  /** The tab after (1) or before (-1) the open one, in its project's tab bar. */
   cycleTab(by: 1 | -1): void
   /** Shows or hides the live dock; showing it clears its count. */
   setDock(open: boolean): void
@@ -220,6 +223,8 @@ export interface AppModel {
   setPanel(open: boolean): void
   /** Opens the side panel on the open agent's model control. */
   showModel(): void
+  /** Opens (or, undefined, closes) the Send a message dialog to an agent. */
+  openMessage(to: { hostId: string; agentId: string } | undefined): void
   /** The Details unfolded for `showModel`: done. */
   modelRevealed(): void
   /** Opens the New workspace dialog: on a run (to add an agent to it) or a project (to start a lead there), on a host. */
@@ -231,7 +236,7 @@ export interface AppModel {
   /** Shows what a toast names and takes the toast away. */
   openViewRequest(id: number): void
   clearFocusMessage(): void
-  /** Mark a message for the Messages panel to show. If no card claims it within 10 s (its messages did not load), it is forgotten. */
+  /** Mark a message for the chat's card of it to show. If no card claims it within 10 s (its messages did not load), it is forgotten. */
   focusOnMessage(focus: { hostId: string; id: string }): void
   /** The card for the focused message is showing: its own timer takes over from the 10 s fallback. */
   claimFocusMessage(): void
@@ -270,7 +275,7 @@ export function typingNow(): boolean {
 }
 
 /**
- * Shows what an `OpenView` request names: an agent's chat or terminal, its Messages tab (or a plan in it), the agent a pull request
+ * Shows what an `OpenView` request names: an agent's chat or terminal, its messages (in its chat, or a plan there), the agent a pull request
  * belongs to (with the side panel, where its pull requests are), the host's settings, or a run (its lead). Does nothing for an
  * agent or run the host doesn't have.
  */
@@ -289,7 +294,8 @@ export function showView(app: AppModel, hostId: string, v: ViewRequest): void {
       if (v.view === 'plan' && v.messageId) {
         app.focusOnMessage({ hostId, id: v.messageId })
       }
-      app.selectAgent(hostId, v.target, 'messages')
+      // Its messages are in its chat, where they were sent.
+      app.selectAgent(hostId, v.target, 'chat')
       return
     case 'pr':
       if (!s.agents[v.agentId]) return
@@ -317,7 +323,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -461,7 +467,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     selectHost: (id) =>
       set((s) => ({ hostId: id, agentId: undefined, settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, views: s.hostId && s.agentId ? { ...s.views, [tabKey({ hostId: s.hostId, agentId: s.agentId })]: s.tab } : s.views })),
     selectAgent: (hostId, agentId, tab) =>
-      set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false })),
+      set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false })),
     openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, watchOpen: false, usageOpen: false, settingsQuery: open ? query : '' }),
     openPalette: (open) => set({ paletteOpen: open }),
     openFind: (findOpen) => set({ findOpen }),
@@ -487,12 +493,13 @@ export function createAppModel(api: DesktopApi): AppModel {
     setPanel: (panelOpen) => set({ panelOpen }),
     showModel: () => set({ panelOpen: true, modelShown: true }),
     modelRevealed: () => set({ modelShown: false }),
+    openMessage: (messageTo) => set({ messageTo }),
     openWorkspace: (workspaceOpen, runId, at) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, workspaceHost: workspaceOpen ? at?.hostId : undefined }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
     openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false, watchOpen: false }),
     setTab: (tab) => set({ tab }),
-    closeTab: (ref) => set((s) => ({ ...closeTab(s, ref), closedTabs: s.tabs.some((t) => tabKey(t) === tabKey(ref)) ? [...s.closedTabs.filter((t) => tabKey(t) !== tabKey(ref)), ref].slice(-20) : s.closedTabs })),
+    closeTab: (ref) => set((s) => ({ ...closeTab(s, ref, projectOfTab(s)), closedTabs: s.tabs.some((t) => tabKey(t) === tabKey(ref)) ? [...s.closedTabs.filter((t) => tabKey(t) !== tabKey(ref)), ref].slice(-20) : s.closedTabs })),
     moveTab: (ref, to) =>
       set((s) => {
         const from = s.tabs.findIndex((t) => tabKey(t) === tabKey(ref))
@@ -504,7 +511,7 @@ export function createAppModel(api: DesktopApi): AppModel {
         return { tabs, dragTab: undefined }
       }),
     cycleTab: (by) => {
-      const next = cycleTab(store.getState(), by)
+      const next = cycleTab(store.getState(), by, shownTabs(store.getState()))
       if (next) set((s) => ({ ...activate(s, next.hostId, next.agentId), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false }))
     },
     setDock: (open) => set(open ? { dockOpen: true, dockBadge: 0 } : { dockOpen: false }),
@@ -546,4 +553,15 @@ export function createAppModel(api: DesktopApi): AppModel {
     },
   }
   return model
+}
+
+/** A tab's project (`sidebar.ts` `agentProject`), from the hosts' agents now. */
+function projectOfTab(s: AppState): (t: TabRef) => string | undefined {
+  const agentsOf = (hostId: string) => s.hosts.find((h) => h.info.id === hostId)?.store.getState().agents
+  return (t) => agentProject(t.hostId, agentsOf(t.hostId), t.agentId)
+}
+
+/** The tabs the tab bar shows now: the open agent's project's (`workspace.ts` `projectTabs`). */
+export function shownTabs(s: AppState): TabRef[] {
+  return projectTabs(s.tabs, projectOfTab(s), s.hostId && s.agentId ? { hostId: s.hostId, agentId: s.agentId } : undefined)
 }

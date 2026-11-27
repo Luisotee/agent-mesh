@@ -28,10 +28,11 @@ export interface Layout {
 
 export const LAYOUT_KEY = 'agent-mesh.layout.v1'
 
-const VIEWS: readonly string[] = ['overview', 'messages', 'chat', 'terminal']
+const VIEWS: readonly string[] = ['chat', 'terminal']
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0
-const view = (v: unknown): AgentTab => (VIEWS.includes(v as string) ? (v as AgentTab) : 'overview')
+// The overview and messages views of older versions open as the chat, which holds both now.
+const view = (v: unknown): AgentTab => (VIEWS.includes(v as string) ? (v as AgentTab) : 'chat')
 const ref = (v: unknown): TabRef | undefined => {
   const o = v as Partial<TabRef> | null
   return o && str(o.hostId) && str(o.agentId) ? { hostId: o.hostId, agentId: o.agentId } : undefined
@@ -136,7 +137,7 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
     views: Object.fromEntries(Object.entries(l.views).filter(([k]) => tabs.some((t) => tabKey(t) === k))),
     hostId: active?.hostId,
     agentId: active?.agentId,
-    tab: active?.tab ?? 'overview',
+    tab: active?.tab ?? 'chat',
     side: l.side.filter(mine),
     splitDir: l.splitDir,
     sidebarCollapsed: l.sidebarCollapsed ?? false,
@@ -164,7 +165,41 @@ export function pruneHost(s: LayoutSource, hostId: string, agents: Record<string
   if (s.agentId && gone({ hostId: s.hostId ?? '', agentId: s.agentId })) {
     // The open agent is gone: a pane beside it takes over, else nothing is open (the tabs stay for the user to pick).
     const next = side[0]
-    Object.assign(patch, next ? { hostId: next.hostId, agentId: next.agentId, tab: next.tab, side: side.slice(1) } : { agentId: undefined, tab: 'overview' as AgentTab })
+    Object.assign(patch, next ? { hostId: next.hostId, agentId: next.agentId, tab: next.tab, side: side.slice(1) } : { agentId: undefined, tab: 'chat' as AgentTab })
   }
   return patch
+}
+
+/** What the user was writing to each agent, kept on this device across navigation and restarts; cleared on send. */
+export const DRAFTS_KEY = 'agent-mesh.drafts.v1'
+/** The most drafts kept: the oldest go first. */
+const MAX_DRAFTS = 50
+
+const draftKey = (hostId: string, agentId: string) => `${hostId}/${agentId}`
+
+function readDrafts(store: Pick<Storage, 'getItem'>): Array<[string, string]> {
+  try {
+    const v: unknown = JSON.parse(store.getItem(DRAFTS_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((e): e is [string, string] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** The draft to an agent, or ''. */
+export function loadDraft(hostId: string, agentId: string, store: Pick<Storage, 'getItem'> = localStorage): string {
+  const k = draftKey(hostId, agentId)
+  return readDrafts(store).find(([key]) => key === k)?.[1] ?? ''
+}
+
+/** Keeps (or, empty, drops) the draft to an agent, as the newest. */
+export function saveDraft(hostId: string, agentId: string, text: string, store: Pick<Storage, 'getItem' | 'setItem'> = localStorage): void {
+  const k = draftKey(hostId, agentId)
+  const rest = readDrafts(store).filter(([key]) => key !== k)
+  const next = text.trim() ? [...rest, [k, text] as [string, string]].slice(-MAX_DRAFTS) : rest
+  try {
+    store.setItem(DRAFTS_KEY, JSON.stringify(next))
+  } catch {
+    // Storage full or refused: the draft lives only as long as the view.
+  }
 }

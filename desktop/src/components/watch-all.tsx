@@ -118,7 +118,7 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
       <button
         type="button"
         aria-label={`Open ${a.name}`}
-        onClick={() => app.selectAgent(tile.hostId, a.id, a.state === AgentState.NEEDS_INPUT && a.needsInput > 0 && !waiting.has(a.id) ? 'terminal' : bucket === 'needs' && waiting.has(a.id) ? 'messages' : undefined)}
+        onClick={() => app.selectAgent(tile.hostId, a.id, a.state === AgentState.NEEDS_INPUT && a.needsInput > 0 && !waiting.has(a.id) ? 'terminal' : bucket === 'needs' && waiting.has(a.id) ? 'chat' : undefined)}
         className="flex min-h-0 flex-1 flex-col gap-1 p-3 text-left outline-none hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Chips>

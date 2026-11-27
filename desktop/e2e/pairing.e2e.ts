@@ -79,7 +79,7 @@ async function openLeadTerminal(app: App, status: string) {
   await page.getByRole('status', { name: 'Host e2e-home, ready' }).waitFor({ timeout: 30_000 })
   await openFromSidebar(page, 'repo-lead')
   const panel = page.getByRole('article', { name: 'repo-lead' })
-  await panel.getByRole('tab', { name: 'terminal' }).click()
+  await panel.getByRole('button', { name: 'Terminal' }).click()
   const st = panel.getByTestId('terminal-status')
   await expect.poll(() => st.innerText(), { timeout: 30_000, message: status }).toBe('Live')
   await expect.poll(() => panel.locator('.xterm-rows').innerText(), { timeout: 20_000 }).toContain('fake claude')
