@@ -14,12 +14,22 @@ const rehypePlugins = Object.values(kept)
 
 interface MdNode {
   type: string
+  value?: string
   children?: MdNode[]
 }
-/** Drops raw HTML from the markdown tree (Streamdown's `skipHtml` would leave it as escaped text): no tag shows. */
+/** HTML's elements: raw HTML naming one is dropped. */
+const ELEMENTS = new Set(
+  'a abbr address area article aside audio b base bdi bdo blockquote body br button canvas caption cite code col colgroup data datalist dd del details dfn dialog div dl dt em embed fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe img input ins kbd label legend li link main map mark menu meta meter nav noscript object ol optgroup option output p param picture pre progress q rp rt ruby s samp script search section select slot small source span strong style sub summary sup svg table tbody td template textarea tfoot th thead time title tr track u ul var video wbr math font center marquee frame frameset'.split(' '),
+)
+/** Whether raw HTML is markup to drop: a comment, a declaration, or a tag of a real element (not `<name>`, `List<String>`). */
+const isMarkup = (v: string) => /^<[!?]/.test(v) || ELEMENTS.has(/^<\/?([a-zA-Z][\w-]*)/.exec(v)?.[1]?.toLowerCase() ?? '')
+/**
+ * Drops raw HTML from the markdown tree (Streamdown's `skipHtml` would leave it as escaped text): no tag shows. A
+ * placeholder an agent wrote in angle brackets (`<repo>`) is not markup, so it stays as the text it was.
+ */
 function dropHtml(node: MdNode): void {
   if (!node.children) return
-  node.children = node.children.filter((c) => c.type !== 'html')
+  node.children = node.children.flatMap((c) => (c.type !== 'html' ? [c] : isMarkup(c.value ?? '') ? [] : [{ type: 'text', value: c.value ?? '' }]))
   node.children.forEach(dropHtml)
 }
 const remarkDropHtml = () => dropHtml

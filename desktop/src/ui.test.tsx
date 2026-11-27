@@ -288,6 +288,11 @@ describe('AgentPanel', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: 'Send' }))
     expect(await within(dialog).findByRole('alert')).toHaveTextContent("Sent, but it couldn't be brought back: the host is at its agent cap")
     expect(screen.getByRole('dialog', { name: 'Message app-fix' })).toBeInTheDocument()
+    // Stored already: nothing is left to send twice.
+    expect(within(dialog).getByLabelText('Message', { exact: true })).toHaveValue('')
+    expect(within(dialog).getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(within(dialog).getByText('Close', { selector: 'button' })).toBeInTheDocument()
+    expect(within(dialog).queryByText('Cancel', { selector: 'button' })).toBeNull()
   })
 
   it('sends once on a double submit, and stops once on a double click, after a confirmation', async () => {
@@ -654,6 +659,9 @@ describe('Markdown in messages', () => {
     expect(reply.querySelector('br')).toBeNull()
     const { container: inline } = render(<Markdown>{'a <b>bold</b> word <!-- note -->'}</Markdown>)
     expect(inline.textContent).toBe('a bold word ')
+    // A placeholder in angle brackets is no HTML element: it stays, as text.
+    const { container: words } = render(<Markdown>{'replace <name> in mesh spawn <repo>, a List<String>'}</Markdown>)
+    expect(words.textContent).toBe('replace <name> in mesh spawn <repo>, a List<String>')
   })
 })
 
@@ -1624,6 +1632,18 @@ describe('ChatView', () => {
     await userEvent.type(box, 'again{Enter}')
     expect(await screen.findByRole('alert')).toHaveTextContent("input box holds a draft")
     expect(box).toHaveValue('again') // kept to send again
+  })
+
+  it('keeps what was typed while a prompt was in flight, and only that', async () => {
+    const { ui, promptAgent } = chat()
+    let release = () => {}
+    promptAgent.mockImplementationOnce(() => new Promise<object>((r) => (release = () => r({}))))
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, 'run tests{Enter}')
+    await userEvent.type(box, ' and lint')
+    await act(async () => release())
+    await waitFor(() => expect(box).toHaveValue('and lint'))
   })
 
   it('says why it cannot be typed into: read-only device, a stopped agent, a prompt waiting in the terminal', async () => {

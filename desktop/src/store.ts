@@ -174,7 +174,7 @@ function applyEvent(s: HostState, e: Event): HostState {
     // An asker or reviewer given a change task is a worker from now on (daemon/internal/daemon/reopen.go, takeChange).
     case 'agentRoleChanged':
       return withAgent(next, e.agentId, (a) => ({ ...a, role: p.value.to }))
-    // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a message brings it back.
+    // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a task or an answer brings it back.
     case 'agentRetired':
       return withAgent(next, e.agentId, (a) => ({ ...a, state: AgentState.RETIRED, needsInput: 0, stateDetail: '', pendingReopen: undefined, lastActivity: e.time ?? a.lastActivity }))
     case 'runRenamed': {

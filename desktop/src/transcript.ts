@@ -118,7 +118,7 @@ export function toolsSummary(calls: ToolCall[]): string {
  * A doorbell the host typed for stored messages (`delivery.go` `Doorbell`: "📬 [mesh] task from x (ref t): run `mesh
  * inbox`"), which a card stands for. Other mesh lines (a root's `mesh reset` prompt) announce no message and stay.
  */
-const DOORBELL = /^📬 \[mesh\] [^\n]*\(ref [^)\n]*\)/
+const DOORBELL = /^📬 \[mesh\] (\S+ from \S+|\d+ messages) \(ref /
 export const isDoorbell = (text: string) => DOORBELL.test(text.trim())
 
 /** What the chat's timeline shows: the conversation's blocks and, where they were sent, the agent's mesh messages. */

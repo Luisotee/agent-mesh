@@ -130,6 +130,7 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
   const [body, setBody] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [sent, setSent] = useState(false)
   async function submit() {
     // Each send has its own mutation id, so a double Enter would send twice: one at a time.
     if (busy || !body.trim()) return
@@ -138,8 +139,12 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
     try {
       const res = await sendMessage(host.client, agentId, type, body.trim())
       // Stored either way; a stopped agent the host couldn't start again (a cap, a closed run) says why, and the dialog stays.
-      if (res.resumeError) setError(`Sent, but it couldn't be brought back: ${res.resumeError}`)
-      else onDone()
+      if (res.resumeError) {
+        // It is stored: the body goes, so a second Send can't store it twice.
+        setBody('')
+        setSent(true)
+        setError(`Sent, but it couldn't be brought back: ${res.resumeError}`)
+      } else onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -162,7 +167,7 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
         <MarkdownField aria-label="Message" autoFocus className="min-h-20" value={body} onValueChange={setBody} placeholder="Write to the agent" />
         {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onDone}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={onDone}>{sent ? 'Close' : 'Cancel'}</Button>
           <Button type="submit" disabled={busy || !body.trim()}>Send</Button>
         </div>
       </form>

@@ -90,7 +90,7 @@ describe('timeline', () => {
     const bs = toBlocks([
       text('one', TranscriptKind.MESH, 1, '📬 [mesh] task from lead (ref ab12): run `mesh inbox`'),
       text('two', TranscriptKind.MESH, 2, '📬 [mesh] 2 messages (ref cd34: task from lead, info from mesh): run `mesh inbox`'),
-      text('reset', TranscriptKind.MESH, 3, '📬 [mesh] You are lead, the root of agent-mesh run r1, and `mesh reset` just compacted your session.'),
+      text('reset', TranscriptKind.MESH, 3, '📬 [mesh] You are lead, the root of agent-mesh run r1, and `mesh reset` just compacted your session. Then: answer it (ref t9): run `mesh inbox`'),
     ])
     expect(timeline(bs, [], true).map((i) => i.id)).toEqual(['reset'])
   })

@@ -58,6 +58,8 @@ describe('composerKey', () => {
     expect(press('a «word» b', k('b', { mod: true }))).toBe('a **«word»** b')
     expect(press('a **«word»** b', k('b', { mod: true }))).toBe('a «word» b')
     expect(press('a «**word**» b', k('b', { mod: true }))).toBe('a «word» b')
+    expect(press('«**a** and **b**»', k('b', { mod: true }))).toBe('**«**a** and **b**»**')
+    expect(press('«__init__»', k('i', { mod: true }))).toBe('_«__init__»_')
     expect(press('|', k('i', { mod: true }))).toBe('_|_')
     expect(press('run «ls»', k('e', { mod: true }))).toBe('run `«ls»`')
     expect(press('see «docs»', k('k', { mod: true }))).toBe('see [docs](|)')

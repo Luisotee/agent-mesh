@@ -106,8 +106,9 @@ function wrap(f: Field, left: string, right = left): Outcome {
     return { kind: 'edit', edit: { from: f.start - left.length, to: f.end + right.length, text: sel, selStart: f.start - left.length, selEnd: f.end - left.length } }
   }
   // The selection takes the markers in too (all of `**x**` selected): it is unwrapped the same.
-  if (sel.length >= left.length + right.length && sel.startsWith(left) && sel.endsWith(right)) {
-    const inner = sel.slice(left.length, sel.length - right.length)
+  // Only one span: `**a** and **b**` (or `__init__`) is wrapped, not broken.
+  const inner = sel.slice(left.length, sel.length - right.length)
+  if (sel.length >= left.length + right.length && sel.startsWith(left) && sel.endsWith(right) && !inner.includes(left) && !inner.includes(right)) {
     return { kind: 'edit', edit: { from: f.start, to: f.end, text: inner, selStart: f.start, selEnd: f.start + inner.length } }
   }
   const text = `${left}${sel}${right}`

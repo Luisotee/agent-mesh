@@ -415,7 +415,10 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       if (res.queued) host.store.setState(addPrompt(res.queued))
       // What was sent goes; text written while it was in flight stays. The saved draft too, directly: a composer
       // unmounted meanwhile (another tab opened) runs no updater.
-      const left = (cur: string) => (cur.trim() === body ? '' : cur)
+      const left = (cur: string) => {
+        const now = cur.trimStart()
+        return now.startsWith(body) ? now.slice(body.length).trimStart() : cur
+      }
       saveDraft(host.info.id, agentId, left(loadDraft(host.info.id, agentId)))
       setText(left)
       onSent()
