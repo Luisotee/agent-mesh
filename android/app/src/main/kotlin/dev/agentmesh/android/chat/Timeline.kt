@@ -29,16 +29,20 @@ private val Entry.at: Long
 /**
  * [blocks] (in the order of the record) with [messages] (oldest first) put in by time: a message stands before the first
  * block that is later than it, and after the last block when it is later than all of them. A block with no time takes the
- * time of the one before it, so it never jumps. With [cards], the doorbell lines the CLI recorded ("📬 [mesh] … run
- * `mesh inbox`") are dropped: each is one of the cards. Without it (the messages are not known yet) they stay, so the
- * chat still says a message came.
+ * time of the one before it, so it never jumps. With [cards] (messages are held), the doorbell lines the CLI recorded
+ * ("📬 [mesh] … run `mesh inbox`") are dropped: each is one of the cards. Without it they stay, so the chat still says
+ * a message came.
  */
-fun mergeTimeline(blocks: List<Block>, messages: List<Message>, cards: Boolean): List<Entry> {
+fun mergeTimeline(blocks: List<Block>, messages: List<Message>, cards: Boolean, whole: Boolean = true, keep: (Message) -> Boolean = { false }): List<Entry> {
     // A message with no time stands where the one before it does (the first, with the next one's), so it never holds the rest back.
     val cardsAt = messages.map { Entry.Card(it).at }.toMutableList()
     for (i in 1 until cardsAt.size) if (cardsAt[i] == 0L) cardsAt[i] = cardsAt[i - 1]
     for (i in cardsAt.size - 2 downTo 0) if (cardsAt[i] == 0L) cardsAt[i] = cardsAt[i + 1]
-    val pending = ArrayDeque(messages.mapIndexed { i, m -> Entry.Card(m) to cardsAt[i] })
+    // The chat reads the tail of the record: while earlier lines are still to load ([whole] false), a message older than
+    // the first line held waits for them too (unless [keep] says it must show, as one that waits on the user), or the
+    // old ones would all pile up above it.
+    val first = blocks.firstOrNull { it.at > 0 }?.at ?: 0L
+    val pending = ArrayDeque(messages.mapIndexed { i, m -> Entry.Card(m) to cardsAt[i] }.filter { (c, at) -> whole || first == 0L || at >= first || keep(c.message) })
     val out = ArrayList<Entry>(blocks.size + messages.size)
     var clock = 0L
     for (b in blocks) {
@@ -93,7 +97,7 @@ fun ago(thenMs: Long, nowMs: Long, zone: java.util.TimeZone = java.util.TimeZone
     }
 }
 
-private fun dayNumber(c: Calendar): Long = c.get(Calendar.YEAR) * 366L + c.get(Calendar.DAY_OF_YEAR)
+private fun dayNumber(c: Calendar): Long = java.time.Instant.ofEpochMilli(c.timeInMillis).atZone(c.timeZone.toZoneId()).toLocalDate().toEpochDay()
 
 /** [text] as a Markdown quote to open a reply with: each line marked, then a blank line to type under. */
 fun quoteReply(text: String): String = text.trim().lines().joinToString("\n") { "> $it".trimEnd() } + "\n\n"

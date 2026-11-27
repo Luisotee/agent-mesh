@@ -71,6 +71,8 @@ fun AgentScreen(
     var terminal by rememberSaveable { mutableStateOf(initialTab == Tab.Terminal) }
     var details by rememberSaveable { mutableStateOf(false) }
     var send by rememberSaveable { mutableStateOf(false) }
+    // The draft lives here, so switching to the terminal and back keeps it (the chat leaves composition).
+    val draft = rememberSaveable(agentId) { mutableStateOf("") }
     // Looking at an agent answers its notification.
     LaunchedEffect(agentId) { container.notifier.cancel(runtime.hostId, agentId) }
     // While it is on screen and the app resumed, nothing new is posted for it (see AppContainer.viewing).
@@ -131,7 +133,7 @@ fun AgentScreen(
                 label = "chat-or-terminal",
             ) { showTerminal ->
                 if (showTerminal) TerminalTab(runtime, agentId, Modifier.fillMaxSize())
-                else ChatTab(runtime, agentId, Modifier.fillMaxSize(), openTerminal = { terminal = true })
+                else ChatTab(runtime, agentId, Modifier.fillMaxSize(), openTerminal = { terminal = true }, draftState = draft)
             }
         }
         if (details) DetailsSheet(

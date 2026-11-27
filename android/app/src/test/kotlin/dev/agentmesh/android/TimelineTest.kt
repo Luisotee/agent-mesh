@@ -87,4 +87,19 @@ class TimelineTest {
         assertTrue(at(3 * 86_400_000L).matches(Regex("[A-Z][a-z]{2} .*")))
         assertTrue(at(30 * 86_400_000L).contains(","))
     }
+
+    @Test fun `yesterday across New Year's Eve is yesterday`() {
+        val utc = TimeZone.getTimeZone("UTC")
+        fun ms(y: Int, m: Int, d: Int, h: Int) = java.time.ZonedDateTime.of(y, m, d, h, 0, 0, 0, java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        assertTrue(ago(ms(2026, 12, 31, 22), ms(2027, 1, 1, 10), utc, Locale.US).startsWith("Yesterday"))
+        assertTrue(ago(ms(2026, 12, 26, 22), ms(2027, 1, 1, 10), utc, Locale.US).matches(Regex("[A-Z][a-z]{2} .*")))
+    }
+
+    @Test fun `while earlier lines are still to load, older messages wait for them, except one that waits on the user`() {
+        val blocks = toBlocks(listOf(user("u1", 50_000), user("u2", 60_000)))
+        val old = listOf(plan("p0", 10_000), plan("p1", 20_000), plan("p2", 55_000))
+        assertEquals(listOf("u1", "msg:p2", "u2"), ids(mergeTimeline(blocks, old, cards = true, whole = false)))
+        assertEquals(listOf("msg:p1", "u1", "msg:p2", "u2"), ids(mergeTimeline(blocks, old, cards = true, whole = false, keep = { it.id == "p1" })))
+        assertEquals(listOf("msg:p0", "msg:p1", "u1", "msg:p2", "u2"), ids(mergeTimeline(blocks, old, cards = true)))
+    }
 }

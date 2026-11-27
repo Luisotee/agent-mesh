@@ -28,7 +28,6 @@ import dev.agentmesh.android.derive.messagesOf
 import dev.agentmesh.android.derive.waitingFor
 import dev.agentmesh.android.ui.copyToClipboard
 import dev.agentmesh.android.ui.messages.MessageCard
-import dev.agentmesh.gen.agentmesh.v1.RunStatus
 import dev.agentmesh.android.ui.LocalReducedMotion
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.expandVertically
@@ -76,6 +75,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -126,7 +126,10 @@ fun promptRefusal(agent: Agent, readOnly: Boolean): String = when {
  * same running process, as typing in its terminal does. Reads only while it is on screen.
  */
 @Composable
-fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier, openTerminal: () -> Unit = {}) {
+fun ChatTab(
+    runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier, openTerminal: () -> Unit = {},
+    draftState: MutableState<String> = rememberSaveable(agentId) { mutableStateOf("") },
+) {
     val scope = rememberCoroutineScope()
     val sync = remember(runtime, agentId) { ChatSync(scope, runtime::api, agentId) }
     DisposableEffect(sync) { onDispose { sync.stop() } }
@@ -157,23 +160,26 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
     }
 
     val blocks = remember(chat.transcript.entries) { toBlocks(chat.transcript.entries) }
-    // The mesh's messages stand in the chat at their time. Until the run's history has loaded the CLI's own doorbell lines stay.
+    // The mesh's messages stand in the chat at their time, once any are held or the run's history has loaded: the CLI's own
+    // doorbell lines stay until then (and for a closed run, whose messages are not loaded), and a reconnect, which keeps what
+    // is held, does not flash them back.
     val runId = agent.runId
     val messages = remember(host.messages, agentId) { messagesOf(host.messages, agentId) }
     val messagesFailed = runId in host.messagesFailed
-    val known = host.synced && (runId in host.messagesLoaded || host.runs[runId]?.status != RunStatus.RUN_STATUS_OPEN)
-    val entries = remember(blocks, messages, known) { mergeTimeline(blocks, messages, cards = known) }
-    val stamps = remember(entries) { stamped(entries) }
     val waitingOn = remember(host.waiting, host.runs, host.agents, host.messages, agentId) {
         waitingFor(host).filter { it.agent.id == agentId }.mapNotNull { it.message?.id }.toSet()
     }
+    val known = messages.isNotEmpty() || runId in host.messagesLoaded
+    val whole = chat.transcript.atStart || !chat.transcript.supported
+    val entries = remember(blocks, messages, known, whole, waitingOn) { mergeTimeline(blocks, messages, cards = known, whole = whole, keep = { it.id in waitingOn }) }
+    val stamps = remember(entries) { stamped(entries) }
     val readOnly = isReadOnlyDevice(host)
     val now by produceState(System.currentTimeMillis()) { while (true) { delay(60_000); value = System.currentTimeMillis() } }
     // The user's own words are tinted with the project's identity hue (the same colour on the desktop).
     val s = MaterialTheme.colorScheme
     val hue = LocalMeshTheme.current.hues[hueOf(agent.repo) - 1]
     val bubble = remember(s, hue) { androidx.compose.ui.graphics.lerp(s.surfaceContainerHigh, hue, 0.22f) }
-    var draft by rememberSaveable(agent.id) { mutableStateOf("") }
+    var draft by draftState
     val list = rememberLazyListState()
     // Follow the end while the reader is at it; keep the place when earlier entries come in above (items are keyed).
     var stick by remember { mutableStateOf(true) }
@@ -185,6 +191,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
     // The end follows new entries (the last one changed, or its tool calls grew), not earlier ones coming in above: the
     // header is item 0, so the last entry is item `entries.size`.
     val last = entries.lastOrNull()
+    val lastChat = entries.lastOrNull { it is Entry.Chat }
     LaunchedEffect(last?.id, ((last as? Entry.Chat)?.block as? Block.Tools)?.calls?.size) {
         if (stick && entries.isNotEmpty()) list.scrollToItem(entries.size)
     }
@@ -197,7 +204,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
     }
     // "Load earlier" keeps the place: the entry that was first on screen stays where it was, whatever came in above it.
     var anchor by remember { mutableStateOf<Pair<String, Int>?>(null) }
-    LaunchedEffect(entries.firstOrNull()?.id) {
+    LaunchedEffect(entries.firstOrNull()?.id, blocks.firstOrNull()?.id) {
         val a = anchor ?: return@LaunchedEffect
         val i = indexOfEntry(entries, a.first)
         if (i >= 0) list.scrollToItem(i + 1, a.second)
@@ -210,7 +217,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
     }
     // A quoted message opens the reply with its lines marked, above what was already typed.
     // Offered only where the composer takes it (a read-only device or a stopped agent has no field to show it in).
-    val quote: ((String) -> Unit)? = if (promptRefusal(agent, readOnly).isEmpty()) ({ text -> draft = quoteReply(text) + draft }) else null
+    val quote: ((String) -> Unit)? = if (promptRefusal(agent, readOnly).isEmpty() && agent.state != AgentState.AGENT_STATE_NEEDS_INPUT) ({ text -> draft = quoteReply(text) + draft }) else null
 
     Column(modifier.fillMaxSize().imePadding()) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("chat"), state = list, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -250,7 +257,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (e.id in stamps) Text(ago(entryTime(e) - host.clockSkewMs, now), Modifier.fillMaxWidth().testTag("chat-time"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                         when (e) {
-                            is Entry.Chat -> ChatBlock(e.block, bubble, quote, running = working && e === last)
+                            is Entry.Chat -> ChatBlock(e.block, bubble, quote, running = working && e === lastChat)
                             is Entry.Card -> MessageCard(runtime, e.message, agentId, open = e.message.id in waitingOn, skewMs = host.clockSkewMs, canAnswer = !readOnly)
                         }
                     }

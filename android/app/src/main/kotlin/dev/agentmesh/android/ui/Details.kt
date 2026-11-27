@@ -1,6 +1,12 @@
 package dev.agentmesh.android.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -155,7 +161,8 @@ private fun CostLine(runtime: HostRuntime, runId: String) {
         }
         Icon(if (open) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, if (open) "Fold" else "Open")
     }
-    AnimatedVisibility(open) {
+    val reduced = LocalReducedMotion.current
+    AnimatedVisibility(open, enter = if (reduced) EnterTransition.None else fadeIn() + expandVertically(), exit = if (reduced) ExitTransition.None else fadeOut() + shrinkVertically()) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val c = cost
             when {
