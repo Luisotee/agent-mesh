@@ -68,10 +68,10 @@ export function SettingsPanel({ host }: { host: HostRuntime }) {
               <button
                 key={x.group}
                 type="button"
-                aria-current={x.group === (current?.group ?? '') ? 'true' : undefined}
+                aria-current={!listing && x.group === current?.group ? 'true' : undefined}
                 className={cn(
                   'flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring',
-                  x.group === current?.group && 'bg-accent font-medium',
+                  !listing && x.group === current?.group && 'bg-accent font-medium',
                 )}
                 onClick={() => go(x.group)}
               >

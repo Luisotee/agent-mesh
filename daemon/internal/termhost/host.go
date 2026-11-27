@@ -355,7 +355,6 @@ func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillT
 		if sig == 0 {
 			sig = syscall.SIGKILL
 		}
-		proc.SignalSession(t.pid, t.tty, sig)
 		proc.SignalGroup(t.pid, t.startTicks, t.tty, sig)
 		return connect.NewResponse(&termv1.KillTerminalResponse{}), nil
 	}
