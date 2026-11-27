@@ -25,6 +25,7 @@ import dev.agentmesh.android.net.RouteException
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.store.Frame
 import dev.agentmesh.android.store.HostState
+import dev.agentmesh.android.store.HostRefresher
 import dev.agentmesh.android.store.LogLine
 import dev.agentmesh.android.store.MAX_LOG
 import dev.agentmesh.android.store.applyFrame
@@ -88,6 +89,8 @@ class HostRuntime(
     private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log, messageRetryMs)
 
     val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs, routeCount = { host?.routes?.size ?: 1 })
+    /** What the stream doesn't carry (who waits on the user, the pull requests, quiet agents), read again when it may have changed. */
+    private val refresher = HostRefresher(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log)
     private var watcher: Job? = null
 
     val host: Host? get() = repo.get(hostId)
@@ -116,17 +119,20 @@ class HostRuntime(
 
     fun start() {
         connection.start()
+        refresher.start()
         // The host's settings come once a connection is synced.
         watcher = scope.launch {
             _state.map { it.synced && it.conn is ConnState.Ready }.distinctUntilChanged().filter { it }.collect {
                 loadMessages()
                 loadSettings()
+                refresher.synced()
             }
         }
     }
 
     fun stop() {
         connection.stop()
+        refresher.stop()
         watcher?.cancel()
     }
 
@@ -284,6 +290,7 @@ class HostRuntime(
             noticeFor(frame.event, s.agents, now(), s.clockSkewMs)?.let { _notices.tryEmit(it) }
         }
         _state.update { applyFrame(it, frame) }
+        if (frame.hasEvent()) refresher.event(frame.event)
     }
 
     override fun cursor(): Cursor? = _state.value.cursor

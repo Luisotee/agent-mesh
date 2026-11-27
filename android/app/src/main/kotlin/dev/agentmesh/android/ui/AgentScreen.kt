@@ -32,6 +32,7 @@ import dev.agentmesh.android.derive.roleLabel
 import dev.agentmesh.android.derive.statusSentence
 import dev.agentmesh.android.notify.Tab
 import dev.agentmesh.android.store.toMillis
+import dev.agentmesh.android.ui.chat.ChatTab
 import dev.agentmesh.android.ui.messages.MessagesTab
 import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.Run
@@ -81,6 +82,7 @@ fun AgentScreen(runtime: HostRuntime, agentId: String, onBack: () -> Unit, initi
             }
             when (tab) {
                 Tab.Overview -> Overview(agent, run, state.clockSkewMs)
+                Tab.Chat -> ChatTab(runtime, agentId, Modifier.fillMaxSize(), openTerminal = { tab = Tab.Terminal })
                 Tab.Messages -> MessagesTab(runtime, agentId, Modifier.fillMaxSize())
                 Tab.Terminal -> TerminalTab(runtime, agentId, Modifier.fillMaxSize())
             }

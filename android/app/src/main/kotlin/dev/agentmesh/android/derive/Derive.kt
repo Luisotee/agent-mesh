@@ -79,7 +79,21 @@ fun roleLabel(role: AgentRole): String = when (role) {
     else -> "agent"
 }
 
-/** A plain sentence for what an agent is doing, for the tree row. */
+enum class ExitKind { Finished, Stopped, Failed }
+
+/**
+ * How an exited agent ended: a lost terminal is a failure, a stop by the user or a signal is not, and otherwise the exit
+ * code says (the host stores a stop as exit code -1 with its reason as the detail; -1 with nothing said is a lost terminal).
+ * The desktop's `exitKind`.
+ */
+fun exitKind(a: Agent): ExitKind = when {
+    a.stateDetail == "lost" -> ExitKind.Failed
+    a.stateDetail == "killed" || a.stateDetail == "killed by signal" || a.stateDetail == "stopped" -> ExitKind.Stopped
+    a.exitCode == 0 -> ExitKind.Finished
+    else -> ExitKind.Failed
+}
+
+/** A plain sentence for what an agent is doing, for the tree row (the desktop's `statusSentence`). */
 fun statusSentence(a: Agent): String = when (a.state) {
     AgentState.AGENT_STATE_STARTING -> "Starting up"
     AgentState.AGENT_STATE_IDLE -> "Idle, waiting for a message"
@@ -88,14 +102,20 @@ fun statusSentence(a: Agent): String = when (a.state) {
         val why = if (a.stateDetail.isNotEmpty()) ": ${a.stateDetail}" else ""
         if (a.needsInput > 1) "Needs you (${a.needsInput})$why" else "Needs you$why"
     }
-    AgentState.AGENT_STATE_EXITED -> when {
-        a.stateDetail == "lost" -> "Lost: its terminal is gone"
-        a.stateDetail == "killed" || a.exitCode < 0 -> "Stopped"
-        a.exitCode == 0 -> "Finished"
-        else -> "Exited with code ${a.exitCode}"
+    AgentState.AGENT_STATE_EXITED -> when (exitKind(a)) {
+        ExitKind.Stopped -> "Stopped"
+        ExitKind.Finished -> "Finished"
+        // The host says why when it can (`reopen failed: …`, `launch failed: …`); exit code -1 with nothing said is a lost terminal.
+        ExitKind.Failed -> when {
+            a.stateDetail.isNotEmpty() && a.stateDetail != "lost" && a.stateDetail != "exited" -> "Exited: ${a.stateDetail}"
+            a.stateDetail == "lost" || a.exitCode < 0 -> "Lost: its terminal is gone"
+            else -> "Exited with code ${a.exitCode}"
+        }
     }
     AgentState.AGENT_STATE_UNKNOWN -> "Quiet for a while: state unknown"
     AgentState.AGENT_STATE_RETIRED -> "Retired: stopped on purpose, a message wakes it"
+    AgentState.AGENT_STATE_LIMITED -> "Hit a usage limit${if (a.stateDetail.isNotEmpty()) ": ${a.stateDetail}" else ""}; switch it to another model to go on"
+    AgentState.AGENT_STATE_ERROR -> "Its last turn ended in an error${if (a.stateDetail.isNotEmpty()) ": ${a.stateDetail}" else ""}"
     else -> "Unknown"
 }
 
