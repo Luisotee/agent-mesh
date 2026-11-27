@@ -60,10 +60,12 @@ test('a run is renamed in place, a held permission prompt is allowed from the ap
   await prompt.waitFor({ state: 'detached', timeout: 20_000 })
   expect((await host.client().listPermissions({})).permissions).toEqual([])
 
-  // An agent asks the app to show a view: the app is told only because the user turned `app.open_views` on (the window may not have focus here).
-  await host.client().setSetting({ key: 'app.open_views', value: { kind: { case: 'boolValue', value: true } } })
-  await until('the setting', async () => (await host.client().listSettings({ prefix: 'app.open_views' })).settings[0]?.isSet === true)
+  // An agent asks the app to show a view: a toast the user opens (it never switches their view by itself).
   const told = await asLead.openView({ view: 'agent', target: 'repo-fix' })
   expect(told.delivered).toBeGreaterThan(0)
+  const toast = page.getByRole('status').filter({ hasText: 'wants to show you' })
+  await toast.waitFor({ timeout: 20_000 })
+  expect(await toast.innerText()).toContain("repo-fix's chat")
+  await toast.getByRole('button', { name: 'Open' }).click()
   await page.getByRole('article', { name: 'repo-fix' }).waitFor({ timeout: 20_000 })
 })

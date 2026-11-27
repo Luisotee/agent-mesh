@@ -72,23 +72,33 @@ export function RunTitle({ host, run }: { host: HostRuntime; run: Run }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const title = run.title || 'Untitled run'
   async function save() {
     const next = text.trim()
+    if (busy) return // Enter and the blur that follows it are one save
     if (!next || next === run.title) return setEditing(false)
+    setBusy(true)
     try {
       await renameRun(host.client, run.id, next)
       setEditing(false)
       setError('')
     } catch (e) {
       setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    } finally {
+      setBusy(false)
     }
+  }
+  const open = () => {
+    setText(run.title)
+    setError('')
+    setEditing(true)
   }
   if (!editing) {
     return (
       <>
-        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold" title="Double click to rename" onDoubleClick={() => { setText(run.title); setEditing(true) }}>{title}</h3>
-        <Button size="icon" variant="ghost" className="size-6" aria-label={`Rename ${title}`} onClick={() => { setText(run.title); setEditing(true) }}><Pencil className="size-3.5" /></Button>
+        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold" title="Double click to rename" onDoubleClick={open}>{title}</h3>
+        <Button size="icon" variant="ghost" className="size-6" aria-label={`Rename ${title}`} onClick={open}><Pencil className="size-3.5" /></Button>
       </>
     )
   }

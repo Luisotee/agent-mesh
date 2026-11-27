@@ -123,7 +123,7 @@ func (d *Daemon) ghProblem(ctx context.Context) string {
 			return "" // too slow to tell (a killed process is an exit error too): no claim, and not kept
 		case errors.Is(err, exec.ErrNotFound):
 			why = "no_gh"
-		case errors.As(err, &exit):
+		case errors.As(err, &exit) && notLoggedIn(string(exit.Stderr)):
 			why = "not_logged_in"
 		}
 	}
@@ -131,6 +131,13 @@ func (d *Daemon) ghProblem(ctx context.Context) string {
 	d.prs.ghAt, d.prs.ghWhy = now, why
 	d.prs.mu.Unlock()
 	return why
+}
+
+// notLoggedIn reads what `gh auth status` said on a failure: only its own "not logged in" words count. A failure for any
+// other reason (offline, a DNS error) says nothing, so an offline user is not told to log in.
+func notLoggedIn(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "not logged") || strings.Contains(s, "gh auth login")
 }
 
 // read reports whether the agent's PRs were read from GitHub and recorded (the last finished read worked).

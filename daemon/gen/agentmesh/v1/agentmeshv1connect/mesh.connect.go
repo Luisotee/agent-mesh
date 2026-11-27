@@ -222,7 +222,8 @@ type MeshServiceClient interface {
 	// Change a run's title. A root may rename its own run; a device any.
 	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
 	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
-	// which act on it only when their window is focused or the user turned `app.open_views` on.
+	// which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
+	// An agent may ask once in 10 seconds.
 	OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
@@ -1229,7 +1230,8 @@ type MeshServiceHandler interface {
 	// Change a run's title. A root may rename its own run; a device any.
 	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
 	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
-	// which act on it only when their window is focused or the user turned `app.open_views` on.
+	// which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
+	// An agent may ask once in 10 seconds.
 	OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.

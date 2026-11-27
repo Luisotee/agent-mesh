@@ -78,11 +78,10 @@ export function withLevel(settings: Record<string, Setting>, repo: string, level
 }
 
 /** What the user lets a run's root do on its own, chosen when the run starts (`StartRun`'s autonomy): the host's settings, or one of the levels for every repo of the run. */
-export type RunLevel = 'inherit' | Level | 'free'
+export type RunLevel = 'inherit' | 'merges' | 'plans' | 'free'
 
 export const RUN_LEVEL_LABEL: Record<RunLevel, string> = {
   inherit: "The host's settings (per project)",
-  default: 'Handled as before, ignoring the project lists',
   merges: 'I merge its PRs',
   plans: 'I approve plans and merge',
   free: 'The lead decides everything',
@@ -97,7 +96,7 @@ export function askLines(text: string): string[] {
 
 /**
  * The autonomy to start a run with, or nothing when the host's settings should apply as they are. A level of its own
- * replaces the host's repo lists for the run (`default` and `free` both leave the root unbraked); `inherit` with lines
+ * replaces the host's repo lists for the run (`free` leaves the root unbraked); `inherit` with lines
  * keeps them and only adds to what the root asks before.
  */
 export function runAutonomyOf(level: RunLevel, askText: string): { userApprovesPlans: boolean; userMerges: boolean; askBefore: string[]; keepRepoLists: boolean } | undefined {
@@ -109,3 +108,9 @@ export function runAutonomyOf(level: RunLevel, askText: string): { userApprovesP
 
 /** The host's "always ask me before" list. */
 export const askBeforeOf = (settings: Record<string, Setting>): string[] => list(settings, ASK_KEY)
+
+/** What a run started with autonomy of its own says, for the side panel: the level it replaced the repo lists with, or nothing when the repo lists still apply. */
+export function runLevelOf(a: { userApprovesPlans: boolean; userMerges: boolean; keepRepoLists: boolean } | undefined): RunLevel | undefined {
+  if (!a || a.keepRepoLists) return undefined
+  return a.userApprovesPlans ? 'plans' : a.userMerges ? 'merges' : 'free'
+}

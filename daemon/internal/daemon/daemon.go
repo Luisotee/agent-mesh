@@ -141,6 +141,7 @@ type Daemon struct {
 	tailnetErr atomic.Pointer[string]
 
 	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
+	views viewLimiter // when each agent last asked the app to show a view (view.go)
 	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
 	perms permTable   // permission prompts waiting for an answer (permission.go)
 }

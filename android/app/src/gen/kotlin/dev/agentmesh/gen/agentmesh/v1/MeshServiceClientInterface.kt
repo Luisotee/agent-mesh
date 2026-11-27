@@ -68,7 +68,8 @@ public interface MeshServiceClientInterface {
 
   /**
    *  Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
-   *  which act on it only when their window is focused or the user turned `app.open_views` on.
+   *  which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
+   *  An agent may ask once in 10 seconds.
    */
   public suspend fun openView(request: OpenViewRequest, headers: Headers = emptyMap()): ResponseMessage<OpenViewResponse>
 

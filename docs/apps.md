@@ -257,7 +257,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 ### Settings, search and keyboard
 
 - ★ A command palette across hosts and workspaces, with actions (P, O).
-  - Built in the desktop (2026-11-26): agents, runs, hosts and what waits on the user to go to, and the registry actions for them (start a run, ring, retire, stop, approve a plan, move to the next model); each is a function of `src/actions.ts`, so an agent or the CLI can do the same. UI-control actions: `OpenView` (an agent or the CLI asks the user's app to show an agent's chat or terminal, a run or the settings; sent to the apps connected now, acted on only while the window is focused or `app.open_views` is on).
+  - Built in the desktop (2026-11-26): agents, runs, hosts and what waits on the user to go to, and the registry actions for them (start a run, ring, retire, stop, approve a plan, move to the next model); each is a function of `src/actions.ts`, so an agent or the CLI can do the same. UI-control actions: `OpenView` (an agent or the CLI asks the user's app to show an agent's chat or terminal, a run or the settings; sent to the apps connected now, shown as a toast the user opens or dismisses; `app.open_views`, which only a device may set, makes it switch by itself unless the user is typing; an agent may ask once in 10 s).
 - ★ Host settings generated from the schema, the same on every device (P).
 - ★ Rebindable shortcuts (P, O).
   - Built in the desktop (2026-11-26): `app.keys.*` host settings of type `shortcut`, recorded in the settings screen or set by an agent (`mesh set --key app.keys.palette --value Mod+K`), followed live. They follow the first host's settings, as the tray does.

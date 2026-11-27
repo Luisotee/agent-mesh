@@ -17,13 +17,8 @@ func modelHistory(ctx context.Context, r store.Reader, a *v1.Agent) ([]*v1.Model
 	}
 	var out []*v1.ModelSwap
 	var model, effort string
+	// A reopen writes its model and effort to the agent as they are (an empty effort clears it), so they are told as they are.
 	add := func(ev *v1.Event, m, e, why string) {
-		if m == "" {
-			m = model
-		}
-		if e == "" {
-			e = effort
-		}
 		if len(out) > 0 && m == model && e == effort {
 			return
 		}

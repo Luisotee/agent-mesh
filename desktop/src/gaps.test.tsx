@@ -17,7 +17,8 @@ import { AppContext } from './context'
 import { ReadTranscriptResponseSchema } from './gen/agentmesh/v1/chat_pb'
 import { GetAgentResponseSchema, GetCostResponseSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ModelSwapSchema, PendingPermissionSchema, ProjectSchema, ViewRequestSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus, SettingSchema$ as SettingDescriptor, SettingSchemaSchema } from './gen/agentmesh/v1/types_pb'
-import { createAppModel, showView, type HostRuntime } from './model'
+import { createAppModel, offerView, showView, type HostRuntime } from './model'
+import { ViewToasts } from './components/view-toasts'
 import { createHostStore } from './store'
 
 afterEach(cleanup)
@@ -270,6 +271,45 @@ describe('OpenView', () => {
     view('agent', 'nobody')
     view('run', 'nope')
     expect(model.store.getState()).toBe(before)
+  })
+})
+
+describe('an agent asking to show a view', () => {
+  const req = (view: string, target: string, from = 'agent-mesh-lead') => create(ViewRequestSchema, { view, target, from })
+
+  it('is a toast naming who asks and what, which the user opens or dismisses; nothing switches by itself', async () => {
+    const { model, wrap } = fixture()
+    render(wrap(<ViewToasts />))
+    offerView(model, 'h1', req('agent', 'w1'), false)
+    expect(model.store.getState().agentId).toBeUndefined()
+    const toast = await screen.findByRole('status')
+    expect(toast).toHaveTextContent("agent-mesh-lead wants to show you app-fix's chat.")
+    await userEvent.click(within(toast).getByRole('button', { name: 'Open' }))
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'chat', viewRequests: [] })
+    offerView(model, 'h1', req('settings', ''), false)
+    await userEvent.click(await screen.findByRole('button', { name: 'Dismiss' }))
+    expect(model.store.getState().viewRequests).toEqual([])
+    expect(model.store.getState().settingsOpen).toBe(false)
+  })
+
+  it('switches at once only when the user allowed it, and never while they type', () => {
+    const { model } = fixture()
+    offerView(model, 'h1', req('agent', 'w1'), true)
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', viewRequests: [] })
+    const box = document.createElement('input')
+    document.body.append(box)
+    box.focus()
+    offerView(model, 'h1', req('agent', 'lead'), true)
+    expect(model.store.getState().agentId).toBe('w1')
+    expect(model.store.getState().viewRequests).toHaveLength(1)
+    box.remove()
+  })
+
+  it('keeps at most three toasts, and one for the same thing asked twice', () => {
+    const { model } = fixture()
+    for (const t of ['a', 'b', 'c', 'd']) offerView(model, 'h1', req('agent', t), false)
+    offerView(model, 'h1', req('agent', 'd'), false)
+    expect(model.store.getState().viewRequests.map((r) => r.request.target)).toEqual(['b', 'c', 'd'])
   })
 })
 

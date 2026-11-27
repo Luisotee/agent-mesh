@@ -153,13 +153,21 @@ func TestListPullRequestsSaysWhyGitHubCannotBeRead(t *testing.T) {
 	if p := problem(); p != "no_gh" {
 		t.Errorf("a missing gh: %q", p)
 	}
-	exit := exec.Command("sh", "-c", "exit 1").Run()
-	if exit == nil {
-		t.Fatal("sh -c 'exit 1' succeeded")
+	// `gh auth status` failing: only its own "not logged in" words make it so; offline says nothing.
+	failed := func(stderr string) error {
+		_, err := exec.Command("sh", "-c", "echo '"+stderr+"' >&2; exit 1").Output()
+		if err == nil {
+			t.Fatal("the command succeeded")
+		}
+		return err
 	}
-	set(exit)
+	set(failed("You are not logged into any GitHub hosts. To log in, run: gh auth login"))
 	if p := problem(); p != "not_logged_in" {
 		t.Errorf("a gh that is not logged in: %q", p)
+	}
+	set(failed("error connecting to api.github.com"))
+	if p := problem(); p != "" {
+		t.Errorf("a gh that is offline: %q", p)
 	}
 	set(errors.New("timeout"))
 	if p := problem(); p != "" {
@@ -184,7 +192,8 @@ func TestGetAgentListsTheModelsItRanOn(t *testing.T) {
 		Agent: &v1.Agent{Id: "a-w1", Model: "opus", Effort: "high"}}}})
 	add(reopen("opus", "high", "resumed")) // no change: no row
 	add(reopen("sonnet", "medium", "plan approved"))
-	add(reopen("", "high", "moved")) // effort only
+	add(reopen("sonnet", "high", "moved")) // effort only
+	add(reopen("haiku", "", "quota"))      // a model with no effort
 	add(&v1.Event{RunId: w.run.Id, AgentId: "a-other", Payload: &v1.Event_AgentReopened{AgentReopened: &v1.AgentReopened{
 		Reopen: &v1.Reopen{Model: "haiku", Why: "quota"}}}})
 	res, err := w.device.Mesh.GetAgent(ctx, connect.NewRequest(&v1.GetAgentRequest{Agent: "a-w1"}))
@@ -195,7 +204,7 @@ func TestGetAgentListsTheModelsItRanOn(t *testing.T) {
 	for _, m := range res.Msg.ModelHistory {
 		got = append(got, m.Model+"/"+m.Effort+" "+m.Why)
 	}
-	want := "opus/high spawned|sonnet/medium plan approved|sonnet/high moved"
+	want := "opus/high spawned|sonnet/medium plan approved|sonnet/high moved|haiku/ quota"
 	if strings.Join(got, "|") != want {
 		t.Errorf("history = %q, want %q", strings.Join(got, "|"), want)
 	}
@@ -228,6 +237,7 @@ func TestOpenViewReachesOnlyTheAppsOfADevice(t *testing.T) {
 		return res.Msg, nil
 	}
 	res, err := open(root, "agent", "demo-fix", "")
+	w.advance(11 * time.Second) // an agent may ask once in 10 s
 	if err != nil || res.Delivered != 1 {
 		t.Fatalf("open agent = %v, %v", res, err)
 	}
@@ -241,6 +251,7 @@ func TestOpenViewReachesOnlyTheAppsOfADevice(t *testing.T) {
 	if _, err := open(root, "run", "", ""); err != nil {
 		t.Errorf("a root's own run: %v", err)
 	}
+	w.advance(11 * time.Second)
 	other := startRun(t, w.device.Mesh, "")
 	for _, c := range []struct{ view, target, run string }{{"run", other.Id, ""}, {"agent", "nobody", ""}, {"settings", "", other.Id}} {
 		if _, err := open(root, c.view, c.target, c.run); err == nil {
@@ -267,4 +278,71 @@ func mustValue(t *testing.T, v any) *structpb.Value {
 		t.Fatal(err)
 	}
 	return out
+}
+
+func TestAnAgentCannotSetOpenViewsAndAskingForViewsIsRateLimited(t *testing.T) {
+	w := startPR(t)
+	ctx := context.Background()
+	root := w.as(w.rootTok)
+	// Only the user decides whether an agent may switch their view by itself.
+	if _, err := root.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta(""), Key: "app.open_views", Value: mustValue(t, true)})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("a root set app.open_views: %v", err)
+	}
+	if _, err := root.ResetSetting(ctx, connect.NewRequest(&v1.ResetSettingRequest{Meta: meta(""), Key: "app.open_views"})); connect.CodeOf(err) != connect.CodePermissionDenied {
+		t.Errorf("a root reset app.open_views: %v", err)
+	}
+	if _, err := w.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta(""), Key: "app.open_views", Value: mustValue(t, true)})); err != nil {
+		t.Errorf("the user set app.open_views: %v", err)
+	}
+	open := func() error {
+		_, err := root.OpenView(ctx, connect.NewRequest(&v1.OpenViewRequest{Meta: meta(""), View: "settings"}))
+		return err
+	}
+	if err := open(); err != nil {
+		t.Fatal(err)
+	}
+	if err := open(); connect.CodeOf(err) != connect.CodeResourceExhausted {
+		t.Errorf("a second view at once: %v", err)
+	}
+	w.advance(11 * time.Second)
+	if err := open(); err != nil {
+		t.Errorf("a view after the wait: %v", err)
+	}
+	// A device is the user: no limit.
+	for i := 0; i < 3; i++ {
+		if _, err := w.device.Mesh.OpenView(ctx, connect.NewRequest(&v1.OpenViewRequest{Meta: meta(""), View: "settings"})); err != nil {
+			t.Errorf("a device's view %d: %v", i, err)
+		}
+	}
+}
+
+func TestOpenViewLooksForTheTargetInsideTheRunNamed(t *testing.T) {
+	w := startPR(t)
+	ctx := context.Background()
+	other := startRun(t, w.device.Mesh, "")
+	w.seedAgent(other.Id, "o-fix", "demo-fix", "", v1.AgentRole_AGENT_ROLE_WORKER) // the same name in another run
+	open := func(view, target, run string) (*v1.OpenViewResponse, error) {
+		res, err := w.device.Mesh.OpenView(ctx, connect.NewRequest(&v1.OpenViewRequest{Meta: meta(""), View: view, Target: target, RunId: run}))
+		if err != nil {
+			return nil, err
+		}
+		return res.Msg, nil
+	}
+	app, err := w.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{Activity: true}))
+	if err != nil || !app.Receive() {
+		t.Fatalf("subscribe: %v", err)
+	}
+	// Without a run the name is ambiguous; with one it names that run's agent.
+	if _, err := open("agent", "demo-fix", ""); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Errorf("an ambiguous name: %v", err)
+	}
+	if _, err := open("agent", "demo-fix", other.Id); err != nil || !app.Receive() || app.Msg().GetView().Target != "o-fix" || app.Msg().GetView().RunId != other.Id {
+		t.Errorf("demo-fix in the other run: %v %v", err, app.Msg())
+	}
+	if _, err := open("agent", "o-fix", w.run.Id); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("an agent of another run: %v", err)
+	}
+	if _, err := open("run", other.Id, w.run.Id); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Errorf("a run and a different run id: %v", err)
+	}
 }

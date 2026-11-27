@@ -1,12 +1,12 @@
 import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { getAgent, getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
-import { ASK_KEY, LEVEL_LABEL, askBeforeOf, askLines, hasLevels, levelOf, listOf, nameEntries, withLevel, type Level } from '@/autonomy'
+import { ASK_KEY, LEVEL_LABEL, RUN_LEVEL_LABEL, askBeforeOf, askLines, hasLevels, levelOf, listOf, nameEntries, runLevelOf, withLevel, type Level } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, Textarea } from '@/components/ui/input'
 import { ModelControl } from './model-control'
-import { MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
+import { MessageType, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
@@ -101,8 +101,8 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
         </div>
       </Section>
       <ModelHistory host={host} agent={agent} />
-      <Autonomy host={host} repo={agent.repo} />
-      <AskBefore host={host} />
+      <Autonomy host={host} repo={agent.repo} run={run} />
+      <AskBefore host={host} run={run} />
       <Section title="Cost">
         {cost.error && !cost.value && <p className="text-xs text-destructive">Couldn't read the cost: {cost.error}</p>}
         {cost.loading && !cost.value && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -297,7 +297,7 @@ function ModelHistory({ host, agent }: { host: HostRuntime; agent: Agent }) {
 }
 
 /** The host's "always ask me before" list, one thing to a line: the lead of every run asks first (`autonomy.ask_before`). */
-function AskBefore({ host }: { host: HostRuntime }) {
+function AskBefore({ host, run }: { host: HostRuntime; run?: Run }) {
   const settings = useHostState(host, (s) => s.settings)
   const saved = askBeforeOf(settings)
   const [text, setText] = useState<string | undefined>()
@@ -320,14 +320,27 @@ function AskBefore({ host }: { host: HostRuntime }) {
     <Section title="Ask me before">
       <Textarea aria-label="Always ask me before" value={shown} onChange={(e) => setText(e.target.value)} onBlur={() => void save()} placeholder="deploys&#10;migrations" className="min-h-14 text-xs" />
       <p className="mt-1 text-[11px] text-muted-foreground">One per line. Every lead asks you before doing these, in every run.</p>
+      {run?.autonomy && run.autonomy.askBefore.length > 0 && (
+        <p className="mt-1 text-[11px] text-muted-foreground">This run also asks before: {run.autonomy.askBefore.join('; ')} (set when it started).</p>
+      )}
       {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
     </Section>
   )
 }
 
-function Autonomy({ host, repo }: { host: HostRuntime; repo: string }) {
+function Autonomy({ host, repo, run }: { host: HostRuntime; repo: string; run?: Run }) {
   const settings = useHostState(host, (s) => s.settings)
   const [error, setError] = useState('')
+  // A run started with a level of its own replaced the repo lists for itself: what its lead was told is that level, not the project's.
+  const own = runLevelOf(run?.autonomy)
+  if (own) {
+    return (
+      <Section title="Autonomy">
+        <p className="text-xs">{RUN_LEVEL_LABEL[own]}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">Set when this run started: it replaces the project's level for this run, so the project's setting below changes nothing here. Hold a single PR below.</p>
+      </Section>
+    )
+  }
   if (!repo || !hasLevels(settings)) return null
   const level = levelOf(settings, repo)
   const byName = nameEntries(settings, repo)

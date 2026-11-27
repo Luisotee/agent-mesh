@@ -422,3 +422,22 @@ func TestPermissionPromptsTellTheAppsWhenTheyAreHeldAndEnded(t *testing.T) {
 		t.Errorf("permission events = %q, want %q", got, want)
 	}
 }
+
+// A prompt is listed and announced in the write that tells its parent, and only then: the parent stopped means nothing is
+// listed and no "asked" is said; and "asked" always comes before an answer.
+func TestAPermissionPromptIsListedAndAnnouncedOnlyOnceItsParentIsTold(t *testing.T) {
+	w := startReviews(t)
+	wk := w.worker(t, "wk")
+	if _, err := w.device.Mesh.StopAgent(context.Background(), connect.NewRequest(&v1.StopAgentRequest{Meta: meta(""), Agent: w.lead.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.typeInto(wk, "/perm Bash make\r")
+	waitFor(t, "the prompt left to the pane", func() bool { return strings.Contains(w.screen(t, wk), "permission: pane") })
+	if got := w.permissionStates(t); len(got) != 0 {
+		t.Errorf("events for a prompt nobody was told of: %v", got)
+	}
+	res, err := w.device.Mesh.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+	if err != nil || len(res.Msg.Permissions) != 0 {
+		t.Errorf("listed: %v, %v", res, err)
+	}
+}

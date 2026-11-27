@@ -225,7 +225,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.OpenViewRequest.run_id":                   "The run the target is in, when `target` is an agent's name.",
 	"agentmesh.v1.OpenViewRequest.target":                   "The agent's name or id for \"agent\" and \"terminal\"; the run's id for \"run\"; a settings section for \"settings\" (may be empty).",
 	"agentmesh.v1.OpenViewRequest.view":                     "\"agent\" (its chat), \"terminal\" (its terminal), \"settings\" or \"run\" (the run's lead).",
-	"agentmesh.v1.OpenViewResponse.delivered":               "How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.",
+	"agentmesh.v1.OpenViewResponse.delivered":               "How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on it as a toast, or by itself with `app.open_views` on, so this does not say a view was shown.",
 	"agentmesh.v1.Peer.about":                               "What it is and what to ask it, at most 400 characters.",
 	"agentmesh.v1.Peer.cloned":                              "The daemon cloned it (`add-peer` of a URL): the only kind of clone `remove-peer --delete-clone` deletes.",
 	"agentmesh.v1.Peer.in_clone":                            "It works in the clone's own checkout (`worktree` is `repo`), which the daemon never moves, checks out in or removes: an import from `bin/mesh` carries this over.",

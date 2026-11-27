@@ -275,7 +275,6 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 	p := &pendingPermission{ch: make(chan permDecision, 1)}
 	p.Id, p.RunId, p.AgentId, p.AgentName, p.ParentId, p.Tool, p.Summary = ids.New("p", 8), a.RunId, a.Id, a.Name, parent.Id, tool, summary
 	p.Since = tsOf(d.now())
-	d.perms.add(p)
 	defer d.perms.take(p.Id)
 
 	text := fmt.Sprintf("%s%s] %s asks to use %s", permissionTag, p.Id, a.Name, codeSpan(tool))
@@ -289,21 +288,32 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 		permissionPlannedHook()
 	}
 	var told *v1.Message
+	// The prompt is listed, and "asked" said, in the same write that tells the parent, and only when it does: a decision can
+	// come only once it is listed, and its own event waits for this write to commit, so "asked" always comes first; a write
+	// that fails or finds the parent stopped lists nothing, so nothing can be decided into the void.
 	if err := d.store.Write(ctx, meshdActor, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(parent.Id)
 		if err != nil || stopped(cur) {
 			return err
 		}
-		told, err = tellTx(tx, cur, text)
+		if told, err = tellTx(tx, cur, text); err != nil {
+			return err
+		}
+		d.perms.add(p)
+		_, err = tx.AppendEvent(&v1.Event{RunId: p.RunId, AgentId: p.AgentId, Payload: &v1.Event_PermissionChanged{
+			PermissionChanged: &v1.PermissionChanged{Id: p.Id, AgentName: p.AgentName, State: "asked"}}})
 		return err
 	}); err != nil {
+		// Listed before the commit failed: a decision may have been taken in between, and is not dropped.
+		if _, pending := d.perms.take(p.Id); !pending {
+			dec := <-p.ch
+			return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason}), nil
+		}
 		return none, nil
 	}
 	if told == nil {
 		return none, nil // the parent stopped meanwhile: nobody was told, so nobody is waited for
 	}
-	// Said only once it is held for someone, so every "asked" has an answer or an "ended" after it.
-	d.permissionEvent(ctx, &p.PendingPermission, "asked")
 	if d.notify != nil {
 		d.notify(parent.Id)
 	}

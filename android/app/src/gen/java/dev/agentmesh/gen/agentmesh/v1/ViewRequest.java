@@ -8,7 +8,7 @@ package dev.agentmesh.gen.agentmesh.v1;
 /**
  * <pre>
  * An agent or the CLI asked the user's app to show a view. Ephemeral: never stored or replayed. An app acts on it only
- * when its window is focused or the user turned `app.open_views` on.
+ * as a toast the user opens or dismisses, and by itself only when the user turned `app.open_views` on (never while they type).
  * </pre>
  *
  * Protobuf type {@code agentmesh.v1.ViewRequest}
@@ -319,7 +319,7 @@ public  final class ViewRequest extends
   /**
    * <pre>
    * An agent or the CLI asked the user's app to show a view. Ephemeral: never stored or replayed. An app acts on it only
-   * when its window is focused or the user turned `app.open_views` on.
+   * as a toast the user opens or dismisses, and by itself only when the user turned `app.open_views` on (never while they type).
    * </pre>
    *
    * Protobuf type {@code agentmesh.v1.ViewRequest}

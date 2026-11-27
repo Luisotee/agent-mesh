@@ -476,7 +476,7 @@ func (x *OpenViewRequest) GetRunId() string {
 type OpenViewResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// How many apps were sent it (live subscribers of a device's token). Zero means no app is connected. An app acts on
-	// it only while its window is focused or `app.open_views` is on, so this does not say a view was shown.
+	// it as a toast, or by itself with `app.open_views` on, so this does not say a view was shown.
 	Delivered     int32 `protobuf:"varint,1,opt,name=delivered,proto3" json:"delivered,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -520,7 +520,7 @@ func (x *OpenViewResponse) GetDelivered() int32 {
 }
 
 // An agent or the CLI asked the user's app to show a view. Ephemeral: never stored or replayed. An app acts on it only
-// when its window is focused or the user turned `app.open_views` on.
+// as a toast the user opens or dismisses, and by itself only when the user turned `app.open_views` on (never while they type).
 type ViewRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	View   string                 `protobuf:"bytes,1,opt,name=view,proto3" json:"view,omitempty"`

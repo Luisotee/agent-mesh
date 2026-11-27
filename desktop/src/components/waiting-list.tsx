@@ -5,7 +5,7 @@ import { decidePermission } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useApp, useHostState } from '@/context'
-import { joinWaiting, type Waiting } from '@/derive'
+import { joinWaiting, waitingCount, type Waiting } from '@/derive'
 import type { PendingPermission } from '@/gen/agentmesh/v1/mesh_pb'
 import type { HostRuntime } from '@/model'
 
@@ -36,7 +36,7 @@ export function WaitingList({ host }: { host: HostRuntime }) {
   const held = useMemo(() => new Set(permissions.map((p) => p.agentId)), [permissions])
   const items = useMemo(() => joinWaiting(rows, runs, agents).filter((w) => !(w.kind === 'input' && held.has(w.agent.id))), [rows, runs, agents, held])
   const prompts = useMemo(() => permissions.filter((p) => agents[p.agentId]), [permissions, agents])
-  const count = items.length + prompts.length
+  const count = waitingCount(rows, permissions, runs, agents)
   if (count === 0) return null
   return (
     <section aria-label="Waiting on you" className="border-b px-2 pb-2">

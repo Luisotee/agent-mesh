@@ -213,3 +213,14 @@ export const MESSAGE_LABEL: Record<MessageType, string> = {
   [MessageType.INFO]: 'Info',
   [MessageType.WAIT]: 'Waiting',
 }
+
+/**
+ * What waits on the user, as the number every place shows (the list, the host's badge, the tray): the host's waiting rows, with
+ * an agent stopped at a prompt the host holds for its lead counted once, as the prompt it is, and a held prompt of an agent
+ * the app doesn't have yet left out.
+ */
+export function waitingCount(rows: WaitingRow[], permissions: Array<{ agentId: string }>, runs: Record<string, Run>, agents: Record<string, Agent>): number {
+  const held = new Set(permissions.map((p) => p.agentId))
+  const items = joinWaiting(rows, runs, agents).filter((w) => !(w.kind === 'input' && held.has(w.agent.id)))
+  return items.length + permissions.filter((p) => agents[p.agentId]).length
+}

@@ -1,5 +1,5 @@
 import { Maximize2, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useApp, useAppState } from '@/context'
 import { cn } from '@/lib/utils'
@@ -60,6 +60,10 @@ export function DropEdges() {
   const app = useApp()
   const dragging = useAppState((s) => s.dragTab)
   const [over, setOver] = useState<Edge | undefined>()
+  // A drag that ended without a drop leaves no edge lit for the next one.
+  useEffect(() => {
+    if (!dragging) setOver(undefined)
+  }, [dragging])
   if (!dragging) return null
   return (
     <div aria-label="Drop the tab on an edge to split" className="pointer-events-none absolute inset-0 z-30">
@@ -81,7 +85,7 @@ export function DropEdges() {
             app.splitAtEdge(dragging, e.edge)
           }}
         >
-          {over === e.edge && <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-popover px-2 py-1 text-xs shadow">Split {e.label}</span>}
+          {over === e.edge && <span className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-popover px-2 py-1 text-xs shadow">Split {e.label}</span>}
         </div>
       ))}
     </div>

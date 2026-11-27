@@ -143,6 +143,10 @@ private fun applyEvent(s: HostState, e: Event): HostState {
         Event.PayloadCase.RUN_STOPPED -> s.runs[e.runId]?.let { r ->
             next.copy(runs = s.runs + (r.id to r.toBuilder().setStatus(RunStatus.RUN_STATUS_CLOSED).build()))
         } ?: next
+        // A run's title changed (`RenameRun`).
+        Event.PayloadCase.RUN_RENAMED -> s.runs[e.runId]?.let { r ->
+            next.copy(runs = s.runs + (r.id to r.toBuilder().setTitle(e.runRenamed.title).build()))
+        } ?: next
         Event.PayloadCase.AGENT_PHASE_CHANGED -> next.withAgent(e.agentId) { it.setPhase(e.agentPhaseChanged.to) }
         // An asker or reviewer given a change task is a worker from now on (daemon takeChange).
         Event.PayloadCase.AGENT_ROLE_CHANGED -> next.withAgent(e.agentId) { it.setRole(e.agentRoleChanged.to) }

@@ -1,9 +1,10 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'vitest'
-import { askLines, runAutonomyOf } from './autonomy'
+import { askLines, runAutonomyOf, runLevelOf } from './autonomy'
+import { waitingCount } from './derive'
 import { githubNote } from './buckets'
 import { layoutOf, parseLayout, pruneHost, restoreOf, type LayoutSource } from './layout'
-import { ModelSwapSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
+import { ModelSwapSchema, ProjectSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentSchema, AgentState, EventSchema, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { appPrefs } from './prefs'
 import { rankProjects } from './projects'
@@ -24,8 +25,26 @@ describe('runAutonomyOf', () => {
     expect(runAutonomyOf('merges', 'x')).toEqual({ userApprovesPlans: false, userMerges: true, askBefore: ['x'], keepRepoLists: false })
     expect(runAutonomyOf('free', '')).toEqual({ userApprovesPlans: false, userMerges: false, askBefore: [], keepRepoLists: false })
   })
+  it('reads back the level a run started with, and nothing when the repo lists still apply', () => {
+    expect(runLevelOf(undefined)).toBeUndefined()
+    expect(runLevelOf({ userApprovesPlans: false, userMerges: false, keepRepoLists: true })).toBeUndefined()
+    expect(runLevelOf({ userApprovesPlans: true, userMerges: true, keepRepoLists: false })).toBe('plans')
+    expect(runLevelOf({ userApprovesPlans: false, userMerges: true, keepRepoLists: false })).toBe('merges')
+    expect(runLevelOf({ userApprovesPlans: false, userMerges: false, keepRepoLists: false })).toBe('free')
+  })
   it('reads lines trimmed, without blanks or repeats', () => {
     expect(askLines(' a \n\nb\na\n')).toEqual(['a', 'b'])
+  })
+})
+
+describe('waitingCount', () => {
+  const agents = { a: create(AgentSchema, { id: 'a' }), b: create(AgentSchema, { id: 'b' }) }
+  const input = (agentId: string) => create(WaitingSchema, { kind: WaitingKind.INPUT, agentId })
+  it('counts a held prompt once instead of the terminal row of its agent, and one an agent has no row for', () => {
+    expect(waitingCount([input('a')], [{ agentId: 'a' }], {}, agents)).toBe(1)
+    expect(waitingCount([input('a')], [{ agentId: 'a' }, { agentId: 'a' }], {}, agents)).toBe(2)
+    expect(waitingCount([input('a')], [{ agentId: 'b' }], {}, agents)).toBe(2)
+    expect(waitingCount([], [{ agentId: 'gone' }], {}, agents)).toBe(0)
   })
 })
 

@@ -110,6 +110,13 @@ class StoreTest {
         assertEquals("a run the app doesn't know changes nothing", s.runs.keys, applyFrame(s, runStopped(4, "r9")).runs.keys)
     }
 
+    @Test fun `a run renamed while we listen takes its new title`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1", "old")), emptyList()))
+        s = applyFrame(s, runRenamed(1, "r1", "new title"))
+        assertEquals("new title", s.runs["r1"]!!.title)
+        assertEquals("a run the app doesn't know changes nothing", s.runs.keys, applyFrame(s, runRenamed(2, "r9", "x")).runs.keys)
+    }
+
     @Test fun `a delivery that arrives before its message is applied when the page brings the message`() {
         val m = message("m1", from = "a1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO)
         var s = applyFrame(HostState(), delivered(1, "m1", at = 6_000))
