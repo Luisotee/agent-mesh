@@ -113,7 +113,7 @@ export function TabBar() {
           const nth = shell && shells ? shells.filter((x) => x.repo === shell.repo).findIndex((x) => x.id === shell.id) + 1 : 0
           const label = shellTab ? (nth > 1 ? `Terminal ${nth}` : 'Terminal') : (agent?.name ?? t.agentId)
           return (
-            <RowContextMenu key={tabKey(t)} entries={entriesOf(t, agent, label)} className="flex w-48 min-w-24 shrink self-end">
+            <RowContextMenu key={tabKey(t)} entries={entriesOf(t, agent, label)} className="flex w-48 min-w-28 shrink self-end">
               <div
                 draggable
                 // Dropped on an edge of the main pane (`DropEdges`), the tab opens as a split there.
