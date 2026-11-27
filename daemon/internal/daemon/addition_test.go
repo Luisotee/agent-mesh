@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -47,6 +48,18 @@ func TestADirectTaskAddedToAPlannerStillPlanningChangesNoPhase(t *testing.T) {
 	got := w.agent(p.Id)
 	if got.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING || !got.DenyEdits || got.PendingReopen != nil {
 		t.Fatalf("an addition changed the planner: phase %v deny %v reopen %v", got.Phase, got.DenyEdits, got.PendingReopen)
+	}
+	// The planner is told why its task said "no plan" and it is still planning.
+	msgs, err := w.d.Store().Read(ctx).Inbox(p.Id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noted := false
+	for _, m := range msgs {
+		noted = noted || (m.Type == v1.MessageType_MESSAGE_TYPE_INFO && strings.Contains(m.Body, "still planning"))
+	}
+	if !noted {
+		t.Errorf("the planner was not told its direct task is an addition: %v", msgs)
 	}
 	// Its plan is in: now a direct task is the parent skipping the rest of the planning.
 	readInbox(t, w.as(w.token(t, p.Id)))

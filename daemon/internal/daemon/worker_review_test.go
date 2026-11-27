@@ -680,4 +680,14 @@ func TestAWorkerThatMovedToAnotherBranchStillReviewsItsPR(t *testing.T) {
 	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
 		t.Errorf("another PR: %v", err)
 	}
+	// Switching its worktree onto another worker's branch does not make that worker's PR its own.
+	other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+	if out, err := exec.Command("git", "-C", a.worker.Worktree, "checkout", "-q", "--ignore-other-worktrees", other.Branch).CombinedOutput(); err != nil {
+		t.Fatalf("git checkout: %v %s", err, out)
+	}
+	a.pr.headRef = other.Branch
+	a.pr.push(t, "theirs")
+	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+		t.Errorf("another worker's branch checked out in its worktree: %v", err)
+	}
 }

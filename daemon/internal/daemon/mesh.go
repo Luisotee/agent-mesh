@@ -504,6 +504,10 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				return err
 			} else if add {
 				direct = false
+				// The task says "no plan", but the planner's plan phase and edit list stay: it must hear that.
+				if _, err := tellTx(t, to, additionNote); err != nil {
+					return err
+				}
 			}
 		}
 		// A task that is not a read-only one, from the agent's parent or a device, makes an asker or reviewer

@@ -7,19 +7,28 @@ package shortdir
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+)
+
+var (
+	baseOnce sync.Once
+	base     string
 )
 
 // Base is where the short dirs go: /tmp when it can be written, else the OS temp dir.
 func Base() string {
-	if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
-		if f, err := os.CreateTemp("/tmp", "am-probe"); err == nil {
-			f.Close()
-			os.Remove(f.Name())
-			return "/tmp"
+	baseOnce.Do(func() {
+		base = os.TempDir()
+		if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
+			if f, err := os.CreateTemp("/tmp", "am-probe"); err == nil {
+				f.Close()
+				os.Remove(f.Name())
+				base = "/tmp"
+			}
 		}
-	}
-	return os.TempDir()
+	})
+	return base
 }
 
 // Make is os.MkdirTemp under Base, for a test that removes the dir itself (keep the prefix short).

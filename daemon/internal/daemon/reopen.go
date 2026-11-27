@@ -379,6 +379,11 @@ func plannerOwesItsPlan(r store.Reader, a *v1.Agent) (bool, error) {
 	return report == nil, err
 }
 
+// additionNote is what a planner hears when a `Direct task` reaches it mid-plan: the task is more work for its plan.
+const additionNote = "The task you were just sent says \"Direct task (no plan)\", but you are still planning: it is an addition to " +
+	"your task, not a decision to skip the plan. Cover it in your plan and send the plan; editing stays off until your " +
+	"parent approves it."
+
 // mayMove is who may approve, switch or resume an agent: a device, or the agent's parent.
 func mayMove(actor *v1.Actor, a *v1.Agent, what string) error {
 	if IsAgent(actor.Class) && a.ParentId != actor.Id {

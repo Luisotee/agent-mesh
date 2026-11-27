@@ -139,10 +139,29 @@ func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Acto
 			"your parent runs the reviews of your PR (review.by or --reviews root: a relay, or a PR it reads itself): "+
 				"don't ask a round; report `done` and it starts them"))
 	}
-	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && pr.HeadRef != worktreeBranch(ctx, self)) {
+	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr.HeadRef)) {
 		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
 	}
 	return nil
+}
+
+// movedBranchIsItsOwn reports whether head is the branch checked out in the worker's own worktree and no other
+// agent of the repo is registered on it: a worker that moved its work to another branch reviews its PR, but
+// `git switch` onto another worker's branch does not make that worker's PR its own.
+func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, head string) bool {
+	if head == "" || worktreeBranch(ctx, self) != head {
+		return false
+	}
+	agents, err := r.ListAgents("")
+	if err != nil {
+		return false
+	}
+	for _, o := range agents {
+		if o.Id != self.Id && o.Repo == self.Repo && o.Branch == head {
+			return false
+		}
+	}
+	return true
 }
 
 // worktreeBranch is the branch checked out in a worker's own worktree (read-only), or "" when it has none, the
