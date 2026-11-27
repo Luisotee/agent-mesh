@@ -2,6 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
+import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { ago, dockTiles, sentLabel, treeTiles, type HostView } from './dock'
 import { NEW_FOR_MS } from './workspace'
@@ -66,6 +67,14 @@ describe('ago', () => {
   it('is short', () => {
     expect([2, 12, 240, 7200, 200_000].map((s) => ago(0 + 1, 1 + s * 1000))).toEqual(['now', '12 s', '4 min', '2 h', '2 d'])
     expect(ago(0, 5000)).toBe('')
+  })
+})
+
+describe('dockTiles waiting', () => {
+  it('marks the agents that wait on an answer', () => {
+    const waitingAll = [create(WaitingSchema, { kind: WaitingKind.QUESTION, runId: 'r1', agentId: 'b' })]
+    const tiles = dockTiles([host([agent('a'), agent('b')], { waitingAll })], none, 0)
+    expect(Object.fromEntries(tiles.map((t) => [t.agent.id, t.waiting]))).toEqual({ a: false, b: true })
   })
 })
 

@@ -79,7 +79,7 @@ test('a worktree is archived with a warning and restored, its files listed, the 
   expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('TOKEN=1\n')
 
   // The Pair screen: no route, so the host refuses and says why; Tailscale is turned on only after a confirmation.
-  await page.getByRole('button', { name: 'New', exact: true }).click()
+  await page.getByRole('button', { name: 'Hosts' }).click()
   await page.getByRole('menuitem', { name: 'Pair a device' }).click()
   await page.getByRole('button', { name: 'Create pairing link' }).click()
   await page.getByRole('alert').filter({ hasText: 'no address a device could pair over' }).waitFor({ timeout: 20_000 })

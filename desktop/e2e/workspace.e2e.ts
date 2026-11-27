@@ -87,6 +87,8 @@ test('the live dock: a tile per agent, a new worker pops in without taking focus
   // Closing the tab leaves the agent in the dock.
   await tabs.getByRole('button', { name: 'Close repo-fix' }).click()
   await tabs.getByRole('tab', { name: /repo-fix/ }).waitFor({ state: 'detached' })
+  // It is idle and not new any more, so it rests behind a count; the dock still has it.
+  await dock.getByRole('button', { name: /Show \d+ resting/ }).click()
   await fixTile.waitFor()
 })
 
