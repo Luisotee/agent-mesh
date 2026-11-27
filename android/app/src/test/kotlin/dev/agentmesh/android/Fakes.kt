@@ -34,6 +34,12 @@ object Plain : dev.agentmesh.android.hosts.SecretBox {
 }
 
 /**
+ * A copy of a synchronizedList taken under its own lock. Iterating one (count, any, a for loop) is not atomic, and fails
+ * with a ConcurrentModificationException while another thread appends to it: read the fakes' recordings through this.
+ */
+fun <T> List<T>.snapshot(): List<T> = synchronized(this) { ArrayList(this) }
+
+/**
  * A host that records what the app asks of it. Its handshake never answers (the screens are driven by the state a
  * test puts in), and its message pages are whatever the test gives it.
  */
