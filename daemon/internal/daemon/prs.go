@@ -431,6 +431,11 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		return
 	}
 	complete = ferr == nil
+	for _, p := range found {
+		if p.State == "merged" || p.State == "closed" {
+			d.retireReviewersOfPR(ctx, a.RunId, p.Url, p.State)
+		}
+	}
 }
 
 // refreshAll refreshes every change worker's PRs, prFetchers at a time.
@@ -455,6 +460,7 @@ func (d *Daemon) refreshAll(ctx, ghCtx context.Context, agents []*v1.Agent, forc
 // workEvidence is what an agent's branch and worktree show of its work: commits past its base, whether the tip is
 // on its upstream, whether the worktree has uncommitted changes. Each part is unset where it can't be told.
 func workEvidence(ctx context.Context, a *v1.Agent) *v1.WorkEvidence {
+	a = onItsBranch(ctx, a)
 	ev := &v1.WorkEvidence{}
 	if a.Repo != "" && a.Branch != "" {
 		if tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+a.Branch); err == nil {

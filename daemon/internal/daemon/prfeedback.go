@@ -340,7 +340,7 @@ func (d *Daemon) watchAgentPRs(ctx context.Context, a *v1.Agent, mode string) {
 	}
 	for _, p := range rows {
 		// Its own PRs only: one a `done` merely names (a dependency, a sibling's) is no one's to fix here.
-		if p.State == "open" && (p.Source == "branch" || p.HeadRef == a.Branch) && prRepoRE.MatchString(p.Url) {
+		if p.State == "open" && (p.Source == "branch" || p.HeadRef == a.Branch || p.HeadRef == movedBranch(a)) && prRepoRE.MatchString(p.Url) {
 			d.watchPR(ctx, a, p, mode)
 		}
 	}
