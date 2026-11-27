@@ -36,6 +36,8 @@ const (
 	TranscriptKind_TRANSCRIPT_KIND_TOOL_RESULT TranscriptKind = 4
 	// A mesh doorbell or another agent's message: not the user's words.
 	TranscriptKind_TRANSCRIPT_KIND_MESH TranscriptKind = 5
+	// What a command the user typed printed (`/context`, `/usage`): the CLI's own output, not the model's.
+	TranscriptKind_TRANSCRIPT_KIND_COMMAND_OUTPUT TranscriptKind = 6
 )
 
 // Enum value maps for TranscriptKind.
@@ -47,14 +49,16 @@ var (
 		3: "TRANSCRIPT_KIND_TOOL_CALL",
 		4: "TRANSCRIPT_KIND_TOOL_RESULT",
 		5: "TRANSCRIPT_KIND_MESH",
+		6: "TRANSCRIPT_KIND_COMMAND_OUTPUT",
 	}
 	TranscriptKind_value = map[string]int32{
-		"TRANSCRIPT_KIND_UNSPECIFIED": 0,
-		"TRANSCRIPT_KIND_USER":        1,
-		"TRANSCRIPT_KIND_ASSISTANT":   2,
-		"TRANSCRIPT_KIND_TOOL_CALL":   3,
-		"TRANSCRIPT_KIND_TOOL_RESULT": 4,
-		"TRANSCRIPT_KIND_MESH":        5,
+		"TRANSCRIPT_KIND_UNSPECIFIED":    0,
+		"TRANSCRIPT_KIND_USER":           1,
+		"TRANSCRIPT_KIND_ASSISTANT":      2,
+		"TRANSCRIPT_KIND_TOOL_CALL":      3,
+		"TRANSCRIPT_KIND_TOOL_RESULT":    4,
+		"TRANSCRIPT_KIND_MESH":           5,
+		"TRANSCRIPT_KIND_COMMAND_OUTPUT": 6,
 	}
 )
 
@@ -83,6 +87,59 @@ func (x TranscriptKind) Number() protoreflect.EnumNumber {
 // Deprecated: Use TranscriptKind.Descriptor instead.
 func (TranscriptKind) EnumDescriptor() ([]byte, []int) {
 	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{0}
+}
+
+// Whether a command opens a dialog or picker in the agent's terminal, which the chat view can't show.
+type CommandDialog int32
+
+const (
+	// Runs and answers (in the chat or as a turn), or a skill or prompt that goes to the model.
+	CommandDialog_COMMAND_DIALOG_UNSPECIFIED CommandDialog = 0
+	// Opens one when typed bare; with an argument it runs (`/model` picks, `/model opus` sets).
+	CommandDialog_COMMAND_DIALOG_BARE CommandDialog = 1
+	// Opens one whatever follows it (`/resume`, `/permissions`).
+	CommandDialog_COMMAND_DIALOG_ALWAYS CommandDialog = 2
+)
+
+// Enum value maps for CommandDialog.
+var (
+	CommandDialog_name = map[int32]string{
+		0: "COMMAND_DIALOG_UNSPECIFIED",
+		1: "COMMAND_DIALOG_BARE",
+		2: "COMMAND_DIALOG_ALWAYS",
+	}
+	CommandDialog_value = map[string]int32{
+		"COMMAND_DIALOG_UNSPECIFIED": 0,
+		"COMMAND_DIALOG_BARE":        1,
+		"COMMAND_DIALOG_ALWAYS":      2,
+	}
+)
+
+func (x CommandDialog) Enum() *CommandDialog {
+	p := new(CommandDialog)
+	*p = x
+	return p
+}
+
+func (x CommandDialog) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CommandDialog) Descriptor() protoreflect.EnumDescriptor {
+	return file_agentmesh_v1_chat_proto_enumTypes[1].Descriptor()
+}
+
+func (CommandDialog) Type() protoreflect.EnumType {
+	return &file_agentmesh_v1_chat_proto_enumTypes[1]
+}
+
+func (x CommandDialog) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CommandDialog.Descriptor instead.
+func (CommandDialog) EnumDescriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{1}
 }
 
 // One line of the conversation, in the order the CLI wrote it. Thinking, subagents' own turns and the CLI's
@@ -890,6 +947,292 @@ func (x *InterruptAgentResponse) GetStopped() bool {
 	return false
 }
 
+// One command an agent's CLI accepts when it is typed at its prompt.
+type AgentCommand struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The name without the slash; a plugin's is `plugin:name`.
+	Name        string   `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Aliases     []string `protobuf:"bytes,2,rep,name=aliases,proto3" json:"aliases,omitempty"`
+	Description string   `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	// What follows the name, as the CLI shows it (`<path>`, `[on|off]`); empty when it takes nothing.
+	ArgumentHint string `protobuf:"bytes,4,opt,name=argument_hint,json=argumentHint,proto3" json:"argument_hint,omitempty"`
+	// Where it comes from: `builtin`, `project`, `user`, `plugin`, `skill`, `mcp` or `custom`.
+	Source string        `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
+	Dialog CommandDialog `protobuf:"varint,6,opt,name=dialog,proto3,enum=agentmesh.v1.CommandDialog" json:"dialog,omitempty"`
+	// Typing it ends the CLI's process or signs it out (`/exit`, `/logout`): an app asks first.
+	Danger        bool `protobuf:"varint,7,opt,name=danger,proto3" json:"danger,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentCommand) Reset() {
+	*x = AgentCommand{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentCommand) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentCommand) ProtoMessage() {}
+
+func (x *AgentCommand) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentCommand.ProtoReflect.Descriptor instead.
+func (*AgentCommand) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AgentCommand) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AgentCommand) GetAliases() []string {
+	if x != nil {
+		return x.Aliases
+	}
+	return nil
+}
+
+func (x *AgentCommand) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AgentCommand) GetArgumentHint() string {
+	if x != nil {
+		return x.ArgumentHint
+	}
+	return ""
+}
+
+func (x *AgentCommand) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *AgentCommand) GetDialog() CommandDialog {
+	if x != nil {
+		return x.Dialog
+	}
+	return CommandDialog_COMMAND_DIALOG_UNSPECIFIED
+}
+
+func (x *AgentCommand) GetDanger() bool {
+	if x != nil {
+		return x.Danger
+	}
+	return false
+}
+
+type ListAgentCommandsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Agent id or name.
+	Agent         string `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAgentCommandsRequest) Reset() {
+	*x = ListAgentCommandsRequest{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAgentCommandsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAgentCommandsRequest) ProtoMessage() {}
+
+func (x *ListAgentCommandsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAgentCommandsRequest.ProtoReflect.Descriptor instead.
+func (*ListAgentCommandsRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListAgentCommandsRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+type ListAgentCommandsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// False when the agent's CLI has no command list the daemon knows.
+	Supported     bool            `protobuf:"varint,1,opt,name=supported,proto3" json:"supported,omitempty"`
+	Commands      []*AgentCommand `protobuf:"bytes,2,rep,name=commands,proto3" json:"commands,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListAgentCommandsResponse) Reset() {
+	*x = ListAgentCommandsResponse{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListAgentCommandsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListAgentCommandsResponse) ProtoMessage() {}
+
+func (x *ListAgentCommandsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListAgentCommandsResponse.ProtoReflect.Descriptor instead.
+func (*ListAgentCommandsResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListAgentCommandsResponse) GetSupported() bool {
+	if x != nil {
+		return x.Supported
+	}
+	return false
+}
+
+func (x *ListAgentCommandsResponse) GetCommands() []*AgentCommand {
+	if x != nil {
+		return x.Commands
+	}
+	return nil
+}
+
+type GetPromptSuggestionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Agent id or name.
+	Agent         string `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPromptSuggestionRequest) Reset() {
+	*x = GetPromptSuggestionRequest{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPromptSuggestionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPromptSuggestionRequest) ProtoMessage() {}
+
+func (x *GetPromptSuggestionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPromptSuggestionRequest.ProtoReflect.Descriptor instead.
+func (*GetPromptSuggestionRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *GetPromptSuggestionRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+type GetPromptSuggestionResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The prompt the CLI suggests next, shown as grey text in its empty input box; empty when it shows none (or the
+	// CLI has no such feature, or the agent is not at its prompt).
+	Text          string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetPromptSuggestionResponse) Reset() {
+	*x = GetPromptSuggestionResponse{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetPromptSuggestionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetPromptSuggestionResponse) ProtoMessage() {}
+
+func (x *GetPromptSuggestionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetPromptSuggestionResponse.ProtoReflect.Descriptor instead.
+func (*GetPromptSuggestionResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetPromptSuggestionResponse) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 type RewindAgentRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
@@ -903,7 +1246,7 @@ type RewindAgentRequest struct {
 
 func (x *RewindAgentRequest) Reset() {
 	*x = RewindAgentRequest{}
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[13]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +1258,7 @@ func (x *RewindAgentRequest) String() string {
 func (*RewindAgentRequest) ProtoMessage() {}
 
 func (x *RewindAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[13]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +1271,7 @@ func (x *RewindAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RewindAgentRequest.ProtoReflect.Descriptor instead.
 func (*RewindAgentRequest) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{13}
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RewindAgentRequest) GetMeta() *RequestMeta {
@@ -964,7 +1307,7 @@ type RewindAgentResponse struct {
 
 func (x *RewindAgentResponse) Reset() {
 	*x = RewindAgentResponse{}
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[14]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -976,7 +1319,7 @@ func (x *RewindAgentResponse) String() string {
 func (*RewindAgentResponse) ProtoMessage() {}
 
 func (x *RewindAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[14]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -989,7 +1332,7 @@ func (x *RewindAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RewindAgentResponse.ProtoReflect.Descriptor instead.
 func (*RewindAgentResponse) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{14}
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RewindAgentResponse) GetText() string {
@@ -1021,7 +1364,7 @@ type AddAttachmentRequest struct {
 
 func (x *AddAttachmentRequest) Reset() {
 	*x = AddAttachmentRequest{}
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[15]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1033,7 +1376,7 @@ func (x *AddAttachmentRequest) String() string {
 func (*AddAttachmentRequest) ProtoMessage() {}
 
 func (x *AddAttachmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[15]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1046,7 +1389,7 @@ func (x *AddAttachmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddAttachmentRequest.ProtoReflect.Descriptor instead.
 func (*AddAttachmentRequest) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{15}
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AddAttachmentRequest) GetMeta() *RequestMeta {
@@ -1087,7 +1430,7 @@ type AddAttachmentResponse struct {
 
 func (x *AddAttachmentResponse) Reset() {
 	*x = AddAttachmentResponse{}
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[16]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1099,7 +1442,7 @@ func (x *AddAttachmentResponse) String() string {
 func (*AddAttachmentResponse) ProtoMessage() {}
 
 func (x *AddAttachmentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_v1_chat_proto_msgTypes[16]
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1112,7 +1455,7 @@ func (x *AddAttachmentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddAttachmentResponse.ProtoReflect.Descriptor instead.
 func (*AddAttachmentResponse) Descriptor() ([]byte, []int) {
-	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{16}
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AddAttachmentResponse) GetPath() string {
@@ -1181,7 +1524,24 @@ const file_agentmesh_v1_chat_proto_rawDesc = "" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\"2\n" +
 	"\x16InterruptAgentResponse\x12\x18\n" +
-	"\astopped\x18\x01 \x01(\bR\astopped\"t\n" +
+	"\astopped\x18\x01 \x01(\bR\astopped\"\xe8\x01\n" +
+	"\fAgentCommand\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\aaliases\x18\x02 \x03(\tR\aaliases\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\x12#\n" +
+	"\rargument_hint\x18\x04 \x01(\tR\fargumentHint\x12\x16\n" +
+	"\x06source\x18\x05 \x01(\tR\x06source\x123\n" +
+	"\x06dialog\x18\x06 \x01(\x0e2\x1b.agentmesh.v1.CommandDialogR\x06dialog\x12\x16\n" +
+	"\x06danger\x18\a \x01(\bR\x06danger\"0\n" +
+	"\x18ListAgentCommandsRequest\x12\x14\n" +
+	"\x05agent\x18\x01 \x01(\tR\x05agent\"q\n" +
+	"\x19ListAgentCommandsResponse\x12\x1c\n" +
+	"\tsupported\x18\x01 \x01(\bR\tsupported\x126\n" +
+	"\bcommands\x18\x02 \x03(\v2\x1a.agentmesh.v1.AgentCommandR\bcommands\"2\n" +
+	"\x1aGetPromptSuggestionRequest\x12\x14\n" +
+	"\x05agent\x18\x01 \x01(\tR\x05agent\"1\n" +
+	"\x1bGetPromptSuggestionResponse\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\"t\n" +
 	"\x12RewindAgentRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x19\n" +
@@ -1196,14 +1556,19 @@ const file_agentmesh_v1_chat_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\"+\n" +
 	"\x15AddAttachmentResponse\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path*\xc4\x01\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path*\xe8\x01\n" +
 	"\x0eTranscriptKind\x12\x1f\n" +
 	"\x1bTRANSCRIPT_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14TRANSCRIPT_KIND_USER\x10\x01\x12\x1d\n" +
 	"\x19TRANSCRIPT_KIND_ASSISTANT\x10\x02\x12\x1d\n" +
 	"\x19TRANSCRIPT_KIND_TOOL_CALL\x10\x03\x12\x1f\n" +
 	"\x1bTRANSCRIPT_KIND_TOOL_RESULT\x10\x04\x12\x18\n" +
-	"\x14TRANSCRIPT_KIND_MESH\x10\x05B\xb2\x01\n" +
+	"\x14TRANSCRIPT_KIND_MESH\x10\x05\x12\"\n" +
+	"\x1eTRANSCRIPT_KIND_COMMAND_OUTPUT\x10\x06*c\n" +
+	"\rCommandDialog\x12\x1e\n" +
+	"\x1aCOMMAND_DIALOG_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13COMMAND_DIALOG_BARE\x10\x01\x12\x19\n" +
+	"\x15COMMAND_DIALOG_ALWAYS\x10\x02B\xb2\x01\n" +
 	"\x10com.agentmesh.v1B\tChatProtoP\x01ZBgithub.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1;agentmeshv1\xa2\x02\x03AXX\xaa\x02\fAgentmesh.V1\xca\x02\fAgentmesh\\V1\xe2\x02\x18Agentmesh\\V1\\GPBMetadata\xea\x02\rAgentmesh::V1b\x06proto3"
 
 var (
@@ -1218,49 +1583,57 @@ func file_agentmesh_v1_chat_proto_rawDescGZIP() []byte {
 	return file_agentmesh_v1_chat_proto_rawDescData
 }
 
-var file_agentmesh_v1_chat_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agentmesh_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_agentmesh_v1_chat_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_agentmesh_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_agentmesh_v1_chat_proto_goTypes = []any{
-	(TranscriptKind)(0),              // 0: agentmesh.v1.TranscriptKind
-	(*TranscriptEntry)(nil),          // 1: agentmesh.v1.TranscriptEntry
-	(*ReadTranscriptRequest)(nil),    // 2: agentmesh.v1.ReadTranscriptRequest
-	(*ReadTranscriptResponse)(nil),   // 3: agentmesh.v1.ReadTranscriptResponse
-	(*PromptAgentRequest)(nil),       // 4: agentmesh.v1.PromptAgentRequest
-	(*PromptAgentResponse)(nil),      // 5: agentmesh.v1.PromptAgentResponse
-	(*ListPromptsRequest)(nil),       // 6: agentmesh.v1.ListPromptsRequest
-	(*ListPromptsResponse)(nil),      // 7: agentmesh.v1.ListPromptsResponse
-	(*WithdrawPromptRequest)(nil),    // 8: agentmesh.v1.WithdrawPromptRequest
-	(*WithdrawPromptResponse)(nil),   // 9: agentmesh.v1.WithdrawPromptResponse
-	(*SendPromptAnywayRequest)(nil),  // 10: agentmesh.v1.SendPromptAnywayRequest
-	(*SendPromptAnywayResponse)(nil), // 11: agentmesh.v1.SendPromptAnywayResponse
-	(*InterruptAgentRequest)(nil),    // 12: agentmesh.v1.InterruptAgentRequest
-	(*InterruptAgentResponse)(nil),   // 13: agentmesh.v1.InterruptAgentResponse
-	(*RewindAgentRequest)(nil),       // 14: agentmesh.v1.RewindAgentRequest
-	(*RewindAgentResponse)(nil),      // 15: agentmesh.v1.RewindAgentResponse
-	(*AddAttachmentRequest)(nil),     // 16: agentmesh.v1.AddAttachmentRequest
-	(*AddAttachmentResponse)(nil),    // 17: agentmesh.v1.AddAttachmentResponse
-	(*timestamppb.Timestamp)(nil),    // 18: google.protobuf.Timestamp
-	(*RequestMeta)(nil),              // 19: agentmesh.v1.RequestMeta
-	(*QueuedPrompt)(nil),             // 20: agentmesh.v1.QueuedPrompt
+	(TranscriptKind)(0),                 // 0: agentmesh.v1.TranscriptKind
+	(CommandDialog)(0),                  // 1: agentmesh.v1.CommandDialog
+	(*TranscriptEntry)(nil),             // 2: agentmesh.v1.TranscriptEntry
+	(*ReadTranscriptRequest)(nil),       // 3: agentmesh.v1.ReadTranscriptRequest
+	(*ReadTranscriptResponse)(nil),      // 4: agentmesh.v1.ReadTranscriptResponse
+	(*PromptAgentRequest)(nil),          // 5: agentmesh.v1.PromptAgentRequest
+	(*PromptAgentResponse)(nil),         // 6: agentmesh.v1.PromptAgentResponse
+	(*ListPromptsRequest)(nil),          // 7: agentmesh.v1.ListPromptsRequest
+	(*ListPromptsResponse)(nil),         // 8: agentmesh.v1.ListPromptsResponse
+	(*WithdrawPromptRequest)(nil),       // 9: agentmesh.v1.WithdrawPromptRequest
+	(*WithdrawPromptResponse)(nil),      // 10: agentmesh.v1.WithdrawPromptResponse
+	(*SendPromptAnywayRequest)(nil),     // 11: agentmesh.v1.SendPromptAnywayRequest
+	(*SendPromptAnywayResponse)(nil),    // 12: agentmesh.v1.SendPromptAnywayResponse
+	(*InterruptAgentRequest)(nil),       // 13: agentmesh.v1.InterruptAgentRequest
+	(*InterruptAgentResponse)(nil),      // 14: agentmesh.v1.InterruptAgentResponse
+	(*AgentCommand)(nil),                // 15: agentmesh.v1.AgentCommand
+	(*ListAgentCommandsRequest)(nil),    // 16: agentmesh.v1.ListAgentCommandsRequest
+	(*ListAgentCommandsResponse)(nil),   // 17: agentmesh.v1.ListAgentCommandsResponse
+	(*GetPromptSuggestionRequest)(nil),  // 18: agentmesh.v1.GetPromptSuggestionRequest
+	(*GetPromptSuggestionResponse)(nil), // 19: agentmesh.v1.GetPromptSuggestionResponse
+	(*RewindAgentRequest)(nil),          // 20: agentmesh.v1.RewindAgentRequest
+	(*RewindAgentResponse)(nil),         // 21: agentmesh.v1.RewindAgentResponse
+	(*AddAttachmentRequest)(nil),        // 22: agentmesh.v1.AddAttachmentRequest
+	(*AddAttachmentResponse)(nil),       // 23: agentmesh.v1.AddAttachmentResponse
+	(*timestamppb.Timestamp)(nil),       // 24: google.protobuf.Timestamp
+	(*RequestMeta)(nil),                 // 25: agentmesh.v1.RequestMeta
+	(*QueuedPrompt)(nil),                // 26: agentmesh.v1.QueuedPrompt
 }
 var file_agentmesh_v1_chat_proto_depIdxs = []int32{
-	18, // 0: agentmesh.v1.TranscriptEntry.time:type_name -> google.protobuf.Timestamp
+	24, // 0: agentmesh.v1.TranscriptEntry.time:type_name -> google.protobuf.Timestamp
 	0,  // 1: agentmesh.v1.TranscriptEntry.kind:type_name -> agentmesh.v1.TranscriptKind
-	1,  // 2: agentmesh.v1.ReadTranscriptResponse.entries:type_name -> agentmesh.v1.TranscriptEntry
-	19, // 3: agentmesh.v1.PromptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	20, // 4: agentmesh.v1.PromptAgentResponse.queued:type_name -> agentmesh.v1.QueuedPrompt
-	20, // 5: agentmesh.v1.ListPromptsResponse.prompts:type_name -> agentmesh.v1.QueuedPrompt
-	19, // 6: agentmesh.v1.WithdrawPromptRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	20, // 7: agentmesh.v1.WithdrawPromptResponse.prompt:type_name -> agentmesh.v1.QueuedPrompt
-	19, // 8: agentmesh.v1.SendPromptAnywayRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	19, // 9: agentmesh.v1.InterruptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	19, // 10: agentmesh.v1.RewindAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	19, // 11: agentmesh.v1.AddAttachmentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	2,  // 2: agentmesh.v1.ReadTranscriptResponse.entries:type_name -> agentmesh.v1.TranscriptEntry
+	25, // 3: agentmesh.v1.PromptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	26, // 4: agentmesh.v1.PromptAgentResponse.queued:type_name -> agentmesh.v1.QueuedPrompt
+	26, // 5: agentmesh.v1.ListPromptsResponse.prompts:type_name -> agentmesh.v1.QueuedPrompt
+	25, // 6: agentmesh.v1.WithdrawPromptRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	26, // 7: agentmesh.v1.WithdrawPromptResponse.prompt:type_name -> agentmesh.v1.QueuedPrompt
+	25, // 8: agentmesh.v1.SendPromptAnywayRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	25, // 9: agentmesh.v1.InterruptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	1,  // 10: agentmesh.v1.AgentCommand.dialog:type_name -> agentmesh.v1.CommandDialog
+	15, // 11: agentmesh.v1.ListAgentCommandsResponse.commands:type_name -> agentmesh.v1.AgentCommand
+	25, // 12: agentmesh.v1.RewindAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	25, // 13: agentmesh.v1.AddAttachmentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_chat_proto_init() }
@@ -1274,8 +1647,8 @@ func file_agentmesh_v1_chat_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_chat_proto_rawDesc), len(file_agentmesh_v1_chat_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   17,
+			NumEnums:      2,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

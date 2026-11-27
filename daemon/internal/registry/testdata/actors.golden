@@ -15,11 +15,13 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/GetAgentProgress
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
+  /agentmesh.v1.MeshService/GetPromptSuggestion
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/HoldPullRequest
   /agentmesh.v1.MeshService/ImportPeers
   /agentmesh.v1.MeshService/InterruptAgent
+  /agentmesh.v1.MeshService/ListAgentCommands
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListDevices
@@ -155,12 +157,14 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/GetAgentProgress
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
+  /agentmesh.v1.MeshService/GetPromptSuggestion
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/HoldPullRequest
   /agentmesh.v1.MeshService/ImportPeers
   /agentmesh.v1.MeshService/ImportSettings
   /agentmesh.v1.MeshService/InterruptAgent
+  /agentmesh.v1.MeshService/ListAgentCommands
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListDevices
@@ -222,8 +226,10 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/GetAgentProgress
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
+  /agentmesh.v1.MeshService/GetPromptSuggestion
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
+  /agentmesh.v1.MeshService/ListAgentCommands
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListMCPServers

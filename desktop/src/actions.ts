@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'sendPromptAnyway', 'interruptAgent', 'rewindAgent', 'addAttachment', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'listAgentCommands', 'getPromptSuggestion', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'sendPromptAnyway', 'interruptAgent', 'rewindAgent', 'addAttachment', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -105,6 +105,12 @@ export const listMessages = (c: MeshClient, runId: string, afterId: string) => c
  * host says `supported: false` for a CLI whose record it doesn't read.
  */
 export const readTranscript = (c: MeshClient, agent: string, offset: bigint, backward: boolean) => c.readTranscript({ agent, offset, backward })
+
+/** The commands the agent's CLI accepts at its prompt, with descriptions and argument hints, for the composer's `/` completion. */
+export const listAgentCommands = (c: MeshClient, agent: string) => c.listAgentCommands({ agent })
+
+/** The prompt Claude Code suggests next (grey text in its empty box); empty when there is none or the CLI has no such feature. */
+export const getPromptSuggestion = (c: MeshClient, agent: string) => c.getPromptSuggestion({ agent })
 
 /** Types a prompt into the agent's running CLI as the user would (the chat composer): one process, one conversation. */
 export const promptAgent = (c: MeshClient, agent: string, text: string) => c.promptAgent({ meta: meta(), agent, text })
