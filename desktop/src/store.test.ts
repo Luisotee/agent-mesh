@@ -2,8 +2,8 @@ import { create, fromJson, toJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { addPrompt, applyFrame, createHostStore, emptyHost, mergeMessages, setPrompts, storeSink, type HostState } from './store'
-import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, QueuedPromptSchema, type Event } from './gen/agentmesh/v1/types_pb'
+import { MAX_ACTIVITY, addPrompt, applyFrame, createHostStore, emptyHost, mergeMessages, setPrompts, storeSink, type HostState } from './store'
+import { SettingSchema$ as SettingDescriptor, UserNoticeSchema, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, QueuedPromptSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -13,6 +13,17 @@ const snapshot = (agents = [agent('a1')]): Frame => ({ case: 'snapshot', value: 
 const run = (frames: Frame[], from: HostState = emptyHost()) => frames.reduce(applyFrame, from)
 
 describe('applyFrame', () => {
+  it('keeps what the host told the user, newest last, at most MAX_ACTIVITY, and not as a change of any agent', () => {
+    const notice = (seq: number, forUser: boolean) => ev(seq, { case: 'userNotice', value: create(UserNoticeSchema, { kind: 'plan', title: `n${seq}`, agentId: 'a1', forUser }) })
+    const s = run([snapshot(), notice(6, false), notice(7, true)])
+    expect(s.activity.map((i) => [i.seq, i.notice.title, i.notice.forUser])).toEqual([[6n, 'n6', false], [7n, 'n7', true]])
+    expect(s.activity[0]!.at).toBe(6000)
+    expect(s.agents['a1']!.state).toBe(AgentState.STARTING)
+    const many = run(Array.from({ length: MAX_ACTIVITY + 5 }, (_, i) => notice(10 + i, true)))
+    expect(many.activity).toHaveLength(MAX_ACTIVITY)
+    expect(many.activity[0]!.notice.title).toBe('n15')
+  })
+
   it('a snapshot replaces runs and agents and sets the cursor', () => {
     const s = run([snapshot([agent('stale')]), snapshot()])
     expect(Object.keys(s.agents)).toEqual(['a1'])

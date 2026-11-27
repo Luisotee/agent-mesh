@@ -107,6 +107,8 @@ type pusher struct {
 	// agent in the transaction that reports the exit, so the store no longer has it when the exit is pushed.
 	// Only the dispatcher touches it.
 	spawned map[string]*v1.Agent
+	// runs is what decide remembers of each run (a lead's finish, told once). Only the dispatcher touches it.
+	runs map[string]*runState
 }
 
 // maxSpawned bounds the spawned cache; past it the cache starts over (an agent launched long ago is in the store).
@@ -128,7 +130,7 @@ func newPusher(d *Daemon, cfg PushConfig) *pusher {
 func (p *pusher) enqueue(evs []*v1.Event) {
 	var keep []*v1.Event
 	for _, e := range evs {
-		if _, spawn := e.Payload.(*v1.Event_AgentSpawned); spawn || notice.Relevant(e) {
+		if _, spawn := e.Payload.(*v1.Event_AgentSpawned); spawn || relevant(e) {
 			keep = append(keep, e)
 		}
 	}
@@ -171,17 +173,6 @@ func (p *pusher) dispatch(ctx context.Context, evs []*v1.Event) {
 		}
 	}
 	r := p.d.store.Read(ctx)
-	regs, err := r.ListPush()
-	if err != nil || len(regs) == 0 {
-		if err != nil {
-			p.d.log.Warn("push: reading endpoints", "err", err)
-		}
-		return
-	}
-	kinds, ok := p.notifyKinds(r)
-	if !ok {
-		return
-	}
 	agents := map[string]*v1.Agent{}
 	lookup := func(id string) *v1.Agent {
 		if a, seen := agents[id]; seen {
@@ -195,30 +186,67 @@ func (p *pusher) dispatch(ctx context.Context, evs []*v1.Event) {
 		return a
 	}
 	for _, e := range evs {
-		n := notice.For(e, lookup)
+		ns := p.decide(r, e, lookup)
 		if _, exit := e.Payload.(*v1.Event_AgentExited); exit {
 			delete(p.spawned, e.AgentId)
 		}
-		if n == nil {
-			continue
+		for _, n := range ns {
+			p.announce(ctx, e, n)
 		}
-		// A device that chose its own list is pushed by it; one that didn't, by the host's.
-		var to []store.PushRecord
-		for _, reg := range regs {
-			if pushedKind(reg, n.Kind, kinds) {
-				to = append(to, reg)
-			}
-		}
-		if len(to) == 0 {
-			continue
-		}
-		at := p.d.now()
-		if e.Time != nil {
-			at = e.Time.AsTime()
-		}
-		p.send(to, pushPayload{V: 1, Daemon: p.d.daemonID, Seq: e.Seq, Kind: n.Kind, Title: n.Title, Body: n.Body,
-			Agent: n.AgentID, Tab: n.Tab, At: at.UnixMilli()}, n.Waiting())
 	}
+}
+
+// relevant reports whether decide may make a notice of this event.
+func relevant(e *v1.Event) bool {
+	switch e.Payload.(type) {
+	case *v1.Event_AgentStateChanged, *v1.Event_MessageSent, *v1.Event_AgentExited, *v1.Event_PullRequestChanged, *v1.Event_PermissionChanged:
+		return true
+	}
+	return false
+}
+
+// announce stores a notice as a UserNotice event, then pushes it to the phones that take its kind, when it is for the user.
+func (p *pusher) announce(ctx context.Context, e *v1.Event, n *notice.Notice) {
+	seq, err := p.d.record(ctx, e.RunId, n)
+	if err != nil {
+		p.d.log.Warn("notice: storing", "err", err)
+		seq = e.Seq
+	}
+	if !n.ForUser {
+		return
+	}
+	r := p.d.store.Read(ctx)
+	regs, err := r.ListPush()
+	if err != nil || len(regs) == 0 {
+		if err != nil {
+			p.d.log.Warn("push: reading endpoints", "err", err)
+		}
+		return
+	}
+	kinds, ok := p.notifyKinds(r)
+	if !ok {
+		return
+	}
+	// A device that chose its own list is pushed by it; one that didn't, by the host's.
+	var to []store.PushRecord
+	for _, reg := range regs {
+		if pushedKind(reg, n.Kind, kinds) {
+			to = append(to, reg)
+		}
+	}
+	if len(to) == 0 {
+		return
+	}
+	at := p.d.now()
+	if e.Time != nil {
+		at = e.Time.AsTime()
+	}
+	tab := n.Tab
+	if tab == notice.TabChat {
+		tab = notice.TabMessages
+	}
+	p.send(to, pushPayload{V: 1, Daemon: p.d.daemonID, Seq: seq, Kind: n.Kind, Title: n.Title, Body: n.Body,
+		Agent: n.AgentID, Tab: tab, At: at.UnixMilli()}, n.Waiting())
 }
 
 // pushedKind reports whether a registration is pushed a notice of this kind: by its own list when it chose one, else by the

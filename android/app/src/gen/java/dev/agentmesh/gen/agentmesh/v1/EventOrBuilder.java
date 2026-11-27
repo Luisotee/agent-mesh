@@ -454,5 +454,16 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.AgentArchived getAgentArchived();
 
+  /**
+   * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+   * @return Whether the userNotice field is set.
+   */
+  boolean hasUserNotice();
+  /**
+   * <code>.agentmesh.v1.UserNotice user_notice = 42 [json_name = "userNotice"];</code>
+   * @return The userNotice.
+   */
+  dev.agentmesh.gen.agentmesh.v1.UserNotice getUserNotice();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

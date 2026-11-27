@@ -91,4 +91,16 @@ public interface WaitingOrBuilder extends
    */
   com.google.protobuf.ByteString
       getDetailBytes();
+
+  /**
+   * <pre>
+   * The user is the one to act on it: a plan or question where the user approves plans or that was sent to the
+   * user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+   * view and Activity still show it.
+   * </pre>
+   *
+   * <code>bool for_user = 6 [json_name = "forUser"];</code>
+   * @return The forUser.
+   */
+  boolean getForUser();
 }

@@ -488,12 +488,12 @@ func DefaultLeaves() []Leaf {
 }
 
 // NotifyEvents are the events the desktop app can notify about (app.notify.events).
-var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited", "limited", "error"}
+var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited", "limited", "error", "finished", "ready"}
 
 // DefaultNotifyEvents are the ones that notify until the user chooses (every event but a clean exit and a usage
 // limit, which the daemon usually handles itself by moving the agent to the next model). The desktop
 // app falls back to the same list before the host's settings arrive (desktop/src/prefs.ts).
-var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error"}
+var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error", "finished", "ready"}
 
 // shortcutModifiers are the modifiers a chord may hold; Mod is Ctrl on Linux and Windows and Cmd on macOS.
 var shortcutModifiers = []string{"Mod", "Ctrl", "Alt", "Shift", "Meta"}
@@ -577,7 +577,7 @@ func AppLeaves() []Leaf {
 		{Key: "app.notify.sound", Type: Bool, Default: true,
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Type: Kinds, Default: events, Choices: NotifyEvents,
-			Summary: "what notifies: an agent stopped at a prompt (input), a plan or a question to answer, a report (done), a failure, an agent in error, an agent at its usage limit (limited), or any agent's exit; a phone's pushes follow it too, unless that phone chose its own list (the Android app's settings)"},
+			Summary: "what notifies, among what waits on you: an agent stopped at a prompt (input), a plan to approve or a question to answer (plan, question: only where you approve plans or the lead asks you), a failure, an agent in error or at its usage limit (limited), a finished run or agent (finished), a pull request ready to merge where you merge (ready), a report or a clean exit (report, exited); a worker's plan, report or failure to a lead that handles it itself is only in Activity; a phone's pushes follow it too, unless that phone chose its own list (the Android app's settings)"},
 		{Key: "app.theme", Type: String, Default: "Dracula",
 			Summary: "the theme the apps draw with: Dracula, Alucard, Catppuccin Mocha, Catppuccin Latte, Tokyo Night or Nord (an app that has no theme of that name uses Dracula; the Android app's own choice overrides it on that phone)"},
 		{Key: "app.dock.new_agents", Type: String, Default: "dock", Choices: DockNewAgents,

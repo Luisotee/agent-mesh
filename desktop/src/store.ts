@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Device, Event, Message, QueuedPrompt, Run, Setting } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Cursor, Device, Event, Message, QueuedPrompt, Run, Setting, UserNotice } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import type { PendingPermission } from './gen/agentmesh/v1/mesh_pb'
@@ -48,9 +48,21 @@ export interface HostState {
   promptTouch: Record<string, number>
   /** Counts the snapshots: a resync (a reconnect, a daemon restart) may have changed what isn't in the events we saw, so views read again. */
   snapshots: number
+  /** What the host decided to tell the user (`UserNotice` events), newest last, at most `MAX_ACTIVITY`: kept as they arrive on this connection. */
+  activity: ActivityItem[]
   cursor?: Cursor
   log: LogLine[]
 }
+
+/** One entry of the Activity list: a notice the host made, `forUser` or not. */
+export interface ActivityItem {
+  seq: bigint
+  /** The host's time of it, ms. */
+  at: number
+  notice: UserNotice
+}
+
+export const MAX_ACTIVITY = 200
 
 /** `loading` until the run's stored messages arrived once; `failed` when the last try did (a retry follows). */
 export type MessageLoad = 'loading' | 'loaded' | 'failed'
@@ -58,7 +70,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
 }
 
 const MAX_LOG = 200
@@ -106,6 +118,10 @@ function applyEvent(s: HostState, e: Event): HostState {
     case 'messageSent': {
       const m = p.value.message
       return m ? { ...next, messages: { ...s.messages, [m.id]: m } } : next
+    }
+    case 'userNotice': {
+      const at = e.time ? Number(e.time.seconds) * 1000 + Math.floor(e.time.nanos / 1e6) : 0
+      return { ...next, activity: [...s.activity, { seq: e.seq, at, notice: p.value }].slice(-MAX_ACTIVITY) }
     }
     case 'messageDelivered': {
       const m = s.messages[p.value.messageId]

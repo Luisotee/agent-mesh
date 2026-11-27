@@ -70,7 +70,8 @@ export function hostRefresher(
       complained = false
       // Shown even if an event overtook it (a busy host answers slower than events come, and a list never shown would
       // leave the old one up for as long as the burst lasts); the event scheduled a call, or this one does, to correct it.
-      store.setState(setWaiting(res.waiting))
+      // Only what the user is to act on: a worker's plan to a lead that decides it is the lead's (and in Activity).
+      store.setState(setWaiting(res.waiting.filter((w) => w.forUser)))
       if (seen !== waitingTouches) schedule()
     } catch (e) {
       // The list stays as it was; the next tick asks again.

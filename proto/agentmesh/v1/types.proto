@@ -286,6 +286,7 @@ message Event {
     RunRenamed run_renamed = 39;
     PermissionChanged permission_changed = 40;
     AgentArchived agent_archived = 41;
+    UserNotice user_notice = 42;
   }
 }
 
@@ -348,6 +349,25 @@ message PermissionChanged {
   // "asked" (held for the parent), "allowed" or "denied" (the parent or a device answered), "ended" (answered at the
   // agent's terminal, ran out, or the agent went on).
   string state = 3;
+}
+
+// What the daemon decided is worth telling the user, once, by the rules in `internal/notice`: the apps' notifications,
+// the phones' pushes and the apps' Activity list all follow this one event. `for_user` says the user has something to
+// do or to know; a notice without it is only for the Activity list (a worker's plan to a root that decides it).
+message UserNotice {
+  // One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+  string kind = 1;
+  string title = 2;
+  // Plain text, at most 200 characters.
+  string body = 3;
+  // The agent it is about; the app opens its chat (or terminal when `tab` says so).
+  string agent_id = 4;
+  // "chat" or "terminal": the view that answers it.
+  string tab = 5;
+  // The user has something to do or to know. False: Activity only, never pushed or shown as a notification.
+  bool for_user = 6;
+  // A later notice with the same tag replaces the earlier on a screen: one per agent, or one per run.
+  string tag = 7;
 }
 
 // An agent was archived: its worktree removed, its branch kept (`ArchiveAgent`).

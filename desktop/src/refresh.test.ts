@@ -7,7 +7,7 @@ import { hostRefresher } from './refresh'
 import { createHostStore } from './store'
 
 const agent = (id: string, state: AgentState) => create(AgentSchema, { id, name: id, runId: 'r1', state })
-const row = (agentId: string) => create(WaitingSchema, { kind: WaitingKind.INPUT, runId: 'r1', agentId })
+const row = (agentId: string) => create(WaitingSchema, { kind: WaitingKind.INPUT, runId: 'r1', agentId, forUser: true })
 const sent = (type: MessageType): Event => create(EventSchema, { payload: { case: 'messageSent', value: { $typeName: 'agentmesh.v1.MessageSent', message: create(MessageSchema, { type }) } } })
 const stateChanged = (): Event => create(EventSchema, { agentId: 'a', payload: { case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from: AgentState.WORKING, to: AgentState.IDLE, detail: '', needsInput: 0 } } })
 
