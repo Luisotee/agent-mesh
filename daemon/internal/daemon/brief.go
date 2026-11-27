@@ -278,7 +278,7 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 			if a, err := r.GetAgent(h.To); err == nil {
 				to = a.Name
 			}
-			out = append(out, fmt.Sprintf("held: %s for %s, until task %s is done (`mesh cancel-held %s`)", h.Id, to, h.After, h.Id))
+			out = append(out, fmt.Sprintf("held: %s for %s, until task %s is done (`mesh cancel-held --id %s`)", h.Id, to, h.After, h.Id))
 		}
 	}
 	if c, err := d.capacity(r); err == nil {
