@@ -42,6 +42,17 @@ describe('following a transcript', () => {
 })
 
 describe('toBlocks', () => {
+  it('shows what a typed command printed as its own block, which ends a run of tool calls', () => {
+    const blocks = toBlocks([
+      entry('c', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolUseId: 't' }),
+      entry('u', TranscriptKind.USER, { text: '/context' }),
+      entry('o', TranscriptKind.COMMAND_OUTPUT, { text: 'Context 12k/200k' }),
+      entry('c2', TranscriptKind.TOOL_CALL, { tool: 'Read', toolUseId: 't2' }),
+    ])
+    expect(blocks.map((b) => b.kind)).toEqual(['tools', 'user', 'output', 'tools'])
+    expect(blocks[2]).toMatchObject({ kind: 'output', entry: { text: 'Context 12k/200k' } })
+  })
+
   it('folds consecutive tool calls into one block, each with its own result', () => {
     const blocks = toBlocks([
       entry('1', TranscriptKind.USER, { text: 'go' }),

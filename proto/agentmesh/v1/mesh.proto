@@ -530,6 +530,36 @@ service MeshService {
     };
   }
 
+  // The commands an agent's CLI accepts when typed at its prompt, with descriptions and argument hints, for the
+  // composer's `/` completion: the CLI's built-ins and what it loads for this agent (the repo's and the user's
+  // commands, skills, plugins). Read from the CLI where it can say (Claude Code), else from a table of its
+  // built-ins plus the files it reads.
+  rpc ListAgentCommands(ListAgentCommandsRequest) returns (ListAgentCommandsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "commands"
+      summary: "List the commands an agent's CLI accepts at its prompt"
+    };
+  }
+
+  // The prompt Claude Code suggests next (grey text in its empty input box after a turn), read from the agent's
+  // screen. Empty when there is none, the agent is not at its prompt, or its CLI has no such feature.
+  rpc GetPromptSuggestion(GetPromptSuggestionRequest) returns (GetPromptSuggestionResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "suggestion"
+      summary: "Show the prompt an agent's CLI suggests next"
+    };
+  }
+
   // Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
   // a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
   // with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
