@@ -56,6 +56,10 @@ const (
 	MeshServiceResumeAgentProcedure = "/agentmesh.v1.MeshService/ResumeAgent"
 	// MeshServiceRetireAgentProcedure is the fully-qualified name of the MeshService's RetireAgent RPC.
 	MeshServiceRetireAgentProcedure = "/agentmesh.v1.MeshService/RetireAgent"
+	// MeshServiceRenameRunProcedure is the fully-qualified name of the MeshService's RenameRun RPC.
+	MeshServiceRenameRunProcedure = "/agentmesh.v1.MeshService/RenameRun"
+	// MeshServiceOpenViewProcedure is the fully-qualified name of the MeshService's OpenView RPC.
+	MeshServiceOpenViewProcedure = "/agentmesh.v1.MeshService/OpenView"
 	// MeshServiceStopRunProcedure is the fully-qualified name of the MeshService's StopRun RPC.
 	MeshServiceStopRunProcedure = "/agentmesh.v1.MeshService/StopRun"
 	// MeshServiceSendMessageProcedure is the fully-qualified name of the MeshService's SendMessage RPC.
@@ -215,6 +219,11 @@ type MeshServiceClient interface {
 	// Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
 	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
+	// Change a run's title. A root may rename its own run; a device any.
+	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
+	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+	// which act on it only when their window is focused or the user turned `app.open_views` on.
+	OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
@@ -445,6 +454,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceRetireAgentProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("RetireAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		renameRun: connect.NewClient[v1.RenameRunRequest, v1.RenameRunResponse](
+			httpClient,
+			baseURL+MeshServiceRenameRunProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RenameRun")),
+			connect.WithClientOptions(opts...),
+		),
+		openView: connect.NewClient[v1.OpenViewRequest, v1.OpenViewResponse](
+			httpClient,
+			baseURL+MeshServiceOpenViewProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("OpenView")),
 			connect.WithClientOptions(opts...),
 		),
 		stopRun: connect.NewClient[v1.StopRunRequest, v1.StopRunResponse](
@@ -787,6 +808,8 @@ type meshServiceClient struct {
 	switchAgent       *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
 	resumeAgent       *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
 	retireAgent       *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
+	renameRun         *connect.Client[v1.RenameRunRequest, v1.RenameRunResponse]
+	openView          *connect.Client[v1.OpenViewRequest, v1.OpenViewResponse]
 	stopRun           *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	sendMessage       *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox         *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
@@ -896,6 +919,16 @@ func (c *meshServiceClient) ResumeAgent(ctx context.Context, req *connect.Reques
 // RetireAgent calls agentmesh.v1.MeshService.RetireAgent.
 func (c *meshServiceClient) RetireAgent(ctx context.Context, req *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error) {
 	return c.retireAgent.CallUnary(ctx, req)
+}
+
+// RenameRun calls agentmesh.v1.MeshService.RenameRun.
+func (c *meshServiceClient) RenameRun(ctx context.Context, req *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error) {
+	return c.renameRun.CallUnary(ctx, req)
+}
+
+// OpenView calls agentmesh.v1.MeshService.OpenView.
+func (c *meshServiceClient) OpenView(ctx context.Context, req *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error) {
+	return c.openView.CallUnary(ctx, req)
 }
 
 // StopRun calls agentmesh.v1.MeshService.StopRun.
@@ -1193,6 +1226,11 @@ type MeshServiceHandler interface {
 	// Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
 	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
+	// Change a run's title. A root may rename its own run; a device any.
+	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
+	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+	// which act on it only when their window is focused or the user turned `app.open_views` on.
+	OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
@@ -1419,6 +1457,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceRetireAgentProcedure,
 		svc.RetireAgent,
 		connect.WithSchema(meshServiceMethods.ByName("RetireAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRenameRunHandler := connect.NewUnaryHandler(
+		MeshServiceRenameRunProcedure,
+		svc.RenameRun,
+		connect.WithSchema(meshServiceMethods.ByName("RenameRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceOpenViewHandler := connect.NewUnaryHandler(
+		MeshServiceOpenViewProcedure,
+		svc.OpenView,
+		connect.WithSchema(meshServiceMethods.ByName("OpenView")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceStopRunHandler := connect.NewUnaryHandler(
@@ -1769,6 +1819,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceResumeAgentHandler.ServeHTTP(w, r)
 		case MeshServiceRetireAgentProcedure:
 			meshServiceRetireAgentHandler.ServeHTTP(w, r)
+		case MeshServiceRenameRunProcedure:
+			meshServiceRenameRunHandler.ServeHTTP(w, r)
+		case MeshServiceOpenViewProcedure:
+			meshServiceOpenViewHandler.ServeHTTP(w, r)
 		case MeshServiceStopRunProcedure:
 			meshServiceStopRunHandler.ServeHTTP(w, r)
 		case MeshServiceSendMessageProcedure:
@@ -1928,6 +1982,14 @@ func (UnimplementedMeshServiceHandler) ResumeAgent(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RetireAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RenameRun is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenView is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {

@@ -1,9 +1,10 @@
 import { Maximize2, X } from 'lucide-react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useApp, useAppState } from '@/context'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { tabKey } from '@/workspace'
+import { tabKey, type Edge } from '@/workspace'
 import { AgentPanel } from './agent-panel'
 
 /**
@@ -40,6 +41,49 @@ export function Panes({ host, agentId }: { host: HostRuntime; agentId?: string }
           </section>
         )
       })}
+    </div>
+  )
+}
+
+const EDGES: Array<{ edge: Edge; label: string; at: string }> = [
+  { edge: 'left', label: 'left', at: 'inset-y-0 left-0 w-1/4' },
+  { edge: 'right', label: 'right', at: 'inset-y-0 right-0 w-1/4' },
+  { edge: 'top', label: 'top', at: 'inset-x-0 top-0 h-1/4' },
+  { edge: 'bottom', label: 'bottom', at: 'inset-x-0 bottom-0 h-1/4' },
+]
+
+/**
+ * While a tab is dragged, the four edges of the main pane are drop targets: a tab dropped on one opens beside (or above, or
+ * before) the open agent as a split. They exist only during a drag, so they never get in the way of the pane.
+ */
+export function DropEdges() {
+  const app = useApp()
+  const dragging = useAppState((s) => s.dragTab)
+  const [over, setOver] = useState<Edge | undefined>()
+  if (!dragging) return null
+  return (
+    <div aria-label="Drop the tab on an edge to split" className="pointer-events-none absolute inset-0 z-30">
+      {EDGES.map((e) => (
+        <div
+          key={e.edge}
+          data-edge={e.edge}
+          role="presentation"
+          className={cn('pointer-events-auto absolute border-2 border-dashed transition-colors', e.at, over === e.edge ? 'border-primary bg-primary/20' : 'border-transparent')}
+          onDragEnter={() => setOver(e.edge)}
+          onDragLeave={() => setOver((o) => (o === e.edge ? undefined : o))}
+          onDragOver={(ev) => {
+            ev.preventDefault()
+            ev.dataTransfer.dropEffect = 'move'
+          }}
+          onDrop={(ev) => {
+            ev.preventDefault()
+            setOver(undefined)
+            app.splitAtEdge(dragging, e.edge)
+          }}
+        >
+          {over === e.edge && <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-popover px-2 py-1 text-xs shadow">Split {e.label}</span>}
+        </div>
+      ))}
     </div>
   )
 }

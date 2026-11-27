@@ -62,6 +62,17 @@ public interface MeshServiceClientInterface {
   public suspend fun retireAgent(request: RetireAgentRequest, headers: Headers = emptyMap()): ResponseMessage<RetireAgentResponse>
 
   /**
+   *  Change a run's title. A root may rename its own run; a device any.
+   */
+  public suspend fun renameRun(request: RenameRunRequest, headers: Headers = emptyMap()): ResponseMessage<RenameRunResponse>
+
+  /**
+   *  Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+   *  which act on it only when their window is focused or the user turned `app.open_views` on.
+   */
+  public suspend fun openView(request: OpenViewRequest, headers: Headers = emptyMap()): ResponseMessage<OpenViewResponse>
+
+  /**
    *  Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
    *  it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
    */

@@ -177,6 +177,37 @@ public class MeshServiceClient(
 
 
   /**
+   *  Change a run's title. A root may rename its own run; a device any.
+   */
+  override suspend fun renameRun(request: RenameRunRequest, headers: Headers): ResponseMessage<RenameRunResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RenameRun",
+      dev.agentmesh.gen.agentmesh.v1.RenameRunRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RenameRunResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+   *  which act on it only when their window is focused or the user turned `app.open_views` on.
+   */
+  override suspend fun openView(request: OpenViewRequest, headers: Headers): ResponseMessage<OpenViewResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/OpenView",
+      dev.agentmesh.gen.agentmesh.v1.OpenViewRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.OpenViewResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
    *  it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
    */

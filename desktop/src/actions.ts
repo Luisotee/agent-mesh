@@ -3,7 +3,7 @@ import { ValueSchema, timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { createClient, type Client } from '@connectrpc/connect'
 import type { Transport } from '@connectrpc/connect'
 import { MeshService, type SpawnAgentRequest } from './gen/agentmesh/v1/mesh_pb'
-import { RequestMetaSchema, MessageType as MT, type AgentRole, type MessageType } from './gen/agentmesh/v1/types_pb'
+import { RequestMetaSchema, MessageType as MT, type AgentRole, type MessageType, type RunAutonomy } from './gen/agentmesh/v1/types_pb'
 
 export type MeshClient = Client<typeof MeshService>
 
@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -25,7 +25,21 @@ export function meta(now = Date.now()) {
   })
 }
 
-export const startRun = (c: MeshClient, title: string) => c.startRun({ meta: meta(), title })
+/** Starts a run; `autonomy` is what the user lets its root do without asking, for this run alone (unset: the host's settings apply). */
+export const startRun = (c: MeshClient, title: string, autonomy?: Pick<RunAutonomy, 'userApprovesPlans' | 'userMerges' | 'askBefore' | 'keepRepoLists'>) =>
+  c.startRun({ meta: meta(), title, autonomy: autonomy ? { userApprovesPlans: autonomy.userApprovesPlans, userMerges: autonomy.userMerges, askBefore: autonomy.askBefore, keepRepoLists: autonomy.keepRepoLists } : undefined })
+
+/** Changes a run's title. */
+export const renameRun = (c: MeshClient, runId: string, title: string) => c.renameRun({ meta: meta(), runId, title })
+
+/** Asks the user's apps to show a view (`agent`, `terminal`, `settings` or `run`): the same call an agent's CLI makes. */
+export const openView = (c: MeshClient, view: 'agent' | 'terminal' | 'settings' | 'run', target = '', runId = '') => c.openView({ meta: meta(), view, target, runId })
+
+/** The permission prompts held for agents' parents now (the host keeps them in memory only). */
+export const listPermissions = (c: MeshClient) => c.listPermissions({})
+
+/** Answers a held permission prompt: `allow`, or `deny` with the reason the agent reads. */
+export const decidePermission = (c: MeshClient, id: string, decision: 'allow' | 'deny', why = '') => c.decidePermission({ meta: meta(), id, decision, why })
 
 export type SpawnInput = Pick<SpawnAgentRequest, 'runId' | 'repo' | 'slug' | 'kind' | 'tier' | 'model' | 'effort' | 'task'> & {
   role: AgentRole
@@ -86,6 +100,9 @@ export const promptAgent = (c: MeshClient, agent: string, text: string) => c.pro
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)
 
 /** What waits on the user across the host's open runs: plans and questions nobody answered, agents at a prompt. */
+/** One agent, with the models it ran on (its spawn and each reopen that moved it). */
+export const getAgent = (c: MeshClient, agent: string) => c.getAgent({ agent })
+
 export const listWaiting = (c: MeshClient) => c.listWaiting({})
 
 /** One run's change workers' pull requests with their state and checks, as GitHub was last read (the host caches it for two minutes). A device must name the run. */

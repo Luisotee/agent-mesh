@@ -64,6 +64,9 @@ message ListPullRequestsRequest {
 
 message ListPullRequestsResponse {
   repeated AgentPullRequests agents = 1;
+  // Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+  // (`gh auth status` fails). Empty when `gh` works.
+  string github_problem = 2;
 }
 
 // PullRequestChanged is a PR whose state or checks changed since the daemon last read it (a merge, a check

@@ -88,7 +88,7 @@ func (t *permTable) list() []*v1.PendingPermission {
 // with no decision, so their hooks print nothing. With a tool, only the oldest prompt for that tool call ends
 // (the same tool and the same command or path): the call that finished is one of possibly several in parallel,
 // and a prompt for another call, of the same tool or not, is still open.
-func (t *permTable) endFor(agentID, tool, summary string) {
+func (t *permTable) endFor(agentID, tool, summary string) []*pendingPermission {
 	t.mu.Lock()
 	var ended []*pendingPermission
 	var oldest *pendingPermission
@@ -111,6 +111,20 @@ func (t *permTable) endFor(agentID, tool, summary string) {
 	t.mu.Unlock()
 	for _, p := range ended {
 		p.ch <- permDecision{}
+	}
+	return ended
+}
+
+// permissionEvent tells the apps a prompt was held or ended (`PermissionChanged`): they list the pending prompts again.
+// It carries no prompt text. A failed write is only logged: the prompt itself does not depend on it.
+func (d *Daemon) permissionEvent(ctx context.Context, p *v1.PendingPermission, state string) {
+	err := d.store.Write(context.WithoutCancel(ctx), meshdActor, "", func(tx *store.Tx) error {
+		_, err := tx.AppendEvent(&v1.Event{RunId: p.RunId, AgentId: p.AgentId, Payload: &v1.Event_PermissionChanged{
+			PermissionChanged: &v1.PermissionChanged{Id: p.Id, AgentName: p.AgentName, State: state}}})
+		return err
+	})
+	if err != nil {
+		d.log.Warn("permission event", "id", p.Id, "state", state, "err", err)
 	}
 }
 
@@ -263,6 +277,7 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 	p.Since = tsOf(d.now())
 	d.perms.add(p)
 	defer d.perms.take(p.Id)
+	d.permissionEvent(ctx, &p.PendingPermission, "asked")
 
 	text := fmt.Sprintf("%s%s] %s asks to use %s", permissionTag, p.Id, a.Name, codeSpan(tool))
 	if summary != "" {
@@ -305,6 +320,7 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 		dec := <-p.ch
 		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: dec.decision, Reason: dec.reason}), nil
 	}
+	d.permissionEvent(ctx, &p.PendingPermission, "ended")
 	return none, nil
 }
 
@@ -330,6 +346,11 @@ func (d *Daemon) DecidePermission(ctx context.Context, req *connect.Request[v1.D
 		return nil, notFound("no pending permission %q: it was just answered", m.Id)
 	}
 	p.ch <- permDecision{decision: decision, reason: strings.TrimSpace(m.Why)}
+	state := "allowed"
+	if decision == "deny" {
+		state = "denied"
+	}
+	d.permissionEvent(ctx, &p.PendingPermission, state)
 	out := proto.Clone(&p.PendingPermission).(*v1.PendingPermission)
 	return connect.NewResponse(&v1.DecidePermissionResponse{Permission: out}), nil
 }
@@ -350,12 +371,18 @@ func (d *Daemon) ListPermissions(ctx context.Context, req *connect.Request[v1.Li
 	return connect.NewResponse(out), nil
 }
 
+func (d *Daemon) endedPermissions(ended []*pendingPermission) {
+	for _, p := range ended {
+		d.permissionEvent(context.Background(), &p.PendingPermission, "ended")
+	}
+}
+
 // permissionEnded ends the prompts of an agent that a hook shows went on: its turn ended or began again, its
 // session ended, or the tool call a prompt was for ran (a PostToolUse of that tool with that command or path).
 func (d *Daemon) permissionEnded(agentID, event string, payload []byte) {
 	switch event {
 	case "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd":
-		d.perms.endFor(agentID, "", "")
+		d.endedPermissions(d.perms.endFor(agentID, "", ""))
 	case "PostToolUse":
 		var p struct {
 			Tool  string          `json:"tool_name"`
@@ -363,7 +390,7 @@ func (d *Daemon) permissionEnded(agentID, event string, payload []byte) {
 		}
 		if json.Unmarshal(payload, &p) == nil && p.Tool != "" {
 			// The prompt's summary is made of the same input, the same way (PermissionSummary, then cutLine).
-			d.perms.endFor(agentID, cutLine(p.Tool, 80), cutLine(claude.PermissionSummary(p.Input), maxPermissionSummary))
+			d.endedPermissions(d.perms.endFor(agentID, cutLine(p.Tool, 80), cutLine(claude.PermissionSummary(p.Input), maxPermissionSummary)))
 		}
 	}
 }

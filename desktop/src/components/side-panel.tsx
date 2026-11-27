@@ -1,18 +1,18 @@
 import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
-import { LEVEL_LABEL, hasLevels, levelOf, listOf, nameEntries, withLevel, type Level } from '@/autonomy'
+import { getAgent, getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
+import { ASK_KEY, LEVEL_LABEL, askBeforeOf, askLines, hasLevels, levelOf, listOf, nameEntries, withLevel, type Level } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, Textarea } from '@/components/ui/input'
 import { ModelControl } from './model-control'
-import { MessageType } from '@/gen/agentmesh/v1/types_pb'
+import { MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { costOf, costRows, dollars, isLead, prRows, quotaRows, resetsIn, type PrRow } from '@/side-panel'
+import { costOf, costRows, dollars, historyRows, isLead, prRows, quotaRows, resetsIn, type PrRow } from '@/side-panel'
 
 /**
  * Beside the open agent: for a run's lead the whole run (what it cost in total and per agent, what waits on the user,
@@ -100,7 +100,9 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           )}
         </div>
       </Section>
+      <ModelHistory host={host} agent={agent} />
       <Autonomy host={host} repo={agent.repo} />
+      <AskBefore host={host} />
       <Section title="Cost">
         {cost.error && !cost.value && <p className="text-xs text-destructive">Couldn't read the cost: {cost.error}</p>}
         {cost.loading && !cost.value && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -274,6 +276,55 @@ function Quota({ host }: { host: HostRuntime }) {
 }
 
 /** The user's level for the agent's project: which PRs a root may merge and whose plans it may approve (host settings). */
+/** The models the agent ran on, oldest first: read from the host (`GetAgent`) when the agent is shown and again when its model or effort changes. */
+function ModelHistory({ host, agent }: { host: HostRuntime; agent: Agent }) {
+  const got = usePolled(async () => getAgent(host.client, agent.id), `${host.info.id}/${agent.id}/${agent.model}/${agent.effort}`, 120_000)
+  const rows = historyRows(got.value?.modelHistory ?? [])
+  // Older hosts keep none; one row is no history (the model is shown above).
+  if (rows.length < 2) return null
+  return (
+    <Section title="Model history" count={rows.length}>
+      <ol aria-label="Model history" className="space-y-0.5 text-xs">
+        {rows.map((r, i) => (
+          <li key={i} className="flex justify-between gap-2">
+            <span className="truncate">{r.text}</span>
+            <span className="shrink-0 text-muted-foreground" title={r.at ? new Date(r.at).toLocaleString() : undefined}>{r.why}</span>
+          </li>
+        ))}
+      </ol>
+    </Section>
+  )
+}
+
+/** The host's "always ask me before" list, one thing to a line: the lead of every run asks first (`autonomy.ask_before`). */
+function AskBefore({ host }: { host: HostRuntime }) {
+  const settings = useHostState(host, (s) => s.settings)
+  const saved = askBeforeOf(settings)
+  const [text, setText] = useState<string | undefined>()
+  const [error, setError] = useState('')
+  if (!settings[ASK_KEY]) return null
+  const shown = text ?? saved.join('\n')
+  async function save() {
+    if (text === undefined) return
+    const next = askLines(text)
+    setText(undefined)
+    if (JSON.stringify(next) === JSON.stringify(saved)) return
+    setError('')
+    try {
+      await setSetting(host.client, ASK_KEY, next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    }
+  }
+  return (
+    <Section title="Ask me before">
+      <Textarea aria-label="Always ask me before" value={shown} onChange={(e) => setText(e.target.value)} onBlur={() => void save()} placeholder="deploys&#10;migrations" className="min-h-14 text-xs" />
+      <p className="mt-1 text-[11px] text-muted-foreground">One per line. Every lead asks you before doing these, in every run.</p>
+      {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
+    </Section>
+  )
+}
+
 function Autonomy({ host, repo }: { host: HostRuntime; repo: string }) {
   const settings = useHostState(host, (s) => s.settings)
   const [error, setError] = useState('')

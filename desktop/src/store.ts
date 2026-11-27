@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Agent, Cursor, Device, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
+import type { PendingPermission } from './gen/agentmesh/v1/mesh_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
 import type { ConnState, Frame } from './connection'
 
@@ -31,6 +32,10 @@ export interface HostState {
   waiting: WaitingRow[]
   /** Each change worker's pull requests (ListPullRequests), by agent id: read at connect and every minute by `refresh.ts`, and kept by PullRequestChanged events; empty until the host first answers. */
   pullRequests: Record<string, AgentPullRequests>
+  /** Why GitHub can't be read on the host (`no_gh`, `not_logged_in`), from the last ListPullRequests; empty when it can. */
+  githubProblem: string
+  /** The permission prompts held for agents' parents (ListPermissions), listed again by `refresh.ts` when a `PermissionChanged` event comes. */
+  permissions: PendingPermission[]
   /** The devices paired with the host (ListDevices, then DevicePaired and DeviceRevoked events), once it was asked. */
   devices: Device[]
   /** The pairing each device came through (a `DevicePaired` event's `pairingId`), by device id; a device with no entry is one whose event we didn't see, or from a host before the field. */
@@ -45,7 +50,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -159,6 +164,10 @@ function applyEvent(s: HostState, e: Event): HostState {
     // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a message brings it back.
     case 'agentRetired':
       return withAgent(next, e.agentId, (a) => ({ ...a, state: AgentState.RETIRED, needsInput: 0, stateDetail: '', pendingReopen: undefined, lastActivity: e.time ?? a.lastActivity }))
+    case 'runRenamed': {
+      const r = s.runs[e.runId]
+      return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, title: p.value.title } } } : next
+    }
     case 'runStopped': {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next
@@ -222,6 +231,16 @@ export function setWaiting(waiting: WaitingRow[]): Partial<HostState> {
 /** The host's answer to ListPullRequests, which replaces the last one. */
 export function setPullRequests(list: AgentPullRequests[]): Partial<HostState> {
   return { pullRequests: Object.fromEntries(list.map((x) => [x.agentId, x])) }
+}
+
+/** Why GitHub can't be read on the host, from the last ListPullRequests. */
+export function setGithubProblem(githubProblem: string): Partial<HostState> {
+  return { githubProblem }
+}
+
+/** The host's list of held permission prompts, which replaces the last one. */
+export function setPermissions(permissions: PendingPermission[]): Partial<HostState> {
+  return { permissions }
 }
 
 /** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */

@@ -8,7 +8,7 @@ import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
-import { Panes } from '@/components/panes'
+import { DropEdges, Panes } from '@/components/panes'
 import { SidePanel } from '@/components/side-panel'
 import { WatchAll } from '@/components/watch-all'
 import { TabBar } from '@/components/tab-bar'
@@ -75,7 +75,10 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
           <main className="flex min-w-0 flex-1 flex-col">
             <ConnectionBanner host={host} />
             <TabBar />
-            <MainPane host={host} />
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <MainPane host={host} />
+              <DropEdges />
+            </div>
             <Dock />
           </main>
           <PanelSlot host={host} />

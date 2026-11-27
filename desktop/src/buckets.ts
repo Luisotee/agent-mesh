@@ -101,3 +101,18 @@ export function groupByState(runs: Record<string, Run>, agents: Record<string, A
     return { key: b, label: BUCKET_LABEL[b], agents: list, counts: { ...emptyCounts(), [b]: list.length } }
   })
 }
+
+/**
+ * Why no PR is read on the host, as a sentence for the sidebar (`ListPullRequests`'s `githubProblem`), or nothing when
+ * GitHub can be read. Without it "Ready to review" is empty for a reason the user can fix, and looks like there is nothing to review.
+ */
+export function githubNote(problem: string): string {
+  switch (problem) {
+    case 'no_gh':
+      return "Ready to review is empty because the GitHub CLI (gh) isn't installed on the host: install it to see open pull requests."
+    case 'not_logged_in':
+      return "Ready to review is empty because the GitHub CLI (gh) on the host isn't logged in: run `gh auth login` there."
+    default:
+      return ''
+  }
+}

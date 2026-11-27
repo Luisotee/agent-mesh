@@ -179,6 +179,33 @@ service MeshService {
     };
   }
 
+  // Change a run's title. A root may rename its own run; a device any.
+  rpc RenameRun(RenameRunRequest) returns (RenameRunResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "rename-run"
+      summary: "Change a run's title"
+    };
+  }
+
+  // Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+  // which act on it only when their window is focused or the user turned `app.open_views` on.
+  rpc OpenView(OpenViewRequest) returns (OpenViewResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "open-view"
+      summary: "Ask the user's app to show a view (an agent's chat or terminal, settings, a run)"
+    };
+  }
+
   // Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
   // it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
   rpc StopRun(StopRunRequest) returns (StopRunResponse) {
@@ -959,6 +986,44 @@ message HelloResponse {
 message StartRunRequest {
   RequestMeta meta = 1;
   string title = 2;
+  // What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+  RunAutonomy autonomy = 3;
+}
+
+message RenameRunRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+  string title = 3;
+}
+
+message RenameRunResponse {
+  Run run = 1;
+}
+
+message OpenViewRequest {
+  RequestMeta meta = 1;
+  // "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+  string view = 2;
+  // The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
+  // (may be empty).
+  string target = 3;
+  // The run the target is in, when `target` is an agent's name.
+  string run_id = 4;
+}
+
+message OpenViewResponse {
+  // How many apps were told (live subscribers of a device's token). Zero means nobody had it open.
+  int32 delivered = 1;
+}
+
+// An agent or the CLI asked the user's app to show a view. Ephemeral: never stored or replayed. An app acts on it only
+// when its window is focused or the user turned `app.open_views` on.
+message ViewRequest {
+  string view = 1;
+  string target = 2;
+  string run_id = 3;
+  // Who asked, for the app to say ("agent-mesh-lead opened…").
+  string from = 4;
 }
 
 message StartRunResponse {
@@ -1052,6 +1117,16 @@ message GetAgentRequest {
 
 message GetAgentResponse {
   Agent agent = 1;
+  // The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+  repeated ModelSwap model_history = 2;
+}
+
+message ModelSwap {
+  google.protobuf.Timestamp time = 1;
+  string model = 2;
+  string effort = 3;
+  // "spawned", or the reopen's reason: "plan approved", "moved", "quota", "resumed", "reset".
+  string why = 4;
 }
 
 message StopAgentRequest {
@@ -1193,6 +1268,9 @@ message SubscribeEventsResponse {
     // What an agent is doing now. Ephemeral: never stored, never replayed after a resume, and skipped (not a
     // reason to drop the subscriber) when the subscriber is behind. A state change is an Event, as before.
     AgentActivity activity = 5;
+    // An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
+    // token only; ephemeral, like `activity`.
+    ViewRequest view = 6;
   }
 }
 

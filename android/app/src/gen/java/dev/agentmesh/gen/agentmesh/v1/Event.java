@@ -56,6 +56,8 @@ public  final class Event extends
     DOORBELL_HELD(33),
     WORKTREE_CREATED(34),
     PULL_REQUEST_CHANGED(35),
+    RUN_RENAMED(36),
+    PERMISSION_CHANGED(37),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -97,6 +99,8 @@ public  final class Event extends
         case 33: return DOORBELL_HELD;
         case 34: return WORKTREE_CREATED;
         case 35: return PULL_REQUEST_CHANGED;
+        case 36: return RUN_RENAMED;
+        case 37: return PERMISSION_CHANGED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1761,6 +1765,106 @@ public  final class Event extends
    */
   private void clearPullRequestChanged() {
     if (payloadCase_ == 35) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int RUN_RENAMED_FIELD_NUMBER = 36;
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+   */
+  @java.lang.Override
+  public boolean hasRunRenamed() {
+    return payloadCase_ == 36;
+  }
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RunRenamed getRunRenamed() {
+    if (payloadCase_ == 36) {
+       return (dev.agentmesh.gen.agentmesh.v1.RunRenamed) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.RunRenamed.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+   */
+  private void setRunRenamed(dev.agentmesh.gen.agentmesh.v1.RunRenamed value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 36;
+  }
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+   */
+  private void mergeRunRenamed(dev.agentmesh.gen.agentmesh.v1.RunRenamed value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 36 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.RunRenamed.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.RunRenamed.newBuilder((dev.agentmesh.gen.agentmesh.v1.RunRenamed) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 36;
+  }
+  /**
+   * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+   */
+  private void clearRunRenamed() {
+    if (payloadCase_ == 36) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int PERMISSION_CHANGED_FIELD_NUMBER = 37;
+  /**
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPermissionChanged() {
+    return payloadCase_ == 37;
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PermissionChanged getPermissionChanged() {
+    if (payloadCase_ == 37) {
+       return (dev.agentmesh.gen.agentmesh.v1.PermissionChanged) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.PermissionChanged.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+   */
+  private void setPermissionChanged(dev.agentmesh.gen.agentmesh.v1.PermissionChanged value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 37;
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+   */
+  private void mergePermissionChanged(dev.agentmesh.gen.agentmesh.v1.PermissionChanged value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 37 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.PermissionChanged.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.PermissionChanged.newBuilder((dev.agentmesh.gen.agentmesh.v1.PermissionChanged) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 37;
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+   */
+  private void clearPermissionChanged() {
+    if (payloadCase_ == 37) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3490,6 +3594,102 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+     */
+    @java.lang.Override
+    public boolean hasRunRenamed() {
+      return instance.hasRunRenamed();
+    }
+    /**
+     * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RunRenamed getRunRenamed() {
+      return instance.getRunRenamed();
+    }
+    /**
+     * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+     */
+    public Builder setRunRenamed(dev.agentmesh.gen.agentmesh.v1.RunRenamed value) {
+      copyOnWrite();
+      instance.setRunRenamed(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+     */
+    public Builder setRunRenamed(
+        dev.agentmesh.gen.agentmesh.v1.RunRenamed.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRunRenamed(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+     */
+    public Builder mergeRunRenamed(dev.agentmesh.gen.agentmesh.v1.RunRenamed value) {
+      copyOnWrite();
+      instance.mergeRunRenamed(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunRenamed run_renamed = 36 [json_name = "runRenamed"];</code>
+     */
+    public Builder clearRunRenamed() {
+      copyOnWrite();
+      instance.clearRunRenamed();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPermissionChanged() {
+      return instance.hasPermissionChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PermissionChanged getPermissionChanged() {
+      return instance.getPermissionChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+     */
+    public Builder setPermissionChanged(dev.agentmesh.gen.agentmesh.v1.PermissionChanged value) {
+      copyOnWrite();
+      instance.setPermissionChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+     */
+    public Builder setPermissionChanged(
+        dev.agentmesh.gen.agentmesh.v1.PermissionChanged.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPermissionChanged(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+     */
+    public Builder mergePermissionChanged(dev.agentmesh.gen.agentmesh.v1.PermissionChanged value) {
+      copyOnWrite();
+      instance.mergePermissionChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionChanged permission_changed = 37 [json_name = "permissionChanged"];</code>
+     */
+    public Builder clearPermissionChanged() {
+      copyOnWrite();
+      instance.clearPermissionChanged();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -3542,14 +3742,16 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.class,
             dev.agentmesh.gen.agentmesh.v1.WorktreeCreated.class,
             dev.agentmesh.gen.agentmesh.v1.PullRequestChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.RunRenamed.class,
+            dev.agentmesh.gen.agentmesh.v1.PermissionChanged.class,
           };
           java.lang.String info =
-              "\u0000!\u0001\u0001\u0001#!\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
+              "\u0000#\u0001\u0001\u0001%#\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
               "\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b<\u0000" +
               "\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000" +
               "\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019" +
               "<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000" +
-              " <\u0000!<\u0000\"<\u0000#<\u0000";
+              " <\u0000!<\u0000\"<\u0000#<\u0000$<\u0000%<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

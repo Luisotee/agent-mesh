@@ -10,6 +10,7 @@ import { knownRepos } from '@/derive'
 import { AgentRole } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { vendorOfKind } from '@/vendor'
+import { RunAutonomyFields, useRunAutonomy } from './run-autonomy'
 import { VendorIcon } from './vendor-icon'
 
 function message(e: unknown): string {
@@ -22,12 +23,13 @@ export function NewRunDialog({ host, label = 'New run', variant = 'secondary' }:
   const [title, setTitle] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const autonomy = useRunAutonomy()
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      await startRun(host.client, title.trim())
+      await startRun(host.client, title.trim(), autonomy.value())
       setOpen(false)
       setTitle('')
     } catch (err) {
@@ -46,6 +48,7 @@ export function NewRunDialog({ host, label = 'New run', variant = 'secondary' }:
           <Field label="Title">
             <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What the run is for" />
           </Field>
+          <RunAutonomyFields host={host} state={autonomy} />
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
           <Button type="submit" disabled={busy}>Start run</Button>
         </form>

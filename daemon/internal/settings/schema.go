@@ -540,6 +540,8 @@ func AppLeaves() []Leaf {
 			Summary: "the theme the apps draw with: Dracula, Alucard, Catppuccin Mocha, Catppuccin Latte, Tokyo Night or Nord (an app that has no theme of that name uses Dracula; the Android app's own choice overrides it on that phone)"},
 		{Key: "app.dock.new_agents", Type: String, Default: "dock", Choices: DockNewAgents,
 			Summary: "what a worker that starts while the app is open does: pop into the live dock marked new (dock), only count on the dock's toggle (badge), open as a tab in the background (tab), or nothing (none). It never takes focus"},
+		{Key: "app.open_views", Type: Bool, Default: false,
+			Summary: "let an agent or the CLI open a view in the app (an agent's chat or terminal, the settings, a run) even when its window is not focused (off: it acts only while the window has focus)"},
 		{Key: "app.keys.palette", Type: Shortcut, Default: "Mod+Shift+P", Summary: "shortcut: open the command palette"},
 		{Key: "app.keys.settings", Type: Shortcut, Default: "Mod+,", Summary: "shortcut: open or close the host's settings"},
 		{Key: "app.keys.chat_toggle", Type: Shortcut, Default: "Mod+Shift+J", Summary: "shortcut: switch the open agent between its chat and its terminal"},

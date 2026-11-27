@@ -383,3 +383,42 @@ func TestAPermissionToolNameCantAddressTheRoot(t *testing.T) {
 	}
 	_ = w.decide(t, w.asRoot, p.Id, "deny", "test")
 }
+
+// permissionStates are the PermissionChanged events of a run, in order, as `state` (with the agent's name).
+func (w *reviewWorld) permissionStates(t *testing.T) []string {
+	t.Helper()
+	evs, err := w.d.Store().Read(context.Background()).ListEvents(w.run.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, ev := range evs {
+		if p := ev.GetPermissionChanged(); p != nil {
+			out = append(out, p.State+" "+p.AgentName)
+		}
+	}
+	return out
+}
+
+// An app lists the pending prompts again when told one was held or ended, so every way a prompt ends is an event: held,
+// then allowed or denied by an answer, or ended when it ran out unanswered.
+func TestPermissionPromptsTellTheAppsWhenTheyAreHeldAndEnded(t *testing.T) {
+	w := startReviews(t)
+	w.set(t, "permission.wait", 2)
+	wk := w.worker(t, "wk")
+	w.typeInto(wk, "/perm Bash rm -rf build\r")
+	p := w.pendingFor(t, wk.Id)
+	waitFor(t, "the held event", func() bool { return len(w.permissionStates(t)) == 1 })
+	if err := w.decide(t, w.device.Mesh, p.Id, "deny", "not now"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the denied event", func() bool { return len(w.permissionStates(t)) == 2 })
+	w.waitState(wk.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(wk, "/perm Bash make\r")
+	w.pendingFor(t, wk.Id)
+	waitFor(t, "the ended event after the wait", func() bool { return len(w.permissionStates(t)) == 4 })
+	got := strings.Join(w.permissionStates(t), "|")
+	if want := "asked " + wk.Name + "|denied " + wk.Name + "|asked " + wk.Name + "|ended " + wk.Name; got != want {
+		t.Errorf("permission events = %q, want %q", got, want)
+	}
+}

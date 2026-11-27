@@ -9,8 +9,10 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"sort"
 	"strconv"
@@ -47,6 +49,8 @@ var prURLRE = regexp.MustCompile(`https://github\.com/[\w.-]+/[\w.-]+/pull/\d+`)
 type prTracker struct {
 	mu    sync.Mutex
 	tried map[string]prTry
+	ghAt  time.Time // when the `gh` CLI was last checked (ghProblem), and what it said
+	ghWhy string
 }
 
 type prTry struct {
@@ -85,6 +89,42 @@ func (t *prTracker) finish(agentID string, now time.Time, ok bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.tried[agentID] = prTry{at: now, ok: ok}
+}
+
+// ghProblemTTL is how long a check of the `gh` CLI is kept: it is asked on every list, and `gh auth status` is a process.
+const ghProblemTTL = time.Minute
+
+// ghProblemWait is how long the check may take.
+const ghProblemWait = 2 * time.Second
+
+// ghProblem says why GitHub can't be read on this host: "no_gh" (the CLI is missing) or "not_logged_in" (`gh auth status`
+// fails), and "" when it works or can't be told (a timeout, a test with no gh). The answer is kept for a minute.
+func (d *Daemon) ghProblem(ctx context.Context) string {
+	now := d.now()
+	d.prs.mu.Lock()
+	if !d.prs.ghAt.IsZero() && now.Sub(d.prs.ghAt) < ghProblemTTL {
+		p := d.prs.ghWhy
+		d.prs.mu.Unlock()
+		return p
+	}
+	d.prs.mu.Unlock()
+	why := ""
+	// A slow GitHub must not hold a list: `gh auth status` asks the network, so it is cut short and then says nothing.
+	cctx, cancel := context.WithTimeout(ctx, ghProblemWait)
+	defer cancel()
+	if _, err := d.runGH(cctx, "", "auth", "status"); err != nil {
+		var exit *exec.ExitError
+		switch {
+		case errors.Is(err, exec.ErrNotFound):
+			why = "no_gh"
+		case errors.As(err, &exit):
+			why = "not_logged_in"
+		}
+	}
+	d.prs.mu.Lock()
+	d.prs.ghAt, d.prs.ghWhy = now, why
+	d.prs.mu.Unlock()
+	return why
 }
 
 // read reports whether the agent's PRs were read from GitHub and recorded (the last finished read worked).
@@ -545,7 +585,7 @@ func (d *Daemon) ListPullRequests(ctx context.Context, req *connect.Request[v1.L
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&v1.ListPullRequestsResponse{Agents: rows}), nil
+	return connect.NewResponse(&v1.ListPullRequestsResponse{Agents: rows, GithubProblem: d.ghProblem(ctx)}), nil
 }
 
 // briefPRs reads the PRs of the change workers the brief lists (the first briefRows), by agent id.

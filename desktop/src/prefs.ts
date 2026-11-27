@@ -12,6 +12,8 @@ export interface AppPrefs {
   dockNewAgents: DockNewAgents
   /** The host's choice of theme (a name from `shared/themes`; an unknown one falls back to the default). */
   theme: string
+  /** An agent or the CLI may open a view even when the window isn't focused (`app.open_views`). */
+  openViews: boolean
 }
 
 export type DockNewAgents = 'dock' | 'badge' | 'tab' | 'none'
@@ -32,6 +34,7 @@ export const DEFAULT_PREFS: AppPrefs = {
   closeToTray: false,
   dockNewAgents: 'dock',
   theme: 'Dracula',
+  openViews: false,
 }
 
 export function appPrefs(settings: Record<string, Setting>): AppPrefs {
@@ -47,6 +50,7 @@ export function appPrefs(settings: Record<string, Setting>): AppPrefs {
     notifyEvents: Array.isArray(events) ? new Set(events.filter((e): e is string => typeof e === 'string')) : DEFAULT_PREFS.notifyEvents,
     closeToTray: bool('app.tray.close_to_tray', DEFAULT_PREFS.closeToTray),
     dockNewAgents: DOCK_MODES.includes(dock as string) ? (dock as DockNewAgents) : DEFAULT_PREFS.dockNewAgents,
+    openViews: bool('app.open_views', DEFAULT_PREFS.openViews),
     theme: typeof jsonOf(settings['app.theme']) === 'string' ? (jsonOf(settings['app.theme']) as string) : DEFAULT_PREFS.theme,
   }
 }
