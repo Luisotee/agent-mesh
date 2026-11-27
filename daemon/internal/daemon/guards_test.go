@@ -441,6 +441,13 @@ func TestLeftoverProcessesAndSweepable(t *testing.T) {
 	if _, ok := daemon.SweepableForTest(wtRoot, &v1.Agent{Role: v1.AgentRole_AGENT_ROLE_WORKER, Worktree: top, Repo: repoDir}, []string{rootWt}); !ok {
 		t.Errorf("valid worker worktree should be sweepable")
 	}
+	// A plain agent is a root with a run and a worktree of its own: swept as a worker's is, where a lead's never is.
+	if _, ok := daemon.SweepableForTest(wtRoot, &v1.Agent{Role: v1.AgentRole_AGENT_ROLE_ROOT, Plain: true, Worktree: top, Repo: repoDir}, nil); !ok {
+		t.Errorf("a plain agent's worktree should be sweepable")
+	}
+	if _, ok := daemon.SweepableForTest(wtRoot, &v1.Agent{Role: v1.AgentRole_AGENT_ROLE_ROOT, Worktree: top, Repo: repoDir}, nil); ok {
+		t.Errorf("a lead's worktree should not be sweepable")
+	}
 
 	// ownAgent matches a fresh agy (no --conversation flag) and its resumed session, but not another conversation.
 	agyAgent := &v1.Agent{Kind: "agy", SessionId: "conv-1"}

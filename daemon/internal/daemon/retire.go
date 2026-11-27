@@ -538,7 +538,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 				BranchKept: true, Reason: "worktree is held by another run (open or with a live agent)"})
 			continue
 		}
-		out.Worktrees = append(out.Worktrees, d.lockedRemoveWorktree(ctx, a.Id, a.Repo, a.Worktree, a.Branch, a.BaseCommit, a.Peer))
+		out.Worktrees = append(out.Worktrees, d.lockedRemoveWorktree(ctx, a.Id, a.Repo, a.Worktree, a.Branch, a.BaseCommit, a.Peer, a.Plain))
 	}
 	if werr != nil {
 		d.log.Warn("listing standalone worktrees on stop", "run", req.Msg.RunId, "err", werr)
@@ -557,7 +557,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 					BranchKept: true, Reason: "worktree is held by another run (open or with a live agent)"})
 				continue
 			}
-			outcome := d.lockedRemoveWorktree(ctx, "", wt.Repo, wt.Path, wt.Branch, wt.BaseCommit, false)
+			outcome := d.lockedRemoveWorktree(ctx, "", wt.Repo, wt.Path, wt.Branch, wt.BaseCommit, false, false)
 			if outcome.WorktreeRemoved {
 				if derr := d.store.Write(ctx, auth.ActorFrom(ctx), "", func(tx *store.Tx) error {
 					return tx.DeleteWorktree(wt.Id)
@@ -571,19 +571,21 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	return connect.NewResponse(out), nil
 }
 
-func (d *Daemon) lockedRemoveWorktree(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer bool) *v1.WorktreeOutcome {
+func (d *Daemon) lockedRemoveWorktree(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer, plain bool) *v1.WorktreeOutcome {
 	if worktree == "" {
-		return d.removeWorktreePath(ctx, agentID, repo, worktree, branch, baseCommit, peer)
+		return d.removeWorktreePath(ctx, agentID, repo, worktree, branch, baseCommit, peer, plain)
 	}
 	wmu := d.worktreeLock(worktree)
 	wmu.Lock()
 	defer wmu.Unlock()
-	return d.removeWorktreePath(ctx, agentID, repo, worktree, branch, baseCommit, peer)
+	return d.removeWorktreePath(ctx, agentID, repo, worktree, branch, baseCommit, peer, plain)
 }
 
 // removeWorktreePath removes a worktree when it is clean and deletes its branch unless it holds work. Nothing
-// is ever forced: a dirty worktree, or one git refuses to remove, stays.
-func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer bool) *v1.WorktreeOutcome {
+// is ever forced: a dirty worktree, or one git refuses to remove, stays. A plain agent's branch also goes once what it
+// holds is in the repo's default branch (it was merged: its run and branch are made at each "New agent", and nothing
+// else would ever clear them).
+func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer, plain bool) *v1.WorktreeOutcome {
 	o := &v1.WorktreeOutcome{AgentId: agentID, Worktree: worktree, Branch: branch, BranchKept: true}
 	if worktree == "" || repo == "" {
 		o.Reason = "no worktree recorded"
@@ -622,9 +624,12 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 	if branch == "" {
 		return o
 	}
-	if has, why := branchHasWork(ctx, repo, branch, baseCommit); has {
-		o.Reason = why
-		return o
+	// Its commits being in the default branch, deleting it loses nothing (a branch the default has not got stays).
+	if !plain || !branchMerged(ctx, repo, branch) {
+		if has, why := branchHasWork(ctx, repo, branch, baseCommit); has {
+			o.Reason = why
+			return o
+		}
 	}
 	if _, err := git(ctx, repo, "branch", "-D", branch); err != nil {
 		o.Reason = "couldn't delete its branch: " + firstLine(err.Error())
@@ -632,6 +637,22 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 	}
 	o.BranchKept = false
 	return o
+}
+
+// branchMerged says whether every commit of a branch is in a default branch of a remote of the repo (`origin/HEAD`,
+// `origin/main` or `origin/master`, as the repo last saw them: it is in any of those that exist). A branch
+// squash-merged is not: its own commits are not in the default branch, so it is kept.
+func branchMerged(ctx context.Context, repo, branch string) bool {
+	tip, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
+	if err != nil || tip == "" {
+		return false
+	}
+	for _, ref := range []string{"refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"} {
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", ref); err == nil && gitIsAncestor(ctx, repo, tip, ref) {
+			return true
+		}
+	}
+	return false
 }
 
 // branchHasWork reports whether a branch is worth keeping: it moved past the commit it started at (its own work,
