@@ -88,9 +88,9 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
     val scope = rememberCoroutineScope()
     val host by runtime.state.collectAsStateWithLifecycleCompat()
     val canType = !isReadOnlyDevice(host)
-    // A device that may type types: the terminal opens with its keyboard on (the soft keyboard and the key row), and Hide in the
-    // key row, or the Keyboard chip, turns it off: back to watching.
-    var keyboard by rememberSaveable(agentId) { mutableStateOf(canType) }
+    // A shell is there to type in: it opens with the keyboard on (the soft keyboard and the key row). An agent's terminal opens to be
+    // looked at, as before (the host answers the program's queries while nobody types); the Keyboard chip turns typing on, Hide off.
+    var keyboard by rememberSaveable(agentId) { mutableStateOf(canType && shell) }
     val typingOn = canType && keyboard
     val screen = remember(agentId) { TermScreen() }
     // A terminal the phone sizes (a shell it opened) is attached at the size of this view, and told when it changes.
@@ -99,7 +99,7 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
     val client = remember(agentId, typingOn) {
         TermClient(
             scope, agentId, { runtime.awaitApi() }, screen, hostReady = { runtime.state.value.conn is ConnState.Ready }, input = typingOn, shell = shell,
-            size = if (phoneSized) ({ viewport }) else null,
+            size = if (phoneSized) ({ viewport }) else null, answerQueries = phoneSized,
         )
     }
     // A terminal the phone sizes waits for its first measure, so the first attach carries the view's size (a later change is a resize).

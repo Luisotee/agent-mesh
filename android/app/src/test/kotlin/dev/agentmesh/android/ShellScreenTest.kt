@@ -118,8 +118,11 @@ class ShellScreenTest {
         compose.onNodeWithTag("shell-end").performClick()
         compose.onNodeWithText("End the terminal in shop-api?").assertIsDisplayed()
         assertTrue(api.closed.isEmpty())
+        container.prefs.markPhoneShell(rt.hostId, "sh1")
         compose.onNodeWithTag("action-confirm").performClick()
         compose.waitUntil(5_000) { api.closed == listOf("sh1") }
+        // The mark of a shell that is ended goes with it.
+        compose.waitUntil(5_000) { !container.prefs.isPhoneShell(rt.hostId, "sh1") }
     }
 
     @Test fun `a shell the host does not list says it has ended, and one still being listed shows its screen`() {
@@ -195,5 +198,31 @@ class ShellScreenTest {
         // Marking one again makes it the newest.
         prefs.markPhoneShell("h", "s5"); repeat(4) { prefs.markPhoneShell("h", "t$it") }
         assertTrue(prefs.isPhoneShell("h", "s5")); assertTrue(!prefs.isPhoneShell("h", "s6"))
+    }
+
+    @Test fun `a shell that exited has no End`() {
+        val rt = runtime(shells = listOf(Shell.newBuilder().setId("sh1").setRepo("/home/u/shop-api").setExited(true).build()))
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("shell-path").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithTag("shell-menu").assertCountEquals(0)
+    }
+
+    @Test fun `a shell the host no longer lists loses the phone's mark`() {
+        val rt = runtime(shells = emptyList())
+        container.prefs.markPhoneShell(rt.hostId, "gone")
+        show(rt, id = "gone")
+        compose.waitUntil(5_000) { !container.prefs.isPhoneShell(rt.hostId, "gone") }
+    }
+
+    @Test fun `a view that is never measured attaches without a size after a moment`() {
+        val s = FakeSocket().also { api.sockets += it }
+        val rt = runtime()
+        compose.setContent {
+            CompositionLocalProvider(LocalContainer provides container) {
+                AgentMeshTheme(theme) { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.height(0.dp)) { dev.agentmesh.android.ui.TerminalTab(rt, "sh1", androidx.compose.ui.Modifier, shell = true, phoneSized = true) } }
+            }
+        }
+        compose.waitUntil(10_000) { s.sent.isNotEmpty() }
+        assertEquals(0, s.sent.first().attach.cols); assertEquals(0, s.sent.first().attach.rows)
     }
 }

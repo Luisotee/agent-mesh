@@ -137,7 +137,7 @@ class DevicePrefs(context: Context) {
         const val EVENTS = "notify_events"
         const val PINS = "pins"
         const val HIDDEN = "hidden_projects"
-        const val PHONE_SHELLS = "phone_shells"
+        const val PHONE_SHELLS = "phone_shell_marks"
         const val MAX_PHONE_SHELLS = 60
         const val MAX_DRAFT = 50_000
     }

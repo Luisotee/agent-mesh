@@ -165,4 +165,35 @@ class ShellsTest {
         rt.refreshShells()
         assertEquals(4, calls)
     }
+
+    @Test fun `a shell just opened shows even when the host's list cannot be read, and the failure stays until a read works`() = runBlocking {
+        val api = RecordingApi()
+        val failing = object : dev.agentmesh.android.net.MeshApi by api { override suspend fun listShells(): List<Shell> = error("down") }
+        val repo = HostRepository(tmp.newFile("hosts6.json").also { it.delete() }, Plain)
+        val host = repo.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        val rt = HostRuntime(host.id, repo, { _, _ -> failing }, CoroutineScope(Dispatchers.Unconfined))
+        rt.start(); started += rt
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        rt.refreshShells()
+        val b = rt.openShell("/home/u/shop")
+        assertEquals(listOf(b.id), rt.state.value.shells!!.map { it.id })
+        assertTrue(rt.state.value.shellsFailed)
+    }
+
+    @Test fun `frames on every try end with one more read, not a chain of them`() = runBlocking {
+        val api = RecordingApi().apply { shells = listOf(shell("a")) }
+        var calls = 0
+        lateinit var rt: HostRuntime
+        val wrapped = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun listShells(): List<Shell> { val l = api.listShells(); calls++; rt.onFrame(frame(change(shell("n$calls")))); return l }
+        }
+        val repo = HostRepository(tmp.newFile("hosts7.json").also { it.delete() }, Plain)
+        val host = repo.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        rt = HostRuntime(host.id, repo, { _, _ -> wrapped }, CoroutineScope(Dispatchers.Unconfined))
+        rt.start(); started += rt
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        rt.refreshShells()
+        // Three tries and one more: a host that never goes quiet does not keep the app reading.
+        assertEquals(4, calls)
+    }
 }

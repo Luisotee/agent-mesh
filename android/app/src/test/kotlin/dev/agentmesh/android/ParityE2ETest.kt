@@ -127,7 +127,7 @@ class ParityE2ETest {
         assertTrue(api.listShells().any { it.id == shell.id && it.repo.endsWith("shop-api") })
         val dispatcher = Dispatchers.Default.limitedParallelism(1)
         val screen = TermScreen()
-        val client = TermClient(CoroutineScope(dispatcher), shell.id, { api }, screen, input = true, shell = true, size = { 70 to 20 })
+        val client = TermClient(CoroutineScope(dispatcher), shell.id, { api }, screen, input = true, shell = true, size = { 70 to 20 }, answerQueries = true)
         client.start()
         try {
             withTimeout(30_000) { while (!client.typing.value) delay(50) }

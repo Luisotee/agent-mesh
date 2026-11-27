@@ -49,6 +49,9 @@ fun ShellScreen(runtime: HostRuntime, shellId: String, onBack: () -> Unit, onMen
     // The last output stays while the screen is open even after the host forgot the shell (it ended and was listed again).
     var seen by remember(shellId) { mutableStateOf(false) }
     LaunchedEffect(shell != null) { if (shell != null) seen = true }
+    // A shell the host no longer lists is gone: the phone's mark of it goes too.
+    val marks = LocalContainer.current.prefs
+    LaunchedEffect(state.shells != null, shell == null) { if (state.shells != null && shell == null) marks.forgetPhoneShell(runtime.hostId, shellId) }
     var menu by remember { mutableStateOf(false) }
     var ending by remember { mutableStateOf(false) }
     val canAct = !isReadOnlyDevice(state)
@@ -70,7 +73,7 @@ fun ShellScreen(runtime: HostRuntime, shellId: String, onBack: () -> Unit, onMen
                 else IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             },
             actions = {
-                if (shell != null && canAct) {
+                if (shell != null && !shell.exited && canAct) {
                     IconButton(onClick = { menu = true }, Modifier.testTag("shell-menu")) { Icon(Icons.Default.MoreVert, "Menu") }
                     DropdownMenu(menu, { menu = false }) {
                         DropdownMenuItem(text = { Text("End the terminal…") }, onClick = { menu = false; ending = true }, modifier = Modifier.testTag("shell-end"))

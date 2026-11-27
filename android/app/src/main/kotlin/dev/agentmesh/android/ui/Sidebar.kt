@@ -373,7 +373,7 @@ private fun ShellItem(hostId: String, sh: ShellRow, label: String, current: Pair
 
 /** "Terminal", or with several in a project "Terminal · 14:02" (when it started, which does not change as others end). */
 private fun shellLabel(sh: ShellRow, several: Boolean, index: Int): String =
-    if (!several) "Terminal" else if (sh.startedMs > 0) "Terminal · " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(sh.startedMs)) else "Terminal ${index + 1}"
+    if (!several) "Terminal" else if (sh.startedMs > 0) "Terminal · " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(sh.startedMs)) else "Terminal ${index + 1}"
 
 /** What the drawer's `current` says for a shell's screen (an agent's id is the other kind). */
 fun shellScreenId(shellId: String) = "shell:$shellId"

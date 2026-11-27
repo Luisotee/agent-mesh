@@ -171,14 +171,14 @@ class HostRuntime(
      * Reads the host's project shells (`ListShells`). A `ShellChange` frame that arrives while the answer is out makes it older
      * than what is held, so it is asked again (a few times), and the last answer stands.
      */
-    suspend fun refreshShells() {
-        repeat(3) { attempt ->
+    suspend fun refreshShells(again: Boolean = true, tries: Int = 3) {
+        repeat(tries) { attempt ->
             val asked = _state.value.shellTouch
             val list = try { awaitApi().listShells() } catch (e: CancellationException) { throw e } catch (e: Exception) { log("couldn't list the host's shells: ${e.message ?: e.javaClass.simpleName}"); _state.update { it.copy(shellsFailed = true) }; return }
-            if (_state.value.shellTouch == asked || attempt == 2) {
+            if (_state.value.shellTouch == asked || attempt == tries - 1) {
                 _state.update { it.copy(shells = list, shellsFailed = false) }
                 // The last try is kept even if a frame came meanwhile, and the list is read once more behind it.
-                if (_state.value.shellTouch != asked) scope.launch { refreshShells() }
+                if (again && _state.value.shellTouch != asked) scope.launch { refreshShells(again = false, tries = 1) }
                 return
             }
         }
@@ -188,8 +188,9 @@ class HostRuntime(
     suspend fun openShell(repo: String): dev.agentmesh.gen.agentmesh.v1.Shell {
         val shell = connectedApi().openShell(repo)
         val unread = _state.value.shells == null
-        _state.update { applyShell(it, dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder().setShell(shell).build()) }
-        // A list never read (the read after the snapshot failed): the host's others are read now, not shown as if there were only this one.
+        _state.update { s -> applyShell(s, dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder().setShell(shell).build()).let { if (it.shells == null) it.copy(shells = listOf(shell)) else it } }
+        // A list never read (the read after the snapshot failed): this shell shows at once (its screen must not say the list can't be read),
+        // and the host's others are read now, the failure staying until a read succeeds.
         if (unread) scope.launch { refreshShells() }
         return shell
     }

@@ -298,10 +298,10 @@ class TermClientTest {
 
     // ── Typing ──
 
-    private class TypingRig(scope: TestScope, input: Boolean = true) {
+    private class TypingRig(scope: TestScope, input: Boolean = true, answer: Boolean = false) {
         val api = RecordingApi()
         val screen = TermScreen()
-        val client = TermClient(scope.backgroundScope, "a1", { api }, screen, baseMs = 500, maxMs = 10_000, input = input)
+        val client = TermClient(scope.backgroundScope, "a1", { api }, screen, baseMs = 500, maxMs = 10_000, input = input, answerQueries = answer)
         fun socket() = FakeSocket().also { api.sockets += it }
     }
 
@@ -338,8 +338,8 @@ class TermClientTest {
         assertTrue(s.sent.none { it.frameCase == TermFrame.FrameCase.RESIZE })
     }
 
-    @Test fun `the client that types answers the program's queries once the replay is done, a viewer and the replay never do`() = runTest {
-        val r = TypingRig(this); val s = r.socket()
+    @Test fun `a client that is the only one that types answers the program's queries once the replay is done, a viewer and the replay never do`() = runTest {
+        val r = TypingRig(this, answer = true); val s = r.socket()
         r.client.start(); runCurrent()
         // The replay itself holds a query (the program asked before this client came): its answer is dropped, as the host's input is before Ready.
         s.host(TermFrame.newBuilder().setAttached(Frames.attached(AttachMode.ATTACH_MODE_REPAINT, epoch = 1, offset = 5, cols = 40, rows = 10).attached.toBuilder().setInput(true)).build())
@@ -353,6 +353,14 @@ class TermClientTest {
         // What the user types goes too.
         r.client.type("q".toByteArray())
         assertEquals("q", s.sent.last().input.data.toStringUtf8())
+    }
+
+    @Test fun `a typing client of an agent's terminal leaves the program's queries to the host and the desktop`() = runTest {
+        val r = TypingRig(this); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        s.host(Frames.output("\u001B[c\u001B[6n", 5)); runCurrent()
+        // A second answer from here would reach the program as typed input beside the desktop's own.
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH, TermFrame.FrameCase.READY), s.sent.map { it.frameCase })
     }
 
     @Test fun `a viewer sends nothing but the attach, whatever the program asks`() = runTest {
