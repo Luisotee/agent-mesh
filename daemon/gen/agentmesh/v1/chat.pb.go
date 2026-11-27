@@ -1116,6 +1116,238 @@ func (x *GetPromptSuggestionResponse) GetText() string {
 	return ""
 }
 
+type RewindAgentRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	// Agent id or name.
+	Agent string `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
+	// The transcript entry of the prompt to go back to before (`ReadTranscript`'s `id` of a USER entry).
+	EntryId       string `protobuf:"bytes,3,opt,name=entry_id,json=entryId,proto3" json:"entry_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RewindAgentRequest) Reset() {
+	*x = RewindAgentRequest{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RewindAgentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RewindAgentRequest) ProtoMessage() {}
+
+func (x *RewindAgentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RewindAgentRequest.ProtoReflect.Descriptor instead.
+func (*RewindAgentRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *RewindAgentRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *RewindAgentRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *RewindAgentRequest) GetEntryId() string {
+	if x != nil {
+		return x.EntryId
+	}
+	return ""
+}
+
+type RewindAgentResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The prompt's text, to edit and send again.
+	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	// The conversation the agent reopens on.
+	SessionId     string `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RewindAgentResponse) Reset() {
+	*x = RewindAgentResponse{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RewindAgentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RewindAgentResponse) ProtoMessage() {}
+
+func (x *RewindAgentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RewindAgentResponse.ProtoReflect.Descriptor instead.
+func (*RewindAgentResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RewindAgentResponse) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *RewindAgentResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+type AddAttachmentRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
+	// Agent id or name.
+	Agent string `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
+	// The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	// The file itself, at most 10 MB.
+	Data          []byte `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddAttachmentRequest) Reset() {
+	*x = AddAttachmentRequest{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddAttachmentRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddAttachmentRequest) ProtoMessage() {}
+
+func (x *AddAttachmentRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddAttachmentRequest.ProtoReflect.Descriptor instead.
+func (*AddAttachmentRequest) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AddAttachmentRequest) GetMeta() *RequestMeta {
+	if x != nil {
+		return x.Meta
+	}
+	return nil
+}
+
+func (x *AddAttachmentRequest) GetAgent() string {
+	if x != nil {
+		return x.Agent
+	}
+	return ""
+}
+
+func (x *AddAttachmentRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AddAttachmentRequest) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type AddAttachmentResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Where the host keeps it: the prompt names this path for the CLI to read.
+	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddAttachmentResponse) Reset() {
+	*x = AddAttachmentResponse{}
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddAttachmentResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddAttachmentResponse) ProtoMessage() {}
+
+func (x *AddAttachmentResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_v1_chat_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddAttachmentResponse.ProtoReflect.Descriptor instead.
+func (*AddAttachmentResponse) Descriptor() ([]byte, []int) {
+	return file_agentmesh_v1_chat_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *AddAttachmentResponse) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
 var File_agentmesh_v1_chat_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_chat_proto_rawDesc = "" +
@@ -1185,7 +1417,22 @@ const file_agentmesh_v1_chat_proto_rawDesc = "" +
 	"\x1aGetPromptSuggestionRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\"1\n" +
 	"\x1bGetPromptSuggestionResponse\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text*\xe8\x01\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\"t\n" +
+	"\x12RewindAgentRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
+	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x19\n" +
+	"\bentry_id\x18\x03 \x01(\tR\aentryId\"H\n" +
+	"\x13RewindAgentResponse\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\"\x83\x01\n" +
+	"\x14AddAttachmentRequest\x12-\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
+	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x12\n" +
+	"\x04data\x18\x04 \x01(\fR\x04data\"+\n" +
+	"\x15AddAttachmentResponse\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path*\xe8\x01\n" +
 	"\x0eTranscriptKind\x12\x1f\n" +
 	"\x1bTRANSCRIPT_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14TRANSCRIPT_KIND_USER\x10\x01\x12\x1d\n" +
@@ -1213,7 +1460,7 @@ func file_agentmesh_v1_chat_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_v1_chat_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agentmesh_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_agentmesh_v1_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_agentmesh_v1_chat_proto_goTypes = []any{
 	(TranscriptKind)(0),                 // 0: agentmesh.v1.TranscriptKind
 	(CommandDialog)(0),                  // 1: agentmesh.v1.CommandDialog
@@ -1233,27 +1480,33 @@ var file_agentmesh_v1_chat_proto_goTypes = []any{
 	(*ListAgentCommandsResponse)(nil),   // 15: agentmesh.v1.ListAgentCommandsResponse
 	(*GetPromptSuggestionRequest)(nil),  // 16: agentmesh.v1.GetPromptSuggestionRequest
 	(*GetPromptSuggestionResponse)(nil), // 17: agentmesh.v1.GetPromptSuggestionResponse
-	(*timestamppb.Timestamp)(nil),       // 18: google.protobuf.Timestamp
-	(*RequestMeta)(nil),                 // 19: agentmesh.v1.RequestMeta
-	(*QueuedPrompt)(nil),                // 20: agentmesh.v1.QueuedPrompt
+	(*RewindAgentRequest)(nil),          // 18: agentmesh.v1.RewindAgentRequest
+	(*RewindAgentResponse)(nil),         // 19: agentmesh.v1.RewindAgentResponse
+	(*AddAttachmentRequest)(nil),        // 20: agentmesh.v1.AddAttachmentRequest
+	(*AddAttachmentResponse)(nil),       // 21: agentmesh.v1.AddAttachmentResponse
+	(*timestamppb.Timestamp)(nil),       // 22: google.protobuf.Timestamp
+	(*RequestMeta)(nil),                 // 23: agentmesh.v1.RequestMeta
+	(*QueuedPrompt)(nil),                // 24: agentmesh.v1.QueuedPrompt
 }
 var file_agentmesh_v1_chat_proto_depIdxs = []int32{
-	18, // 0: agentmesh.v1.TranscriptEntry.time:type_name -> google.protobuf.Timestamp
+	22, // 0: agentmesh.v1.TranscriptEntry.time:type_name -> google.protobuf.Timestamp
 	0,  // 1: agentmesh.v1.TranscriptEntry.kind:type_name -> agentmesh.v1.TranscriptKind
 	2,  // 2: agentmesh.v1.ReadTranscriptResponse.entries:type_name -> agentmesh.v1.TranscriptEntry
-	19, // 3: agentmesh.v1.PromptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	20, // 4: agentmesh.v1.PromptAgentResponse.queued:type_name -> agentmesh.v1.QueuedPrompt
-	20, // 5: agentmesh.v1.ListPromptsResponse.prompts:type_name -> agentmesh.v1.QueuedPrompt
-	19, // 6: agentmesh.v1.WithdrawPromptRequest.meta:type_name -> agentmesh.v1.RequestMeta
-	20, // 7: agentmesh.v1.WithdrawPromptResponse.prompt:type_name -> agentmesh.v1.QueuedPrompt
-	19, // 8: agentmesh.v1.InterruptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	23, // 3: agentmesh.v1.PromptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	24, // 4: agentmesh.v1.PromptAgentResponse.queued:type_name -> agentmesh.v1.QueuedPrompt
+	24, // 5: agentmesh.v1.ListPromptsResponse.prompts:type_name -> agentmesh.v1.QueuedPrompt
+	23, // 6: agentmesh.v1.WithdrawPromptRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	24, // 7: agentmesh.v1.WithdrawPromptResponse.prompt:type_name -> agentmesh.v1.QueuedPrompt
+	23, // 8: agentmesh.v1.InterruptAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
 	1,  // 9: agentmesh.v1.AgentCommand.dialog:type_name -> agentmesh.v1.CommandDialog
 	13, // 10: agentmesh.v1.ListAgentCommandsResponse.commands:type_name -> agentmesh.v1.AgentCommand
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	23, // 11: agentmesh.v1.RewindAgentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	23, // 12: agentmesh.v1.AddAttachmentRequest.meta:type_name -> agentmesh.v1.RequestMeta
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_chat_proto_init() }
@@ -1268,7 +1521,7 @@ func file_agentmesh_v1_chat_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_v1_chat_proto_rawDesc), len(file_agentmesh_v1_chat_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'listAgentCommands', 'getPromptSuggestion', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'listAgentCommands', 'getPromptSuggestion', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'rewindAgent', 'addAttachment', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -121,6 +121,12 @@ export const withdrawPrompt = (c: MeshClient, agent: string, promptId = '') => c
 
 /** Interrupts an agent's turn, as Esc does in its terminal. */
 export const interruptAgent = (c: MeshClient, agent: string) => c.interruptAgent({ meta: meta(), agent })
+
+/** Takes an agent's conversation back to before one of its prompts (a transcript entry's id); its text comes back. */
+export const rewindAgent = (c: MeshClient, agent: string, entryId: string) => c.rewindAgent({ meta: meta(), agent, entryId })
+
+/** Stores an image on the agent's host for a prompt; the path it returns goes in the prompt. Its expiry is long: the host checks it after the whole image arrived. */
+export const addAttachment = (c: MeshClient, agent: string, name: string, data: Uint8Array) => c.addAttachment({ meta: meta(Date.now() + 9 * 60_000), agent, name, data })
 
 /** The user's reply to what an agent sent: its plan approved, or a question answered, as an `answer` to its author. */
 export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c, to, MT.ANSWER, body)

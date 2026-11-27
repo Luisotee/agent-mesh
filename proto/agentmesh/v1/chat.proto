@@ -164,3 +164,33 @@ message GetPromptSuggestionResponse {
   // CLI has no such feature, or the agent is not at its prompt).
   string text = 1;
 }
+
+message RewindAgentRequest {
+  RequestMeta meta = 1;
+  // Agent id or name.
+  string agent = 2;
+  // The transcript entry of the prompt to go back to before (`ReadTranscript`'s `id` of a USER entry).
+  string entry_id = 3;
+}
+
+message RewindAgentResponse {
+  // The prompt's text, to edit and send again.
+  string text = 1;
+  // The conversation the agent reopens on.
+  string session_id = 2;
+}
+
+message AddAttachmentRequest {
+  RequestMeta meta = 1;
+  // Agent id or name.
+  string agent = 2;
+  // The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+  string name = 3;
+  // The file itself, at most 10 MB.
+  bytes data = 4;
+}
+
+message AddAttachmentResponse {
+  // Where the host keeps it: the prompt names this path for the CLI to read.
+  string path = 1;
+}

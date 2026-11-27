@@ -1502,10 +1502,97 @@ describe('ChatView', () => {
     const listPrompts = vi.fn(async (_req: unknown): Promise<{ prompts: QueuedPrompt[] }> => ({ prompts: [] }))
     const withdrawPrompt = vi.fn(async (_req: unknown): Promise<object> => ({}))
     const interruptAgent = vi.fn(async (_req: unknown) => ({ stopped: true }))
-    Object.assign(f.client, { readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent })
+    const rewindAgent = vi.fn(async (_req: unknown) => ({ text: 'fix the typo', sessionId: 's2' }))
+    const addAttachment = vi.fn(async (_req: { name: string; data: Uint8Array }) => ({ path: '/state/runs/r1/attachments/w1/i1.png' }))
+    Object.assign(f.client, { readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, rewindAgent, addAttachment })
     const ui = f.wrap(<ChatView host={f.host} agentId="w1" active />)
-    return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, ui }
+    return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, rewindAgent, addAttachment, ui }
   }
+
+  it('stores an added image on the host, shows it, and names its path in the prompt', async () => {
+    const { ui, promptAgent, addAttachment } = chat()
+    const { container } = render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', { type: 'image/png' })
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, png)
+    await waitFor(() => expect(addAttachment).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', name: 'shot.png' })))
+    expect(within(screen.getByRole('list', { name: 'Images' })).getByRole('img', { name: 'shot.png' })).toBeInTheDocument()
+    await userEvent.type(box, 'what is wrong here{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: '[image: /state/runs/r1/attachments/w1/i1.png]\nwhat is wrong here' })))
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Images' })).toBeNull())
+    // Not an image: refused here, with nothing stored.
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, new File(['x'], 'notes.txt', { type: 'text/plain' }), { applyAccept: false })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only PNG, JPEG, GIF and WebP')
+    expect(addAttachment).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops uploading the remaining images when another agent is shown meanwhile', async () => {
+    const { ui, addAttachment, wrap, host } = chat()
+    let finish: (v: { path: string }) => void = () => {}
+    addAttachment.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    const { container, rerender } = render(ui)
+    await screen.findByRole('textbox', { name: 'Prompt' })
+    const png = (n: string) => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], n, { type: 'image/png' })
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, [png('a.png'), png('b.png'), png('c.png')])
+    await waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1))
+    rerender(wrap(<ChatView host={host} agentId="w2" active />))
+    finish({ path: '/state/runs/r1/attachments/w1/a.png' })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(addAttachment).toHaveBeenCalledTimes(1)
+  })
+
+  it('uploads nothing when another agent is shown while the file is still being read', async () => {
+    const { ui, addAttachment, wrap, host } = chat()
+    const { container, rerender } = render(ui)
+    await screen.findByRole('textbox', { name: 'Prompt' })
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'slow.png', { type: 'image/png' })
+    let read: (b: ArrayBuffer) => void = () => {}
+    png.arrayBuffer = () => new Promise((r) => { read = r })
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, png)
+    await waitFor(() => expect(screen.getByRole('list', { name: 'Images' })).toBeInTheDocument())
+    rerender(wrap(<ChatView host={host} agentId="w2" active />))
+    read(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(addAttachment).not.toHaveBeenCalled()
+  })
+
+  it('offers no images for a CLI not checked to read them', async () => {
+    const { ui } = chat({ agent: { kind: 'opencode' } })
+    render(ui)
+    await screen.findByRole('textbox', { name: 'Prompt' })
+    expect(screen.getByRole('button', { name: 'Add an image' })).toBeDisabled()
+  })
+
+  it('rewinds on Esc Esc: picks a prompt, says what stays, and puts the prompt back in the box', async () => {
+    const { ui, rewindAgent } = chat()
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await screen.findByRole('list', { name: 'Conversation' })
+    box.focus()
+    await userEvent.keyboard('{Escape}{Escape}')
+    const dialog = await screen.findByRole('dialog', { name: 'Rewind app-fix' })
+    await userEvent.click(within(within(dialog).getByRole('list', { name: 'Prompts' })).getByRole('button', { name: /fix the typo/ }))
+    expect(dialog).toHaveTextContent('Files and commits are not rolled back')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Rewind' }))
+    await waitFor(() => expect(rewindAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', entryId: 'u' })))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(box).toHaveValue('fix the typo'))
+  })
+
+  it('puts a rewound prompt\'s images back in the strip, not as text', async () => {
+    const { ui, rewindAgent } = chat()
+    rewindAgent.mockResolvedValueOnce({ text: '[image: /state/runs/r1/attachments/w1/i9.png]\nfix the typo', sessionId: 's2' })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await screen.findByRole('list', { name: 'Conversation' })
+    box.focus()
+    await userEvent.keyboard('{Escape}{Escape}')
+    const dialog = await screen.findByRole('dialog', { name: 'Rewind app-fix' })
+    await userEvent.click(within(dialog).getByRole('button', { name: /fix the typo/ }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Rewind' }))
+    await waitFor(() => expect(box).toHaveValue('fix the typo'))
+    expect(within(screen.getByRole('list', { name: 'Images' })).getByText('i9.png')).toBeInTheDocument()
+  })
 
   it('shows the conversation as blocks, with tool calls folded, the reply as Markdown, and the doorbell until the messages are read', async () => {
     const { ui, readTranscript, host } = chat()

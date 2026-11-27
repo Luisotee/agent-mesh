@@ -148,6 +148,8 @@ export interface AppState extends WorkspaceState {
   panelOpen: boolean
   /** The Send a message dialog, to this agent. */
   messageTo?: { hostId: string; agentId: string }
+  /** The Rewind dialog, for this agent (its chat shows it: the prompts are the chat's). */
+  rewindFor?: { hostId: string; agentId: string }
   /** Set to show the open agent's model control (the panel opens and unfolds its Details); cleared once its Details unfolded, so a later mount of the panel opens folded. */
   modelShown: boolean
   /** The New workspace dialog is open. */
@@ -160,7 +162,7 @@ export interface AppState extends WorkspaceState {
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
   /** A queued prompt taken back to edit, for its agent's composer to take (and clear). */
-  composerFill?: { agentId: string; text: string }
+  composerFill?: { agentId: string; text: string; /** Images to put back in its strip (a rewound prompt's), by host path. */ images?: string[] }
   /** The main pane shows the host's quota usage and spend. */
   usageOpen: boolean
   /** The tab being dragged (not kept: it only shows the edges a tab can be dropped on). */
@@ -242,6 +244,8 @@ export interface AppModel {
   showModel(): void
   /** Opens (or, undefined, closes) the Send a message dialog to an agent. */
   openMessage(to: { hostId: string; agentId: string } | undefined): void
+  /** Opens (or, undefined, closes) the Rewind dialog of an agent. */
+  openRewind(of: { hostId: string; agentId: string } | undefined): void
   /** The Details unfolded for `showModel`: done. */
   modelRevealed(): void
   /** Opens the New workspace dialog: on a run (to add an agent to it) or a project (to start a lead there), on a host. */
@@ -515,6 +519,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     showModel: () => set({ panelOpen: true, modelShown: true }),
     modelRevealed: () => set({ modelShown: false }),
     openMessage: (messageTo) => set({ messageTo }),
+    openRewind: (rewindFor) => set({ rewindFor }),
     openWorkspace: (workspaceOpen, runId, at) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, workspaceHost: workspaceOpen ? at?.hostId : undefined }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
