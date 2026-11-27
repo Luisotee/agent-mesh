@@ -133,7 +133,7 @@ fun PairScreen(initialLink: String?, onBack: () -> Unit, onPaired: (String) -> U
             }
             return@Scaffold
         }
-        Column(Modifier.padding(pad).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.inScaffoldWithKeyboard(pad).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 "On the host, run mesh pair (or open Pair a device in the desktop app). Scan its QR code, or paste the agentmesh://pair link.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -1,6 +1,6 @@
 import { compareMessages } from './order'
 import { AgentRole, AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
-import { WaitingKind, type Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
+import { AgentWaitKind, WaitingKind, type AgentWait, type Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 
 export interface TreeNode {
   agent: Agent
@@ -91,12 +91,39 @@ export function exitKind(a: Agent): ExitKind {
   return a.exitCode === 0 ? 'finished' : 'failed'
 }
 
-export function statusSentence(a: Agent): string {
+/**
+ * What an idle agent waits on, in words (`GetAgentProgress`'s wait): its background job, a wait it declared (with when it
+ * ends), the answer to its question or plan, nothing after a report, or a message, from whom when the host says.
+ */
+export function waitSentence(w: AgentWait): string {
+  const cut = (s: string) => (s.length > 60 ? `${s.slice(0, 59)}…` : s)
+  switch (w.kind) {
+    case AgentWaitKind.BACKGROUND:
+      return w.detail ? `Waiting on its background job: ${cut(w.detail)}` : 'Waiting on a background job'
+    case AgentWaitKind.DECLARED: {
+      const end = w.until ? new Date(Number(w.until.seconds) * 1000) : undefined
+      const time = end?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      // Another day than today says which, so a deadline tomorrow does not read as one already past.
+      // The host ends a wait at its deadline; a deadline past by the time the client reads (between polls) says nothing.
+      const until = end && time && end.getTime() > Date.now() ? (end.toDateString() === new Date().toDateString() ? time : `${end.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`) : ''
+      return `Waiting${w.detail ? `: ${cut(w.detail)}` : ''}${until ? `, until ${until}` : ''}`
+    }
+    case AgentWaitKind.ANSWER:
+      return `Asked ${w.from || 'its parent'}, waiting for the answer`
+    case AgentWaitKind.REPORTED:
+      return `Reported to ${w.from || 'its parent'}, nothing owed`
+    default:
+      return !w.from || w.from === 'user' ? 'Idle, waiting for you' : `Idle, waiting for a task from ${w.from}`
+  }
+}
+
+/** One plain sentence for an agent's state; an idle one says what it waits on when the host's `wait` is known. */
+export function statusSentence(a: Agent, wait?: AgentWait): string {
   switch (a.state) {
     case AgentState.STARTING:
       return 'Starting up'
     case AgentState.IDLE:
-      return 'Idle, waiting for a message'
+      return wait ? waitSentence(wait) : 'Idle, waiting for a message'
     case AgentState.WORKING:
       return 'Working'
     case AgentState.NEEDS_INPUT: {

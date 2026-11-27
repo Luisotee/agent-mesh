@@ -36,6 +36,14 @@ func backgroundNudge(name string) string {
 
 // hasBackgroundCommand reports whether the process tree under pid holds a Claude background command.
 func hasBackgroundCommand(table []proc.Info, pid int) bool {
+	_, ok := backgroundCommand(table, pid)
+	return ok
+}
+
+// backgroundCommand is the command line of a Claude background command in the process tree under pid, as the user
+// would read it (`make test`), and whether there is one. A command whose line can't be told apart from the snapshot
+// plumbing comes back empty with true.
+func backgroundCommand(table []proc.Info, pid int) (string, bool) {
 	byPID := map[int]proc.Info{}
 	for _, p := range table {
 		byPID[p.PID] = p
@@ -48,21 +56,78 @@ func hasBackgroundCommand(table []proc.Info, pid int) bool {
 		switch base := p.Argv[0][strings.LastIndex(p.Argv[0], "/")+1:]; base {
 		case "bash", "sh", "zsh", "dash":
 			if p.Argv[1] == "-c" && strings.Contains(p.Argv[2], "/shell-snapshots/") {
-				return true
+				return evalLine(p.Argv[2]), true
 			}
 		}
 	}
-	return false
+	return "", false
+}
+
+// evalLine is what a snapshot shell evaluates: the quoted text after its `eval`, with the quotes taken off.
+func evalLine(script string) string {
+	i := strings.Index(script, "eval ")
+	if i < 0 {
+		return ""
+	}
+	cmd := strings.TrimSpace(script[i+len("eval "):])
+	if len(cmd) >= 2 && (cmd[0] == '\'' || cmd[0] == '"') {
+		cmd = unquoteFirst(cmd)
+	}
+	return strings.TrimSpace(cmd)
+}
+
+// unquoteFirst is the shell word `s` opens with, unquoted: single-quoted parts as they are, double-quoted ones with a
+// backslash escaping a quote, a backslash, a dollar, a backtick or a newline, and a backslash outside quotes escaping the next character, joined until a
+// space ends the word (what follows, the `< /dev/null` and the cwd plumbing, is left out). Claude Code writes a quote
+// inside a command as `'"'"'` (close, a double-quoted quote, reopen), a shell as `'\”`: both read as a quote. An unclosed
+// quote takes the rest.
+func unquoteFirst(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '\'':
+			j := strings.IndexByte(s[i+1:], '\'')
+			if j < 0 {
+				b.WriteString(s[i+1:])
+				return b.String()
+			}
+			b.WriteString(s[i+1 : i+1+j])
+			i += j + 1
+		case '"':
+			for i++; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) && strings.IndexByte("\"\\$`\n", s[i+1]) >= 0 {
+					i++
+				}
+				b.WriteByte(s[i])
+			}
+		case '\\':
+			if i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+			}
+		case ' ', '\t', '\n':
+			return b.String()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // backgroundWork reports whether a Claude agent has a background command running.
 func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
+	_, ok := d.backgroundCommandOf(ctx, a)
+	return ok
+}
+
+// backgroundCommandOf is the command line of the background command a Claude agent has running, and whether it has one.
+func (d *Daemon) backgroundCommandOf(ctx context.Context, a *v1.Agent) (string, bool) {
 	if a.Kind != claude.Kind || a.TerminalId == "" || d.rt.term == nil {
-		return false
+		return "", false
 	}
 	res, err := d.rt.term.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
 	if err != nil {
-		return false
+		return "", false
 	}
 	pid := 0
 	for _, t := range res.Msg.Terminals {
@@ -71,10 +136,13 @@ func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
 		}
 	}
 	if pid <= 0 {
-		return false
+		return "", false
 	}
 	table, err := d.rt.sys.ProcTable()
-	return err == nil && hasBackgroundCommand(table, pid)
+	if err != nil {
+		return "", false
+	}
+	return backgroundCommand(table, pid)
 }
 
 // withinBackgroundGrace reports whether a running background command is still let run: the agent's last activity

@@ -11,15 +11,20 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 )
 
-// GetAgentProgress reads an agent's plan (its newest TodoWrite list) and its conversation's size from its CLI's own
-// record. Only Claude Code's is read: for any other CLI, or an agent with no conversation yet, the answer is empty (and
-// `supported` says whether the record could be read at all).
+// GetAgentProgress says what an agent waits on (for every CLI) and where the daemon acts on its context (Claude's), and
+// reads its plan (its newest TodoWrite list) and its conversation's size from its CLI's own record. Only Claude Code's
+// record is read: for any other CLI, or an agent with no conversation yet, the plan and sizes are empty (and `supported`
+// says whether the record could be read at all).
 func (d *Daemon) GetAgentProgress(ctx context.Context, req *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error) {
 	a, err := d.findAgentCrossRun(d.store.Read(ctx), auth.ActorFrom(ctx), req.Msg.Agent)
 	if err != nil {
 		return nil, err
 	}
-	out := &v1.GetAgentProgressResponse{}
+	out := &v1.GetAgentProgressResponse{Wait: d.agentWait(ctx, a)}
+	// The marks are policy, known before the conversation has a record: the window comes from the model's name.
+	if a.Kind == claude.Kind {
+		out.Marks = d.contextMarks(d.store.Read(ctx), a, contextWindow(a.Model))
+	}
 	if a.Kind != claude.Kind || a.SessionId == "" || a.Worktree == "" {
 		return connect.NewResponse(out), nil
 	}
