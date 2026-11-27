@@ -3,6 +3,9 @@ package dev.agentmesh.android
 import dev.agentmesh.android.store.HostState
 import dev.agentmesh.android.store.applyFrame
 import dev.agentmesh.android.store.mergeMessages
+import dev.agentmesh.android.store.withPrompts
+import dev.agentmesh.android.store.withQueued
+import dev.agentmesh.android.store.withoutPrompt
 import dev.agentmesh.gen.agentmesh.v1.AgentState
 import dev.agentmesh.gen.agentmesh.v1.MessageType
 import dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse
@@ -172,5 +175,63 @@ class StoreTest {
         s = applyFrame(s, prChanged(2, pr("a1", "u1")))
         s = applyFrame(s, prChanged(3, pr("a1", "u1", held = true)))
         assertTrue(s.pullRequests.getValue("a1").getPullRequests(0).held)
+    }
+
+    @Test fun `a prompt joins the agent's queue in order, and leaves it once typed or taken back`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))
+        s = applyFrame(s, promptQueued(1, queuedPrompt("p2", "a1", at = 2_000)))
+        s = applyFrame(s, promptQueued(2, queuedPrompt("p1", "a1", at = 1_000, held = "working")))
+        assertEquals(listOf("p1", "p2"), s.prompts["a1"]!!.map { it.id })
+        s = applyFrame(s, promptTyped(3, "a1", "p1"))
+        assertEquals(listOf("p2"), s.prompts["a1"]!!.map { it.id })
+        s = applyFrame(s, promptWithdrawn(4, "a1", "p2"))
+        assertTrue(s.prompts["a1"]!!.isEmpty())
+        // A requeue (its typing never reached the terminal) is queued again.
+        s = applyFrame(s, promptQueued(5, queuedPrompt("p1", "a1")))
+        assertEquals(listOf("p1"), s.prompts["a1"]!!.map { it.id })
+        assertFalse("p1" in s.promptsDone)
+    }
+
+    @Test fun `a listing older than a change here, or than a typed prompt, never brings one back`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))
+        val asked = s.promptTouch["a1"] ?: 0
+        s = applyFrame(s, promptQueued(1, queuedPrompt("p1", "a1")))
+        // The queue changed after the listing was asked for: what we hold is newer than the answer.
+        assertEquals(listOf("p1"), withPrompts(s, "a1", emptyList(), asked).prompts["a1"]!!.map { it.id })
+        // A listing asked after the change is taken, minus a prompt the host already said was typed.
+        s = applyFrame(s, promptTyped(2, "a1", "p0"))
+        val now = s.promptTouch["a1"] ?: 0
+        assertEquals(listOf("p1"), withPrompts(s, "a1", listOf(queuedPrompt("p0", "a1"), queuedPrompt("p1", "a1")), now).prompts["a1"]!!.map { it.id })
+        // A prompt taken back here is gone for good, and an answer that queued one shows it before its event.
+        s = withoutPrompt(s, "a1", "p1")
+        assertTrue(s.prompts["a1"]!!.isEmpty())
+        s = withQueued(s, queuedPrompt("p9", "a1"))
+        assertEquals(listOf("p9"), s.prompts["a1"]!!.map { it.id })
+        assertEquals(1, withQueued(s, queuedPrompt("p9", "a1")).prompts["a1"]!!.size)
+    }
+
+    /** The events and the host's listing of the same queue give the same state, so a screen that lists again after a snapshot agrees with one that followed the stream. */
+    @Test fun `the queue kept by events is the one a listing gives`() {
+        val frames = listOf(
+            promptQueued(1, queuedPrompt("p1", "a1", at = 1_000)), promptQueued(2, queuedPrompt("p2", "a1", at = 2_000)),
+            promptQueued(3, queuedPrompt("p3", "a1", at = 3_000)), promptTyped(4, "a1", "p1"), promptWithdrawn(5, "a1", "p3"),
+        )
+        val live = frames.fold(applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))) { s, f -> applyFrame(s, f) }
+        val listed = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1), seq = 5)).let { withPrompts(it, "a1", listOf(queuedPrompt("p2", "a1", at = 2_000)), 0) }
+        assertEquals(listed.prompts["a1"], live.prompts["a1"])
+        // A snapshot drops the queues of agents the host no longer lists.
+        assertTrue(applyFrame(live, snapshot(listOf(run("r1")), emptyList())).prompts.isEmpty())
+    }
+
+    @Test fun `a snapshot forgets which prompts were typed, so one the host requeued is listed again`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1)))
+        s = applyFrame(s, promptTyped(1, "a1", "p1"))
+        val asked = s.promptTouch["a1"] ?: 0
+        // The stream drops, the host requeues p1 (typing failed), a snapshot comes: a listing now brings it.
+        s = applyFrame(s, snapshot(listOf(run("r1")), listOf(a1), seq = 9))
+        assertTrue(s.promptsDone.isEmpty())
+        // A listing asked before the snapshot is stale; one asked after it is taken.
+        assertTrue(withPrompts(s, "a1", listOf(queuedPrompt("p1", "a1")), asked).prompts["a1"].isNullOrEmpty())
+        assertEquals(listOf("p1"), withPrompts(s, "a1", listOf(queuedPrompt("p1", "a1")), s.promptTouch["a1"] ?: 0).prompts["a1"]!!.map { it.id })
     }
 }
