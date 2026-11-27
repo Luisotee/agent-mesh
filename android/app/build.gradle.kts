@@ -18,7 +18,15 @@ android {
 
     buildTypes {
         debug { applicationIdSuffix = ".debug" }
-        release { isMinifyEnabled = false }
+        // An extra APK for the phone, beside the debug one: not debuggable and optimized by R8 (Compose runs several times faster
+        // than in the debug build), signed with the debug key so it installs. Not shrunk or renamed (proguard-rules.pro).
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = false
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles("proguard-rules.pro")
+        }
     }
     buildFeatures { compose = true }
     compileOptions {

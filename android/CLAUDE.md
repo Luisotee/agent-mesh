@@ -12,12 +12,13 @@ Run from `android/`.
 
 ```bash
 scripts/setup.sh                             # once: the SDK, the JDK, Gradle
-scripts/check.sh                             # the CI equivalent: gen current, unit + Compose + meshd e2e tests, lint, debug APK
+scripts/check.sh                             # the CI equivalent: gen current, unit + Compose + meshd e2e tests, lint, debug APK, release-type APK
 SKIP_E2E=1 scripts/check.sh                  # without the meshd end-to-end tests
 scripts/gen.sh                               # after a .proto change: regenerate app/src/gen
 source scripts/env.sh && ./gradlew testDebugUnitTest                                       # the JVM tests
 source scripts/env.sh && ./gradlew testDebugUnitTest --tests 'dev.agentmesh.android.StoreTest'   # one class
 source scripts/env.sh && ./gradlew lintDebug assembleDebug
+source scripts/env.sh && ./gradlew assembleRelease                                          # the extra APK for the phone: R8-optimized, signed with the debug key
 ```
 
 The end-to-end tests (`DaemonE2ETest`, through `DaemonHarness`) build meshd, mesh-term, mesh, mesh-relay and the fake `claude` with Go into `app/build/e2e-bin`, and give each test its own state dir, HOME and loopback port, so they touch nothing of the user's; they are skipped when Go isn't found or `SKIP_E2E=1` is set. Run `scripts/check.sh` before you report a change here: the repo runs no hosted CI.
@@ -39,6 +40,8 @@ Code is in `app/src/main/kotlin/dev/agentmesh/android/`: `net/` (routes and pinn
 - **One agent screen:** no tabs: the chat is the screen (`ui/AgentScreen.kt`), with `>_` for the terminal, a model chip, the tree strip (`AgentTree.kt`) and Details (`Details.kt`); the mesh's messages are cards in the chat (`chat/Timeline.kt`). Anything that stops an agent or a run, retires or renames asks first (`AgentActions.kt`); the composer's Stop only interrupts a turn, as Esc does, and does not ask. `Tab` is only a hint for which view opens (the terminal, else the chat).
 - **One composer:** every multi-line field is `ui/chat/MarkdownField.kt` on a `TextFieldState`; the Markdown rules (list continuation, wrapping) are the pure `chat/MarkdownEdit.kt`, pinned by `shared/markdown-edit/cases.json` (Android's `MarkdownEditTest` and the desktop's `composer-keys.test.ts` read it). A chat's draft is device-local (`DevicePrefs.draft`). The queue of a chat is host state kept by the `Prompt*` events (`HostState.prompts`, listed again after a snapshot), never a client-side list.
 - **Insets:** the app is edge-to-edge, so the soft keyboard doesn't resize it. A Scaffold's body is `Modifier.inScaffold(pad)` (`ui/Insets.kt`), or `inScaffoldWithKeyboard(pad)` when it has text fields; never a bare `padding(pad)` above an `imePadding()`, which counts the navigation bar twice (a blank band over the keyboard). A `ModalBottomSheet` needs nothing: its default `contentWindowInsets` (`modalWindowInsets`, M3 1.5) is the safe drawing area, keyboard included. `KeyboardInsetsTest` lays a screen out with a bar and a keyboard.
+- **Two APKs:** `assembleDebug` is the debug build; `assembleRelease` (`app-release.apk`) is the one to judge speed by: not debuggable, optimized by R8 (no shrinking and no renaming: `app/proguard-rules.pro` keeps the generated protobuf and ConnectRPC code, the terminal emulator and the Markdown parser whole), signed with the debug key so it installs (beside the debug one: another application id). **It has only been built here, never run on a device**: a reflection R8 breaks would show only there, so a change to `proguard-rules.pro` or a new library that reflects needs a look on a phone. `check.sh` builds it, which catches a missing class.
+- **Window:** `AgentMeshTheme` sets the window behind the app and the bars' icon colours from the theme, not the system's mode (`ThemeWindowTest`).
 - **Screenshots:** `ShotsTest` renders the seeded screens to `app/build/shots/` (or `$SHOTS_DIR`) in a dark and a light theme, for looking at before and after a UI change. They are not goldens: nothing compares pixels.
 - **No emulator here:** this user isn't in the `kvm` group, so Compose screens are tested on the JVM under Robolectric (`ScreensTest`), and the Maestro flows are written but haven't run. Don't report a Maestro flow as passing unless one actually ran.
 - A change to these commands, the layout or the conventions updates this file in the same PR.

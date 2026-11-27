@@ -249,8 +249,14 @@ fun ChatTab(
     // follows it) or after a snapshot, kept by the host's events in between.
     LaunchedEffect(runtime, agentId, agent.state, host.snapshots, connected) { if (connected) runtime.refreshPrompts(agentId) }
 
+    // What came in below while the reader was up in the history: the entries after the last one they were at the end for.
+    var seenLast by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(stick, last?.id) { if (stick) seenLast = last?.id }
+    val unseen = if (stick) 0 else seenLast?.let { id -> indexOfEntry(entries, id).let { i -> if (i < 0) 0 else entries.size - 1 - i } } ?: 0
+    val reduced = LocalReducedMotion.current
     Column(modifier.fillMaxSize().imePadding()) {
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("chat"), state = list, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+        LazyColumn(Modifier.fillMaxSize().testTag("chat"), state = list, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item(key = "head") {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     if (!chat.transcript.supported) {
@@ -294,6 +300,20 @@ fun ChatTab(
                 }
             }
             if (queued.isNotEmpty()) item(key = "queued", contentType = "queued") { QueuedList(runtime, agentId, queued, canTake = !readOnly, canFill = promptRefusal(agent, readOnly).isEmpty(), scope, draftState) { queueNote = it } }
+        }
+        // The reader is up in the history and the chat has moved on below: one tap goes to the end (and follows it again).
+        androidx.compose.animation.AnimatedVisibility(
+            unseen > 0, Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp),
+            enter = if (reduced) androidx.compose.animation.EnterTransition.None else androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { it / 2 },
+            exit = if (reduced) androidx.compose.animation.ExitTransition.None else androidx.compose.animation.fadeOut(),
+        ) {
+            androidx.compose.material3.ExtendedFloatingActionButton(
+                onClick = { stick = true; scope.launch { if (reduced) list.scrollToItem(tail) else list.animateScrollToItem(tail) } },
+                modifier = Modifier.testTag("jump-to-latest"),
+                icon = { Icon(Icons.Default.KeyboardArrowDown, null) },
+                text = { Text(if (unseen == 1) "1 new" else "$unseen new") },
+            )
+        }
         }
         if (working && agent.stateDetail.isNotEmpty()) {
             Text(
