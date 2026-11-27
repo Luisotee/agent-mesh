@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/chat.proto.
  */
 export const file_agentmesh_v1_chat: GenFile = /*@__PURE__*/
-  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiQQoTUHJvbXB0QWdlbnRSZXNwb25zZRIqCgZxdWV1ZWQYASABKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0IiMKEkxpc3RQcm9tcHRzUmVxdWVzdBINCgVhZ2VudBgBIAEoCSJCChNMaXN0UHJvbXB0c1Jlc3BvbnNlEisKB3Byb21wdHMYASADKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0ImIKFVdpdGhkcmF3UHJvbXB0UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhEKCXByb21wdF9pZBgDIAEoCSJEChZXaXRoZHJhd1Byb21wdFJlc3BvbnNlEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQicwoXU2VuZFByb21wdEFueXdheVJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCRIRCglwcm9tcHRfaWQYAyABKAkSDQoFZHJhZnQYBCABKAkiLQoYU2VuZFByb21wdEFueXdheVJlc3BvbnNlEhEKCWRpc2NhcmRlZBgBIAEoCSJPChVJbnRlcnJ1cHRBZ2VudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCSIpChZJbnRlcnJ1cHRBZ2VudFJlc3BvbnNlEg8KB3N0b3BwZWQYASABKAgqxAEKDlRyYW5zY3JpcHRLaW5kEh8KG1RSQU5TQ1JJUFRfS0lORF9VTlNQRUNJRklFRBAAEhgKFFRSQU5TQ1JJUFRfS0lORF9VU0VSEAESHQoZVFJBTlNDUklQVF9LSU5EX0FTU0lTVEFOVBACEh0KGVRSQU5TQ1JJUFRfS0lORF9UT09MX0NBTEwQAxIfChtUUkFOU0NSSVBUX0tJTkRfVE9PTF9SRVNVTFQQBBIYChRUUkFOU0NSSVBUX0tJTkRfTUVTSBAFYgZwcm90bzM", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiQQoTUHJvbXB0QWdlbnRSZXNwb25zZRIqCgZxdWV1ZWQYASABKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0IiMKEkxpc3RQcm9tcHRzUmVxdWVzdBINCgVhZ2VudBgBIAEoCSJCChNMaXN0UHJvbXB0c1Jlc3BvbnNlEisKB3Byb21wdHMYASADKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0ImIKFVdpdGhkcmF3UHJvbXB0UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhEKCXByb21wdF9pZBgDIAEoCSJEChZXaXRoZHJhd1Byb21wdFJlc3BvbnNlEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQicwoXU2VuZFByb21wdEFueXdheVJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCRIRCglwcm9tcHRfaWQYAyABKAkSDQoFZHJhZnQYBCABKAkiLQoYU2VuZFByb21wdEFueXdheVJlc3BvbnNlEhEKCWRpc2NhcmRlZBgBIAEoCSJPChVJbnRlcnJ1cHRBZ2VudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCSIpChZJbnRlcnJ1cHRBZ2VudFJlc3BvbnNlEg8KB3N0b3BwZWQYASABKAgiXgoSUmV3aW5kQWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkSEAoIZW50cnlfaWQYAyABKAkiNwoTUmV3aW5kQWdlbnRSZXNwb25zZRIMCgR0ZXh0GAEgASgJEhIKCnNlc3Npb25faWQYAiABKAkiagoUQWRkQXR0YWNobWVudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCRIMCgRuYW1lGAMgASgJEgwKBGRhdGEYBCABKAwiJQoVQWRkQXR0YWNobWVudFJlc3BvbnNlEgwKBHBhdGgYASABKAkqxAEKDlRyYW5zY3JpcHRLaW5kEh8KG1RSQU5TQ1JJUFRfS0lORF9VTlNQRUNJRklFRBAAEhgKFFRSQU5TQ1JJUFRfS0lORF9VU0VSEAESHQoZVFJBTlNDUklQVF9LSU5EX0FTU0lTVEFOVBACEh0KGVRSQU5TQ1JJUFRfS0lORF9UT09MX0NBTEwQAxIfChtUUkFOU0NSSVBUX0tJTkRfVE9PTF9SRVNVTFQQBBIYChRUUkFOU0NSSVBUX0tJTkRfTUVTSBAFYgZwcm90bzM", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * One line of the conversation, in the order the CLI wrote it. Thinking, subagents' own turns and the CLI's
@@ -422,6 +422,120 @@ export type InterruptAgentResponse = Message<"agentmesh.v1.InterruptAgentRespons
  */
 export const InterruptAgentResponseSchema: GenMessage<InterruptAgentResponse> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_chat, 12);
+
+/**
+ * @generated from message agentmesh.v1.RewindAgentRequest
+ */
+export type RewindAgentRequest = Message<"agentmesh.v1.RewindAgentRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+
+  /**
+   * The transcript entry of the prompt to go back to before (`ReadTranscript`'s `id` of a USER entry).
+   *
+   * @generated from field: string entry_id = 3;
+   */
+  entryId: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.RewindAgentRequest.
+ * Use `create(RewindAgentRequestSchema)` to create a new message.
+ */
+export const RewindAgentRequestSchema: GenMessage<RewindAgentRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 13);
+
+/**
+ * @generated from message agentmesh.v1.RewindAgentResponse
+ */
+export type RewindAgentResponse = Message<"agentmesh.v1.RewindAgentResponse"> & {
+  /**
+   * The prompt's text, to edit and send again.
+   *
+   * @generated from field: string text = 1;
+   */
+  text: string;
+
+  /**
+   * The conversation the agent reopens on.
+   *
+   * @generated from field: string session_id = 2;
+   */
+  sessionId: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.RewindAgentResponse.
+ * Use `create(RewindAgentResponseSchema)` to create a new message.
+ */
+export const RewindAgentResponseSchema: GenMessage<RewindAgentResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 14);
+
+/**
+ * @generated from message agentmesh.v1.AddAttachmentRequest
+ */
+export type AddAttachmentRequest = Message<"agentmesh.v1.AddAttachmentRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+
+  /**
+   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   *
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * The file itself, at most 10 MB.
+   *
+   * @generated from field: bytes data = 4;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message agentmesh.v1.AddAttachmentRequest.
+ * Use `create(AddAttachmentRequestSchema)` to create a new message.
+ */
+export const AddAttachmentRequestSchema: GenMessage<AddAttachmentRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 15);
+
+/**
+ * @generated from message agentmesh.v1.AddAttachmentResponse
+ */
+export type AddAttachmentResponse = Message<"agentmesh.v1.AddAttachmentResponse"> & {
+  /**
+   * Where the host keeps it: the prompt names this path for the CLI to read.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.AddAttachmentResponse.
+ * Use `create(AddAttachmentResponseSchema)` to create a new message.
+ */
+export const AddAttachmentResponseSchema: GenMessage<AddAttachmentResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 16);
 
 /**
  * @generated from enum agentmesh.v1.TranscriptKind

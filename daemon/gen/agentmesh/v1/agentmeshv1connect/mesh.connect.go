@@ -130,6 +130,11 @@ const (
 	// MeshServiceInterruptAgentProcedure is the fully-qualified name of the MeshService's
 	// InterruptAgent RPC.
 	MeshServiceInterruptAgentProcedure = "/agentmesh.v1.MeshService/InterruptAgent"
+	// MeshServiceRewindAgentProcedure is the fully-qualified name of the MeshService's RewindAgent RPC.
+	MeshServiceRewindAgentProcedure = "/agentmesh.v1.MeshService/RewindAgent"
+	// MeshServiceAddAttachmentProcedure is the fully-qualified name of the MeshService's AddAttachment
+	// RPC.
+	MeshServiceAddAttachmentProcedure = "/agentmesh.v1.MeshService/AddAttachment"
 	// MeshServiceCreatePairingProcedure is the fully-qualified name of the MeshService's CreatePairing
 	// RPC.
 	MeshServiceCreatePairingProcedure = "/agentmesh.v1.MeshService/CreatePairing"
@@ -346,6 +351,15 @@ type MeshServiceClient interface {
 	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
 	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
 	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
+	// Take an agent's conversation back to before one of its prompts (Claude Code's Esc Esc, conversation only): the
+	// daemon writes a copy of its conversation cut before that prompt, under a new session id, and reopens the same
+	// agent on it. Files, commits and sent mesh messages stay as they are. Refused while the agent works (interrupt it
+	// first) and for a CLI whose conversation the daemon can't cut. The prompt's text is returned, to edit and send again.
+	RewindAgent(context.Context, *connect.Request[v1.RewindAgentRequest]) (*connect.Response[v1.RewindAgentResponse], error)
+	// Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
+	// which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
+	// file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+	AddAttachment(context.Context, *connect.Request[v1.AddAttachmentRequest]) (*connect.Response[v1.AddAttachmentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -706,6 +720,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("InterruptAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		rewindAgent: connect.NewClient[v1.RewindAgentRequest, v1.RewindAgentResponse](
+			httpClient,
+			baseURL+MeshServiceRewindAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RewindAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		addAttachment: connect.NewClient[v1.AddAttachmentRequest, v1.AddAttachmentResponse](
+			httpClient,
+			baseURL+MeshServiceAddAttachmentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("AddAttachment")),
+			connect.WithClientOptions(opts...),
+		),
 		createPairing: connect.NewClient[v1.CreatePairingRequest, v1.CreatePairingResponse](
 			httpClient,
 			baseURL+MeshServiceCreatePairingProcedure,
@@ -980,6 +1006,8 @@ type meshServiceClient struct {
 	withdrawPrompt    *connect.Client[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse]
 	sendPromptAnyway  *connect.Client[v1.SendPromptAnywayRequest, v1.SendPromptAnywayResponse]
 	interruptAgent    *connect.Client[v1.InterruptAgentRequest, v1.InterruptAgentResponse]
+	rewindAgent       *connect.Client[v1.RewindAgentRequest, v1.RewindAgentResponse]
+	addAttachment     *connect.Client[v1.AddAttachmentRequest, v1.AddAttachmentResponse]
 	createPairing     *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices       *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice      *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
@@ -1223,6 +1251,16 @@ func (c *meshServiceClient) SendPromptAnyway(ctx context.Context, req *connect.R
 // InterruptAgent calls agentmesh.v1.MeshService.InterruptAgent.
 func (c *meshServiceClient) InterruptAgent(ctx context.Context, req *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error) {
 	return c.interruptAgent.CallUnary(ctx, req)
+}
+
+// RewindAgent calls agentmesh.v1.MeshService.RewindAgent.
+func (c *meshServiceClient) RewindAgent(ctx context.Context, req *connect.Request[v1.RewindAgentRequest]) (*connect.Response[v1.RewindAgentResponse], error) {
+	return c.rewindAgent.CallUnary(ctx, req)
+}
+
+// AddAttachment calls agentmesh.v1.MeshService.AddAttachment.
+func (c *meshServiceClient) AddAttachment(ctx context.Context, req *connect.Request[v1.AddAttachmentRequest]) (*connect.Response[v1.AddAttachmentResponse], error) {
+	return c.addAttachment.CallUnary(ctx, req)
 }
 
 // CreatePairing calls agentmesh.v1.MeshService.CreatePairing.
@@ -1536,6 +1574,15 @@ type MeshServiceHandler interface {
 	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
 	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
 	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
+	// Take an agent's conversation back to before one of its prompts (Claude Code's Esc Esc, conversation only): the
+	// daemon writes a copy of its conversation cut before that prompt, under a new session id, and reopens the same
+	// agent on it. Files, commits and sent mesh messages stay as they are. Refused while the agent works (interrupt it
+	// first) and for a CLI whose conversation the daemon can't cut. The prompt's text is returned, to edit and send again.
+	RewindAgent(context.Context, *connect.Request[v1.RewindAgentRequest]) (*connect.Response[v1.RewindAgentResponse], error)
+	// Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
+	// which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
+	// file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+	AddAttachment(context.Context, *connect.Request[v1.AddAttachmentRequest]) (*connect.Response[v1.AddAttachmentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -1892,6 +1939,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("InterruptAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceRewindAgentHandler := connect.NewUnaryHandler(
+		MeshServiceRewindAgentProcedure,
+		svc.RewindAgent,
+		connect.WithSchema(meshServiceMethods.ByName("RewindAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceAddAttachmentHandler := connect.NewUnaryHandler(
+		MeshServiceAddAttachmentProcedure,
+		svc.AddAttachment,
+		connect.WithSchema(meshServiceMethods.ByName("AddAttachment")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceCreatePairingHandler := connect.NewUnaryHandler(
 		MeshServiceCreatePairingProcedure,
 		svc.CreatePairing,
@@ -2204,6 +2263,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceSendPromptAnywayHandler.ServeHTTP(w, r)
 		case MeshServiceInterruptAgentProcedure:
 			meshServiceInterruptAgentHandler.ServeHTTP(w, r)
+		case MeshServiceRewindAgentProcedure:
+			meshServiceRewindAgentHandler.ServeHTTP(w, r)
+		case MeshServiceAddAttachmentProcedure:
+			meshServiceAddAttachmentHandler.ServeHTTP(w, r)
 		case MeshServiceCreatePairingProcedure:
 			meshServiceCreatePairingHandler.ServeHTTP(w, r)
 		case MeshServiceListDevicesProcedure:
@@ -2451,6 +2514,14 @@ func (UnimplementedMeshServiceHandler) SendPromptAnyway(context.Context, *connec
 
 func (UnimplementedMeshServiceHandler) InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.InterruptAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RewindAgent(context.Context, *connect.Request[v1.RewindAgentRequest]) (*connect.Response[v1.RewindAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RewindAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) AddAttachment(context.Context, *connect.Request[v1.AddAttachmentRequest]) (*connect.Response[v1.AddAttachmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.AddAttachment is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {
