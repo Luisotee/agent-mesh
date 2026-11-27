@@ -133,7 +133,8 @@ func (d *Daemon) PromptAgent(ctx context.Context, req *connect.Request[v1.Prompt
 	if err != nil {
 		return nil, err
 	}
-	now := len(queued) == 0 && takesDoorbell(a.State)
+	// Not while a doorbell or a prompt typed before is in flight: the box reads empty before its turn starts.
+	now := len(queued) == 0 && takesDoorbell(a.State) && d.ringOf(a.Id) == nil && !d.promptInFlight(a)
 	if now {
 		hold, err := d.whyNotToType(ctx, a)
 		if err != nil {
@@ -144,9 +145,11 @@ func (d *Daemon) PromptAgent(ctx context.Context, req *connect.Request[v1.Prompt
 	if !now {
 		return d.queuePrompt(ctx, actor, req.Msg.Meta, a, text)
 	}
+	at := d.now()
 	if err := d.typePrompt(ctx, a, text); err != nil {
 		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("typing into %s's terminal: %w", a.Name, err))
 	}
+	d.notePromptTyped(a.Id, at)
 	// Recorded even if the request expired or its caller left while typing: the prompt is in, and a retry must
 	// find that. The expiry was checked before typing.
 	meta := proto.CloneOf(req.Msg.Meta)

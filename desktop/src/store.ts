@@ -37,6 +37,8 @@ export interface HostState {
   pairedVia: Record<string, string>
   /** The prompts sent to an agent's chat that wait to be typed, by agent id, oldest first: read with ListPrompts when its chat is shown, then kept by the Prompt* events. */
   prompts: Record<string, QueuedPrompt[]>
+  /** Ids of prompts the host said were typed or taken back: a listing or an answer older than that event never brings one back. */
+  promptsDone: Record<string, true>
   cursor?: Cursor
   log: LogLine[]
 }
@@ -47,7 +49,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, prompts: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -179,13 +181,15 @@ function applyEvent(s: HostState, e: Event): HostState {
     case 'promptQueued': {
       const q = p.value.prompt
       if (!q) return next
+      // A requeue (its typing never reached the terminal) is queued again, so it is no longer done.
+      const { [q.id]: _again, ...promptsDone } = s.promptsDone
       const list = (s.prompts[q.agentId] ?? []).filter((x) => x.id !== q.id)
       const sorted = [...list, q].sort((a, b) => Number((a.createdAt?.seconds ?? 0n) - (b.createdAt?.seconds ?? 0n)) || (a.createdAt?.nanos ?? 0) - (b.createdAt?.nanos ?? 0))
-      return { ...next, prompts: { ...s.prompts, [q.agentId]: sorted } }
+      return { ...next, promptsDone, prompts: { ...s.prompts, [q.agentId]: sorted } }
     }
     case 'promptTyped':
     case 'promptWithdrawn':
-      return withoutPrompt(next, e.agentId, p.value.promptId)
+      return { ...withoutPrompt(next, e.agentId, p.value.promptId), promptsDone: { ...s.promptsDone, [p.value.promptId]: true } }
     case 'devicePaired': {
       const d = p.value.device
       if (!d) return next
@@ -208,22 +212,22 @@ function withoutPrompt(s: HostState, agentId: string, id: string): HostState {
 
 /** An agent's queue as the host listed it, which replaces what we hold for it. */
 export function setPrompts(agentId: string, list: QueuedPrompt[]): (s: HostState) => Partial<HostState> {
-  return (s) => ({ prompts: { ...s.prompts, [agentId]: list } })
+  return (s) => ({ prompts: { ...s.prompts, [agentId]: list.filter((q) => !s.promptsDone[q.id]) } })
 }
 
 /** A prompt the host answered as queued, added before its event arrives (the event replaces it). */
 export function addPrompt(q: QueuedPrompt): (s: HostState) => Partial<HostState> {
   return (s) => {
     const list = s.prompts[q.agentId] ?? []
-    return list.some((x) => x.id === q.id) ? {} : { prompts: { ...s.prompts, [q.agentId]: [...list, q] } }
+    return list.some((x) => x.id === q.id) || s.promptsDone[q.id] ? {} : { prompts: { ...s.prompts, [q.agentId]: [...list, q] } }
   }
 }
 
-/** A prompt taken back, removed at once (its event follows). */
+/** A prompt taken back, removed at once and for good (its event follows; an older listing doesn't bring it back). */
 export function dropPrompt(agentId: string, id: string): (s: HostState) => Partial<HostState> {
   return (s) => {
     const list = s.prompts[agentId]
-    return list?.some((x) => x.id === id) ? { prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : {}
+    return { promptsDone: { ...s.promptsDone, [id]: true }, ...(list?.some((x) => x.id === id) ? { prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : {}) }
   }
 }
 

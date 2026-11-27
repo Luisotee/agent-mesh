@@ -83,6 +83,7 @@ func (d *Daemon) typeQueuedPrompt(ctx context.Context, a *v1.Agent) (typed bool,
 			continue // withdrawn since it was read: the next one is due instead
 		}
 		d.setPromptHeld(a.Id, "")
+		at := d.now()
 		if err := d.typePrompt(ctx, a, p.Text); err != nil {
 			if writeDidNotHappen(err) {
 				// Nothing reached the terminal: back in its place, typed at a later pass.
@@ -92,6 +93,7 @@ func (d *Daemon) typeQueuedPrompt(ctx context.Context, a *v1.Agent) (typed bool,
 			}
 			return false, fmt.Errorf("typing a queued prompt into %s's terminal: %w", a.Name, err)
 		}
+		d.notePromptTyped(a.Id, at)
 		return true, nil
 	}
 	return false, nil
@@ -124,6 +126,32 @@ func (d *Daemon) requeuePrompt(ctx context.Context, a *v1.Agent, p *v1.QueuedPro
 			PromptQueued: &v1.PromptQueued{Prompt: p}}})
 		return err
 	})
+}
+
+// promptSettle is how long after a prompt was typed nothing more is typed into the agent unless its CLI reported
+// activity: the box reads empty again at once, before the turn's first hook makes the agent WORKING.
+const promptSettle = 20 * time.Second
+
+func (d *Daemon) notePromptTyped(agentID string, at time.Time) {
+	d.rt.mu.Lock()
+	defer d.rt.mu.Unlock()
+	d.rt.promptTyped[agentID] = at
+}
+
+// promptInFlight reports whether a prompt typed into the agent may not have started its turn yet: typed less than
+// promptSettle ago, with no activity reported since. Then nothing else (a prompt, a doorbell) is typed after it.
+func (d *Daemon) promptInFlight(a *v1.Agent) bool {
+	d.rt.mu.Lock()
+	defer d.rt.mu.Unlock()
+	at, ok := d.rt.promptTyped[a.Id]
+	if !ok {
+		return false
+	}
+	if (a.LastActivity != nil && a.LastActivity.AsTime().After(at)) || d.now().Sub(at) >= promptSettle {
+		delete(d.rt.promptTyped, a.Id)
+		return false
+	}
+	return true
 }
 
 func (d *Daemon) setPromptHeld(agentID, code string) {
@@ -285,6 +313,15 @@ func (d *Daemon) InterruptAgent(ctx context.Context, req *connect.Request[v1.Int
 	out := &v1.InterruptAgentResponse{}
 	switch a.State {
 	case v1.AgentState_AGENT_STATE_WORKING, v1.AgentState_AGENT_STATE_NEEDS_INPUT:
+		if a.State == v1.AgentState_AGENT_STATE_WORKING && d.atIdleScreen(ctx, a) {
+			// Already back at its prompt (an earlier interrupt worked after we stopped looking, or a turn that ended
+			// with no hook): an Esc now would open Claude's rewind menu. Record the end it missed instead.
+			out.Stopped = true
+			if err := d.recordInterrupted(ctx, a.Id); err != nil {
+				d.log.Warn("recording an interrupted turn", "agent", a.Name, "err", err)
+			}
+			break
+		}
 		if _, err := d.rt.term.API.WriteTerminal(ctx, connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
 			Data: []byte("\x1b")})); err != nil {
 			return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("sending Esc to %s's terminal: %w", a.Name, err))
@@ -315,28 +352,36 @@ func (d *Daemon) InterruptAgent(ctx context.Context, req *connect.Request[v1.Int
 // waitForPrompt watches an agent's screen after its interrupt key: true once its box reads empty and the screen has
 // been still for a moment.
 func (d *Daemon) waitForPrompt(ctx context.Context, a *v1.Agent) bool {
-	end := d.now().Add(interruptWait)
-	for d.now().Before(end) {
+	end := time.After(interruptWait) // the real clock: a test's fixed d.now() must not make this endless
+	for {
 		select {
 		case <-ctx.Done():
 			return false
+		case <-end:
+			return false
 		case <-time.After(interruptPoll):
 		}
-		if d.readInputBox(ctx, a, "").GetBox() != adapterv1.InputBox_INPUT_BOX_EMPTY {
-			continue
-		}
-		t, err := d.terminalInfo(ctx, a.TerminalId)
-		if err != nil || t == nil {
-			return false
-		}
-		if last := t.LastOutput; last == nil || d.now().Sub(last.AsTime()) >= interruptQuiet {
+		if d.atIdleScreen(ctx, a) {
 			return true
 		}
 		if cur, err := d.store.Read(ctx).GetAgent(a.Id); err == nil && atPrompt(cur.State) && cur.State != v1.AgentState_AGENT_STATE_NEEDS_INPUT {
 			return true // its own hook said so
 		}
 	}
-	return false
+}
+
+// atIdleScreen reports whether an agent's screen shows it at its prompt: an empty input box on a screen that hasn't
+// drawn for interruptQuiet (a working turn's spinner redraws all the time).
+func (d *Daemon) atIdleScreen(ctx context.Context, a *v1.Agent) bool {
+	if d.readInputBox(ctx, a, "").GetBox() != adapterv1.InputBox_INPUT_BOX_EMPTY {
+		return false
+	}
+	t, err := d.terminalInfo(ctx, a.TerminalId)
+	if err != nil || t == nil {
+		return false
+	}
+	last := t.LastOutput
+	return last == nil || time.Since(last.AsTime()) >= interruptQuiet
 }
 
 // recordInterrupted ends the turn of an agent seen back at its prompt after an interrupt: a TurnEnded through the

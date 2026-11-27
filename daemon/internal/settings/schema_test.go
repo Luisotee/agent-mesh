@@ -140,7 +140,7 @@ func TestAChatKeyIsANamedKeyAloneOrAChord(t *testing.T) {
 		}
 	}
 	// A bare letter would fire while typing in the composer.
-	for _, bad := range []string{"P", "Shift+P", "k", "Nope", "Mod+"} {
+	for _, bad := range []string{"P", "Shift+P", "k", "Nope", "Mod+", "Space", "Enter", "Backspace", "Delete", "Tab", "Home", "ArrowLeft"} {
 		if ValidChatKey(bad) {
 			t.Errorf("%q accepted", bad)
 		}

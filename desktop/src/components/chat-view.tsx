@@ -311,11 +311,13 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   const fill = useAppState((s) => s.composerFill)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [error, setError] = useState('')
   // A queued prompt taken back to edit lands here.
   useEffect(() => {
     if (fill && fill.agentId === agentId) {
-      setText(fill.text)
+      // Never over what is being written: the taken-back prompt goes after it.
+      setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${fill.text}` : fill.text))
       app.store.setState({ composerFill: undefined })
     }
   }, [fill, agentId, app])
@@ -346,12 +348,17 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
     }
   }
   async function stop() {
+    // One at a time: a second Esc at an agent that already stopped would open Claude's rewind menu.
+    if (stopping) return
+    setStopping(true)
     setError('')
     try {
       const res = await interruptAgent(host.client, agentId)
       if (!res.stopped) setError("Sent Esc, but it hasn't stopped yet: look at its terminal.")
     } catch (e) {
       setError(say(e))
+    } finally {
+      setStopping(false)
     }
   }
   /** Up in an empty box takes back the newest queued prompt to edit, as Claude Code's Up arrow does. */
@@ -412,7 +419,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
           }}
         />
         {working && !why && (
-          <Button type="button" variant="outline" aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
+          <Button type="button" variant="outline" disabled={stopping} aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
             <Square /> Stop
           </Button>
         )}

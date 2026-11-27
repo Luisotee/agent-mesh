@@ -5,6 +5,9 @@ import { jsonOf } from '@/prefs'
 import { chordFromEvent, displayChord, parseChord, sameChord } from '@/keys'
 import type { HostRuntime } from '@/model'
 
+/** The keys a chat key may be alone (the daemon's `bareChatKeys`). */
+const BARE_KEYS = new Set(['Escape', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown'])
+
 /**
  * A shortcut setting: press the keys to set it. Escape cancels, Backspace unbinds. A `bare` one (a key of the chat's
  * composer, which may be Escape or an arrow alone) records those keys too: a click cancels, and Unbind unbinds. The host checks what is saved;
@@ -40,6 +43,8 @@ export function ShortcutField({ host, id, value, busy, save, bare = false }: { h
     }
     const chord = chordFromEvent(e.nativeEvent)
     if (!chord) return // only modifiers so far
+    // A composer key alone must be one that doesn't type or edit text (the host's list): say so here, not by a refusal.
+    if (bare && !chord.includes('+') && !BARE_KEYS.has(chord) && !/^F\d+$/.test(chord)) return setClash(`${displayChord(chord)} alone would fire while typing: use ${[...BARE_KEYS].join(', ')}, or add Ctrl or Alt.`)
     const other = taken(chord)
     if (other) return setClash(`${displayChord(chord)} already does "${other}": choose another, or unbind that one first.`)
     setClash('')

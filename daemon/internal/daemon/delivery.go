@@ -198,6 +198,9 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 	}
 	// The user's own queued prompts go before the doorbells, when no doorbell is in flight: the user is watching, and
 	// a doorbell only says to read the inbox, which the turn after does as well.
+	if d.promptInFlight(a) {
+		return nil // a prompt just typed hasn't started its turn: nothing goes in after it until it does
+	}
 	if rg == nil && takesDoorbell(a.State) {
 		if typed, err := d.typeQueuedPrompt(ctx, a); typed || err != nil {
 			return err

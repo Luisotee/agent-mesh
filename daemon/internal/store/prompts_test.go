@@ -22,6 +22,16 @@ func TestAPromptLeavesTheQueueOnceTypedOrWithdrawnNeverBoth(t *testing.T) {
 		}
 	}
 	must(s.Write(ctx, nil, "", func(tx *Tx) error {
+		if err := tx.PutRun(&v1.Run{Id: "r1", Title: "run"}); err != nil {
+			return err
+		}
+		// a1 runs in a terminal; a2 has none (retired): its prompts wait, and the retry loop doesn't wake it.
+		if err := tx.PutAgent(&v1.Agent{Id: "a1", RunId: "r1", Name: "one", TerminalId: "t1"}); err != nil {
+			return err
+		}
+		if err := tx.PutAgent(&v1.Agent{Id: "a2", RunId: "r1", Name: "two"}); err != nil {
+			return err
+		}
 		for i, id := range []string{"p2", "p1", "p3"} {
 			agent := "a1"
 			if id == "p3" {
@@ -42,8 +52,8 @@ func TestAPromptLeavesTheQueueOnceTypedOrWithdrawnNeverBoth(t *testing.T) {
 	}
 	agents, err := r.AgentsWithQueuedPrompts()
 	must(err)
-	if len(agents) != 2 {
-		t.Errorf("agents with queued prompts = %v", agents)
+	if len(agents) != 1 || agents[0] != "a1" {
+		t.Errorf("agents with queued prompts = %v, want a1 only", agents)
 	}
 
 	// Claimed for typing: a withdrawal after it finds nothing to take back, and a second claim neither.

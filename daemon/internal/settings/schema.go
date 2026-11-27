@@ -490,15 +490,19 @@ var shortcutNamedKeys = map[string]bool{
 	"ArrowLeft": true, "ArrowRight": true, "Plus": true,
 }
 
-// ValidChatKey reports whether s is a key the chat's composer may act on: a named key alone (it fires only while the
-// composer has focus, where a bare Escape or ArrowUp is what Claude Code uses), or a chord ValidShortcut accepts.
+// ValidChatKey reports whether s is a key the chat's composer may act on: one of bareChatKeys alone (it fires only
+// while the composer has focus, where a bare Escape or ArrowUp is what Claude Code uses), or a chord ValidShortcut
+// accepts.
 func ValidChatKey(s string) bool {
-	return shortcutNamedKeys[s] || ValidShortcut(s)
+	return bareChatKeys[s] || ValidShortcut(s)
 }
 
+// bareChatKeys are the keys a chat key may be alone: none of them types or edits text, or sends (Enter).
+var bareChatKeys = map[string]bool{"Escape": true, "ArrowUp": true, "ArrowDown": true, "PageUp": true, "PageDown": true}
+
 func namedKeys() []string {
-	out := make([]string, 0, len(shortcutNamedKeys))
-	for k := range shortcutNamedKeys {
+	out := make([]string, 0, len(bareChatKeys))
+	for k := range bareChatKeys {
 		out = append(out, k)
 	}
 	sort.Strings(out)

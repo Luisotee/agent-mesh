@@ -2,7 +2,7 @@ import { create, fromJson, toJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { applyFrame, createHostStore, emptyHost, mergeMessages, storeSink, type HostState } from './store'
+import { addPrompt, applyFrame, createHostStore, emptyHost, mergeMessages, setPrompts, storeSink, type HostState } from './store'
 import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, QueuedPromptSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
@@ -115,6 +115,18 @@ describe('applyFrame', () => {
     s = run([ev(9, { case: 'promptTyped', value: { $typeName: 'agentmesh.v1.PromptTyped', promptId: 'early' } }), ev(10, { case: 'promptWithdrawn', value: { $typeName: 'agentmesh.v1.PromptWithdrawn', promptId: 'late' } })], s)
     expect(s.prompts.a1).toEqual([])
     expect(s.cursor?.seq).toBe(10n)
+  })
+
+  it('a listing or an answer older than a prompt\'s typing never brings it back', () => {
+    const p = create(QueuedPromptSchema, { id: 'q1', agentId: 'a1', text: 'go' })
+    let s = run([snapshot(), ev(6, { case: 'promptTyped', value: { $typeName: 'agentmesh.v1.PromptTyped', promptId: 'q1' } })])
+    s = { ...s, ...setPrompts('a1', [p])(s) }
+    expect(s.prompts.a1).toEqual([])
+    s = { ...s, ...addPrompt(p)(s) }
+    expect(s.prompts.a1).toEqual([])
+    // Queued again (its typing never reached the terminal): it is shown again.
+    s = run([ev(7, { case: 'promptQueued', value: { $typeName: 'agentmesh.v1.PromptQueued', prompt: p } })], s)
+    expect(s.prompts.a1?.map((x) => x.id)).toEqual(['q1'])
   })
 
   it('a loaded page never replaces a message events already updated', () => {

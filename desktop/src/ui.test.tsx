@@ -1337,6 +1337,19 @@ describe('ChatView', () => {
     expect(await screen.findByText(/hasn't stopped yet/)).toBeInTheDocument()
   })
 
+  it('editing a queued prompt puts it after what is being written, never over it', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    const q = create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'old idea', held: 'working' })
+    c.listPrompts.mockResolvedValue({ prompts: [q] })
+    c.withdrawPrompt.mockResolvedValueOnce({ prompt: q })
+    render(c.ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, 'new thought')
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    await userEvent.click(within(list).getByRole('button', { name: 'Edit the queued prompt' }))
+    await waitFor(() => expect(box).toHaveValue('new thought\n\nold idea'))
+  })
+
   it('a taken-back prompt that was typed meanwhile says so', async () => {
     const c = chat({ agent: { state: AgentState.WORKING } })
     c.listPrompts.mockResolvedValue({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'late', held: 'working' })] })

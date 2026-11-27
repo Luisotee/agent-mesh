@@ -28,9 +28,11 @@ func (r Reader) QueuedPrompts(agentID string) ([]*v1.QueuedPrompt, error) {
 		[]any{agentID}, func() *v1.QueuedPrompt { return &v1.QueuedPrompt{} })
 }
 
-// AgentsWithQueuedPrompts lists the agents that have a prompt waiting to be typed.
+// AgentsWithQueuedPrompts lists the agents with a terminal that have a prompt waiting to be typed: one with no
+// terminal (gone, retired) is left out, so the retry loop doesn't wake it for nothing; its prompts wait for a resume.
 func (r Reader) AgentsWithQueuedPrompts() ([]string, error) {
-	rows, err := r.q.QueryContext(r.ctx, `SELECT DISTINCT agent_id FROM prompts WHERE state = 'queued'`)
+	rows, err := r.q.QueryContext(r.ctx, `SELECT DISTINCT p.agent_id FROM prompts p JOIN agents a ON a.id = p.agent_id
+		WHERE p.state = 'queued' AND a.terminal_id != ''`)
 	if err != nil {
 		return nil, err
 	}
