@@ -24,6 +24,7 @@ object Routes {
     const val LOG = "host/{id}/log"
     const val HOST_SETTINGS = "host/{id}/settings"
     const val DOCK = "host/{id}/live"
+    const val DOCK_ALL = "live"
     const val USAGE = "host/{id}/usage"
     const val AGENT = "host/{id}/agent/{agent}?tab={tab}"
     const val SETTINGS = "settings"
@@ -64,7 +65,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         composable(Routes.HOSTS) {
             HostsScreen(
                 onOpen = { nav.navigate(Routes.host(it)) }, onAdd = { nav.navigate(Routes.ADD) }, onPair = { nav.navigate(Routes.PAIR) },
-                onEdit = { nav.navigate(Routes.edit(it)) }, onSettings = { nav.navigate(Routes.SETTINGS) },
+                onEdit = { nav.navigate(Routes.edit(it)) }, onSettings = { nav.navigate(Routes.SETTINGS) }, onLive = { nav.navigate(Routes.DOCK_ALL) },
             )
         }
         composable(Routes.PAIR) {
@@ -87,6 +88,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             )
         }
         composable(Routes.LOG) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { LogScreen(it) { nav.popBackStack() } } }
+        composable(Routes.DOCK_ALL) { AllHostsDockScreen({ nav.popBackStack() }) { host, agent, tab -> nav.navigate(Routes.agent(host, agent, tab)) } }
         composable(Routes.DOCK) { e ->
             val id = e.arguments!!.getString("id")!!
             runtimes[id]?.let { DockScreen(it, { nav.popBackStack() }, onLog = { nav.navigate(Routes.log(id)) }) { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) } }
