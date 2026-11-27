@@ -85,7 +85,8 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     let started = false
     const refit = () => {
       // A box that is hidden or not laid out yet has no size to fit to.
-      if (el.clientWidth === 0 || el.clientHeight === 0) return
+      // Nor does one whose cells xterm couldn't measure yet (fit would keep 80x24).
+      if (el.clientWidth === 0 || el.clientHeight === 0 || !f.proposeDimensions()) return
       f.fit()
       // Attached only once it has its real size: a repaint drawn at xterm's default 80x24 and then reflowed to the
       // box's width loses lines (the trailing blanks of a row wrap), and the host would shrink the program to 80x24.
@@ -110,6 +111,9 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
       session.dispose()
       t.dispose()
       term.current = null
+      fit.current = null
+      search.current = null
+      refitRef.current = undefined
     }
   }, [host, agentId])
 

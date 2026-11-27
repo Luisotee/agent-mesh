@@ -58,9 +58,10 @@ describe('themes', () => {
     return (hi! + 0.05) / (lo! + 0.05)
   }
 
-  it('keeps muted text readable (4.5:1) and the hues, vendor marks and glow visible (3:1) on every surface', () => {
+  it('keeps muted text readable (4.5:1) and the hues, vendor marks and glow visible (3:1) on every surface, chips and selected rows included', () => {
     for (const t of themes) {
-      for (const bg of ['background', 'surface', 'card']) {
+      // The surfaces text and marks sit on: the page, panels, cards, chips (muted) and selected rows and tiles (accent).
+      for (const bg of ['background', 'surface', 'card', 'muted', 'accent']) {
         expect(contrast(t.tokens['muted-foreground']!, t.tokens[bg]!), `${t.name} muted on ${bg}`).toBeGreaterThanOrEqual(4.5)
         for (const k of Object.keys(t.tokens).filter((k) => /^(hue-|vendor-|glow$)/.test(k))) {
           expect(contrast(t.tokens[k]!, t.tokens[bg]!), `${t.name} ${k} on ${bg}`).toBeGreaterThanOrEqual(3)

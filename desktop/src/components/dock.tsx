@@ -48,7 +48,7 @@ export function Dock() {
         </Button>
       </header>
       {open && (
-        <ul aria-label="Agents in the dock" className="flex gap-2 overflow-x-auto px-3 pb-2.5">
+        <ul aria-label="Agents in the dock" className="flex gap-2 overflow-x-auto px-3 pt-1 pb-2.5">
           {tiles.length === 0 && <li className="list-none py-3 text-xs text-muted-foreground">No live agents in the open runs.</li>}
           <AnimatePresence initial={false}>
             {tiles.map((t) => (

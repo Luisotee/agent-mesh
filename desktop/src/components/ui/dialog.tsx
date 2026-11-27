@@ -10,7 +10,7 @@ export const DialogClose = Base.Close
 export function DialogContent({ className, children, title, description, ...props }: Omit<React.ComponentProps<typeof Base.Popup>, 'title'> & { title: string; description?: string }) {
   return (
     <Base.Portal>
-      <Base.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+      <Base.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0 motion-reduce:transition-none" />
       <Base.Popup
         className={cn('fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-lg border bg-popover p-5 shadow-xl outline-none transition-[scale,opacity] duration-150 ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0 motion-reduce:transition-none', className)}
         {...props}

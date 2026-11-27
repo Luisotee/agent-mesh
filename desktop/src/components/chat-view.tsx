@@ -203,7 +203,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
           </p>
         )}
         {transcript.supported && !loaded && !error && (
-          <div role="status" aria-label="Loading the conversation" className="flex flex-col gap-4 py-2">
+          <div role="status" aria-label="Loading the conversation" className="flex flex-col gap-4 py-2"><span className="sr-only">Loading the conversation</span>
             <Skeleton className="h-8 w-1/2 self-end rounded-lg" />
             <SkeletonLines lines={3} className="w-5/6" />
             <Skeleton className="h-8 w-1/3 self-end rounded-lg" />

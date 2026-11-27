@@ -19,6 +19,7 @@ export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivEl
 export function SkeletonLines({ label, lines = 3, className }: { label?: string; lines?: number; className?: string }) {
   return (
     <div role={label ? 'status' : undefined} aria-label={label} className={cn('flex flex-col gap-2 py-1', className)}>
+      {label && <span className="sr-only">{label}</span>}
       {Array.from({ length: lines }, (_, i) => (
         <Skeleton key={i} className={i === lines - 1 ? 'w-2/3' : i % 2 ? 'w-5/6' : 'w-full'} />
       ))}

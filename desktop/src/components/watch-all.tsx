@@ -101,7 +101,9 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
   const last = activityMs(a)
   const needs = a.state === AgentState.NEEDS_INPUT
   return (
-    <li aria-label={`${a.name} in the grid`} style={hueStyle(a.repo)} className={cn('flex min-h-48 flex-col rounded-lg border border-t-2 border-t-identity bg-card', (needs || bucket === 'needs') && 'border-glow shadow-[0_0_0_3px] shadow-glow/25', bucket === 'failed' && 'border-destructive')}>
+    <li aria-label={`${a.name} in the grid`} style={hueStyle(a.repo)} className={cn('relative flex min-h-48 flex-col overflow-hidden rounded-lg border bg-card', (needs || bucket === 'needs') && 'border-glow shadow-[0_0_0_3px] shadow-glow/25', bucket === 'failed' && 'border-destructive')}>
+      {/* The project's hue along the top, as on a dock tile; the border stays free for waiting and failed. */}
+      <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-identity" />
       <header className="flex items-center gap-1.5 border-b px-3 py-2">
         <StateIcon agent={a} />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{a.name}</span>

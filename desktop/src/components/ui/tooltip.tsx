@@ -18,7 +18,7 @@ export function Tip({ label, side = 'bottom', children }: { label: React.ReactNo
           <Base.Popup
             className={cn(
               'origin-(--transform-origin) rounded-md border bg-popover px-2 py-1 text-xs text-foreground shadow-md',
-              'transition-[transform,opacity] duration-100 ease-out data-ending-style:scale-95 data-ending-style:opacity-0 data-instant:transition-none data-starting-style:scale-95 data-starting-style:opacity-0',
+              'transition-[scale,opacity] duration-100 ease-out motion-reduce:transition-none data-ending-style:scale-95 data-ending-style:opacity-0 data-instant:transition-none data-starting-style:scale-95 data-starting-style:opacity-0',
             )}
           >
             {label}

@@ -104,7 +104,7 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
 /** The window's outline while the saved hosts are read: a rail, a sidebar of rows and an empty main area. */
 function ShellSkeleton() {
   return (
-    <div role="status" aria-label="Loading" className="flex h-screen">
+    <div role="status" aria-label="Loading" className="flex h-screen"><span className="sr-only">Loading</span>
       <div className="flex w-14 flex-col items-center gap-2 border-r py-3"><Skeleton className="size-9 rounded-lg" /></div>
       <div className="flex w-80 flex-col gap-3 border-r bg-surface p-3">
         <Skeleton className="h-4 w-1/2" />
@@ -234,9 +234,11 @@ function HostHeader({ host }: { host: HostRuntime }) {
       </Tip>
       <RemoveHostDialog host={host} />
       {mayPair && (
-        <Button size="icon" variant={pairOpen ? 'secondary' : 'ghost'} aria-label="Pair a device" aria-pressed={pairOpen} onClick={() => app.openPairing(!pairOpen)}>
-          <QrCode />
-        </Button>
+        <Tip label="Pair a device">
+          <Button size="icon" variant={pairOpen ? 'secondary' : 'ghost'} aria-label="Pair a device" aria-pressed={pairOpen} onClick={() => app.openPairing(!pairOpen)}>
+            <QrCode />
+          </Button>
+        </Tip>
       )}
       <Tip label="Cost, pull requests and quota of the open agent's run">
         <Button size="icon" variant={panelOpen ? 'secondary' : 'ghost'} aria-label="Side panel" aria-pressed={panelOpen} onClick={() => app.setPanel(!panelOpen)}>

@@ -47,7 +47,7 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
       {githubNote(githubProblem) && <p role="note" className="mx-3 mb-2 rounded-md border border-dashed px-2 py-1.5 text-xs text-muted-foreground">{githubNote(githubProblem)}</p>}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {loading && trees.length === 0 && (
-          <div role="status" aria-label="Loading the runs" className="flex flex-col gap-2 px-2 py-2">
+          <div role="status" aria-label="Loading the runs" className="flex flex-col gap-2 px-2 py-2"><span className="sr-only">Loading the runs</span>
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className="flex items-start gap-2 py-1">
                 <Skeleton className="size-4 rounded-full" />
