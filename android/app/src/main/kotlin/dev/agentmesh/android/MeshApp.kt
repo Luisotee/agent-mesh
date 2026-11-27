@@ -74,7 +74,7 @@ class AppContainer(
     val runtimes: StateFlow<Map<String, HostRuntime>> get() = _runtimes
 
     /** Gives each host this device's push endpoint, while push is on. */
-    val pushRegistrar = PushRegistrar(pushStore, runtimes, prefs.push, scope)
+    val pushRegistrar = PushRegistrar(pushStore, runtimes, prefs.push, prefs.notifyEvents, scope)
 
     init {
         // The host's `app.theme`: the first host (in list order) that has set one itself (followedTheme).
@@ -112,7 +112,7 @@ class AppContainer(
     /** What happens on a host that the user may want to hear about, filtered by that host's own notify settings. */
     private fun watchNotices(rt: HostRuntime) {
         noticeJobs[rt.hostId] = scope.launch {
-            rt.notices.collect { n -> if (notifies(rt.state.value, n.kind)) show(rt.hostId, n) }
+            rt.notices.collect { n -> if (notifies(rt.state.value, n.kind, prefs.notifyEvents.value)) show(rt.hostId, n) }
         }
     }
 

@@ -36,6 +36,35 @@ class NoticeTest {
         assertNull(notice(stateChanged(3, "w1", AgentState.AGENT_STATE_IDLE, AgentState.AGENT_STATE_WORKING, at = now)))
     }
 
+    @Test fun `an agent at its usage limit or in error notifies once, at the transition (the daemon's and the desktop's rules)`() {
+        for ((to, kind, title) in listOf(
+            Triple(AgentState.AGENT_STATE_LIMITED, NoticeKind.Limited, "shop-fix hit its usage limit"),
+            Triple(AgentState.AGENT_STATE_ERROR, NoticeKind.Error, "shop-fix is in error"),
+        )) {
+            val n = notice(stateChanged(1, "w1", AgentState.AGENT_STATE_WORKING, to, "5-hour window", at = now))!!
+            assertEquals(kind, n.kind); assertEquals(title, n.title); assertEquals("5-hour window", n.body); assertEquals(Tab.Terminal, n.tab); assertEquals("w1", n.agentId)
+            assertNull(notice(stateChanged(2, "w1", to, to, at = now)))
+            assertEquals("Its terminal says more.", notice(stateChanged(3, "w1", AgentState.AGENT_STATE_WORKING, to, at = now))!!.body)
+        }
+        // Recovering is not news.
+        assertNull(notice(stateChanged(4, "w1", AgentState.AGENT_STATE_LIMITED, AgentState.AGENT_STATE_WORKING, at = now)))
+    }
+
+    @Test fun `this phone's own list of kinds decides, the host's silencing still wins`() {
+        val host = HostState(settings = mapOf("app.notify.events" to setting("app.notify.events", "[\"question\"]")))
+        assertTrue(notifies(host, NoticeKind.Question)); assertTrue(!notifies(host, NoticeKind.Plan))
+        // Its own list replaces the host's.
+        assertTrue(notifies(host, NoticeKind.Plan, setOf("plan", "limited"))); assertTrue(notifies(host, NoticeKind.Limited, setOf("plan", "limited")))
+        assertTrue(!notifies(host, NoticeKind.Question, setOf("plan")))
+        // No list (or an empty one) follows the host.
+        assertTrue(notifies(host, NoticeKind.Question, null)); assertTrue(notifies(host, NoticeKind.Question, emptySet()))
+        // The host's own off switch silences everything.
+        val off = host.copy(settings = host.settings + ("app.notify.enabled" to setting("app.notify.enabled", "false")))
+        assertTrue(!notifies(off, NoticeKind.Plan, setOf("plan")))
+        // The default list, before the host's settings arrive, is the daemon's (it has error, not limited).
+        assertTrue(notifies(HostState(), NoticeKind.Error)); assertTrue(!notifies(HostState(), NoticeKind.Limited)); assertTrue(!notifies(HostState(), NoticeKind.Exited))
+    }
+
     @Test fun `what reaches the lead notifies, with the kind of report`() {
         fun kind(t: MessageType) = notice(messageSent(1, message("m", from = "w1", to = "lead", type = t, body = "# Plan\n- **do** `x`"), at = now))
         assertEquals(NoticeKind.Plan, kind(MessageType.MESSAGE_TYPE_PLAN)!!.kind)

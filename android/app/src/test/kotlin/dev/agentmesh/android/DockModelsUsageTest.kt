@@ -1,6 +1,8 @@
 package dev.agentmesh.android
 
 import dev.agentmesh.android.derive.COST_WINDOWS
+import dev.agentmesh.android.derive.DockHost
+import dev.agentmesh.android.derive.dockTilesAcross
 import dev.agentmesh.android.derive.activityAgo
 import dev.agentmesh.android.derive.ago
 import dev.agentmesh.android.derive.sentAgo
@@ -135,5 +137,25 @@ class DockModelsUsageTest {
         val busy = idle.toBuilder().setLastActivity(ts(now - 12_000)).build()
         assertEquals("12 s", activityAgo(busy, skewMs = 0, now = now))
         assertEquals("", sentAgo(message("m1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO).toBuilder().clearCreatedAt().build(), 0, now))
+    }
+
+    @Test fun `the dock of every host merges the tiles, the ones that need you first, then the latest activity on the phone's clock`() {
+        fun ag(id: String, st: AgentState, at: Long, name: String = id) = agent(id, state = st, name = name).toBuilder().setLastActivity(ts(at)).build()
+        val home = DockHost("h1", "Home", skewMs = 0, runs = mapOf("r1" to run("r1")), agents = listOf(ag("a", AgentState.AGENT_STATE_WORKING, 10_000), ag("b", AgentState.AGENT_STATE_WORKING, 5_000)).associateBy { it.id }, messages = emptyMap())
+        // The other host's clock is an hour ahead: its 10_000 + 3_600_000 is 10_000 here, and "d" asks for you.
+        val work = DockHost("h2", "Work", skewMs = 3_600_000, runs = mapOf("r1" to run("r1")), agents = listOf(ag("c", AgentState.AGENT_STATE_WORKING, 3_600_000 + 7_000), ag("d", AgentState.AGENT_STATE_NEEDS_INPUT, 3_600_000 + 1_000)).associateBy { it.id }, messages = emptyMap())
+        val tiles = dockTilesAcross(listOf(home, work))
+        assertEquals(listOf("h2/d", "h1/a", "h2/c", "h1/b"), tiles.map { it.hostId + "/" + it.agent.id })
+        assertEquals(listOf("Work", "Home", "Work", "Home"), tiles.map { it.hostName })
+        assertEquals(3_600_000L, tiles[0].skewMs)
+        // One host alone gives what its own dock gives.
+        assertEquals(dockTiles(home.runs, home.agents, home.messages).map { it.agent.id }, dockTilesAcross(listOf(home)).map { it.agent.id })
+    }
+
+    @Test fun `agents with no activity sort by name whatever their host's clock says`() {
+        fun ag(id: String) = agent(id, state = AgentState.AGENT_STATE_WORKING, name = id)
+        val a = DockHost("h1", "Home", skewMs = 0, runs = mapOf("r1" to run("r1")), agents = mapOf("z" to ag("z")), messages = emptyMap())
+        val b = DockHost("h2", "Work", skewMs = 3_600_000, runs = mapOf("r1" to run("r1")), agents = mapOf("a" to ag("a")), messages = emptyMap())
+        assertEquals(listOf("a", "z"), dockTilesAcross(listOf(a, b)).map { it.agent.name })
     }
 }
