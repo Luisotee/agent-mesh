@@ -9,4 +9,25 @@ package dev.agentmesh.gen.agentmesh.v1;
 public interface PromptAgentResponseOrBuilder extends
     // @@protoc_insertion_point(interface_extends:agentmesh.v1.PromptAgentResponse)
     com.google.protobuf.MessageLiteOrBuilder {
+
+  /**
+   * <pre>
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+   * @return Whether the queued field is set.
+   */
+  boolean hasQueued();
+  /**
+   * <pre>
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+   * @return The queued.
+   */
+  dev.agentmesh.gen.agentmesh.v1.QueuedPrompt getQueued();
 }

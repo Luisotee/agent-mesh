@@ -38,7 +38,7 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 func TestTheAppRowsAreInTheTable(t *testing.T) {
 	s := Default()
 	got := s.Keys("app.")
-	want := []string{"app.dock.new_agents", "app.keys.chat_toggle", "app.keys.dock", "app.keys.palette", "app.keys.settings", "app.keys.tab_close", "app.keys.tab_next", "app.keys.tab_prev", "app.keys.waiting_next", "app.notify.enabled", "app.notify.events", "app.notify.sound", "app.theme", "app.tray.close_to_tray"}
+	want := []string{"app.chat_keys.interrupt", "app.chat_keys.recall", "app.dock.new_agents", "app.keys.chat_toggle", "app.keys.dock", "app.keys.palette", "app.keys.settings", "app.keys.tab_close", "app.keys.tab_next", "app.keys.tab_prev", "app.keys.waiting_next", "app.notify.enabled", "app.notify.events", "app.notify.sound", "app.theme", "app.tray.close_to_tray"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("app rows %v, want %v", got, want)
 	}
@@ -130,6 +130,29 @@ func TestAStringLeafWithChoicesTakesOnlyThem(t *testing.T) {
 	}
 	if _, err := Check(mcp, "everything"); err == nil {
 		t.Error("claude.mcp took a value outside its choices")
+	}
+}
+
+func TestAChatKeyIsANamedKeyAloneOrAChord(t *testing.T) {
+	for _, ok := range []string{"Escape", "ArrowUp", "Mod+Shift+P", "F5", "Alt+ArrowUp"} {
+		if !ValidChatKey(ok) {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	// A bare letter would fire while typing in the composer.
+	for _, bad := range []string{"P", "Shift+P", "k", "Nope", "Mod+", "Space", "Enter", "Backspace", "Delete", "Tab", "Home", "ArrowLeft"} {
+		if ValidChatKey(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	l := Leaf{Key: "k", Type: ChatKey}
+	for _, v := range []any{"", "Escape"} {
+		if _, err := Check(l, v); err != nil {
+			t.Errorf("%q: %v", v, err)
+		}
+	}
+	if _, err := Check(l, "a"); err == nil {
+		t.Error("a bare letter accepted")
 	}
 }
 

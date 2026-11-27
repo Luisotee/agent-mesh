@@ -56,6 +56,9 @@ public  final class Event extends
     DOORBELL_HELD(33),
     WORKTREE_CREATED(34),
     PULL_REQUEST_CHANGED(35),
+    PROMPT_QUEUED(36),
+    PROMPT_TYPED(37),
+    PROMPT_WITHDRAWN(38),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -97,6 +100,9 @@ public  final class Event extends
         case 33: return DOORBELL_HELD;
         case 34: return WORKTREE_CREATED;
         case 35: return PULL_REQUEST_CHANGED;
+        case 36: return PROMPT_QUEUED;
+        case 37: return PROMPT_TYPED;
+        case 38: return PROMPT_WITHDRAWN;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -1761,6 +1767,156 @@ public  final class Event extends
    */
   private void clearPullRequestChanged() {
     if (payloadCase_ == 35) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int PROMPT_QUEUED_FIELD_NUMBER = 36;
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPromptQueued() {
+    return payloadCase_ == 36;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PromptQueued getPromptQueued() {
+    if (payloadCase_ == 36) {
+       return (dev.agentmesh.gen.agentmesh.v1.PromptQueued) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.PromptQueued.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   */
+  private void setPromptQueued(dev.agentmesh.gen.agentmesh.v1.PromptQueued value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 36;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   */
+  private void mergePromptQueued(dev.agentmesh.gen.agentmesh.v1.PromptQueued value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 36 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.PromptQueued.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.PromptQueued.newBuilder((dev.agentmesh.gen.agentmesh.v1.PromptQueued) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 36;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+   */
+  private void clearPromptQueued() {
+    if (payloadCase_ == 36) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int PROMPT_TYPED_FIELD_NUMBER = 37;
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPromptTyped() {
+    return payloadCase_ == 37;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PromptTyped getPromptTyped() {
+    if (payloadCase_ == 37) {
+       return (dev.agentmesh.gen.agentmesh.v1.PromptTyped) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.PromptTyped.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   */
+  private void setPromptTyped(dev.agentmesh.gen.agentmesh.v1.PromptTyped value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 37;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   */
+  private void mergePromptTyped(dev.agentmesh.gen.agentmesh.v1.PromptTyped value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 37 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.PromptTyped.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.PromptTyped.newBuilder((dev.agentmesh.gen.agentmesh.v1.PromptTyped) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 37;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+   */
+  private void clearPromptTyped() {
+    if (payloadCase_ == 37) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int PROMPT_WITHDRAWN_FIELD_NUMBER = 38;
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   */
+  @java.lang.Override
+  public boolean hasPromptWithdrawn() {
+    return payloadCase_ == 38;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn getPromptWithdrawn() {
+    if (payloadCase_ == 38) {
+       return (dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   */
+  private void setPromptWithdrawn(dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 38;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   */
+  private void mergePromptWithdrawn(dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 38 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn.newBuilder((dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 38;
+  }
+  /**
+   * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+   */
+  private void clearPromptWithdrawn() {
+    if (payloadCase_ == 38) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -3490,6 +3646,150 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPromptQueued() {
+      return instance.hasPromptQueued();
+    }
+    /**
+     * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PromptQueued getPromptQueued() {
+      return instance.getPromptQueued();
+    }
+    /**
+     * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+     */
+    public Builder setPromptQueued(dev.agentmesh.gen.agentmesh.v1.PromptQueued value) {
+      copyOnWrite();
+      instance.setPromptQueued(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+     */
+    public Builder setPromptQueued(
+        dev.agentmesh.gen.agentmesh.v1.PromptQueued.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPromptQueued(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+     */
+    public Builder mergePromptQueued(dev.agentmesh.gen.agentmesh.v1.PromptQueued value) {
+      copyOnWrite();
+      instance.mergePromptQueued(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptQueued prompt_queued = 36 [json_name = "promptQueued"];</code>
+     */
+    public Builder clearPromptQueued() {
+      copyOnWrite();
+      instance.clearPromptQueued();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPromptTyped() {
+      return instance.hasPromptTyped();
+    }
+    /**
+     * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PromptTyped getPromptTyped() {
+      return instance.getPromptTyped();
+    }
+    /**
+     * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+     */
+    public Builder setPromptTyped(dev.agentmesh.gen.agentmesh.v1.PromptTyped value) {
+      copyOnWrite();
+      instance.setPromptTyped(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+     */
+    public Builder setPromptTyped(
+        dev.agentmesh.gen.agentmesh.v1.PromptTyped.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPromptTyped(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+     */
+    public Builder mergePromptTyped(dev.agentmesh.gen.agentmesh.v1.PromptTyped value) {
+      copyOnWrite();
+      instance.mergePromptTyped(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptTyped prompt_typed = 37 [json_name = "promptTyped"];</code>
+     */
+    public Builder clearPromptTyped() {
+      copyOnWrite();
+      instance.clearPromptTyped();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+     */
+    @java.lang.Override
+    public boolean hasPromptWithdrawn() {
+      return instance.hasPromptWithdrawn();
+    }
+    /**
+     * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn getPromptWithdrawn() {
+      return instance.getPromptWithdrawn();
+    }
+    /**
+     * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+     */
+    public Builder setPromptWithdrawn(dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn value) {
+      copyOnWrite();
+      instance.setPromptWithdrawn(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+     */
+    public Builder setPromptWithdrawn(
+        dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPromptWithdrawn(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+     */
+    public Builder mergePromptWithdrawn(dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn value) {
+      copyOnWrite();
+      instance.mergePromptWithdrawn(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PromptWithdrawn prompt_withdrawn = 38 [json_name = "promptWithdrawn"];</code>
+     */
+    public Builder clearPromptWithdrawn() {
+      copyOnWrite();
+      instance.clearPromptWithdrawn();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -3542,14 +3842,17 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.DoorbellHeld.class,
             dev.agentmesh.gen.agentmesh.v1.WorktreeCreated.class,
             dev.agentmesh.gen.agentmesh.v1.PullRequestChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.PromptQueued.class,
+            dev.agentmesh.gen.agentmesh.v1.PromptTyped.class,
+            dev.agentmesh.gen.agentmesh.v1.PromptWithdrawn.class,
           };
           java.lang.String info =
-              "\u0000!\u0001\u0001\u0001#!\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
+              "\u0000$\u0001\u0001\u0001&$\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
               "\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b<\u0000" +
               "\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000" +
               "\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019" +
               "<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000" +
-              " <\u0000!<\u0000\"<\u0000#<\u0000";
+              " <\u0000!<\u0000\"<\u0000#<\u0000$<\u0000%<\u0000&<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
