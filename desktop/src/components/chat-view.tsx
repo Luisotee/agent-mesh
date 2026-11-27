@@ -1,5 +1,6 @@
 import { ArrowDown, Check, ChevronRight, Clock, Copy, ImagePlus, Pencil, Quote, Send, Square, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { m } from 'motion/react'
 import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, sendPromptAnyway, withdrawPrompt } from '@/actions'
 import { ConfirmDialog } from '@/components/ui/confirm'
 import { imageName, imageProblem, imageRef, imagesUnsupported, keepThumb, rewindUnsupported, splitImages, thumbs } from '@/attachments'
@@ -19,7 +20,7 @@ import { chatKeys } from '@/prefs'
 import { addPrompt, dropPrompt, setPrompts } from '@/store'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
-import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
+import { sameBlock, emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { MessageCard } from './messages-panel'
 import { RewindDialog } from './rewind-dialog'
 import { ContextMeter, useAgentWait } from './agent-work'
@@ -375,10 +376,10 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         {sending.length > 0 && (
           <ol aria-label="Sending" className="flex flex-col gap-3">
             {sending.map((x) => (
-              <li key={x.id} data-kind="user" className="ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end opacity-70">
+              <m.li key={x.id} data-kind="user" initial={{ opacity: 0, y: 6, scale: 0.98 }} animate={{ opacity: 0.7, y: 0, scale: 1 }} transition={{ duration: 0.16 }} className="ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end">
                 <UserBody body={x.body} />
                 <span className="px-1 text-xs text-muted-foreground">sending…</span>
-              </li>
+              </m.li>
             ))}
           </ol>
         )}
@@ -911,7 +912,9 @@ function UserBody({ body }: { body: string }) {
   )
 }
 
-function ChatBlock({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
+const ChatBlock = memo(ChatBlockView, (a, b) => a.agentId === b.agentId && a.running === b.running && sameBlock(a.block, b.block))
+
+function ChatBlockView({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
   switch (block.kind) {
     case 'user': {
       // Its images: a thumbnail where this device sent it, else the file's name (the host's file isn't fetched).
