@@ -93,13 +93,15 @@ func frameOf(f any) *termv1.TermFrame {
 }
 
 // attach registers a client and queues what it needs before live output: Attached, then the replay (exact)
-// or the preamble and repaint, then ReplayDone, all under the lock so no live output slips in between.
+// or the preamble and repaint, then ReplayDone, all under the lock so no live output slips in between. The replay is
+// decided against the epoch the client left, and only then does its size count: a client that comes back at another
+// size continues exactly, and is told the size that follows by a Resized after ReplayDone (the same epoch rule as any
+// other resize: the output from that offset on is in the new epoch).
 func (t *Terminal) attach(c *client, a *termv1.Attach) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	c.cols, c.rows = clampSize(a.Cols, a.Rows)
 	t.clients[c] = struct{}{}
-	t.resizeLocked(c) // the new client learns the size from its Attached, which is queued below
 
 	mode := a.Mode
 	if mode == termv1.AttachMode_ATTACH_MODE_UNSPECIFIED {
@@ -134,6 +136,7 @@ func (t *Terminal) attach(c *client, a *termv1.Attach) {
 		t.sendLocked(c, frameOf(&termv1.Screen{Epoch: t.epoch, Offset: end, Data: t.screen.Repaint()}))
 	}
 	t.sendLocked(c, frameOf(&termv1.ReplayDone{Offset: end}))
+	t.resizeLocked(nil) // the new client's size counts from here; if it moves the terminal, the client is told like every other
 	if t.exited {
 		t.sendLocked(c, frameOf(&termv1.Exited{ExitCode: t.exitCode, Signal: t.signal}))
 		t.dropLocked(c, "exited")

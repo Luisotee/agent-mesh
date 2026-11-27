@@ -607,6 +607,9 @@ export type Attached = Message<"agentmesh.term.v1.Attached"> & {
   offset: bigint;
 
   /**
+   * The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+   * follows ReplayDone, so an exact attach at another size still continues.
+   *
    * @generated from field: uint32 cols = 6;
    */
   cols: number;

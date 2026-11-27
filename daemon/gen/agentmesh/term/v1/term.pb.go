@@ -1338,8 +1338,10 @@ type Attached struct {
 	Epoch      uint64 `protobuf:"varint,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	// Where the output that follows starts.
 	Offset uint64 `protobuf:"varint,5,opt,name=offset,proto3" json:"offset,omitempty"`
-	Cols   uint32 `protobuf:"varint,6,opt,name=cols,proto3" json:"cols,omitempty"`
-	Rows   uint32 `protobuf:"varint,7,opt,name=rows,proto3" json:"rows,omitempty"`
+	// The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+	// follows ReplayDone, so an exact attach at another size still continues.
+	Cols uint32 `protobuf:"varint,6,opt,name=cols,proto3" json:"cols,omitempty"`
+	Rows uint32 `protobuf:"varint,7,opt,name=rows,proto3" json:"rows,omitempty"`
 	// Whether this client's input is accepted.
 	Input         bool `protobuf:"varint,8,opt,name=input,proto3" json:"input,omitempty"`
 	unknownFields protoimpl.UnknownFields

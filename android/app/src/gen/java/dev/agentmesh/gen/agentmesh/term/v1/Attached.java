@@ -212,6 +212,11 @@ public  final class Attached extends
   public static final int COLS_FIELD_NUMBER = 6;
   private int cols_;
   /**
+   * <pre>
+   * The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+   * follows ReplayDone, so an exact attach at another size still continues.
+   * </pre>
+   *
    * <code>uint32 cols = 6 [json_name = "cols"];</code>
    * @return The cols.
    */
@@ -220,6 +225,11 @@ public  final class Attached extends
     return cols_;
   }
   /**
+   * <pre>
+   * The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+   * follows ReplayDone, so an exact attach at another size still continues.
+   * </pre>
+   *
    * <code>uint32 cols = 6 [json_name = "cols"];</code>
    * @param value The cols to set.
    */
@@ -228,6 +238,11 @@ public  final class Attached extends
     cols_ = value;
   }
   /**
+   * <pre>
+   * The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+   * follows ReplayDone, so an exact attach at another size still continues.
+   * </pre>
+   *
    * <code>uint32 cols = 6 [json_name = "cols"];</code>
    */
   private void clearCols() {
@@ -601,6 +616,11 @@ public  final class Attached extends
     }
 
     /**
+     * <pre>
+     * The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+     * follows ReplayDone, so an exact attach at another size still continues.
+     * </pre>
+     *
      * <code>uint32 cols = 6 [json_name = "cols"];</code>
      * @return The cols.
      */
@@ -609,6 +629,11 @@ public  final class Attached extends
       return instance.getCols();
     }
     /**
+     * <pre>
+     * The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+     * follows ReplayDone, so an exact attach at another size still continues.
+     * </pre>
+     *
      * <code>uint32 cols = 6 [json_name = "cols"];</code>
      * @param value The cols to set.
      * @return This builder for chaining.
@@ -619,6 +644,11 @@ public  final class Attached extends
       return this;
     }
     /**
+     * <pre>
+     * The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
+     * follows ReplayDone, so an exact attach at another size still continues.
+     * </pre>
+     *
      * <code>uint32 cols = 6 [json_name = "cols"];</code>
      * @return This builder for chaining.
      */
