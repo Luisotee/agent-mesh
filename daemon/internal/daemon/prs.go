@@ -433,7 +433,12 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 	complete = ferr == nil
 	for _, p := range found {
 		if p.State == "merged" || p.State == "closed" {
-			d.retireReviewersOfPR(ctx, a.RunId, p.Url, p.State)
+			// Off the reader's path: stopping a process waits for it, and a brief is waiting on this read.
+			d.goBG(func() {
+				bg, cancel := d.stopCtx()
+				defer cancel()
+				d.retireReviewersOfPR(bg, a.RunId, p.Url, p.State)
+			})
 		}
 	}
 }

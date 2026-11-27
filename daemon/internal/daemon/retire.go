@@ -689,6 +689,9 @@ func (d *Daemon) retireReviewersOfPR(ctx context.Context, runID, prURL, state st
 				continue
 			}
 			done[m.AgentId] = true
+			if cur, err := d.store.Read(ctx).GetAgent(m.AgentId); err != nil || stopped(cur) {
+				continue // the common case once a PR has merged: nothing to write
+			}
 			if err := d.retireReviewer(ctx, m.AgentId, "its PR "+state); err != nil && ctx.Err() == nil {
 				d.log.Warn("retiring a reviewer of a finished PR", "agent", m.Name, "err", err)
 			}
