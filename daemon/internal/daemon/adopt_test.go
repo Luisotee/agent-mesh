@@ -389,6 +389,41 @@ func TestAReplayedAdoptionRewritesAMissingIdentityFile(t *testing.T) {
 	}
 }
 
+// Two sessions adopting one run at the same moment: one becomes the root, the other is refused (it sees the first's
+// adoption), and the run is left with one root.
+func TestTwoSessionsAdoptingOneRunAtOnceLeaveOneRoot(t *testing.T) {
+	w, cfg := adoptWorld(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	a, b := startUserSession(t, cfg, accepting), startUserSession(t, cfg, accepting)
+	errs := make(chan error, 2)
+	for _, s := range []*userSession{a, b} {
+		go func() {
+			_, err := w.device.Mesh.AdoptSession(ctx, connect.NewRequest(&v1.AdoptSessionRequest{Meta: meta(""),
+				RunId: run.Id, Pid: int32(s.pid), PidStartTicks: s.start}))
+			errs <- err
+		}()
+	}
+	ok := 0
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err == nil {
+			ok++
+		} else if code(err) != connect.CodeFailedPrecondition {
+			t.Errorf("the refused one: %v", err)
+		}
+	}
+	roots := 0
+	agents, _ := w.d.Store().Read(ctx).ListAgents(run.Id)
+	for _, ag := range agents {
+		if ag.Role == v1.AgentRole_AGENT_ROLE_ROOT {
+			roots++
+		}
+	}
+	if ok != 1 || roots != 1 {
+		t.Fatalf("%d adoptions succeeded, %d roots", ok, roots)
+	}
+}
+
 // An adoption that is refused inside its write (here: past its expiry) leaves the run's own root as it was: still
 // running, its token good. The root is retired only by the write that makes the session its successor.
 func TestAFailedAdoptionLeavesTheRunsRootRunning(t *testing.T) {

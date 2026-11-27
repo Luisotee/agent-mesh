@@ -10,7 +10,9 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +26,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -93,6 +96,13 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 		return nil, failedPrecondition("run %s is closed", run.Id)
 	}
+	// One adoption of a run at a time, from the scan of its agents to the identity file: two sessions adopting at once
+	// then see each other (one root, the second refused), a retry with the same mutation id finds the file the first
+	// call wrote or repairs a missing one, and never mints a token that call is about to overwrite. Keyed by the run,
+	// whether it has a root yet or not.
+	amu := d.agentLock("adopt:" + run.Id)
+	amu.Lock()
+	defer amu.Unlock()
 	all, err := r.AllAgents()
 	if err != nil {
 		return nil, err
@@ -124,12 +134,6 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	out := &v1.AdoptSessionResponse{}
 	var agent *v1.Agent
 	var old *v1.Agent // the run's own root as it was, when this call took its row over
-	// One adoption of a run at a time, from the write to the identity file: a retry with the same mutation id then
-	// finds the file the first call wrote (or repairs a missing one), and never mints a token that call is about to
-	// overwrite. Whether the run has a root yet or not, so keyed by the run.
-	amu := d.agentLock("adopt:" + run.Id)
-	amu.Lock()
-	defer amu.Unlock()
 	if root != nil {
 		mu := d.agentLock(root.Id)
 		mu.Lock()
@@ -238,6 +242,8 @@ func (d *Daemon) repairAdoptedFile(ctx context.Context, agentID string, m *v1.Ad
 	}
 	if _, err := os.Stat(d.paths.Adopted(int(cur.AdoptedPid))); err == nil {
 		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err // unreadable, not missing: no token is revoked for it
 	}
 	token := auth.NewToken()
 	err = d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
@@ -289,7 +295,7 @@ func (d *Daemon) writeAdoptedFile(a *v1.Agent, token string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	return fsutil.WriteAtomic(path, b, 0o600) // a failed write leaves no half file, which a repair would take for a good one
 }
 
 // adoptedPass follows the adopted sessions: one whose process is gone is exited (its token revoked, its file

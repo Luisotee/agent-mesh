@@ -392,6 +392,8 @@ func TestVisibleToShowsAViewerOnlyItsOwnTextBearingEvents(t *testing.T) {
 		{"a prompt for another agent", "me", prompt("b"), false},
 		{"a held draft of another agent", "me", held("b"), false},
 		{"its own held draft", "me", held("me"), true},
+		{"another agent's root reset notes", "me", &v1.Event{AgentId: "b", Payload: &v1.Event_RootResetRequested{RootResetRequested: &v1.RootResetRequested{}}}, false},
+		{"another agent's reopen reason", "me", &v1.Event{AgentId: "b", Payload: &v1.Event_AgentReopenRequested{AgentReopenRequested: &v1.AgentReopenRequested{}}}, false},
 		{"a state change of another agent is metadata", "me", state, true},
 	} {
 		if got := VisibleTo(c.viewer, c.ev); got != c.want {
