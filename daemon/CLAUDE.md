@@ -21,7 +21,7 @@ cd daemon && go build -o bin/ ./cmd/...      # binaries into daemon/bin/ (gitign
 cd daemon && go build -tags ts_omit_logtail,ts_omit_peerapiserver -o bin/ ./cmd/...   # as install.sh does; meshd --tailscale refuses a build without them
 ```
 
-Run `check.sh` before you report a change here: the repo runs no hosted CI, so it is the gate.
+Run `check.sh` before you report a change here: the repo runs no hosted CI, so it is the gate. After its cheap steps it waits for a slot of the host-wide gate queue (root `CLAUDE.md`, `scripts/gate-slot.sh`), so it can sit for minutes behind other gates: run it in the background and declare the wait.
 
 ## Layout
 

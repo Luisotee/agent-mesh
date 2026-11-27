@@ -24,6 +24,10 @@ if ! git -C "$repo" diff --quiet -- android/app/src/gen || [ -n "$(git -C "$repo
   exit 1
 fi
 
+# Gradle and its test JVM are the heaviest of the gates: wait for a host-wide slot (scripts/gate-slot.sh) first.
+source "$repo/scripts/gate-slot.sh"
+gate_slot android
+
 # SKIP_E2E reaches the test JVM, where DaemonHarness skips the meshd tests (and is part of the test task's inputs).
 step "unit tests, lint, debug APK"
 ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug

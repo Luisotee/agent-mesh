@@ -119,6 +119,11 @@ if [ -n "$unformatted" ]; then
   exit 1
 fi
 
+# The heavy part (vet, the race build and test run, pytest) waits for a host-wide gate slot (scripts/gate-slot.sh): the cheap
+# steps above never do, so a gate that fails on them fails at once.
+source "$repo/scripts/gate-slot.sh"
+gate_slot daemon
+
 step "go vet"
 runin "$daemon_dir" go vet ./...
 
