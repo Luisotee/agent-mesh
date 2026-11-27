@@ -1,5 +1,5 @@
 import { AgentRole, type Agent } from './gen/agentmesh/v1/types_pb'
-import type { GetUsageResponse, ModelSwap } from './gen/agentmesh/v1/mesh_pb'
+import type { ModelSwap } from './gen/agentmesh/v1/mesh_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
 import type { GetCostResponse } from './gen/agentmesh/v1/report_pb'
 
@@ -44,38 +44,6 @@ export function prRows(prs: Record<string, AgentPullRequests>, agents: Record<st
       return a && only(a) ? ap.pullRequests.map((p): PrRow => ({ agentName: a.name, agentId: a.id, number: p.number, url: p.url, state: p.state, draft: p.draft, checks: p.checks, stale: p.stale, held: p.held })) : []
     })
     .sort((a, b) => rank(a.state) - rank(b.state) || b.number - a.number)
-}
-
-export interface QuotaRow {
-  label: string
-  /** Percent used, 0 to 100. */
-  used: number
-  atReserve: boolean
-  resetsAt?: Date
-}
-
-/** Claude's windows with the reserve line, and agy's fullest quota row; empty when the host has no reading. */
-export function quotaRows(u: GetUsageResponse): { reserve: number; rows: QuotaRow[] } {
-  const rows: QuotaRow[] = (u.claude?.windows ?? []).map((w) => ({
-    label: `Claude ${w.label}`,
-    used: w.used,
-    atReserve: (u.claude?.atReserve ?? []).includes(w.label),
-    resetsAt: w.resetsAt ? new Date(Number(w.resetsAt.seconds) * 1000) : undefined,
-  }))
-  // agy reports what is left; the host's guard treats no more than `min_quota` left as at the reserve.
-  const agy = [...u.agyRows].sort((a, b) => a.left - b.left)[0]
-  if (agy) rows.push({ label: `agy ${agy.group} ${agy.label}`.trim(), used: 100 - agy.left, atReserve: u.quotaStop < 100 && agy.left <= u.minQuota })
-  return { reserve: u.quotaStop, rows }
-}
-
-/** "resets in 2 h 10 min" within a day, else the weekday and time. */
-export function resetsIn(at: Date | undefined, now = new Date()): string {
-  if (!at) return ''
-  const min = Math.round((at.getTime() - now.getTime()) / 60_000)
-  if (min <= 0) return 'resetting'
-  if (min < 60) return `resets in ${min} min`
-  if (min < 24 * 60) return `resets in ${Math.floor(min / 60)} h ${min % 60} min`
-  return `resets ${at.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
 }
 
 export const isLead = (a: Agent) => a.role === AgentRole.ROOT

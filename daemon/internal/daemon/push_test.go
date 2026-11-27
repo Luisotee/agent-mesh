@@ -76,7 +76,7 @@ type phone struct {
 func pairPhone(t *testing.T, h *harness, name string, readOnly bool) *phone {
 	t.Helper()
 	ctx := context.Background()
-	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta(""), Name: name, ReadOnly: readOnly}))
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta(""), Name: name, ReadOnly: readOnly}))
 	if err != nil {
 		t.Fatal(err)
 	}

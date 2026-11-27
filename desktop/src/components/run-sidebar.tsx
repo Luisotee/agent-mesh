@@ -237,6 +237,7 @@ function AgentButton({ agent: a, host, meta }: { agent: Agent; host: HostRuntime
           <span className="flex items-center gap-1.5">
             <span className="truncate font-medium">{a.name}</span>
             <Badge>{ROLE_LABEL[a.role]}</Badge>
+            {a.archived && <Badge>archived</Badge>}
           </span>
           <span className="block truncate text-xs text-muted-foreground">{statusSentence(a)}</span>
           <Chips className="mt-0.5">

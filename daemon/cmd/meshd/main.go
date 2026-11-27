@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -139,6 +140,11 @@ func main() {
 		}
 	}
 	var tn daemon.Tailnet
+	// The app's SetTailnet leaves a marker in the state dir: it turns the node on as the flag does, and the flag wins.
+	fromFlag := *tsOn
+	if _, err := os.Stat(daemon.TailnetMarker(*state)); err == nil {
+		*tsOn = true
+	}
 	if *tsOn {
 		// The port's env twin counts only with --tailscale on, and below the flag.
 		portGiven := false
@@ -158,6 +164,16 @@ func main() {
 		}
 		tn = node
 	}
+	// Under a service manager a restart asked for from the app is a clean stop and a failure exit status, so the manager starts
+	// meshd again (its units restart on failure); otherwise meshd says a restart is needed.
+	var restarting atomic.Bool
+	var restart func()
+	if underServiceManager() {
+		restart = func() {
+			restarting.Store(true)
+			stop()
+		}
+	}
 	d, err := daemon.New(daemon.Config{
 		StateDir:   *state,
 		PolicyFile: *policyFile,
@@ -169,10 +185,13 @@ func main() {
 			Token:    relaySecret,
 			HostName: *hostName,
 		},
-		Tailnet: tn,
-		Logger:  log,
-		Now:     time.Now,
-		Agents:  agents,
+		Tailnet:         tn,
+		TailnetFromFlag: fromFlag,
+		TailnetCheck:    tailnet.CheckBuild,
+		Restart:         restart,
+		Logger:          log,
+		Now:             time.Now,
+		Agents:          agents,
 	})
 	if err != nil {
 		if tn != nil {
@@ -181,9 +200,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)
 	}
-	if err := d.Serve(ctx); err != nil {
+	err = d.Serve(ctx)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "meshd:", err)
 		os.Exit(1)
+	}
+	if restarting.Load() {
+		os.Exit(75) // EX_TEMPFAIL: not a failure of meshd's, but the status that makes the service manager start it again
 	}
 }
 
@@ -234,4 +257,15 @@ func startTailnet(state, hostName, tsHost string, port uint, controlURL, keyFile
 		AuthKey:    authKey,
 		Logger:     log,
 	})
+}
+
+// underServiceManager says whether a service manager started this meshd, and so will start it again: systemd sets
+// INVOCATION_ID, but everything the unit launches inherits it, so meshd started by hand from a terminal that descends from
+// a unit would exit and stay down. The parent must be systemd itself.
+func underServiceManager() bool {
+	if os.Getenv("INVOCATION_ID") == "" {
+		return false
+	}
+	comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", os.Getppid()))
+	return err == nil && strings.TrimSpace(string(comm)) == "systemd"
 }

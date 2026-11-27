@@ -194,3 +194,36 @@ func TestImportSettingsMapsCopilotModelAndTheRenamedLeaves(t *testing.T) {
 		t.Errorf("%v", s)
 	}
 }
+
+// A file cannot do what its caller could not: a paired device importing a file that names a host-only setting leaves it alone
+// and says so; the host's own device sets it.
+func TestImportSettingsLeavesHostOnlySettingsToTheHostsOwnDevice(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	file := writePolicy(t, `{"editor": {"command": "sh"}, "compact": {"claude": 7}}`)
+	phone := pairPhone(t, h, "phone", false)
+	res, err := phone.c.ImportSettings(ctx, connect.NewRequest(&v1.ImportSettingsRequest{Meta: meta(""), From: file, Overwrite: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Msg.Imported) != 1 || res.Msg.Imported[0].Key != "compact.claude" {
+		t.Errorf("imported %v", res.Msg.Imported)
+	}
+	if got := strings.Join(res.Msg.Skipped, "\n"); !strings.Contains(got, "editor.command") || !strings.Contains(got, "host itself") {
+		t.Errorf("skipped %q", got)
+	}
+	if s := setting(t, h, "editor.command"); s.IsSet {
+		t.Errorf("editor.command after the phone's import: %v", s)
+	}
+	res, err = h.device.Mesh.ImportSettings(ctx, connect.NewRequest(&v1.ImportSettingsRequest{Meta: meta(""), From: file, Overwrite: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, i := range res.Msg.Imported {
+		found = found || i.Key == "editor.command"
+	}
+	if !found {
+		t.Errorf("the host's own device imported %v", res.Msg.Imported)
+	}
+}

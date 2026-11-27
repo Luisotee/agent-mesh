@@ -975,6 +975,68 @@ service MeshService {
     };
   }
 
+  // What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+  // uncommitted work, and commits no remote branch has.
+  rpc GetAgentChanges(GetAgentChangesRequest) returns (GetAgentChangesResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "changes"
+      summary: "Show the files an agent changed, its uncommitted work and its commits not pushed"
+    };
+  }
+
+  // An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+  // its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+  rpc GetAgentProgress(GetAgentProgressRequest) returns (GetAgentProgressResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "progress"
+      summary: "Show an agent's plan progress and context size from its CLI's record"
+    };
+  }
+
+  // Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+  // changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+  // ResumeAgent brings it back: the worktree is made again from the branch.
+  rpc ArchiveAgent(ArchiveAgentRequest) returns (ArchiveAgentResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "archive"
+      summary: "Retire an agent and remove its worktree, keeping its branch (refused with uncommitted or unpushed work)"
+    };
+  }
+
+  // Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+  // path as one argument). The host's own device only: it runs a program on the host's machine.
+  rpc OpenInEditor(OpenInEditorRequest) returns (OpenInEditorResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "open-in-editor"
+      summary: "Open a path of an agent's worktree in the host's editor"
+    };
+  }
+
+  // Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+  // manager it restarts itself. The host's own device only.
+  rpc SetTailnet(SetTailnetRequest) returns (SetTailnetResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "set-tailnet"
+      summary: "Turn the host's Tailscale node on or off (meshd restarts)"
+    };
+  }
+
   // Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
   rpc RingAgent(RingAgentRequest) returns (RingAgentResponse) {
     option (action) = {
@@ -1160,6 +1222,98 @@ message GetAgentResponse {
   Agent agent = 1;
   // The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
   repeated ModelSwap model_history = 2;
+}
+
+message ChangedFile {
+  string path = 1;
+  // "added", "modified", "deleted", "renamed" or "untracked".
+  string status = 2;
+  int32 additions = 3;
+  int32 deletions = 4;
+  // Not committed yet (a tracked file edited, or an untracked one).
+  bool uncommitted = 5;
+}
+
+message GetAgentChangesRequest {
+  // Agent id or name.
+  string agent = 1;
+}
+
+message GetAgentChangesResponse {
+  // The files that differ from the commit the branch started at, uncommitted work included, most changed first, at most 200.
+  repeated ChangedFile files = 1;
+  bool truncated = 2;
+  // Files with uncommitted changes (tracked or untracked).
+  int32 uncommitted = 3;
+  // Commits past the commit the branch started at, and how many of them no remote branch has.
+  int32 commits = 4;
+  int32 unpushed = 5;
+  // The agent has a worktree on disk and it could be read.
+  bool available = 6;
+  // Why it could not be read (no worktree, archived, git failed).
+  string reason = 7;
+}
+
+message PlanItem {
+  string content = 1;
+  // "pending", "in_progress" or "completed".
+  string status = 2;
+}
+
+message GetAgentProgressRequest {
+  // Agent id or name.
+  string agent = 1;
+}
+
+message GetAgentProgressResponse {
+  // False for a CLI whose record the daemon doesn't read (everything below is empty).
+  bool supported = 1;
+  // The newest TodoWrite list of the conversation, in order; empty when the agent has none.
+  repeated PlanItem plan = 2;
+  // The conversation's size now: the newest reply's prompt since the last compaction. Zero when unknown.
+  int64 context_tokens = 3;
+  // The model's context window, as the daemon guesses it from the model's name (200000, or 1000000 for a `1m` model).
+  int64 context_window = 4;
+}
+
+message ArchiveAgentRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+  // Archive although the branch has commits no remote branch has (uncommitted changes always refuse).
+  bool force = 3;
+}
+
+message ArchiveAgentResponse {
+  Agent agent = 1;
+  int32 unpushed = 2;
+}
+
+message OpenInEditorRequest {
+  RequestMeta meta = 1;
+  string agent = 2;
+  // A path under the agent's worktree (relative to it, or absolute); empty opens the worktree itself.
+  string path = 3;
+}
+
+message OpenInEditorResponse {
+  // What was opened, as an absolute path.
+  string opened = 1;
+}
+
+message SetTailnetRequest {
+  RequestMeta meta = 1;
+  bool enabled = 2;
+}
+
+message SetTailnetResponse {
+  // The setting now (kept in the host's state dir).
+  bool enabled = 1;
+  // meshd restarts itself in a moment for it to take effect.
+  bool restarting = 2;
+  // It takes effect when meshd is next restarted (it does not run under a service manager).
+  bool restart_needed = 3;
+  // Nothing was changed, and why (already on or off; the node is on because meshd was started with --tailscale).
+  string note = 4;
 }
 
 message ModelSwap {

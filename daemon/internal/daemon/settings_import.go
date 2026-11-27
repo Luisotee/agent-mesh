@@ -53,8 +53,11 @@ func policySum(b []byte) string {
 // applyPolicy stores the file's leaves (a dry run when t is nil, the reader being a snapshot). It returns what was
 // stored and what was left alone. A setting that is set stays so unless overwrite; one set to the same value is
 // not listed as imported.
+//
+// mayChange (nil: anything) says why the caller may not change a key, as SetSetting does for the host-only ones: a key it
+// refuses is left alone and listed, so a file cannot do what its caller could not.
 func (d *Daemon) applyPolicy(r store.Reader, t *store.Tx, vals []settings.PolicyValue, skips []settings.PolicySkip,
-	overwrite bool) (*v1.ImportSettingsResponse, error) {
+	overwrite bool, mayChange func(key string) error) (*v1.ImportSettingsResponse, error) {
 	out := &v1.ImportSettingsResponse{}
 	for _, s := range skips {
 		out.Skipped = append(out.Skipped, s.Key+": "+s.Why)
@@ -64,6 +67,17 @@ func (d *Daemon) applyPolicy(r store.Reader, t *store.Tx, vals []settings.Policy
 		if !ok {
 			out.Skipped = append(out.Skipped, pv.Key+": no such setting")
 			continue
+		}
+		if mayChange != nil {
+			if err := mayChange(pv.Key); err != nil {
+				why := err.Error()
+				var ce *connect.Error
+				if errors.As(err, &ce) {
+					why = ce.Message()
+				}
+				out.Skipped = append(out.Skipped, pv.Key+": "+why)
+				continue
+			}
 		}
 		before, err := d.readSetting(r, l)
 		if err != nil {
@@ -112,7 +126,7 @@ func (d *Daemon) ImportSettings(ctx context.Context, req *connect.Request[v1.Imp
 		if err != nil {
 			return invalid("%s is not a policy file: %v", path, err)
 		}
-		res, err := d.applyPolicy(r, t, vals, skips, m.Overwrite)
+		res, err := d.applyPolicy(r, t, vals, skips, m.Overwrite, func(key string) error { return hostOnly(ctx, key) })
 		if err != nil {
 			return err
 		}
@@ -179,7 +193,7 @@ func (d *Daemon) importPolicyAtStart(ctx context.Context) {
 	var out *v1.ImportSettingsResponse
 	err = d.store.Write(ctx, nil, "", func(t *store.Tx) error {
 		var err error
-		if out, err = d.applyPolicy(t.Reader, t, vals, skips, false); err != nil {
+		if out, err = d.applyPolicy(t.Reader, t, vals, skips, false, nil); err != nil {
 			return err
 		}
 		return d.recordPolicyImport(t, expandHome(path), b, out)
