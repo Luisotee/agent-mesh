@@ -38,7 +38,9 @@ test('the open tabs, a split and the folded sidebar come back after the app rest
   await openFromSidebar(page, 'repo-lead')
   const tabs = page.getByRole('tablist', { name: 'Open agents' })
   await tabs.getByRole('tab', { name: /repo-fix/ }).waitFor()
-  await page.getByRole('tab', { name: 'chat' }).first().click()
+  // The lead on its chat (its view, unless the toggle showed its terminal).
+  const leadView = page.getByRole('article', { name: 'repo-lead' })
+  if (await leadView.getByRole('region', { name: 'Terminal' }).isVisible()) await leadView.getByRole('button', { name: 'Terminal' }).click()
   // Show the worker beside the lead, and fold the sidebar to icons.
   await tabs.getByRole('tab', { name: /repo-fix/ }).hover()
   await tabs.getByRole('button', { name: 'Show repo-fix beside' }).click()
@@ -55,7 +57,7 @@ test('the open tabs, a split and the folded sidebar come back after the app rest
   await page.getByRole('region', { name: 'Main pane' }).getByRole('article', { name: 'repo-lead' }).waitFor()
   expect(await page.getByRole('tablist', { name: 'Open agents' }).getByRole('tab').count()).toBe(2)
   // The lead was on its chat view.
-  await expect.poll(() => page.getByRole('region', { name: 'Main pane' }).getByRole('tab', { name: 'chat' }).getAttribute('aria-selected')).toBe('true')
+  await page.getByRole('region', { name: 'Main pane' }).getByRole('region', { name: 'Chat' }).waitFor({ state: 'visible' })
   await page.getByRole('button', { name: 'Show the sidebar' }).waitFor()
   await page.screenshot({ path: path.join(shots, 'layout-after-restart.png') })
 })
