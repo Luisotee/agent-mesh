@@ -15,6 +15,10 @@ import (
 // stackBranchCap is the most branches of one agent's stack whose PRs are asked about: the newest.
 const stackBranchCap = 8
 
+// stackFetchers is how many of one agent's branches are asked about at once: prFetchers agents are read at a time, so
+// stacks of eight branches must not make sixty-four `gh` calls at once.
+const stackFetchers = 4
+
 var stackSuffixRE = regexp.MustCompile(`^(.+)-([0-9]+)$`)
 
 // stackBranches are the branches an agent's PRs may be on: the one recorded at its spawn, and the branches of its stack.

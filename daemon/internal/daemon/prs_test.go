@@ -22,6 +22,31 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
+// meeting holds each caller until n are waiting at once (or two seconds pass, or its context ends): it says whether they
+// ever were.
+type meeting struct {
+	n       int32
+	arrived atomic.Int32
+	all     chan struct{}
+	once    sync.Once
+	met     atomic.Bool
+}
+
+func newMeeting(n int) *meeting { return &meeting{n: int32(n), all: make(chan struct{})} }
+
+func (m *meeting) arrive(ctx context.Context) {
+	defer m.arrived.Add(-1)
+	if m.arrived.Add(1) >= m.n { // n callers waiting at the same time
+		m.met.Store(true)
+		m.once.Do(func() { close(m.all) })
+	}
+	select {
+	case <-m.all:
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+	}
+}
+
 // prWorld is a seeded run (a root and a worker with no processes) on a repo with a GitHub remote, and a fake `gh`
 // whose answers and call count a test sets.
 type prWorld struct {
@@ -40,6 +65,7 @@ type prWorld struct {
 	inline  []map[string]any // `gh api repos/…/pulls/N/comments`
 	fail    error
 	gate    chan struct{} // while set, a gh call waits for it to close
+	meet    *meeting      // while set, a `gh pr list` waits for the others of its read to be under way too
 	calls   atomic.Int32
 	clockMu sync.Mutex
 	skew    time.Duration
@@ -63,6 +89,12 @@ func startPR(t *testing.T) *prWorld {
 					case <-ctx.Done():
 						return nil, ctx.Err()
 					}
+				}
+				w.mu.Lock()
+				meet := w.meet
+				w.mu.Unlock()
+				if meet != nil && len(args) > 1 && args[0] == "pr" && args[1] == "list" {
+					meet.arrive(ctx)
 				}
 				w.mu.Lock()
 				defer w.mu.Unlock()
@@ -796,5 +828,41 @@ func TestFailingChecksLeaveOutARunThatRanNoJob(t *testing.T) {
 	got := daemon.FailingChecks([]map[string]any{timed("billing", "09:17:19Z", "09:17:21Z"), timed("tests", "09:17:19Z", "09:19:21Z")})
 	if len(got) != 1 || !strings.HasPrefix(got[0], "tests failure") {
 		t.Errorf("%v", got)
+	}
+}
+
+// A stack's branches are asked about at once: the brief waits a few seconds for GitHub in all, so a slow answer for one must
+// not be followed by a wait for each of the rest.
+func TestAStacksBranchesAreAskedAboutAtOnce(t *testing.T) {
+	w := startPR(t)
+	stem := "mesh/" + w.run.Id + "/fix"
+	tips := map[string]string{stem: w.branchTip}
+	for _, b := range []string{stem + "-2", stem + "-3"} {
+		runGit(t, w.repo, "checkout", "-b", b)
+		runGit(t, w.repo, "commit", "--allow-empty", "-m", b)
+		tips[b] = runGit(t, w.repo, "rev-parse", "HEAD")
+	}
+	meet := newMeeting(3)
+	w.mu.Lock()
+	w.meet = meet
+	w.byHead = map[string][]map[string]any{
+		stem:        {ghPR(1, "MERGED", tips[stem], false)},
+		stem + "-2": {ghPR(2, "MERGED", tips[stem+"-2"], false)},
+		stem + "-3": {ghPR(3, "OPEN", tips[stem+"-3"], false)},
+	}
+	w.mu.Unlock()
+	rows := w.prs("demo-fix", true)
+	if !meet.met.Load() {
+		t.Errorf("the three branches were asked about one after another")
+	}
+	if len(rows) != 1 || len(rows[0].PullRequests) != 3 {
+		t.Fatalf("rows %v, want the three PRs of the stack", rows)
+	}
+	got := map[int32]bool{}
+	for _, p := range rows[0].PullRequests {
+		got[p.Number] = true
+	}
+	if !got[1] || !got[2] || !got[3] {
+		t.Errorf("PRs %v, want #1, #2 and #3", got)
 	}
 }
