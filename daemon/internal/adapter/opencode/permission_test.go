@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -327,5 +329,97 @@ func TestAReadOnlyOpenCodeAgentIgnoresTheProjectsConfig(t *testing.T) {
 				t.Errorf("%v: the mesh's own config is gone: %s", c.role, res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
 			}
 		}
+	}
+}
+
+// planLaunchEnv launches an agent with the share set and returns its environment.
+func planLaunchEnv(t *testing.T, role agentmeshv1.AgentRole, denyEdits, standalone bool, share string) map[string]string {
+	t.Helper()
+	base := shortdir.New(t)
+	req := &adapterv1.PlanLaunchRequest{
+		AgentId: "a1", Role: role, Cwd: filepath.Join(base, "w"), Repo: filepath.Join(base, "proj"), DenyEdits: denyEdits, Binary: "/opt/opencode",
+		Env: map[string]string{"HOME": base, "AGENT_MESH_RUN_DIR": filepath.Join(base, "runs", "r1"), "AGENT_MESH_SHARE": share}}
+	if standalone {
+		req.Standalone, req.ResumeSessionId = true, "ses_1"
+	}
+	res, err := New().PlanLaunch(context.Background(), connect.NewRequest(req))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Msg.Env
+}
+
+func guardPlugins(t *testing.T, env map[string]string) []string {
+	t.Helper()
+	var cfg struct {
+		Plugin []string `json:"plugin"`
+	}
+	if err := json.Unmarshal([]byte(env["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Plugin
+}
+
+// A bare redirect is no command to OpenCode 1.19.6, so no bash pattern sees it: the launch of every agent whose bash is fenced
+// loads the guard that refuses a `>`, and no other agent gets it.
+func TestAReadOnlyOrPlanningLaunchLoadsTheRedirectGuard(t *testing.T) {
+	share := filepath.Join(shortdir.New(t), "share")
+	want := []string{"file://" + share + "/opencode/readonly-guard.js"}
+	for _, c := range []struct {
+		name       string
+		role       agentmeshv1.AgentRole
+		denyEdits  bool
+		standalone bool
+		guarded    bool
+	}{
+		{"an asker", agentmeshv1.AgentRole_AGENT_ROLE_ASKER, false, false, true},
+		{"a reviewer", agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER, false, false, true},
+		{"a planner", agentmeshv1.AgentRole_AGENT_ROLE_WORKER, true, false, true},
+		{"a worker", agentmeshv1.AgentRole_AGENT_ROLE_WORKER, false, false, false},
+		{"a root", agentmeshv1.AgentRole_AGENT_ROLE_ROOT, false, false, false},
+		{"a standalone session", agentmeshv1.AgentRole_AGENT_ROLE_ASKER, false, true, false},
+	} {
+		got := guardPlugins(t, planLaunchEnv(t, c.role, c.denyEdits, c.standalone, share))
+		if c.guarded && !reflect.DeepEqual(got, want) || !c.guarded && len(got) != 0 {
+			t.Errorf("%s: plugin = %v", c.name, got)
+		}
+	}
+	if got := guardPlugins(t, planLaunchEnv(t, agentmeshv1.AgentRole_AGENT_ROLE_ASKER, false, false, "")); len(got) != 0 {
+		t.Errorf("no share: plugin = %v", got)
+	}
+}
+
+// The guard file itself, run by Node when it is there: a bash command with a `>` is refused, any other call passes.
+func TestTheRedirectGuardRefusesABashCommandWithARedirect(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("no node to run the guard with")
+	}
+	file, err := filepath.Abs("../../../share/opencode/readonly-guard.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := `import(process.argv[1]).then(async (m) => {
+  const hook = (await m.ReadOnlyGuard())["tool.execute.before"]
+  const refused = async (tool, args) => { try { await hook({ tool }, { args }); return false } catch { return true } }
+  const out = {
+    bare: await refused("bash", { command: "> f" }), append: await refused("bash", { command: ">> f" }),
+    stderr: await refused("bash", { command: "2> f" }), piped: await refused("bash", { command: "ls; > f" }),
+    plain: await refused("bash", { command: "ls -la" }), other: await refused("edit", { command: "> f" }),
+    none: await refused("bash", {}),
+  }
+  console.log(JSON.stringify(out))
+})`
+	res, err := exec.Command(node, "--input-type=module", "-e", script, "file://"+file).Output()
+	if err != nil {
+		t.Fatalf("node: %v: %s", err, res)
+	}
+	var got map[string]bool
+	if err := json.Unmarshal(res, &got); err != nil {
+		t.Fatalf("%s: %v", res, err)
+	}
+	want := map[string]bool{"bare": true, "append": true, "stderr": true, "piped": true, "plain": false, "other": false, "none": false}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("refused %v, want %v", got, want)
 	}
 }

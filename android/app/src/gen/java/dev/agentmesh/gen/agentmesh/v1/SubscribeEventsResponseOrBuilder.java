@@ -120,5 +120,26 @@ public interface SubscribeEventsResponseOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.ViewRequest getView();
 
+  /**
+   * <pre>
+   * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+   * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+   * @return Whether the shell field is set.
+   */
+  boolean hasShell();
+  /**
+   * <pre>
+   * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+   * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+   * @return The shell.
+   */
+  dev.agentmesh.gen.agentmesh.v1.ShellChange getShell();
+
   public dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse.FrameCase getFrameCase();
 }

@@ -77,7 +77,7 @@ func evalLine(script string) string {
 }
 
 // unquoteFirst is the shell word `s` opens with, unquoted: single-quoted parts as they are, double-quoted ones with a
-// backslash escaping a quote or a backslash, and a backslash outside quotes escaping the next character, joined until a
+// backslash escaping a quote, a backslash, a dollar, a backtick or a newline, and a backslash outside quotes escaping the next character, joined until a
 // space ends the word (what follows, the `< /dev/null` and the cwd plumbing, is left out). Claude Code writes a quote
 // inside a command as `'"'"'` (close, a double-quoted quote, reopen), a shell as `'\”`: both read as a quote. An unclosed
 // quote takes the rest.
@@ -95,7 +95,7 @@ func unquoteFirst(s string) string {
 			i += j + 1
 		case '"':
 			for i++; i < len(s) && s[i] != '"'; i++ {
-				if s[i] == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
+				if s[i] == '\\' && i+1 < len(s) && strings.IndexByte("\"\\$`\n", s[i+1]) >= 0 {
 					i++
 				}
 				b.WriteByte(s[i])

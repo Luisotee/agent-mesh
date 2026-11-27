@@ -14,13 +14,13 @@ import type { Frame } from './connection'
 import { hostTransport } from './transport'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
-import type { ViewRequest } from './gen/agentmesh/v1/mesh_pb'
+import type { ShellChange, ViewRequest } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole } from './gen/agentmesh/v1/types_pb'
 import { activate, cycleTab, closeTab, projectTabs, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
 import { agentProject } from './sidebar'
 import { repoName } from './derive'
-import { isShellTab, shellIdOf, shellProject, shellTabId } from './shells'
+import { applyShellChange, isShellTab, shellIdOf, shellProject, shellTabId } from './shells'
 import { closeShell as callCloseShell, listShells, openShell, spawnAgent, startRun, stopRun } from './actions'
 import type { Shell } from './gen/agentmesh/v1/mesh_pb'
 import type { DockNewAgents } from './prefs'
@@ -45,6 +45,8 @@ export interface HostHooks {
   spawned(hostId: string, agent: Agent, mode: DockNewAgents): void
   /** An agent or the CLI asked the app to show a view (`OpenView`), on a host whose `app.open_views` is `openViews`. */
   view(hostId: string, request: ViewRequest, openViews: boolean): void
+  /** A project shell opened or ended on the host (`ShellChange`): its tab bar follows without listing again. */
+  shell(hostId: string, change: ShellChange): void
 }
 
 export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'shell'>, info: HostInfo, hooks?: HostHooks): HostRuntime {
@@ -65,6 +67,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
       sink.onFrame(f)
       if (f.case === 'event' && f.value.payload.case === 'settingChanged') pendingSettings.push(f)
       if (f.case === 'view') hooks?.view(info.id, f.value, appPrefs(before.settings).openViews)
+      if (f.case === 'shell') hooks?.shell(info.id, f.value)
       if (f.case === 'event') refresher.event(f.value)
       else if (f.case === 'snapshot' || f.case === 'resumed') refresher.synced()
       if (f.case === 'event') {
@@ -377,6 +380,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   const hooks: HostHooks = {
     spawned: (hostId, agent, mode) => set((s) => noteSpawned(s, { hostId, agentId: agent.id }, mode, Date.now())),
     view: (hostId, v, openViews) => offerView(model, hostId, v, openViews),
+    shell: (hostId, c) => set((s) => applyShellChange(s, hostId, c)),
   }
   // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
   let saved = ''

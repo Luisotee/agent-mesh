@@ -43,6 +43,8 @@ type sub struct {
 	act chan *v1.AgentActivity
 	// views carries `OpenView` requests, for an app: a device's subscriber that also asked for activity (nil otherwise).
 	views chan *v1.ViewRequest
+	// shells carries project shell changes, for an app, like views.
+	shells chan *v1.ShellChange
 }
 
 // New returns a bus over a store. Wire Publish to store.OnCommit.
@@ -110,12 +112,29 @@ func (b *Bus) PublishView(v *v1.ViewRequest) int {
 	return n
 }
 
+// PublishShell tells the apps connected now (a device's live subscribers that asked for activity) that a project shell
+// opened or ended. Never stored or replayed: a client that was away lists the shells when it connects.
+func (b *Bus) PublishShell(c *v1.ShellChange) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for s := range b.subs {
+		if s.shells == nil {
+			continue
+		}
+		select {
+		case s.shells <- c:
+		default:
+		}
+	}
+}
+
 func (b *Bus) subscribe(runID string, deviceEvents, activity, device bool) *sub {
 	s := &sub{ch: make(chan *v1.Event, LiveBuffer), runID: runID, deviceEvents: deviceEvents}
 	if activity {
 		s.act = make(chan *v1.AgentActivity, ActivityBuffer)
 		if device {
 			s.views = make(chan *v1.ViewRequest, 8)
+			s.shells = make(chan *v1.ShellChange, 32)
 		}
 	}
 	b.mu.Lock()
@@ -210,7 +229,8 @@ func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, devi
 
 	// What queued while the backlog or snapshot was sent is older than events the client has just applied. Not the
 	// views: an `OpenView` is no state the snapshot covers, and one asked for just after the client got its snapshot
-	// (it can act before this loop runs) is a view the app must open, not one to drop.
+	// (it can act before this loop runs) is a view the app must open, not one to drop. Nor the shells: a shell frame is
+	// no state the snapshot covers.
 	for n := len(live.act); n > 0; n-- {
 		<-live.act
 	}
@@ -241,6 +261,10 @@ func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, devi
 			}
 		case v := <-live.views: // nil channel for a subscriber that is no app: never ready
 			if err := send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_View{View: v}}); err != nil {
+				return err
+			}
+		case c := <-live.shells: // nil channel for a subscriber that is no app: never ready
+			if err := send(&v1.SubscribeEventsResponse{Frame: &v1.SubscribeEventsResponse_Shell{Shell: c}}); err != nil {
 				return err
 			}
 		case ev, ok := <-live.ch:
