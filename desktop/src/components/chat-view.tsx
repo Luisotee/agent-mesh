@@ -1,6 +1,7 @@
 import { Check, ChevronRight, Clock, Copy, ImagePlus, Pencil, Quote, Send, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
+import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, sendPromptAnyway, withdrawPrompt } from '@/actions'
+import { ConfirmDialog } from '@/components/ui/confirm'
 import { imageName, imageProblem, imageRef, imagesUnsupported, keepThumb, rewindUnsupported, splitImages, thumbs } from '@/attachments'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
@@ -315,7 +316,7 @@ const HELD: Record<string, string> = {
   at_prompt: 'Sent once the prompt in its terminal is answered',
   limited: 'Sent once it is off its usage limit',
   stopped: 'Sent when it runs again',
-  draft: 'Held: its input box holds a draft. Clear it in the terminal to send this',
+  draft: 'Held: its input box holds a draft. Clear it in the terminal, or send this anyway',
   typing: 'Held: someone is typing in its terminal',
   no_box: 'Held: its screen shows no input box (a dialog may be open in the terminal)',
 }
@@ -324,6 +325,8 @@ const HELD: Record<string, string> = {
 function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; agentId: string; prompts: QueuedPrompt[]; readOnly: boolean }) {
   const app = useApp()
   const [error, setError] = useState('')
+  // A prompt the user is being asked to send over the draft in the agent's box.
+  const [over, setOver] = useState<QueuedPrompt>()
   async function take(p: QueuedPrompt, edit: boolean) {
     setError('')
     try {
@@ -353,6 +356,11 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
+            {!readOnly && p.held === 'draft' && p.heldText && (
+              <button type="button" onClick={() => setOver(p)} className="rounded px-1 text-xs text-foreground underline underline-offset-2 hover:bg-muted">
+                Send anyway
+              </button>
+            )}
             {!readOnly && (
               <>
                 <Tip label="Take it back to edit">
@@ -371,6 +379,18 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
         </div>
       ))}
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+      <ConfirmDialog
+        open={over !== undefined}
+        onOpenChange={(o) => !o && setOver(undefined)}
+        title="Send over the draft?"
+        description={`Its input box holds this draft: “${over?.heldText ?? ''}”. Sending clears it and types your prompt instead. The draft is lost.`}
+        action="Send anyway"
+        run={async () => {
+          if (!over) return
+          await sendPromptAnyway(host.client, agentId, over.id, over.heldText)
+          host.store.setState(dropPrompt(agentId, over.id))
+        }}
+      />
     </section>
   )
 }

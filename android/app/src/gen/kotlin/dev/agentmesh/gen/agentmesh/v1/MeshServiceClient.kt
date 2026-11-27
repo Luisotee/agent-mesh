@@ -663,6 +663,23 @@ public class MeshServiceClient(
 
 
   /**
+   *  Type a queued prompt now although the agent's input box holds a draft (its `held` is "draft"): clears the box, as Ctrl-U
+   *  does, and types the prompt. For a draft the caller was shown (`QueuedPrompt.held_text`) and confirmed to discard: refused
+   *  when the box holds anything else by now, when someone is typing in the terminal, or when the agent is not at its prompt.
+   */
+  override suspend fun sendPromptAnyway(request: SendPromptAnywayRequest, headers: Headers): ResponseMessage<SendPromptAnywayResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/SendPromptAnyway",
+      dev.agentmesh.gen.agentmesh.v1.SendPromptAnywayRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.SendPromptAnywayResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
    *  for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
    */
