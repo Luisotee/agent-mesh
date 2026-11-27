@@ -424,7 +424,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	if IsAgent(actor.Class) && req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE {
 		if self, err := d.store.Read(ctx).GetAgent(actor.Id); err == nil {
 			facts.hasWork = hasBranchWork(ctx, self)
-			facts.after = d.commitsAfterReview(ctx, self)
+			facts.after, facts.over = d.commitsAfterReview(ctx, self)
 		}
 	}
 	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {

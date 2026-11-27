@@ -394,16 +394,17 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, facts
 type gitFacts struct {
 	hasWork bool
 	after   map[string]int
+	over    map[string]bool // by PR key, the PRs of its rounds that are merged or closed
 }
 
 // commitsAfterReview reads, for each PR of the worker's that it asked a round on, the commits the PR's head has past
-// the head that round reviewed. The head is the one GitHub says now (the recorded row's is the last read's: a fix pushed
+// the head that round reviewed, and which of those PRs are over (merged or closed). The head is the one GitHub says now (the recorded row's is the last read's: a fix pushed
 // just before the `done` is what this is for), the row's when GitHub can't be read.
-func (d *Daemon) commitsAfterReview(ctx context.Context, self *v1.Agent) map[string]int {
+func (d *Daemon) commitsAfterReview(ctx context.Context, self *v1.Agent) (after map[string]int, over map[string]bool) {
 	r := d.store.Read(ctx)
 	asks, err := r.RunAsks(self.RunId)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	reviewed := map[string]*v1.Ask{} // the worker's newest round on each PR
 	for _, a := range asks {
@@ -415,7 +416,7 @@ func (d *Daemon) commitsAfterReview(ctx context.Context, self *v1.Agent) map[str
 		}
 	}
 	if len(reviewed) == 0 {
-		return nil
+		return nil, nil
 	}
 	recorded := map[string]*v1.PullRequest{}
 	if prs, err := r.AgentPRs(self.Id); err == nil {
@@ -425,18 +426,24 @@ func (d *Daemon) commitsAfterReview(ctx context.Context, self *v1.Agent) map[str
 	}
 	gctx, cancel := context.WithTimeout(ctx, briefGitHubWait)
 	defer cancel()
-	out := map[string]int{}
+	after, over = map[string]int{}, map[string]bool{}
 	for k, a := range reviewed {
-		p := recorded[k] // none yet for a PR no reader has refreshed
-		if p != nil && p.State != "open" {
-			continue
-		}
-		head := ""
+		p := recorded[k] // none for a PR no reader recorded, or one a clean read forgot
+		state, head := "", ""
 		if p != nil {
-			head = p.Head
+			state, head = p.State, p.Head
 		}
-		if v, err := d.viewPR(gctx, self, a.Pr); err == nil && v.HeadRefOid != "" {
-			head = v.HeadRefOid
+		if state != "merged" && state != "closed" { // GitHub's word, fresher than the row's
+			if v, err := d.viewPR(gctx, self, a.Pr); err == nil {
+				state = strings.ToLower(v.State)
+				if v.HeadRefOid != "" {
+					head = v.HeadRefOid
+				}
+			}
+		}
+		if state == "merged" || state == "closed" {
+			over[k] = true
+			continue
 		}
 		if head == "" || head == a.Head {
 			continue
@@ -447,9 +454,9 @@ func (d *Daemon) commitsAfterReview(ctx context.Context, self *v1.Agent) map[str
 				n = v
 			}
 		}
-		out[k] = n
+		after[k] = n
 	}
-	return out
+	return after, over
 }
 
 // outcome is one PR's review outcome: its line, and its state (settled, running: only a round still collecting,
@@ -540,7 +547,7 @@ func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, fac
 		}
 	}
 	for _, k := range prOrder { // a PR it asked rounds on that its done doesn't name
-		if p := recorded[k]; p != nil && (p.State == "merged" || p.State == "closed") && !seen[k] {
+		if p := recorded[k]; !seen[k] && (facts.over[k] || p != nil && (p.State == "merged" || p.State == "closed")) {
 			continue // over and done: its checks are no news
 		}
 		line(k, prURL[k])

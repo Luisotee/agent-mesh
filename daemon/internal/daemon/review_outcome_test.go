@@ -462,3 +462,44 @@ func TestADoneLeavesOutTheWorkersMergedPRsItDoesNotName(t *testing.T) {
 		}
 	}
 }
+
+// A merged PR no row remembers (a clean read forgets what the worker's branch no longer lists) is left out too:
+// GitHub says it is over.
+func TestADoneLeavesOutAMergedPRNoRowRemembers(t *testing.T) {
+	var prJSON atomic.Value
+	a := startAuthor(t, "", func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true, RunGH: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			f, _ := prJSON.Load().(string)
+			return os.ReadFile(f)
+		}}
+	})
+	prJSON.Store(a.pr.json)
+	a.answeredRound(t)
+	if err := a.verdictFull(t, a.asWorker, filepath.Base(a.pr.repo)+"-review-7-claude", 1, 0, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := a.d.Store().Read(context.Background()).AgentPRs(a.worker.Id); len(rows) != 0 {
+		t.Fatalf("a row is recorded: %v", rows)
+	}
+	setState := func(state string) {
+		t.Helper()
+		b, err := os.ReadFile(a.pr.json)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(a.pr.json, []byte(strings.Replace(string(b), `{`, `{"state":"`+state+`",`, 1)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setState("OPEN")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "the next task is done")
+	if got := a.doneBody(t); !strings.Contains(got, "PR #7: SETTLED") {
+		t.Errorf("an open PR its done does not name is still told: %s", got)
+	}
+	a.pr.push(t, "unused") // rewrites the file: no state
+	setState("MERGED")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "the next task is done")
+	if got := a.doneBody(t); strings.Contains(got, "[mesh reviews]") {
+		t.Errorf("a merged PR no row remembers: %s", got)
+	}
+}
