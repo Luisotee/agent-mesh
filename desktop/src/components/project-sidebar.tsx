@@ -1,3 +1,4 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { Bot, ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server, SquareTerminal } from 'lucide-react'
 import { AnimatePresence, m, useReducedMotion } from 'motion/react'
 import { memo, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
@@ -348,12 +349,22 @@ function RowDialogs({ host, dialog, onClose }: { host?: HostRuntime; dialog: Row
         description={many ? `Every agent in them has ended. ${DELETE_LOSES}` : `Every agent in it has ended. ${DELETE_LOSES}`}
         action={many ? 'Delete the runs' : 'Delete the run'}
         run={async () => {
+          // Every run is tried; the dialog stays open with what was refused, and another try skips the runs the host has forgotten.
           const kept: string[] = []
+          let refused = 0
+          let why = ''
           for (const id of dialog.runIds) {
-            const res = await deleteRun(host.client, id)
-            for (const w of res.worktrees) if ((w.worktree && !w.worktreeRemoved) || (w.branch && w.branchKept)) kept.push(`${w.worktree || w.branch}: ${w.reason || 'it holds work'}`)
+            try {
+              const res = await deleteRun(host.client, id)
+              for (const w of res.worktrees) if ((w.worktree && !w.worktreeRemoved) || (w.branch && w.branchKept)) kept.push(`${w.worktree || w.branch}: ${w.reason || 'it holds work'}`)
+            } catch (e) {
+              if (e instanceof ConnectError && e.code === Code.NotFound) continue
+              refused++
+              why ||= e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e)
+            }
           }
           if (kept.length > 0) app.notify(`Deleted. Kept on disk, with its work: ${kept.join('; ')}`)
+          if (refused > 0) throw new Error(dialog.runIds.length > 1 ? `${refused} of ${dialog.runIds.length} could not be deleted: ${why}` : why)
         }}
       />
     )

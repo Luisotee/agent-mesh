@@ -392,6 +392,8 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
     val here = lead != null && current == (r.hostId to lead.id)
     var menu by remember { mutableStateOf(false) }
     val canAdd = canAct && r.run.status == RunStatus.RUN_STATUS_OPEN
+    // The host counts a reopen that is on its way as a process: it refuses to delete the run.
+    val reopening = (listOfNotNull(lead) + r.helpers + flatWorkers(r.workers, 0).map { it.first.agent }).any { it.hasPendingReopen() }
     val act = LocalAgentAction.current
     Box {
         Row(
@@ -418,7 +420,7 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
             if (canAct) {
                 DropdownMenuItem(text = { Text("Add an agent") }, enabled = canAdd, onClick = { menu = false; a.addAgent(r.hostId, r.run.id) }, modifier = Modifier.testTag("menu-add-agent"))
                 DropdownMenuItem(text = { Text("Rename the run…") }, onClick = { menu = false; act(r.hostId, AgentAction.RenameRun(r.run.id, r.run.title.ifEmpty { r.title })) }, modifier = Modifier.testTag("menu-rename-run"))
-                DropdownMenuItem(text = { Text("Delete the run…") }, enabled = r.earlier, onClick = { menu = false; act(r.hostId, AgentAction.DeleteRun(r.run.id, r.title)) }, modifier = Modifier.testTag("menu-delete-run"))
+                DropdownMenuItem(text = { Text("Delete the run…") }, enabled = r.earlier && !reopening, onClick = { menu = false; act(r.hostId, AgentAction.DeleteRun(r.run.id, r.title)) }, modifier = Modifier.testTag("menu-delete-run"))
                 DropdownMenuItem(text = { Text("Stop the run…") }, enabled = r.run.status == RunStatus.RUN_STATUS_OPEN, onClick = { menu = false; act(r.hostId, AgentAction.StopRun(r.run.id, r.title)) }, modifier = Modifier.testTag("menu-stop-run"))
             }
             if (lead != null) AgentMenuItems(r.hostId, lead, canAct, a) { menu = false }

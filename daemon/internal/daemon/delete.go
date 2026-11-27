@@ -29,7 +29,10 @@ func (d *Daemon) DeleteRun(ctx context.Context, req *connect.Request[v1.DeleteRu
 	actor := auth.ActorFrom(ctx)
 	// A retry of a call that finished gets its first answer, though the run is gone by now.
 	if mid := req.Msg.Meta.GetMutationId(); mid != "" && actor != nil {
-		if proc, resp, err := d.store.Read(ctx).Mutation(actor.Id, mid); err == nil && proc == agentmeshv1connect.MeshServiceDeleteRunProcedure {
+		if proc, resp, err := d.store.Read(ctx).Mutation(actor.Id, mid); err == nil {
+			if proc != agentmeshv1connect.MeshServiceDeleteRunProcedure {
+				return nil, reusedMutation(mid, proc) // before anything is removed
+			}
 			if err := proto.Unmarshal(resp, out); err != nil {
 				return nil, err
 			}
@@ -39,10 +42,14 @@ func (d *Daemon) DeleteRun(ctx context.Context, req *connect.Request[v1.DeleteRu
 	if err := d.runEnded(ctx, d.store.Read(ctx), runID); err != nil {
 		return nil, err
 	}
-	// StopRun on an ended run retires no one and removes the worktrees that hold nothing, as it does for any run.
-	stopped, err := d.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{RunId: runID}))
+	// StopRun's removal on an ended run: the ended check is made again inside its locked write, so an agent resumed since
+	// the first check refuses the delete before anything is retired or stopped.
+	stopped, notStopped, err := d.stopRun(ctx, connect.NewRequest(&v1.StopRunRequest{RunId: runID}), true)
 	if err != nil {
 		return nil, err
+	}
+	for id, why := range notStopped {
+		return nil, failedPrecondition("the process of %s could not be stopped, so the run is kept: %s", id, firstLine(why))
 	}
 	out.Worktrees = stopped.Msg.Worktrees
 	var agents []string
@@ -53,6 +60,25 @@ func (d *Daemon) DeleteRun(ctx context.Context, req *connect.Request[v1.DeleteRu
 		var err error
 		if agents, err = tx.DeleteRun(runID); err != nil {
 			return err
+		}
+		// A peer that was last asked from this run, or runs in it, no longer has a run or an answers file to point at.
+		peers, err := tx.ListPeers("")
+		if err != nil {
+			return err
+		}
+		for _, p := range peers {
+			if p.LastRun != runID && p.RunningRun != runID {
+				continue
+			}
+			if p.LastRun == runID {
+				p.LastRun, p.LastAgent, p.LastAnswers = "", "", ""
+			}
+			if p.RunningRun == runID {
+				p.RunningRun, p.RunningAgent = "", ""
+			}
+			if err := tx.PutPeer(p); err != nil {
+				return err
+			}
 		}
 		_, err = tx.AppendEvent(&v1.Event{RunId: runID, Payload: &v1.Event_RunDeleted{RunDeleted: &v1.RunDeleted{}}})
 		return err
@@ -80,11 +106,13 @@ func (d *Daemon) removeDeletedRunFiles(runID string, agents []string) {
 		if !one(id) {
 			continue
 		}
-		if err := os.RemoveAll(d.paths.Agent(id)); err != nil {
-			d.log.Warn("removing a deleted agent's folder", "agent", id, "err", err)
+		for _, p := range []string{d.paths.Agent(id), d.paths.Spool(id)} {
+			if err := os.RemoveAll(p); err != nil {
+				d.log.Warn("removing a deleted agent's folder", "agent", id, "path", p, "err", err)
+			}
 		}
 	}
-	if err := os.Remove(filepath.Join(d.paths.Worktrees(), runID)); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+	if err := os.Remove(filepath.Join(d.worktrees(), runID)); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
 		d.log.Warn("removing a deleted run's worktree folder", "run", runID, "err", err)
 	}
 }

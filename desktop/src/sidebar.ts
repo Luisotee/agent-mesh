@@ -119,9 +119,10 @@ function split(nodes: TreeNode[], leadRepo: string): { helpers: Agent[]; workers
 const flatten = (rows: WorkerRow[]): Agent[] => rows.flatMap((w) => [w.agent, ...w.helpers, ...flatten(w.workers)])
 
 /** Every agent of a lead row: the lead, its workers and their helpers. */
-/** Nothing in the run has a process (every agent exited or retired): the host will delete it. */
-export const rowEnded = (r: LeadRow): boolean => !leadAgents(r).some(alive)
 export const leadAgents = (r: LeadRow): Agent[] => [...(r.lead ? [r.lead] : []), ...r.helpers, ...flatten(r.workers)]
+
+/** Nothing in the run has a process or a reopen on its way (every agent exited or retired): the host will delete it. */
+export const rowEnded = (r: LeadRow): boolean => !leadAgents(r).some((a) => alive(a) || !!a.pendingReopen)
 
 /** The workers of a lead row, at any depth. */
 export const allWorkers = (rows: WorkerRow[]): WorkerRow[] => rows.flatMap((w) => [w, ...allWorkers(w.workers)])

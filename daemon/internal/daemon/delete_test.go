@@ -16,7 +16,6 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
-
 func TestDeleteRunRefusesARunWithAProcessAndForgetsAnEndedOne(t *testing.T) {
 	w := startReset(t, daemon.ResetTimings{})
 	ctx := context.Background()
@@ -41,9 +40,18 @@ func TestDeleteRunRefusesARunWithAProcessAndForgetsAnEndedOne(t *testing.T) {
 	if _, err := os.Stat(runDir); err != nil {
 		t.Fatalf("the run's folder before the delete: %v", err)
 	}
+	// A peer last asked from this run keeps no pointer into it.
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		return tx.PutPeer(&v1.Peer{Name: "x-research", LastRun: run.Id, LastAgent: a.Id, LastAnswers: filepath.Join(runDir, "reports", "peers-1.md")})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	res, err := del("ended")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if p, err := w.d.Store().Read(ctx).GetPeer("x-research"); err != nil || p.LastRun != "" || p.LastAnswers != "" || p.LastAgent != "" {
+		t.Errorf("the peer after the delete = %v, %v", p, err)
 	}
 	r := w.d.Store().Read(ctx)
 	if _, err := r.GetRun(run.Id); !errors.Is(err, store.ErrNotFound) {
@@ -57,7 +65,8 @@ func TestDeleteRunRefusesARunWithAProcessAndForgetsAnEndedOne(t *testing.T) {
 			t.Errorf("%s is still there (%v)", p, err)
 		}
 	}
-	if len(res.Msg.Worktrees) != 1 || !res.Msg.Worktrees[0].WorktreeRemoved {
+	// StopRun had removed the worktree and its branch already: nothing is reported as kept.
+	if len(res.Msg.Worktrees) != 1 || !res.Msg.Worktrees[0].WorktreeRemoved || res.Msg.Worktrees[0].BranchKept {
 		t.Errorf("outcomes = %v", res.Msg.Worktrees)
 	}
 	// The one event left of the run tells a client that was away to drop it.
@@ -164,5 +173,22 @@ func TestAClientResumingAfterARunWasDeletedGetsTheRunDeletedEvent(t *testing.T) 
 	}
 	if ev := recv(t, s2).GetEvent(); ev.GetRunDeleted() == nil || ev.RunId != run.Id {
 		t.Fatalf("the event after the resume = %v", ev)
+	}
+}
+
+// A mutation id the caller used for another call is refused before any worktree is touched.
+func TestDeleteRunWithAMutationIdOfAnotherCallTouchesNothing(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	run, _, _ := w.plainRoot(t)
+	if _, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("same"), RunId: run.Id})); err != nil {
+		t.Fatal(err)
+	}
+	// StopRun removed the clean worktree; a dirty one would be the case that matters, so the check is on the run.
+	if _, err := w.device.Mesh.DeleteRun(ctx, connect.NewRequest(&v1.DeleteRunRequest{Meta: meta("same"), RunId: run.Id})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("a reused mutation id: %v", err)
+	}
+	if _, err := w.d.Store().Read(ctx).GetRun(run.Id); err != nil {
+		t.Errorf("the run is gone after a refused call: %v", err)
 	}
 }

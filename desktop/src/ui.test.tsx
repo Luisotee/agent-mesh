@@ -245,8 +245,9 @@ describe('ProjectSidebar', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('stop the run first')
     deleteRun.mockResolvedValue({ worktrees: [] })
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete the runs' }))
-    await waitFor(() => expect(deleteRun).toHaveBeenCalledTimes(3))
-    expect(deleteRun).toHaveBeenLastCalledWith(expect.objectContaining({ runId: expect.stringMatching(/^r[12]$/) }))
+    await waitFor(() => expect(deleteRun).toHaveBeenCalledTimes(4))
+    // The first try went on past the refusal to the other run, and the second asked for both again.
+    expect(deleteRun.mock.calls.map((c) => (c[0] as { runId: string }).runId).sort()).toEqual(['r1', 'r1', 'r2', 'r2'])
   })
 
   it('offers Archive only for an agent the host would archive: a worker with a worktree, not the lead', async () => {
