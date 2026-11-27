@@ -94,6 +94,47 @@ public  final class ListProjectsRequest extends
 
   }
 
+  public static final int QUICK_FIELD_NUMBER = 2;
+  private boolean quick_;
+  /**
+   * <pre>
+   * With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+   * its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+   * </pre>
+   *
+   * <code>bool quick = 2 [json_name = "quick"];</code>
+   * @return The quick.
+   */
+  @java.lang.Override
+  public boolean getQuick() {
+    return quick_;
+  }
+  /**
+   * <pre>
+   * With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+   * its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+   * </pre>
+   *
+   * <code>bool quick = 2 [json_name = "quick"];</code>
+   * @param value The quick to set.
+   */
+  private void setQuick(boolean value) {
+    
+    quick_ = value;
+  }
+  /**
+   * <pre>
+   * With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+   * its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+   * </pre>
+   *
+   * <code>bool quick = 2 [json_name = "quick"];</code>
+   */
+  private void clearQuick() {
+
+    quick_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.ListProjectsRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -270,6 +311,49 @@ public  final class ListProjectsRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+     * its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+     * </pre>
+     *
+     * <code>bool quick = 2 [json_name = "quick"];</code>
+     * @return The quick.
+     */
+    @java.lang.Override
+    public boolean getQuick() {
+      return instance.getQuick();
+    }
+    /**
+     * <pre>
+     * With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+     * its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+     * </pre>
+     *
+     * <code>bool quick = 2 [json_name = "quick"];</code>
+     * @param value The quick to set.
+     * @return This builder for chaining.
+     */
+    public Builder setQuick(boolean value) {
+      copyOnWrite();
+      instance.setQuick(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+     * its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+     * </pre>
+     *
+     * <code>bool quick = 2 [json_name = "quick"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearQuick() {
+      copyOnWrite();
+      instance.clearQuick();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ListProjectsRequest)
   }
   @java.lang.Override
@@ -287,9 +371,11 @@ public  final class ListProjectsRequest extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "repo_",
+            "quick_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0208";
+              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0007" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -19,6 +19,7 @@ public  final class HelloResponse extends
     instanceId_ = "";
     version_ = "";
     capabilities_ = emptyProtobufList();
+    clis_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int DAEMON_ID_FIELD_NUMBER = 1;
@@ -505,6 +506,153 @@ public  final class HelloResponse extends
   private void clearServerTime() {
     serverTime_ = null;
     bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
+  public static final int CLIS_FIELD_NUMBER = 9;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> clis_;
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @return A list containing the clis.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getClisList() {
+    return clis_;
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @return The count of clis.
+   */
+  @java.lang.Override
+  public int getClisCount() {
+    return clis_.size();
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param index The index of the element to return.
+   * @return The clis at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getClis(int index) {
+    return clis_.get(index);
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the clis at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getClisBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        clis_.get(index));
+  }
+  private void ensureClisIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        clis_;  if (!tmp.isModifiable()) {
+      clis_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param index The index to set the value at.
+   * @param value The clis to set.
+   */
+  private void setClis(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClisIsMutable();
+    clis_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param value The clis to add.
+   */
+  private void addClis(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureClisIsMutable();
+    clis_.add(value);
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param values The clis to add.
+   */
+  private void addAllClis(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureClisIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, clis_);
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   */
+  private void clearClis() {
+    clis_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+   * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+   * none: a client then offers every CLI the host has tiers for.
+   * </pre>
+   *
+   * <code>repeated string clis = 9 [json_name = "clis"];</code>
+   * @param value The bytes of the clis to add.
+   */
+  private void addClisBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureClisIsMutable();
+    clis_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.HelloResponse parseFrom(
@@ -1106,6 +1254,152 @@ public  final class HelloResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @return A list containing the clis.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getClisList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getClisList());
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @return The count of clis.
+     */
+    @java.lang.Override
+    public int getClisCount() {
+      return instance.getClisCount();
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @param index The index of the element to return.
+     * @return The clis at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getClis(int index) {
+      return instance.getClis(index);
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the clis at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getClisBytes(int index) {
+      return instance.getClisBytes(index);
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @param index The index to set the value at.
+     * @param value The clis to set.
+     * @return This builder for chaining.
+     */
+    public Builder setClis(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setClis(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @param value The clis to add.
+     * @return This builder for chaining.
+     */
+    public Builder addClis(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addClis(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @param values The clis to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllClis(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllClis(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearClis() {
+      copyOnWrite();
+      instance.clearClis();
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+     * that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+     * none: a client then offers every CLI the host has tiers for.
+     * </pre>
+     *
+     * <code>repeated string clis = 9 [json_name = "clis"];</code>
+     * @param value The bytes of the clis to add.
+     * @return This builder for chaining.
+     */
+    public Builder addClisBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addClisBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.HelloResponse)
   }
   @java.lang.Override
@@ -1131,10 +1425,12 @@ public  final class HelloResponse extends
             "capabilities_",
             "actor_",
             "serverTime_",
+            "clis_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u1009" +
-              "\u0000\u0004\u0004\u0005\u0208\u0006\u021a\u0007\u1009\u0001\b\u1009\u0002";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u1009" +
+              "\u0000\u0004\u0004\u0005\u0208\u0006\u021a\u0007\u1009\u0001\b\u1009\u0002\t\u021a" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

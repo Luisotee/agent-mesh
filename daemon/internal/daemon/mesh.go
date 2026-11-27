@@ -15,6 +15,10 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/copilot"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -150,8 +154,20 @@ func (d *Daemon) Hello(ctx context.Context, req *connect.Request[v1.HelloRequest
 	return connect.NewResponse(&v1.HelloResponse{
 		DaemonId: d.daemonID, InstanceId: d.instanceID, StartedAt: tsOf(d.startedAt),
 		ProtocolVersion: ProtocolVersion, Version: Version, Capabilities: d.capabilities,
-		Actor: auth.ActorFrom(ctx), ServerTime: tsOf(d.now()),
+		Actor: auth.ActorFrom(ctx), ServerTime: tsOf(d.now()), Clis: d.installedCLIs(),
 	}), nil
+}
+
+// installedCLIs are the agent CLIs this host can launch, in the usual order: those whose binary is found (the
+// configured one, else the agents' PATH, else the daemon's).
+func (d *Daemon) installedCLIs() []string {
+	var out []string
+	for _, kind := range []string{claude.Kind, agy.Kind, opencode.Kind, copilot.Kind} {
+		if _, ok := d.cliBinary(kind); ok {
+			out = append(out, kind)
+		}
+	}
+	return out
 }
 
 // StartRun starts a run.

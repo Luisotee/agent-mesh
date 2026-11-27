@@ -9,15 +9,18 @@ const NAMES: Record<string, string> = { claude: 'Claude', agy: 'agy', opencode: 
 export const cliName = (kind: string): string => NAMES[kind] ?? kind
 
 /**
- * The CLIs a host has set up: those its settings give tiers (`tiers.<cli>.<tier>.*`), as the New workspace dialog's tiers
- * are read. A host that lists none yet (not loaded, or an older daemon) offers Claude and agy.
+ * The CLIs a host can launch an agent on: those its settings give tiers (`tiers.<cli>.<tier>.*`), as the New workspace dialog's
+ * tiers are read, and that it says it has installed (`HelloResponse.clis`; a host that says none, an older daemon, is taken to
+ * have them all). A host that lists no tiers yet (not loaded) offers Claude and agy, or the installed ones when it names them.
  */
-export function cliKinds(settings: Record<string, unknown>): string[] {
+export function cliKinds(settings: Record<string, unknown>, installed: readonly string[] = []): string[] {
   const found = new Set<string>()
   for (const key of Object.keys(settings)) {
     const m = /^tiers\.([^.]+)\.[^.]+\./.exec(key)
     if (m) found.add(m[1]!)
   }
-  if (found.size === 0) return ['claude', 'agy']
-  return [...found].sort((a, b) => (ORDER.indexOf(a) < 0 ? 99 : ORDER.indexOf(a)) - (ORDER.indexOf(b) < 0 ? 99 : ORDER.indexOf(b)) || a.localeCompare(b))
+  const rank = (k: string) => (ORDER.indexOf(k) < 0 ? 99 : ORDER.indexOf(k))
+  const sorted = (kinds: Iterable<string>) => [...kinds].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+  if (found.size === 0) return installed.length ? sorted(installed) : ['claude', 'agy']
+  return sorted([...found].filter((k) => installed.length === 0 || installed.includes(k)))
 }

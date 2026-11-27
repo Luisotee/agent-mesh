@@ -1208,6 +1208,10 @@ message HelloResponse {
   // The host's clock when it answered. A client measures how far its own clock is from the host's with it, to
   // judge whether an event's time is recent (the host's clock may be minutes off, WSL's often is).
   google.protobuf.Timestamp server_time = 8;
+  // The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+  // that order. A client offers these for a new agent. Empty from a daemon that does not say (older), or a host with
+  // none: a client then offers every CLI the host has tiers for.
+  repeated string clis = 9;
 }
 
 message StartRunRequest {
@@ -2265,6 +2269,9 @@ message ListProjectsRequest {
   // pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none. A read-only
   // device may name only a repo the full list has, and gets the refs last fetched and no pull requests.
   string repo = 1 [(path) = true, (repo_name) = true];
+  // With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+  // its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+  bool quick = 2;
 }
 
 // A pull request a workspace can start from: the branch to start the worktree on.

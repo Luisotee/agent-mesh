@@ -267,7 +267,7 @@ function ProjectItem({ project: p, many, hidden }: { project: ProjectRow; many: 
 function EmptyProjectActions({ hostId, repo }: { hostId: string; repo: string }) {
   const app = useApp()
   const fail = (e: unknown) => app.notify(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e), 'error')
-  const kind = () => cliKinds(hostOf(app, hostId)?.store.getState().settings ?? {})[0] ?? 'claude'
+  const kind = () => cliKinds(hostOf(app, hostId)?.store.getState().settings ?? {}, hostOf(app, hostId)?.store.getState().daemon?.clis)[0] ?? 'claude'
   return (
     <span className="flex shrink-0 gap-0.5">
       <Tip label={`A plain ${cliName(kind())} agent, like claude in a terminal`}>

@@ -42,7 +42,7 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 	// through a symlink). A read-only device reads only listed projects, and updates nothing: it gets the refs last
 	// fetched and no pull requests (they come from GitHub). A device (the user) may name any repo on the host, and a
 	// root too: they get fresh refs, so a branch or a PR's head they pick is there to start from (a failed fetch is not
-	// an error: the refs last fetched are listed).
+	// an error: the refs last fetched are listed). With `quick` neither: it only says whether the repo is one.
 	fetch := false
 	if repo := req.Msg.Repo; repo != "" {
 		top, err := d.repoTop(ctx, repo)
@@ -56,7 +56,7 @@ func (d *Daemon) ListProjects(ctx context.Context, req *connect.Request[v1.ListP
 			return nil, notFound("%s is not one of the projects the host lists (`mesh projects`)", repo)
 		}
 		paths = []string{top}
-		if fetch = !readOnly; fetch {
+		if fetch = !readOnly && !req.Msg.Quick; fetch {
 			fctx, stop := context.WithTimeout(ctx, 15*time.Second)
 			_, _ = git(fctx, top, "fetch", "--quiet", "origin")
 			stop()
