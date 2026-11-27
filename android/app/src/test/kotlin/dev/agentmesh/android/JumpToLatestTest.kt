@@ -92,7 +92,7 @@ class JumpToLatestTest {
         compose.onAllNodesWithTag("jump-to-latest").assertCountEquals(0)
     }
 
-    private fun entries(vararg ids: String) = ids.map { id -> dev.agentmesh.android.chat.Entry.Chat(dev.agentmesh.android.chat.Block.Assistant(e(id.removePrefix("e").toInt()))) }
+    private fun entries(vararg ids: String) = ids.map { id -> dev.agentmesh.android.chat.Entry.Chat(dev.agentmesh.android.chat.Block.Assistant(id, e(id.removePrefix("e").toInt()))) }
 
     @Test fun `what is new is counted after the entry the reader was at the end for, and from the new tail when a reload took it away`() {
         val list = entries("e1", "e2", "e3", "e4")
