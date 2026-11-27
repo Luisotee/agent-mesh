@@ -1,5 +1,6 @@
-import { Check, ChevronRight, Clock, Copy, ImagePlus, Pencil, Quote, Send, Square, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDown, Check, ChevronRight, Clock, Copy, ImagePlus, Pencil, Quote, Send, Square, X } from 'lucide-react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { m } from 'motion/react'
 import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, sendPromptAnyway, withdrawPrompt } from '@/actions'
 import { ConfirmDialog } from '@/components/ui/confirm'
 import { imageName, imageProblem, imageRef, imagesUnsupported, keepThumb, rewindUnsupported, splitImages, thumbs } from '@/attachments'
@@ -19,10 +20,11 @@ import { chatKeys } from '@/prefs'
 import { addPrompt, dropPrompt, setPrompts } from '@/store'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
-import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
+import { sameBlock, emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { MessageCard } from './messages-panel'
 import { RewindDialog } from './rewind-dialog'
-import { ContextRing } from './agent-work'
+import { ContextMeter, useAgentWait } from './agent-work'
+import { ModelPicker } from './model-picker'
 import { Markdown } from './markdown'
 import { ago } from '@/dock'
 import { useNow } from '@/hooks'
@@ -168,6 +170,7 @@ function useTranscript(host: HostRuntime, agentId: string, sessionId: string, ac
 export function ChatView({ host, agentId, active, onTerminal }: { host: HostRuntime; agentId: string; active: boolean; /** Shows its terminal in the chat's place (the pane's own view). */ onTerminal?: () => void }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
+  const wait = useAgentWait(host, agent, active)
   const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
   const { transcript, loaded, error, sync, loadEarlier, earlierBusy } = useTranscript(host, agentId, agent?.sessionId ?? '', active)
   const blocks = useMemo(() => toBlocks(transcript.entries), [transcript.entries])
@@ -191,40 +194,139 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
     [blocks, messageLoad, mine, transcript.atStart, transcript.supported, shown],
   )
   const queued = useQueue(host, agentId, active)
+  // A dropped image is taken anywhere over the chat; the overlay says so while one is dragged over it.
+  const dropper = useRef<Dropper>(null)
+  const [dragging, setDragging] = useState(false)
+  const drag = useRef(0)
+  const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes('Files')
 
-  // Scrolling: follow the end while the reader is at it; keep the place when earlier entries come in above.
+  // What was just sent shows at once as the user's bubble ("sending…") and goes when the record has it: it is read again
+  // 0.3 s and 1.5 s after a send, and the host takes a moment to write it. `seen` is what the window held then (the user
+  // prompts by id, and the last block): a user prompt that is new and comes AFTER that last block is this one, whatever
+  // the CLI echoes of its text. Older prompts loaded above it end nothing, and one sent before the first read waits for
+  // that read to say what was there.
+  type Seen = { users: Set<string>; last?: string }
+  const [sending, setSending] = useState<Array<{ id: number; body: string; at: number; seen?: Seen }>>([])
+  const sendId = useRef(0)
+  const snapshot = (): Seen => ({ users: new Set(blocks.filter((b) => b.kind === 'user').map((b) => b.id)), last: blocks[blocks.length - 1]?.id })
+  useEffect(() => {
+    if (sending.length === 0) return
+    let next = sending
+    if (loaded && next.some((x) => !x.seen)) next = next.map((x) => (x.seen ? x : { ...x, seen: snapshot() }))
+    const first = next.find((x) => x.seen)?.seen
+    if (first) {
+      const from = first.last ? blocks.findIndex((b) => b.id === first.last) : -1
+      const fresh = blocks.slice(from + 1).filter((b) => b.kind === 'user' && !first.users.has(b.id)).map((b) => b.id)
+      // Each new prompt ends one bubble, and is spent: the bubbles left must not take it for theirs.
+      let drop = fresh.length
+      const spent = new Set(fresh)
+      next = next.filter((x) => !(x.seen && drop-- > 0)).map((x) => (x.seen && fresh.length > 0 ? { ...x, seen: { ...x.seen, users: new Set([...x.seen.users, ...spent]) } } : x))
+    }
+    next = next.filter((x) => Date.now() - x.at < 30_000)
+    if (next.length !== sending.length || next.some((x, i) => x !== sending[i])) setSending(next)
+    // A bubble the record never shows (the prompt went nowhere) goes after the cap, even with nothing else changing.
+    const t = setTimeout(() => setSending((cur) => cur.filter((x) => Date.now() - x.at < 30_000)), 30_000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, loaded, sending])
+  const sentNow = (body: string, queuedAtOnce: boolean) => {
+    follow()
+    if (!queuedAtOnce) setSending((cur) => [...cur, { id: ++sendId.current, body, at: Date.now(), seen: loaded ? snapshot() : undefined }])
+  }
+
+  // Scrolling: follow the end while the reader is at it; keep the place when earlier entries come in above. Sending
+  // goes to the end whatever the reader was at, and a pill brings a reader who scrolled up back.
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
-  const anchor = useRef<{ height: number; top: number }>(undefined)
+  const anchor = useRef<{ height: number; top: number; start: bigint }>(undefined)
+  const [followTick, setFollowTick] = useState(0)
+  const follow = () => {
+    stick.current = true
+    setFollowTick((n) => n + 1)
+  }
+  const [away, setAway] = useState(false)
+  // The last entry the reader has seen at the end: "new" is what came after it, so older pages loaded above count for nothing.
+  const seenLast = useRef<string | undefined>(undefined)
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
     if (anchor.current) {
-      el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height)
-      anchor.current = undefined
-    } else if (stick.current) el.scrollTop = el.scrollHeight
-  }, [transcript.entries, active])
+      // Used once the earlier page is in (the start of the window moved), not by another redraw while it is out.
+      if (transcript.start !== anchor.current.start) {
+        el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height)
+        anchor.current = undefined
+      }
+    } else if (stick.current) {
+      el.scrollTop = el.scrollHeight
+      seenLast.current = items[items.length - 1]?.id
+      setAway(false)
+    }
+  }, [transcript.entries, transcript.start, active, sending.length, queued.length, followTick, items.length])
+  const seenAt = seenLast.current ? items.findIndex((i) => i.id === seenLast.current) : -1
+  // The entry last seen may be gone (a card answered, a reload): then there is no count to give.
+  const unseen = away && seenAt >= 0 ? Math.max(0, items.length - 1 - seenAt) : 0
   // Read on shortly after a prompt is sent (its turn shows within a second or so); not after the view is gone.
   const sendTimers = useRef<Array<ReturnType<typeof setTimeout>>>([])
   useEffect(() => () => sendTimers.current.forEach(clearTimeout), [])
   const afterSend = () => {
     sendTimers.current = [300, 1500].map((ms) => setTimeout(() => void sync(), ms))
   }
+  const startNow = useRef(transcript.start)
+  startNow.current = transcript.start
   const earlier = async () => {
     const el = scroller.current
-    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop }
+    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop, start: transcript.start }
+    const asked = transcript.start
     await loadEarlier()
+    // A read that failed or brought no page moved nothing: the anchor must not stay armed and stop the chat following the end.
+    setTimeout(() => {
+      if (anchor.current && anchor.current.start === asked && startNow.current === asked) anchor.current = undefined
+    }, 100)
   }
 
   if (!agent) return null
   return (
-    <section aria-label="Chat" style={hueStyle(agent.repo)} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
+    <section
+      aria-label="Chat"
+      style={hueStyle(agent.repo)}
+      className="relative flex min-h-0 flex-1 flex-col gap-2"
+      hidden={!active}
+      onDragEnter={(e) => {
+        if (!hasFiles(e)) return
+        drag.current++
+        setDragging(true)
+      }}
+      onDragOver={(e) => {
+        if (hasFiles(e) && dropper.current?.allowed) e.preventDefault()
+      }}
+      onDragLeave={(e) => {
+        if (!hasFiles(e)) return
+        drag.current = Math.max(0, drag.current - 1)
+        if (drag.current === 0) setDragging(false)
+      }}
+      onDrop={(e) => {
+        drag.current = 0
+        setDragging(false)
+        const files = [...e.dataTransfer.files]
+        if (files.length === 0 || !dropper.current?.allowed) return
+        e.preventDefault()
+        dropper.current.attach(files)
+      }}
+    >
+      {dragging && dropper.current?.allowed && (
+        <div role="status" aria-label="Drop images" className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-md border-2 border-dashed border-identity bg-surface/80 text-sm font-medium">
+          Drop images to attach
+        </div>
+      )}
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={scroller}
         data-testid="chat"
         onScroll={(e) => {
           const el = e.currentTarget
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+          if (stick.current) seenLast.current = items[items.length - 1]?.id
+          setAway(!stick.current)
         }}
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto rounded-md border bg-surface p-3"
       >
@@ -271,12 +373,38 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
             ))}
           </ol>
         )}
+        {sending.length > 0 && (
+          <ol aria-label="Sending" className="flex flex-col gap-3">
+            {sending.map((x) => (
+              <m.li key={x.id} data-kind="user" initial={{ opacity: 0, y: 6, scale: 0.98 }} animate={{ opacity: 0.7, y: 0, scale: 1 }} transition={{ duration: 0.16 }} className="ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end">
+                <UserBody body={x.body} />
+                <span className="px-1 text-xs text-muted-foreground">sending…</span>
+              </m.li>
+            ))}
+          </ol>
+        )}
         {queued.length > 0 && <QueuedList host={host} agentId={agentId} prompts={queued} readOnly={readOnly} />}
       </div>
+      {away && (
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 gap-1 rounded-full shadow-md"
+          onClick={() => {
+            const el = scroller.current
+            if (el) el.scrollTop = el.scrollHeight
+            follow()
+          }}
+        >
+          <ArrowDown /> Jump to the end{unseen > 0 ? ` · ${unseen} new` : ''}
+        </Button>
+      )}
+      </div>
       <p role="status" data-testid="chat-status" className="truncate text-xs text-muted-foreground">
-        {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
+        {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent, wait)}
       </p>
-      <Composer host={host} agentId={agentId} readOnly={readOnly} active={active} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
+      <Composer host={host} agentId={agentId} readOnly={readOnly} active={active} dropper={dropper} onSending={sentNow} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
       {!readOnly && <RewindDialog host={host} agentId={agentId} blocks={blocks} messages={mine} />}
     </section>
   )
@@ -394,7 +522,13 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
   )
 }
 
-function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void; active: boolean }) {
+/** What the chat's drop zone needs of the composer: whether images can be added now, and the add. */
+interface Dropper {
+  allowed: boolean
+  attach(files: File[]): void
+}
+
+function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropper, onSending }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void; active: boolean; dropper: React.RefObject<Dropper | null>; onSending: (body: string, queuedAtOnce: boolean) => void }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
   // The app follows its first host's keys, as for the shortcuts (Settings edits them there).
@@ -505,6 +639,10 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       }
     }
   }
+  // The whole chat takes a dropped image, not only this form (`ChatView`'s zone asks this).
+  useEffect(() => {
+    dropper.current = { allowed: !noImages && !why, attach: (files) => void attach(files) }
+  })
   /** Sends the box, or `confirmedText`: the command the user was asked about (the box may have changed since; it has no images). */
   async function send(confirmedText?: string) {
     const typed = confirmedText ?? text.trim()
@@ -528,9 +666,12 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
         return
       }
       const res = await promptAgent(host.client, agentId, body)
+      const dialog = !res.queued && !!cmd && opensDialog(cmd.command, cmd.args)
+      // A queued prompt shows in the queue and a command that opens a dialog in the terminal: no bubble for either.
+      onSending(body, !!res.queued || dialog)
       if (res.queued) host.store.setState(addPrompt(res.queued))
       // Typed at once, a dialog is on the terminal's screen now: take the user there.
-      else if (cmd && opensDialog(cmd.command, cmd.args)) openTerminal()
+      else if (dialog) openTerminal()
       // What was sent goes; text written while it was in flight stays. The saved draft too, directly: a composer
       // unmounted meanwhile (another tab opened) runs no updater.
       const left = (cur: string) => {
@@ -592,15 +733,6 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
         e.preventDefault()
         void send()
       }}
-      onDragOver={(e) => {
-        if (!noImages && !why && e.dataTransfer.types.includes('Files')) e.preventDefault()
-      }}
-      onDrop={(e) => {
-        const files = [...e.dataTransfer.files]
-        if (files.length === 0) return
-        e.preventDefault()
-        void attach(files)
-      }}
     >
       {atPrompt && !why && (
         <p role="status" className="flex items-center gap-2 text-xs text-state-needs">
@@ -608,28 +740,29 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
           <Button type="button" size="sm" variant="outline" onClick={openTerminal}>Open the terminal</Button>
         </p>
       )}
-      {images.length > 0 && (
-        <ul aria-label="Images" className="flex flex-wrap gap-2">
-          {images.map((i) => (
-            <li key={i.key} className="relative">
-              {i.url ? <img src={i.url} alt={i.name} className={cn('size-16 rounded-md border object-cover', !i.path && 'opacity-50')} /> : <span className="grid size-16 place-items-center rounded-md border text-xs">{i.name}</span>}
-              <button type="button" aria-label={`Remove ${i.name}`} onClick={() => setImages((cur) => cur.filter((x) => x.key !== i.key))} className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full border bg-popover outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
-                <X className="size-3" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex items-end gap-2">
+      {/* One box, as claude.ai and Gemini draw it: the field above, a toolbar under it inside the same border. */}
+      <div className="flex flex-col rounded-xl border border-input bg-surface focus-within:ring-2 focus-within:ring-identity">
+        {images.length > 0 && (
+          <ul aria-label="Images" className="flex flex-wrap gap-2 px-3 pt-3">
+            {images.map((i) => (
+              <li key={i.key} className="relative">
+                {i.url ? <img src={i.url} alt={i.name} className={cn('size-16 rounded-md border object-cover', !i.path && 'opacity-50')} /> : <span className="grid size-16 place-items-center rounded-md border text-xs">{i.name}</span>}
+                <button type="button" aria-label={`Remove ${i.name}`} onClick={() => setImages((cur) => cur.filter((x) => x.key !== i.key))} className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full border bg-popover outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
+                  <X className="size-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <MarkdownField
           aria-label="Prompt"
-          className="flex-1 text-sm focus-visible:ring-identity"
+          className="flex-1 rounded-b-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none focus-visible:ring-0"
           value={text}
           disabled={!!why}
           ref={fieldRef}
           {...assist.field}
           title={assist.suggestion ? 'Tab takes the suggestion, Esc drops it' : undefined}
-          placeholder={assist.suggestion ? assist.suggestion : why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
+          placeholder={assist.suggestion ? assist.suggestion : why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : `Write to the agent. Enter sends, Shift+Enter adds a line.${noImages ? '' : ' Paste or drop an image to attach it.'}`}
           onValueChange={setText}
           onSend={() => void send()}
           onPaste={(e) => {
@@ -676,20 +809,24 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
             void attach(files)
           }}
         />
-        <Tip label={noImages || 'Add an image (or paste or drop one)'}>
-          <Button type="button" size="icon" variant="ghost" aria-label="Add an image" disabled={!!why || !!noImages} onClick={() => fileInput.current?.click()}>
-            <ImagePlus />
+        <div role="toolbar" aria-label="Prompt tools" className="flex items-center gap-1 px-2 pb-2">
+          <Tip side="top" label={noImages || 'Add an image (or paste or drop one)'}>
+            <Button type="button" size="icon" variant="ghost" className="size-8" aria-label="Add an image" disabled={!!why || !!noImages} onClick={() => fileInput.current?.click()}>
+              <ImagePlus />
+            </Button>
+          </Tip>
+          <ModelPicker host={host} agent={agent} disabled={readOnly || gone} />
+          <span className="flex-1" />
+          <ContextMeter host={host} agent={agent} active={active} />
+          {working && canStop && !why && (
+            <Button type="button" size="sm" variant="outline" disabled={stopping} aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
+              <Square /> Stop
+            </Button>
+          )}
+          <Button type="submit" size="sm" disabled={!!why || busy || uploading || (!text.trim() && !images.some((i) => i.path))}>
+            <Send /> {working ? 'Queue' : 'Send'}
           </Button>
-        </Tip>
-        <ContextRing host={host} agent={agent} active={active} />
-        {working && canStop && !why && (
-          <Button type="button" variant="outline" disabled={stopping} aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
-            <Square /> Stop
-          </Button>
-        )}
-        <Button type="submit" disabled={!!why || busy || uploading || (!text.trim() && !images.some((i) => i.path))}>
-          <Send /> {working ? 'Queue' : 'Send'}
-        </Button>
+        </div>
       </div>
       {assist.popup}
       <ConfirmDialog
@@ -748,31 +885,42 @@ function BlockActions({ agentId, text, at, align }: { agentId: string; text: str
   )
 }
 
-function ChatBlock({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
+/** A prompt as the user's bubble: its images (a thumbnail where this device sent it, else the file's name: the host's file isn't fetched), then its text. */
+function UserBody({ body }: { body: string }) {
+  const { paths, text } = splitImages(body)
+  return (
+    <>
+      {paths.length > 0 && (
+        <ul aria-label="Images" className="mb-1 flex flex-wrap justify-end gap-1.5">
+          {paths.map((p, n) => {
+            const name = p.split(/[\\/]/).pop() ?? p
+            const url = thumbs.get(p)
+            return (
+              <li key={`${n}-${p}`} title={p}>
+                {url ? <img src={url} alt={name} className="max-h-40 max-w-60 rounded-md border object-contain" /> : <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"><ImagePlus className="size-3.5" />{name}</span>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {text && (
+        <div className="rounded-lg border border-identity/25 bg-identity/12 px-3 py-2">
+          <Markdown breaks className="text-[15px] leading-relaxed">{text}</Markdown>
+        </div>
+      )}
+    </>
+  )
+}
+
+const ChatBlock = memo(ChatBlockView, (a, b) => a.agentId === b.agentId && a.running === b.running && sameBlock(a.block, b.block))
+
+function ChatBlockView({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
   switch (block.kind) {
     case 'user': {
       // Its images: a thumbnail where this device sent it, else the file's name (the host's file isn't fetched).
-      const { paths, text } = splitImages(block.entry.text)
       return (
         <div className="group ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end" data-kind="user">
-          {paths.length > 0 && (
-            <ul aria-label="Images" className="mb-1 flex flex-wrap justify-end gap-1.5">
-              {paths.map((p, n) => {
-                const name = p.split(/[\\/]/).pop() ?? p
-                const url = thumbs.get(p)
-                return (
-                  <li key={`${n}-${p}`} title={p}>
-                    {url ? <img src={url} alt={name} className="max-h-40 max-w-60 rounded-md border object-contain" /> : <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"><ImagePlus className="size-3.5" />{name}</span>}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          {text && (
-            <div className="rounded-lg border border-identity/25 bg-identity/12 px-3 py-2">
-              <Markdown breaks className="text-[15px] leading-relaxed">{text}</Markdown>
-            </div>
-          )}
+          <UserBody body={block.entry.text} />
           <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="end" />
         </div>
       )

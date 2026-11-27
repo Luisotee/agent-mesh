@@ -1,4 +1,4 @@
-import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
+import { CircleCheck, CircleX, Copy, ExternalLink, Hand, LoaderCircle, MessageSquarePlus, PanelRightClose, Terminal, ChevronRight } from 'lucide-react'
 import { MarkdownField } from '@/components/ui/markdown-field'
 import { useMemo, useState } from 'react'
 import { getAgent, getCost, holdPullRequest, sendMessage } from '@/actions'
@@ -14,6 +14,8 @@ import { Changes, Progress, WorktreeActions } from './agent-work'
 import { StateIcon } from './state-icon'
 import { MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
+import { NEW_FOR_MS, tabKey } from '@/workspace'
+import { isActive } from '@/active'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
 import { cn } from '@/lib/utils'
@@ -71,15 +73,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
   return (
     <>
       <AgentTree host={host} agent={agent} />
-      <Section title="Pull requests" count={prs.length}>
-        {prs.length === 0 ? <p className="text-xs text-muted-foreground">None yet.</p> : (
-          <ul className="space-y-1">
-            {prs.map((p) => (
-              <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
-            ))}
-          </ul>
-        )}
-      </Section>
+      <PullRequests prs={prs} lead={lead} host={host} />
       <Progress host={host} agent={agent} />
       <Changes host={host} agent={agent} />
       <div className="border-b px-3 pb-2.5 empty:hidden"><WorktreeActions key={agent.id} host={host} agent={agent} /></div>
@@ -119,6 +113,12 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const runs = useHostState(host, (s) => s.runs)
   const agents = useHostState(host, (s) => s.agents)
   const waiting = useHostState(host, (s) => s.waiting)
+  const waitingAll = useHostState(host, (s) => s.waitingAll)
+  const newTiles = useAppState((s) => s.newTiles)
+  // Asking for the resting ones holds for this run only: another run or host starts folded again.
+  const scope = `${host.info.id}/${agent.runId}`
+  const [asked, setAsked] = useState({ scope: '', on: false })
+  const showResting = asked.on && asked.scope === scope
   const row = useMemo(() => {
     const run = runs[agent.runId]
     if (!run) return undefined
@@ -126,7 +126,14 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
     const mine = Object.fromEntries(Object.entries(agents).filter(([, a]) => a.runId === run.id))
     return leadRows({ hostId: host.info.id, hostName: host.info.name, here: true, up: true, loading: false, runs: { [run.id]: run }, agents: mine, waiting: ids })[0]
   }, [runs, agents, waiting, agent.runId, host.info.id, host.info.name])
+  const waits = useMemo(() => new Set([...waitingAll, ...waiting].map((w) => w.agentId)), [waitingAll, waiting])
   if (!row) return null
+  // Live agents only; the idle and finished ones rest behind a count. A parent of a live agent stays, so the tree keeps its shape.
+  // A worker that just started stays, as in the dock (its new mark).
+  const isNew = (a: Agent) => { const at = newTiles[tabKey({ hostId: host.info.id, agentId: a.id })]; return at !== undefined && Date.now() - at < NEW_FOR_MS }
+  const live = (a: Agent) => isActive(a, { waiting: waits.has(a.id), keep: a.id === agent.id || isNew(a) })
+  const workerLive = (w: WorkerRow): boolean => live(w.agent) || w.helpers.some(live) || w.workers.some(workerLive)
+  const shown = (w: WorkerRow) => showResting || workerLive(w)
   const item = (a: Agent, depth: number) => (
     <li key={a.id}>
       <button
@@ -142,14 +149,27 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
       </button>
     </li>
   )
-  const worker = (w: WorkerRow, depth: number): React.ReactNode[] => [item(w.agent, depth), ...w.helpers.map((h) => item(h, depth + 1)), ...w.workers.flatMap((c) => worker(c, depth + 1))]
+  const helpers = (hs: Agent[]) => (showResting ? hs : hs.filter(live))
+  const rendered: Array<[Agent, number]> = []
+  const walk = (w: WorkerRow, depth: number) => {
+    rendered.push([w.agent, depth])
+    for (const h of helpers(w.helpers)) rendered.push([h, depth + 1])
+    for (const c of w.workers.filter(shown)) walk(c, depth + 1)
+  }
+  if (row.lead) rendered.push([row.lead, 0])
+  for (const h of helpers(row.helpers)) rendered.push([h, 1])
+  for (const w of row.workers.filter(shown)) walk(w, 1)
+  const total = (w: WorkerRow): number => 1 + w.helpers.length + w.workers.reduce((n, c) => n + total(c), 0)
+  const hidden = (row.lead ? 1 : 0) + row.helpers.length + row.workers.reduce((n, w) => n + total(w), 0) - rendered.length
   return (
     <Section title="Agent tree">
-      <ul aria-label="Agent tree">
-        {row.lead && item(row.lead, 0)}
-        {row.helpers.map((h) => item(h, 1))}
-        {row.workers.flatMap((w) => worker(w, 1))}
-      </ul>
+      <ul aria-label="Agent tree">{rendered.map(([a, depth]) => item(a, depth))}</ul>
+      {(hidden > 0 || showResting) && (
+        <button type="button" aria-pressed={showResting} onClick={() => setAsked({ scope, on: !showResting })} className="mt-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
+          <ChevronRight className={cn('size-3 transition-transform motion-reduce:transition-none', showResting && 'rotate-90')} />
+          {showResting ? 'Hide resting' : `${hidden} resting`}
+        </button>
+      )}
     </Section>
   )
 }
@@ -160,7 +180,6 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const run = useHostState(host, (s) => s.runs[agent.runId])
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
   const own = runLevelOf(run?.autonomy)
-  const reveal = useAppState((s) => s.modelShown)
   const rows: Array<[string, string, boolean?]> = [
     ['Project', repoName(agent.repo)],
     ['Host', host.info.name],
@@ -172,7 +191,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
     ['Run id', agent.runId, true],
   ]
   return (
-    <Fold title="Details" reveal={reveal} onRevealed={() => app.modelRevealed()}>
+    <Fold title="Details">
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs">
         {rows.filter(([, v]) => v).map(([k, v, mono]) => (
           <div key={k} className="contents">
@@ -193,7 +212,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
           </>
         )}
       </dl>
-      <ModelControl host={host} agent={agent} className="mt-1.5" />
+      <ModelControl agent={agent} className="mt-1.5" />
       <div className="mt-2 flex gap-1.5">
         {canTerminal && agent.terminalId && (
           <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>
@@ -247,7 +266,40 @@ function CommentBox({ host, pr, onDone }: { host: HostRuntime; pr: PrRow; onDone
   )
 }
 
-const CHECKS_TONE: Record<string, string> = { pass: 'border-state-done text-state-done', failing: 'border-destructive text-destructive', pending: 'border-state-needs text-state-needs' }
+/** A PR's checks as one icon (✓ ✗ ◐) with the word in its hint, so a row says it without a badge of words. */
+const CHECKS: Record<string, { icon: typeof CircleCheck; tone: string; label: string }> = {
+  pass: { icon: CircleCheck, tone: 'text-state-done', label: 'Checks pass' },
+  failing: { icon: CircleX, tone: 'text-destructive', label: 'Checks failing' },
+  pending: { icon: LoaderCircle, tone: 'text-state-needs', label: 'Checks running' },
+}
+
+/**
+ * The open pull requests of the agent (of the whole run for a lead) first, as they are the ones to act on; the merged and
+ * closed ones are folded under a count, since a stack of finished PRs would bury them.
+ */
+function PullRequests({ prs, lead, host }: { prs: PrRow[]; lead: boolean; host: HostRuntime }) {
+  const [showDone, setShowDone] = useState(false)
+  const open = prs.filter((p) => p.state !== 'merged' && p.state !== 'closed')
+  // Only what finished is folded: a PR whose state was never read (`unknown`) stays with the open ones.
+  const done = prs.filter((p) => p.state === 'merged' || p.state === 'closed')
+  const item = (p: PrRow) => <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
+  return (
+    <Section title="Pull requests" count={prs.length}>
+      {prs.length === 0 && <p className="text-xs text-muted-foreground">None yet.</p>}
+      {open.length === 0 && done.length > 0 && <p className="text-xs text-muted-foreground">None open.</p>}
+      {open.length > 0 && <ul aria-label="Open pull requests" className="space-y-1">{open.map(item)}</ul>}
+      {done.length > 0 && (
+        <>
+          <button type="button" aria-expanded={showDone} onClick={() => setShowDone(!showDone)} className="mt-1.5 flex w-full items-center gap-1 rounded text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <ChevronRight className={cn('size-3 transition-transform motion-reduce:transition-none', showDone && 'rotate-90')} />
+            Merged and closed <span className="tabular-nums">{done.length}</span>
+          </button>
+          {showDone && <ul aria-label="Merged and closed pull requests" className="mt-1 space-y-1">{done.map(item)}</ul>}
+        </>
+      )}
+    </Section>
+  )
+}
 
 function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: HostRuntime }) {
   const [commenting, setCommenting] = useState(false)
@@ -271,7 +323,13 @@ function PrItem({ pr, showAgent, host }: { pr: PrRow; showAgent: boolean; host: 
       >
         <span className="font-medium">#{pr.number}</span>
         <Badge className={cn(pr.state === 'open' && !pr.draft && 'border-primary text-primary')}>{pr.draft && pr.state === 'open' ? 'draft' : pr.state}</Badge>
-        {pr.checks && <Badge className={CHECKS_TONE[pr.checks]}>{pr.checks === 'failing' ? 'checks failing' : `checks ${pr.checks}`}</Badge>}
+        {pr.checks && CHECKS[pr.checks] && (
+          <Tip label={CHECKS[pr.checks]!.label}>
+            <span role="img" aria-label={CHECKS[pr.checks]!.label} className={CHECKS[pr.checks]!.tone}>
+              {(() => { const I = CHECKS[pr.checks]!.icon; return <I className={cn('size-3.5', pr.checks === 'pending' && 'animate-spin motion-reduce:animate-none')} /> })()}
+            </span>
+          </Tip>
+        )}
         {pr.held && <Badge className="border-state-needs text-state-needs">held</Badge>}
         {pr.stale && <Tip label="GitHub couldn't be read the last time: this is what was seen before"><span className="text-muted-foreground">stale</span></Tip>}
         <ExternalLink className="ml-auto size-3 shrink-0 text-muted-foreground" />

@@ -19,6 +19,7 @@ import { Panes } from './components/panes'
 import { SidePanel } from './components/side-panel'
 import { WatchAll } from './components/watch-all'
 import { ModelControl } from './components/model-control'
+import { ModelPicker } from './components/model-picker'
 import { VendorIcon } from './components/vendor-icon'
 import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { ShortcutField } from './components/shortcut-field'
@@ -38,11 +39,11 @@ import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext, useApp, useHostState } from './context'
 import { messagesOf } from './derive'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, UserNoticeSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentPhase, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, UserNoticeSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
-import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgyUsageRowSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
@@ -177,9 +178,9 @@ describe('ProjectSidebar', () => {
     await userEvent.type(field, 'ship it now{Enter}')
     await waitFor(() => expect((client as unknown as { renameRun: ReturnType<typeof vi.fn> }).renameRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r1', title: 'ship it now' })))
     await userEvent.click(screen.getByRole('button', { name: 'Menu of ship it' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Stop' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Shut down' }))
     expect(client.stopAgent).not.toHaveBeenCalled()
-    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop' }))
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Shut down' }))
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledTimes(1))
   })
 
@@ -337,9 +338,9 @@ describe('AgentPanel', () => {
     let releaseStop!: () => void
     client.stopAgent.mockImplementationOnce(() => new Promise((r) => (releaseStop = () => r({}))))
     await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Stop…' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Shut down…' }))
     expect(client.stopAgent).not.toHaveBeenCalled()
-    const confirm = await screen.findByRole('button', { name: 'Stop app-fix' })
+    const confirm = await screen.findByRole('button', { name: 'Shut down app-fix' })
     fireEvent.click(confirm)
     fireEvent.click(confirm)
     releaseStop()
@@ -365,7 +366,7 @@ describe('AgentPanel', () => {
     panel(wrap)
     expect(screen.getByTestId('chat-status')).toHaveTextContent('Exited with code 7')
     await userEvent.click(screen.getByRole('button', { name: 'Menu of app-fix' }))
-    expect(await screen.findByRole('menuitem', { name: 'Stop…' })).toHaveAttribute('aria-disabled', 'true')
+    expect(await screen.findByRole('menuitem', { name: 'Shut down…' })).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeDisabled()
   })
 })
@@ -456,7 +457,7 @@ describe('App', () => {
     expect(within(dialog).getByLabelText('Pairing link')).toHaveValue(OPENED.link)
     await userEvent.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    await userEvent.click(screen.getByRole('button', { name: 'New' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Connect a host…' }))
     const fresh = within(await screen.findByRole('dialog'))
     expect(fresh.queryByLabelText('Pairing link')).toBeNull() // a fresh form: a state dir, not the dropped link
@@ -780,6 +781,41 @@ describe('Dock and TabBar', () => {
     expect(model.store.getState()).toMatchObject({ agentId: 'w1', tabs: [{ agentId: 'lead' }, { agentId: 'w1' }] })
   })
 
+  it('puts a quiet dot on the tab of an agent that finished a turn while another tab was shown, until it is opened', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } } }))
+    model.selectAgent('h1', 'w1')
+    model.selectAgent('h1', 'lead')
+    render(wrap(<TabBar />))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull()
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } })))
+    expect(await within(tabs).findByRole('img', { name: 'Finished a turn while you were away' })).toBeInTheDocument()
+    // Looking at it clears the dot.
+    await userEvent.click(within(tabs).getByRole('tab', { name: /app-fix/ }))
+    await waitFor(() => expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull())
+    // The vendor's mark is beside the name and adds none to it.
+    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-fix', 'app-lead'])
+  })
+
+  it('counts a quiet long turn (unknown) as work for the finished dot, and gives none to a tab beside the main one', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } } }))
+    model.selectAgent('h1', 'w1')
+    model.selectAgent('h1', 'lead')
+    render(wrap(<TabBar />))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.UNKNOWN } } })))
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } })))
+    expect(await within(tabs).findByRole('img', { name: 'Finished a turn while you were away' })).toBeInTheDocument()
+    // Shown in a split beside the main tab, it is on screen: no dot for its next turn.
+    act(() => model.pinSplit('h1', 'w1'))
+    await waitFor(() => expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull())
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } } })))
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } })))
+    expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull()
+  })
+
   it('closes a tab with a middle click and moves one by dragging it onto another', () => {
     const { wrap, model } = fixture()
     model.selectAgent('h1', 'lead')
@@ -815,6 +851,66 @@ describe('Dock and TabBar', () => {
     expect(screen.getByRole('status')).toHaveTextContent('2 started')
     await userEvent.click(screen.getByRole('button', { name: 'Show the live dock' }))
     expect(model.store.getState().dockBadge).toBe(0)
+  })
+})
+
+describe('Dock resting agents', () => {
+  it('lists the live agents of the run and keeps the idle ones behind a count, until asked', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, w2: agent('w2', { name: 'app-docs', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.WORKING }) } }))
+    render(wrap(<Dock />))
+    const dock = screen.getByRole('region', { name: 'Live dock' })
+    expect(within(dock).getAllByRole('listitem').map((l) => l.getAttribute('aria-label')).sort()).toEqual(['app-docs in the dock', 'app-lead in the dock'])
+    expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Show 1 resting' }))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Hide resting' }))
+    expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+  })
+})
+
+describe('Dock resting: helpers and scope', () => {
+  it('keeps the tile of an idle worker while a reviewer folded into it works, and counts the agents it hides', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, rv: agent('rv', { name: 'app-rev', role: AgentRole.REVIEWER, parentId: 'w1', state: AgentState.WORKING }) } }))
+    render(wrap(<Dock />))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /resting/ })).toBeNull()
+    // The reviewer is done: the worker, idle again, rests with it, two agents behind the count.
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, rv: { ...s.agents.rv!, state: AgentState.IDLE } } })))
+    expect(await screen.findByRole('button', { name: 'Show 2 resting' })).toBeInTheDocument()
+  })
+
+  it('keeps the open agent when it is a helper folded into an idle worker, and a helper that waits on an answer', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({
+      agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, rv: agent('rv', { name: 'app-rev', role: AgentRole.REVIEWER, parentId: 'w1', state: AgentState.IDLE }) },
+    }))
+    model.selectAgent('h1', 'rv')
+    render(wrap(<Dock />))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument() // the open agent's tile, with it as a chip
+    act(() => model.selectAgent('h1', 'lead'))
+    expect(await screen.findByRole('button', { name: 'Show 2 resting' })).toBeInTheDocument()
+    // The reviewer asked a question that waits for an answer: its tile comes back.
+    act(() => host.store.setState({ waitingAll: [create(WaitingSchema, { kind: WaitingKind.QUESTION, runId: 'r1', agentId: 'rv' })] }))
+    await waitFor(() => expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument())
+  })
+
+  it('folds the resting agents again in another run', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({
+      runs: { ...s.runs, r2: create(RunSchema, { id: 'r2', title: 'web', status: RunStatus.OPEN }) },
+      agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE }, o1: agent('o1', { runId: 'r2', role: AgentRole.ROOT, name: 'web-lead' }), o2: agent('o2', { runId: 'r2', role: AgentRole.WORKER, parentId: 'o1', name: 'web-fix', state: AgentState.IDLE }) },
+    }))
+    render(wrap(<Dock />))
+    await userEvent.click(screen.getByRole('button', { name: 'Show 1 resting' }))
+    expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toBeInTheDocument()
+    act(() => model.selectAgent('h1', 'o1'))
+    expect(screen.queryByRole('listitem', { name: 'web-fix in the dock' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Show 1 resting' })).toBeInTheDocument()
   })
 })
 
@@ -891,16 +987,33 @@ describe('SidePanel', () => {
     return f
   }
 
+  it('lists the open pull requests and folds the merged and closed ones under a count', async () => {
+    const { host, wrap } = panelFixture()
+    const pr = (number: number, state: string) => create(PullRequestSchema, { agentId: 'w1', number, url: `https://github.com/o/r/pull/${number}`, state })
+    host.store.setState({ pullRequests: { w1: create(AgentPullRequestsSchema, { agentId: 'w1', pullRequests: [pr(3, 'merged'), pr(12, 'open'), pr(2, 'closed')] }) } })
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    const prs = screen.getByRole('region', { name: 'Pull requests' })
+    expect(within(within(prs).getByRole('list', { name: 'Open pull requests' })).getAllByRole('listitem')).toHaveLength(1)
+    expect(prs).toHaveTextContent('#12')
+    expect(prs).not.toHaveTextContent('#3')
+    await userEvent.click(within(prs).getByRole('button', { name: /Merged and closed/ }))
+    expect(within(within(prs).getByRole('list', { name: 'Merged and closed pull requests' })).getAllByRole('listitem').map((l) => l.textContent?.slice(0, 2))).toEqual(['#3', '#2'])
+  })
+
   it('shows a lead\'s tree first, then its run\'s PRs, and the run total folded to one line', async () => {
     const { host, client, wrap, model } = panelFixture()
     host.store.setState((s) => ({ agents: { ...s.agents, rv: agent('rv', { role: AgentRole.REVIEWER, name: 'rev', parentId: 'w1' }) } }))
     render(wrap(<SidePanel host={host} agentId="lead" />))
     const tree = screen.getByRole('list', { name: 'Agent tree' })
-    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker', 'revreviewer'])
+    // Live agents only: the idle reviewer rests behind a count (the idle worker shows because its plan waits).
+    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker'])
     expect(within(tree).getByRole('button', { name: /app-lead/ })).toHaveAttribute('aria-current', 'true')
+    await userEvent.click(screen.getByRole('button', { name: '1 resting' }))
+    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker', 'revreviewer'])
+    await userEvent.click(screen.getByRole('button', { name: 'Hide resting' }))
     const prs = screen.getByRole('region', { name: 'Pull requests' })
     expect(prs).toHaveTextContent('#12')
-    expect(prs).toHaveTextContent('checks failing')
+    expect(within(prs).getByRole('img', { name: 'Checks failing' })).toBeInTheDocument()
     expect(prs).toHaveTextContent('app-fix')
     const cost = screen.getByRole('region', { name: 'Run total' })
     await waitFor(() => expect(cost).toHaveTextContent('$7.50'))
@@ -1077,8 +1190,42 @@ describe('SidebarFooter', () => {
     const meter = await screen.findByRole('meter', { name: 'Claude 7d' })
     expect(meter).toHaveAttribute('aria-valuenow', '95')
     expect(screen.getByRole('meter', { name: 'Claude 5h' })).toHaveAttribute('aria-valuenow', '42')
+    // The reserve (quota_stop 90) is a line on each bar.
+    expect(screen.getAllByTestId('meter-mark').map((m) => m.style.left)).toEqual(['90%', '90%'])
     await userEvent.click(screen.getByRole('button', { name: /Quota: open usage and cost/ }))
     expect(model.store.getState().usageOpen).toBe(true)
+  })
+
+  it('keeps the way into Usage and cost when the host has no quota reading, and says an agy reset as it can be read', async () => {
+    const { client, wrap, model } = fixture()
+    Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90 })) })
+    render(wrap(<SidebarFooter />))
+    await userEvent.click(await screen.findByRole('button', { name: /Quota: open usage and cost/ }))
+    expect(model.store.getState().usageOpen).toBe(true)
+  })
+
+  it('says an agy reset as a span when it is one ("3h45m") and as given when it is a time, and keeps the way in when the read failed', async () => {
+    const { client, wrap, model } = fixture()
+    Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, agyRows: [create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 40, resets: '3h45m' }), create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 70, resets: '12:00' })], agyTiers: [{ tier: 'strong', model: 'neon', hasLeft: true, left: 40, notes: [] }] })) })
+    const { unmount } = render(wrap(<SidebarFooter />))
+    const meters = await screen.findAllByRole('meter')
+    // Two bars of one label name their group.
+    expect(meters.map((m) => m.getAttribute('aria-label'))).toEqual(['agy Gemini 4 Neon Neon', 'agy Gemini 4 Neon Neon'])
+    expect(meters[0]).toHaveAttribute('aria-valuetext', expect.stringContaining('resets in 3h45m'))
+    expect(meters[1]).toHaveAttribute('aria-valuetext', expect.stringContaining('resets 12:00'))
+    unmount()
+    Object.assign(client, { getUsage: vi.fn(async () => { throw new Error('[unimplemented] no such action') }) })
+    render(wrap(<SidebarFooter />))
+    await userEvent.click(await screen.findByRole('button', { name: /Quota: open usage and cost/ }))
+    expect(model.store.getState().usageOpen).toBe(true)
+  })
+
+  it('the quota bar tells a screen reader its window, reset and reserve', async () => {
+    const { client, wrap } = fixture()
+    Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: '5h', key: 'five_hour', used: 42, resetsAt: timestampFromMs(Date.now() + 2 * 3600_000 + 60_000) })] }) })) })
+    render(wrap(<SidebarFooter />))
+    const meter = await screen.findByRole('meter', { name: 'Claude 5h' })
+    expect(meter).toHaveAttribute('aria-valuetext', expect.stringMatching(/42% used, resets in 2 h .*the host starts nothing new from 90%/))
   })
 
   it('adds a project by Enter on the path typed, and keeps one already pinned pinned', async () => {
@@ -1130,15 +1277,14 @@ describe('SidebarFooter', () => {
     await waitFor(() => expect(model.store.getState().pins).toEqual({ h1: ['/p/new'] }))
   })
 
-  it('offers New lead, a project, a host and pairing from +, and the host\'s settings from Hosts', async () => {
+  it('has one way to each thing: the gear for the settings, Hosts for a host and pairing, and no + for a new lead', async () => {
     const { wrap, model } = fixture()
     render(wrap(<SidebarFooter />))
-    await userEvent.click(screen.getByRole('button', { name: 'New' }))
-    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['New lead', 'Connect a host…', 'Pair a device'])
-    await userEvent.click(screen.getByRole('menuitem', { name: 'New lead' }))
-    expect(model.store.getState().workspaceOpen).toBe(true)
+    expect(screen.queryByRole('button', { name: 'New' })).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Host settings' }))
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Connect a host…', 'Pair a device', expect.stringMatching(/^Remove /)])
+    await userEvent.keyboard('{Escape}')
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(model.store.getState().settingsOpen).toBe(true)
   })
 })
@@ -1342,66 +1488,91 @@ describe('ModelControl and vendor icons', () => {
     return { ...f, a, client: f.client as typeof f.client & { switchAgent: ReturnType<typeof vi.fn>; checkModels: ReturnType<typeof vi.fn> } }
   }
 
-  it('shows the CLI, model and effort with the vendor\'s mark, and a reopen under way', () => {
-    const { host, a, wrap } = control({ pendingReopen: create(ReopenSchema, { model: 'opus', effort: 'high', why: 'moved' }) })
-    render(wrap(<ModelControl host={host} agent={a} />))
+  it('shows the CLI, model and effort with the vendor\'s mark, and a reopen under way, read-only', () => {
+    const { a, wrap } = control({ pendingReopen: create(ReopenSchema, { model: 'opus', effort: 'high', why: 'moved' }) })
+    render(wrap(<ModelControl agent={a} />))
     expect(screen.getByTestId('runs-on')).toHaveTextContent('claude · sonnet · high')
     expect(screen.getByRole('img', { name: 'Anthropic Claude' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Switching to opus (moved)…')
+    expect(screen.queryByRole('button')).toBeNull() // the picker by the composer is the one place to change it
   })
 
-  it('does not switch to a tier when the host lists none for the CLI', async () => {
-    const { host, a, wrap, client } = control()
-    noTiers.on = true
-    try {
-      render(wrap(<ModelControl host={host} agent={a} />))
-      await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-      expect(screen.getByLabelText('Tier')).toBeDisabled()
-      expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
-      expect(client.switchAgent).not.toHaveBeenCalled()
-    } finally {
-      noTiers.on = false
-    }
+  it('the picker\'s chip names the model and effort, and says what a reopen under way will switch to', () => {
+    const { host, a, wrap } = control()
+    const { unmount } = render(wrap(<ModelPicker host={host} agent={a} />))
+    expect(screen.getByTestId('model-chip')).toHaveTextContent('sonnet · high')
+    unmount()
+    render(wrap(<ModelPicker host={host} agent={{ ...a, pendingReopen: create(ReopenSchema, { model: 'opus' }) }} />))
+    expect(screen.getByTestId('model-chip')).toHaveTextContent('→ opus')
   })
 
-  it('switches to a tier, to a model of the host\'s list with an effort, or the effort alone', async () => {
+  it('switches from the picker: to a tier, to a model of the host\'s list, or the effort alone, each one call', async () => {
     const { host, a, wrap, client } = control()
-    render(wrap(<ModelControl host={host} agent={a} />))
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    // To a tier (the host's tiers for the kind, or the usual four).
-    await userEvent.selectOptions(screen.getByLabelText('Tier'), 'strong')
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    const open = () => userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await open()
+    // The tiers, the models of the host's list for the CLI, and the efforts; the current ones are marked.
+    expect(await screen.findByRole('menuitemradio', { name: 'mid' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('menuitemradio', { name: 'high' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'strong' }))
     await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(1))
     expect(client.switchAgent.mock.calls[0]![0]).toMatchObject({ agent: 'c1', tier: 'strong', model: '', effort: '', next: false })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'model')
-    expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
-    await waitFor(() => expect(client.checkModels).toHaveBeenCalled())
-    await userEvent.type(screen.getByLabelText('Model'), 'opus')
-    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'max')
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await open()
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'opus' }))
     await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(2))
-    expect(client.switchAgent.mock.calls[1]![0]).toMatchObject({ tier: '', model: 'opus', effort: 'max' })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(client.switchAgent.mock.calls[1]![0]).toMatchObject({ tier: '', model: 'opus', effort: '' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'effort')
-    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'low')
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await open()
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'low' }))
     await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(3))
     expect(client.switchAgent.mock.calls[2]![0]).toMatchObject({ tier: '', model: '', effort: 'low' })
   })
 
-  it('shows the host\'s refusal in its own words and keeps the dialog open', async () => {
-    const { host, a, wrap, client } = control()
+  it('marks the tier an executing worker runs on, not the one it planned on', async () => {
+    const { host, a, wrap } = control({ tier: 'strong', execTier: 'mid', phase: AgentPhase.EXECUTING })
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    expect(await screen.findByRole('menuitemradio', { name: 'mid' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('menuitemradio', { name: 'strong' })).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('marks the one family the agent runs on, the longest match, as a radio of its group', async () => {
+    const { host, a, wrap, client } = control({ model: 'gpt-5-codex' })
+    client.checkModels.mockResolvedValue(create(CheckModelsResponseSchema, { kinds: [create(KindModelsSchema, { kind: 'claude', listed: [create(ModelFamilyEntrySchema, { family: 'gpt-5' }), create(ModelFamilyEntrySchema, { family: 'gpt-5-codex' })] })] }))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    expect(await screen.findByRole('menuitemradio', { name: 'gpt-5-codex' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('menuitemradio', { name: 'gpt-5' })).toHaveAttribute('aria-checked', 'false')
+    // Each heading labels its own group of entries.
+    expect(within(screen.getByRole('group', { name: 'Model' })).getAllByRole('menuitemradio')).toHaveLength(2)
+  })
+
+  it('reads the host\'s models when the chip is used, not before, and shows the host\'s refusal as a toast', async () => {
+    const { host, a, wrap, client, model } = control()
     client.switchAgent.mockRejectedValue(new Error('[failed_precondition] app-c already runs on sonnet at high effort'))
-    render(wrap(<ModelControl host={host} agent={a} />))
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('app-c already runs on sonnet at high effort')
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    expect(client.checkModels).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await waitFor(() => expect(client.checkModels).toHaveBeenCalledTimes(1))
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'opus' }))
+    await waitFor(() => expect(model.store.getState().notices.map((n) => n.text)).toEqual(['app-c already runs on sonnet at high effort']))
+  })
+
+  it('asks the host for its models again when the first answer failed', async () => {
+    const { host, a, wrap, client } = control()
+    client.checkModels.mockRejectedValueOnce(new Error('[unavailable] busy'))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    const chip = screen.getByRole('button', { name: /^Model: / })
+    await userEvent.click(chip) // the hover's read fails; the click asks again
+    expect(await screen.findByRole('menuitemradio', { name: 'opus' })).toBeInTheDocument()
+    expect(client.checkModels.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('has no picker to use for a read-only device or a stopped agent', () => {
+    const { host, a, wrap } = control()
+    render(wrap(<ModelPicker host={host} agent={a} disabled />))
+    expect(screen.getByRole('button', { name: /^Model: / })).toBeDisabled()
   })
 
   it('draws a mark for each known vendor and a letter badge for the rest', () => {
@@ -1456,13 +1627,13 @@ describe('the command palette and shortcuts', () => {
     await waitFor(() => expect(model.store.getState().paletteOpen).toBe(false))
 
     act(() => model.openPalette(true))
-    await userEvent.type(await screen.findByRole('combobox', { name: 'Search commands' }), 'stop app-fix')
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Search commands' }), 'shut down app-fix')
     await userEvent.keyboard('{Enter}')
     expect(client.stopAgent).not.toHaveBeenCalled()
     expect(await screen.findByText(/Its process ends/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await userEvent.keyboard('{Enter}') // the filter is still there
-    await userEvent.click(await screen.findByRole('button', { name: 'Stop app-fix' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Shut down app-fix' }))
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1' })))
   })
 
@@ -1575,6 +1746,50 @@ describe('ChatView', () => {
     return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, rewindAgent, addAttachment, sendPromptAnyway, ui }
   }
 
+  it('shows a sent prompt at once as a bubble marked sending, until the record has it, and goes to the end for it', async () => {
+    const { ui, promptAgent, readTranscript } = chat()
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const scroller = screen.getByTestId('chat')
+    // The reader had scrolled up.
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    expect(await screen.findByRole('button', { name: /Jump to the end/ })).toBeInTheDocument()
+    await userEvent.type(box, 'run the tests{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: 'run the tests' })))
+    const sending = await screen.findByRole('list', { name: 'Sending' })
+    expect(sending).toHaveTextContent('run the tests')
+    expect(sending).toHaveTextContent('sending…')
+    // Sending goes to the end, and the pill is gone.
+    await waitFor(() => expect(scroller.scrollTop).toBe(2000))
+    expect(screen.queryByRole('button', { name: /Jump to the end/ })).toBeNull()
+    // The record has it now: the bubble is replaced by the real one.
+    readTranscript.mockResolvedValue(res([...tail, entry('u9', TranscriptKind.USER, { text: 'run the tests' })]))
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Sending' })).toBeNull(), { timeout: 4000 })
+    expect(screen.getAllByText('run the tests')).toHaveLength(1)
+  })
+
+  it('takes an image dropped anywhere over the chat, says so while one is dragged over it, and hints at paste and drop', async () => {
+    const { ui, addAttachment } = chat()
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    expect(box).toHaveAttribute('placeholder', expect.stringContaining('Paste or drop an image'))
+    const chatEl = screen.getByRole('region', { name: 'Chat' })
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'dropped.png', { type: 'image/png' })
+    const dataTransfer = { types: ['Files'], files: [png] }
+    fireEvent.dragEnter(screen.getByTestId('chat'), { dataTransfer })
+    expect(screen.getByRole('status', { name: 'Drop images' })).toHaveTextContent('Drop images to attach')
+    fireEvent.drop(screen.getByTestId('chat'), { dataTransfer })
+    expect(screen.queryByRole('status', { name: 'Drop images' })).toBeNull()
+    await waitFor(() => expect(addAttachment).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', name: 'dropped.png' })))
+    expect(chatEl).toBeInTheDocument()
+    // Not a file being dragged (text, a tab): no overlay.
+    fireEvent.dragEnter(screen.getByTestId('chat'), { dataTransfer: { types: ['text/plain'], files: [] } })
+    expect(screen.queryByRole('status', { name: 'Drop images' })).toBeNull()
+  })
+
   it('stores an added image on the host, shows it, and names its path in the prompt', async () => {
     const { ui, promptAgent, addAttachment } = chat()
     const { container } = render(ui)
@@ -1585,7 +1800,9 @@ describe('ChatView', () => {
     expect(within(screen.getByRole('list', { name: 'Images' })).getByRole('img', { name: 'shot.png' })).toBeInTheDocument()
     await userEvent.type(box, 'what is wrong here{Enter}')
     await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: '[image: /state/runs/r1/attachments/w1/i1.png]\nwhat is wrong here' })))
-    await waitFor(() => expect(screen.queryByRole('list', { name: 'Images' })).toBeNull())
+    // The composer's strip is empty; the prompt shows at once as a bubble with the image, "sending…" until the record has it.
+    await waitFor(() => expect(within(screen.getByRole('form', { name: 'Prompt' })).queryByRole('list', { name: 'Images' })).toBeNull())
+    expect(within(screen.getByRole('list', { name: 'Sending' })).getByRole('img', { name: 'i1.png' })).toBeInTheDocument()
     // Not an image: refused here, with nothing stored.
     await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, new File(['x'], 'notes.txt', { type: 'text/plain' }), { applyAccept: false })
     expect(await screen.findByRole('alert')).toHaveTextContent('Only PNG, JPEG, GIF and WebP')
@@ -1710,6 +1927,64 @@ describe('ChatView', () => {
     expect(first).toHaveTextContent('the very first prompt')
     expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 10n, backward: true }))
     expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
+  })
+
+  it('keeps the sending bubble and the pill\'s count when an earlier page of older prompts is loaded', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward && req.offset === 10n ? res([entry('old1', TranscriptKind.USER, { text: 'an old prompt' }), entry('old2', TranscriptKind.ASSISTANT, { text: 'an old reply' })], { startOffset: 0n, endOffset: 10n, atStart: true }) : res(tail)))
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const scroller = screen.getByTestId('chat')
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    await userEvent.type(box, 'run the tests{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalled())
+    expect(await screen.findByRole('list', { name: 'Sending' })).toHaveTextContent('run the tests')
+    // The reader scrolls up and loads the older page: older prompts end nothing, and are no news at the end.
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    expect(await screen.findByText('an old prompt')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Sending' })).toHaveTextContent('run the tests')
+    expect(screen.getByRole('button', { name: /Jump to the end/ })).toHaveTextContent(/^Jump to the end$/)
+  })
+
+  it('keeps following the end after a Load earlier that failed', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => {
+      if (req.backward && req.offset === 10n) throw new Error('[unavailable] host busy')
+      return res(tail)
+    })
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const scroller = screen.getByTestId('chat')
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('host busy')
+    await new Promise((r) => setTimeout(r, 150))
+    await userEvent.type(box, 'go on{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalled())
+    await waitFor(() => expect(scroller.scrollTop).toBe(2000))
+  })
+
+  it('ends one bubble for each prompt the record gains, not both for the first', async () => {
+    const entries = [...tail]
+    const read = vi.fn(async () => res(entries))
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, 'first one{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledTimes(1))
+    await userEvent.type(box, 'second one{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledTimes(2))
+    expect(within(await screen.findByRole('list', { name: 'Sending' })).getAllByRole('listitem')).toHaveLength(2)
+    // The record has the first only: one bubble left.
+    entries.push(entry('u1', TranscriptKind.USER, { text: 'first one' }))
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Sending' })).getAllByRole('listitem')).toHaveLength(1), { timeout: 4000 })
+    expect(screen.getByRole('list', { name: 'Sending' })).toHaveTextContent('second one')
   })
 
   it('reads the tail again when an earlier page does not join what is held', async () => {

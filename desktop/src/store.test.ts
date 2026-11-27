@@ -2,8 +2,9 @@ import { create, fromJson, toJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
-import { MAX_ACTIVITY, addPrompt, applyFrame, createHostStore, emptyHost, mergeMessages, setPrompts, storeSink, type HostState } from './store'
+import { MAX_ACTIVITY, addPrompt, applyFrame, createHostStore, emptyHost, mergeMessages, setPrompts, setWaiting, storeSink, type HostState } from './store'
 import { SettingSchema$ as SettingDescriptor, UserNoticeSchema, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, QueuedPromptSchema, type Event } from './gen/agentmesh/v1/types_pb'
+import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -11,6 +12,22 @@ const ev = (seq: number, payload: Event['payload']): Frame => ({ case: 'event', 
 const snapshot = (agents = [agent('a1')]): Frame => ({ case: 'snapshot', value: { $typeName: 'agentmesh.v1.Snapshot', cursor: { $typeName: 'agentmesh.v1.Cursor', generation: 'g', seq: 5n }, runs: [create(RunSchema, { id: 'r1', title: 'run' })], agents } })
 
 const run = (frames: Frame[], from: HostState = emptyHost()) => frames.reduce(applyFrame, from)
+
+describe('setWaiting', () => {
+  it("keeps what waits on the user apart from a plan the lead approves: only the first reaches 'Waiting on you', the sidebar and the badge counts", () => {
+    const row = (agentId: string, forUser: boolean) => create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId, forUser })
+    const s = setWaiting([row('w1', false), row('w2', true)])
+    expect(s.waiting?.map((w) => w.agentId)).toEqual(['w2'])
+    expect(s.waitingAll?.map((w) => w.agentId)).toEqual(['w1', 'w2'])
+  })
+
+  it('changes nothing when the host says the same again, so what reads the lists is not redrawn for each poll', () => {
+    const row = (agentId: string) => create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId, forUser: true })
+    const first = [row('w1'), row('w2')]
+    expect(setWaiting([row('w1'), row('w2')], first)).toEqual({})
+    expect(setWaiting([row('w1')], first).waitingAll).toHaveLength(1)
+  })
+})
 
 describe('applyFrame', () => {
   it('keeps what the host told the user, newest last, at most MAX_ACTIVITY, and not as a change of any agent', () => {

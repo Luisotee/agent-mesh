@@ -217,11 +217,15 @@ func (d *Daemon) view(a *v1.Agent) *v1.Agent {
 	out := d.rt.lastOutput[a.TerminalId]
 	d.rt.mu.Unlock()
 	shown := reducer.Display(reducer.Of(a), d.now(), out, d.rt.cfg.UnknownAfter)
-	if shown == a.State {
+	moved := movedBranch(a)
+	if shown == a.State && moved == "" {
 		return a
 	}
 	a = proto.Clone(a).(*v1.Agent)
 	a.State = shown
+	if moved != "" {
+		a.Branch = moved // the branch it is on now, not the one it was spawned on (branch.go)
+	}
 	return a
 }
 

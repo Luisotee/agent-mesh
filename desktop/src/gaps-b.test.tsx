@@ -5,11 +5,11 @@ import userEvent from '@testing-library/user-event'
 import { Code, ConnectError } from '@connectrpc/connect'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
-import { Changes, ContextRing, Progress, WorktreeActions } from './components/agent-work'
+import { Changes, ContextMeter, Progress, WorktreeActions } from './components/agent-work'
 import { LOCAL_DEVICE } from './components/pair-panel'
 import { TailnetPanel } from './components/tailnet-panel'
 import { AppContext } from './context'
-import { ChangedFileSchema, GetAgentChangesResponseSchema, GetAgentProgressResponseSchema, PlanItemSchema, SetTailnetResponseSchema, TailnetStatusResponseSchema } from './gen/agentmesh/v1/mesh_pb'
+import { ChangedFileSchema, ContextMarkSchema, GetAgentChangesResponseSchema, GetAgentProgressResponseSchema, PlanItemSchema, SetTailnetResponseSchema, TailnetStatusResponseSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { AgentRole, AgentSchema, AgentState, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from './model'
@@ -59,14 +59,31 @@ describe('Progress', () => {
     expect(last(client.getAgentProgress)).toMatchObject({ agent: 'w1' })
   })
 
-  it('shows the context against the window as the composer\'s ring, amber from 70%', async () => {
+  it('shows the context against the whole window as a bar with a tick at each mark, amber from the first one', async () => {
     const { host, client, wrap, agent: a } = fixture()
-    client.getAgentProgress.mockResolvedValue(create(GetAgentProgressResponseSchema, { supported: true, contextTokens: 160_000n, contextWindow: 200_000n }))
-    render(wrap(<ContextRing host={host} agent={a} active />))
-    const ring = await screen.findByRole('meter', { name: 'Context used' })
-    expect(ring).toHaveAttribute('aria-valuenow', '80')
-    expect(ring).toHaveAttribute('aria-valuetext', '160k of 200k tokens (80%)')
-    expect(ring.querySelector('svg')!.getAttribute('class')).toContain('text-state-needs')
+    client.getAgentProgress.mockResolvedValue(create(GetAgentProgressResponseSchema, {
+      supported: true, contextTokens: 160_000n, contextWindow: 200_000n,
+      marks: [create(ContextMarkSchema, { tokens: 150_000n, label: 'The mesh resets this lead', setting: 'root_reset.at' }), create(ContextMarkSchema, { tokens: 300_000n, label: 'past the window', setting: 'x' })],
+    }))
+    render(wrap(<ContextMeter host={host} agent={a} active />))
+    const meter = await screen.findByRole('meter', { name: 'Context used' })
+    expect(meter).toHaveAttribute('aria-valuenow', '80')
+    expect(meter).toHaveAttribute('aria-valuetext', '160k of 200k tokens (80%)')
+    expect(meter).toHaveTextContent('160k / 200k')
+    // One tick, at 75% of the window (a mark past the window is not drawn), and the bar is amber: past the first mark.
+    expect(within(meter).getAllByTestId('context-mark').map((m) => m.style.left)).toEqual(['75%'])
+    expect(meter.querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('warn')
+  })
+
+  it('is green below the first mark and red from 90% of the window', async () => {
+    const { host, client, wrap, agent: a } = fixture()
+    const marks = [create(ContextMarkSchema, { tokens: 150_000n, label: 'x', setting: 'root_reset.at' })]
+    client.getAgentProgress.mockResolvedValue(create(GetAgentProgressResponseSchema, { supported: true, contextTokens: 100_000n, contextWindow: 200_000n, marks }))
+    const { rerender } = render(wrap(<ContextMeter host={host} agent={a} active />))
+    expect((await screen.findByRole('meter', { name: 'Context used' })).querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('ok')
+    client.getAgentProgress.mockResolvedValue(create(GetAgentProgressResponseSchema, { supported: true, contextTokens: 185_000n, contextWindow: 200_000n, marks }))
+    rerender(wrap(<ContextMeter host={host} agent={{ ...a, state: AgentState.WORKING }} active />))
+    await waitFor(() => expect(screen.getByRole('meter', { name: 'Context used' }).querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('over'))
   })
 
   it('shows nothing for a CLI the host cannot read, or an agent with no plan', async () => {
@@ -128,7 +145,7 @@ describe('worktree actions', () => {
     render(own.wrap(<WorktreeActions host={own.host} agent={own.agent} />))
     await userEvent.click(screen.getByRole('button', { name: 'Open in editor' }))
     expect(last(own.client.openInEditor)).toMatchObject({ agent: 'w1', path: '' })
-    expect(await screen.findByRole('status')).toHaveTextContent('Opened in the editor.')
+    await waitFor(() => expect(own.model.store.getState().notices.map((n) => [n.text, n.tone])).toEqual([['Opened in the editor.', 'info']]))
     cleanup()
     const paired = fixture('dev-phone')
     render(paired.wrap(<WorktreeActions host={paired.host} agent={paired.agent} />))
@@ -137,11 +154,11 @@ describe('worktree actions', () => {
   })
 
   it('shows what the host says when the editor can\'t open', async () => {
-    const { host, client, wrap, agent: a } = fixture()
+    const { host, client, wrap, agent: a, model } = fixture()
     client.openInEditor.mockRejectedValue(new ConnectError('the editor "code" isn\'t on this host\'s PATH', Code.FailedPrecondition))
     render(wrap(<WorktreeActions host={host} agent={a} />))
     await userEvent.click(screen.getByRole('button', { name: 'Open in editor' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent("isn't on this host's PATH")
+    await waitFor(() => expect(model.store.getState().notices.map((n) => [n.text, n.tone])).toEqual([[expect.stringContaining("isn't on this host's PATH"), 'error']]))
   })
 
   it('archives a clean agent after a confirmation', async () => {

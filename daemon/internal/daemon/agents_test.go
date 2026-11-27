@@ -35,6 +35,7 @@ var bins string
 
 func TestMain(m *testing.M) {
 	cleanenv.Agent()
+	shortdir.Sweep(3 * time.Hour) // what a killed or timed-out run left: its cleanups never ran
 	dir, err := os.MkdirTemp("", "meshd-bins-")
 	if err != nil {
 		panic(err)
@@ -390,6 +391,26 @@ func (h *agentsHarness) typeInto(a *v1.Agent, text string) {
 	if err := s.Input(ctx, []byte(text)); err != nil {
 		h.t.Fatal(err)
 	}
+	// The host drops a closed stream's client a moment after the close: until it has, the terminal counts as having someone
+	// typing in it (`InputClients`), which holds a prompt as "typing" instead of reading the box. Wait for it, so what the
+	// test does next sees the terminal as the user left it.
+	s.Close()
+	tc, err := termclient.New(statedir.Paths{Dir: h.state}.Term())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	waitFor(h.t, "the typist's stream dropped by the host", func() bool {
+		l, err := tc.API.ListTerminals(ctx, connect.NewRequest(&termv1.ListTerminalsRequest{}))
+		if err != nil {
+			return false
+		}
+		for _, t := range l.Msg.Terminals {
+			if t.Id == a.TerminalId {
+				return t.InputClients == 0
+			}
+		}
+		return true
+	})
 }
 
 func (h *agentsHarness) openTerminal(ctx context.Context, a *v1.Agent, input bool, att *termv1.Attach) *termclient.Stream {

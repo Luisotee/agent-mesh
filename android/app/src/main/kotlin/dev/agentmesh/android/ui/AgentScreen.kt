@@ -132,7 +132,7 @@ fun AgentScreen(
             return@Scaffold
         }
         val row = remember(state.runs, state.agents, agentId) { leadRowOf(SidebarHost(runtime.hostId, "", true, false, state.runs, state.agents, emptySet()), agentId) }
-        Column(Modifier.padding(pad).fillMaxSize()) {
+        Column(Modifier.inScaffold(pad).fillMaxSize()) {
             // The model the agent runs on (a tap changes it) and a switch under way.
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ModelChip(runtime, agent, canChange = canAct, modifier = Modifier.widthIn(max = 260.dp))

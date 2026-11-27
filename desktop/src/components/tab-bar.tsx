@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Columns2, MoreHorizontal, PanelRight, Plus, Rows2, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { displayChord } from '@/keys'
@@ -13,6 +13,7 @@ import type { HostRuntime } from '@/model'
 import type { Shell } from '@/gen/agentmesh/v1/mesh_pb'
 import { useHostViews, useKeys } from '@/hooks'
 import { StateIcon } from './state-icon'
+import { VendorIcon } from './vendor-icon'
 import { Tip } from '@/components/ui/tooltip'
 import { ActionMenu, RowContextMenu, type MenuEntry } from '@/components/ui/menu'
 import { ConfirmDialog } from '@/components/ui/confirm'
@@ -20,7 +21,6 @@ import { stopAgent } from '@/actions'
 import { cliKinds, cliName } from '@/cli'
 import { rewindUnsupported } from '@/attachments'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
-import { VendorIcon } from './vendor-icon'
 import { ViewSwitch } from './view-switch'
 import { closedShells, isShellTab, shellIdOf, shellProject, shellTabId } from '@/shells'
 
@@ -73,6 +73,27 @@ export function TabBar() {
   // The agent to stop with the host of its tab, which is not always the open one's.
   const [stopping, setStopping] = useState<{ hostId: string; agent: Agent }>()
   const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true, undefined, project)
+  // A tab whose agent finished a turn while another tab was shown carries a quiet dot until it is opened.
+  const [finished, setFinished] = useState<ReadonlySet<string>>(new Set())
+  // Whether a tab's agent has been at work since it was last idle: a quiet long turn reads as unknown, which is still work.
+  const worked = useRef(new Set<string>())
+  useEffect(() => {
+    const keys = new Set(all.map(tabKey))
+    // A tab that was closed starts over when it is opened again.
+    for (const k of [...worked.current]) if (!keys.has(k)) worked.current.delete(k)
+    const next = new Set([...finished].filter((k) => keys.has(k)))
+    for (const t of all) {
+      const a = isShellTab(t.agentId) ? undefined : views.find((v) => v.hostId === t.hostId)?.agents[t.agentId]
+      if (!a) continue
+      const key = tabKey(t)
+      // On screen: the main pane or a split beside it.
+      const shown = (t.hostId === hostId && t.agentId === agentId) || side.some((p) => p.hostId === t.hostId && p.agentId === t.agentId)
+      if (a.state === AgentState.WORKING || a.state === AgentState.UNKNOWN) worked.current.add(key)
+      else if (a.state === AgentState.IDLE && worked.current.delete(key) && !shown) next.add(key)
+      if (shown) next.delete(key)
+    }
+    if (next.size !== finished.size || [...next].some((k) => !finished.has(k))) setFinished(next)
+  }, [all, views, hostId, agentId, side, finished])
 
   /** A tab's menu: the same list for the right-click and the ⋯ of the open one. */
   const entriesOf = (t: TabRef, agent: Agent | undefined, label: string): MenuEntry[] => {
@@ -106,7 +127,7 @@ export function TabBar() {
             },
           ] as MenuEntry[])
         : []),
-      ...(agent ? (['separator', { label: 'Stop…', onSelect: () => setStopping({ hostId: t.hostId, agent }), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
+      ...(agent ? (['separator', { label: 'Shut down…', onSelect: () => setStopping({ hostId: t.hostId, agent }), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
     ]
   }
 
@@ -164,7 +185,7 @@ export function TabBar() {
                 // The open tab is underlined in its project's hue.
                 className={cn(
                   'group relative flex w-full min-w-0 items-center rounded-t-md border border-b-0 text-[13px]',
-                  active ? 'bg-background text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-identity' : 'border-transparent text-muted-foreground hover:bg-accent',
+                  active ? 'bg-linear-to-b from-identity/10 to-background text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-identity' : 'border-transparent text-muted-foreground hover:bg-accent',
                 )}
               >
                 <button
@@ -177,7 +198,9 @@ export function TabBar() {
                   className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-identity"
                 >
                   {agent ? <StateIcon agent={agent} className="size-3.5 shrink-0" /> : shellTab ? <SquareTerminal className="size-3.5 shrink-0" /> : null}
+                  {agent && <VendorIcon decorative kind={agent.kind} model={agent.model} className="size-3 shrink-0 opacity-80" />}
                   <span className="truncate">{label}</span>
+                  {finished.has(tabKey(t)) && <span role="img" aria-label="Finished a turn while you were away" title="Finished a turn while you were away" className="size-1.5 shrink-0 rounded-full bg-primary" />}
                   {many && view && <span className="shrink-0 text-xs text-muted-foreground">{view.hostName}</span>}
                 </button>
                 <button
@@ -194,8 +217,8 @@ export function TabBar() {
         })}
       </div>
       <PlusMenu project={project} host={runs} newLead={newLead} />
-      {/* The empty space: a double click starts a lead, as the + does; with no tab it says so. */}
-      <div className="flex min-w-4 flex-1 items-center self-stretch px-2" onDoubleClick={newLead}>
+      {/* The empty space: with no tab it says so. (A new lead starts from the +, as one thing does one way.) */}
+      <div className="flex min-w-4 flex-1 items-center self-stretch px-2">
         {tabs.length === 0 && <span className="text-xs text-muted-foreground">No agent open</span>}
       </div>
       {open && runs && openAgent && <OpenAgentControls host={runs} agent={openAgent} entries={entriesOf(open, openAgent, openAgent.name)} chord={keys.chat_toggle} />}
@@ -219,9 +242,9 @@ export function TabBar() {
       <ConfirmDialog
         open={!!stopping}
         onOpenChange={(o) => !o && setStopping(undefined)}
-        title={`Stop ${stopping?.agent.name ?? ''}?`}
+        title={`Shut down ${stopping?.agent.name ?? ''}?`}
         description={stopping?.agent.plain ? 'Its CLI exits. Its conversation is kept.' : 'Its CLI exits. A task or an answer to it later brings it back in the same conversation.'}
-        action={`Stop ${stopping?.agent.name ?? ''}`}
+        action={`Shut down ${stopping?.agent.name ?? ''}`}
         run={async () => {
           const h = hosts.find((x) => x.info.id === stopping?.hostId)
           if (!h || !stopping) throw new Error('That host is gone')
@@ -232,18 +255,12 @@ export function TabBar() {
   )
 }
 
-/** The open agent's controls at the bar's end: its view switch, its model (until the composer has the picker) and its menu. */
+/** The open agent's controls at the bar's end: its view switch and its menu (its model is the composer's picker). */
 function OpenAgentControls({ host, agent, entries, chord }: { host: HostRuntime; agent: Agent; entries: MenuEntry[]; chord?: string }) {
   const app = useApp()
   const tab = useAppState((s) => s.tab)
   return (
     <div role="toolbar" aria-label="Open agent" className="mb-1 ml-1 flex min-w-0 shrink-0 items-center gap-1">
-      <Tip label="Change its model">
-        <button type="button" aria-label={`Model: ${agent.model || agent.kind}`} onClick={() => app.showModel()} className="flex min-w-0 max-w-40 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
-          <VendorIcon kind={agent.kind} model={agent.model} className="size-3.5" />
-          <span className="truncate">{[agent.model || agent.kind, agent.effort].filter(Boolean).join(' ')}</span>
-        </button>
-      </Tip>
       <ViewSwitch host={host} agentId={agent.id} tab={tab} setTab={(t) => app.setTab(t)} chord={chord} />
       <ActionMenu
         align="end"

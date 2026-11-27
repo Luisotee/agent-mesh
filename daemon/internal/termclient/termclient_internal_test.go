@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Luisotee/agent-mesh/daemon/internal/termhost"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // A host that accepts the connection and never answers (a loaded machine, a host that is stopped) must not hold
@@ -16,7 +17,7 @@ func TestEnsureGivesUpOnAHostThatAcceptsAndStaysSilent(t *testing.T) {
 	old := helloTimeout
 	helloTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { helloTimeout = old })
-	dir, err := os.MkdirTemp("/tmp", "tc")
+	dir, err := shortdir.Make("tc")
 	if err != nil {
 		t.Fatal(err)
 	}
