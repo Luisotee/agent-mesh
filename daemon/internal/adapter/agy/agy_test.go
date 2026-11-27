@@ -176,6 +176,15 @@ func TestDecodeHookEventsAnd429Limits(t *testing.T) {
 	if evs := decodeOne(t, "c1", "Stop", `{"conversationId":"c1","hookEventName":"Stop","terminationReason":"NO_TOOL_CALL","continuationActive":true,"fullyIdle":false}`); len(evs) != 1 || evs[0].GetActivity() == nil {
 		t.Errorf("Stop with a continuation: %v", evs)
 	}
+	// A continuation that ends on a limit error is not going on: LIMITED, not left WORKING. Any other error on a
+	// continuation stays activity.
+	evsCont429 := decodeOne(t, "c1", "Stop", `{"conversationId":"c1","hookEventName":"Stop","terminationReason":"ERROR","error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h15m.","continuationActive":true,"fullyIdle":false}`)
+	if len(evsCont429) != 1 || evsCont429[0].GetRateLimited() == nil || evsCont429[0].GetRateLimited().ResetIn != "2h15m" {
+		t.Errorf("Stop 429 on a continuation: %v", evsCont429)
+	}
+	if evs := decodeOne(t, "c1", "Stop", `{"conversationId":"c1","hookEventName":"Stop","terminationReason":"ERROR","error":"internal server failure","continuationActive":true}`); len(evs) != 1 || evs[0].GetActivity() == nil {
+		t.Errorf("Stop with another error on a continuation: %v", evs)
+	}
 	// RESOURCE_EXHAUSTED (code 429) -> RateLimited, not TurnEnded.
 	evs429 := decodeOne(t, "c1", "Stop", `{"conversationId":"c1","hookEventName":"Stop","terminationReason":"ERROR","error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h15m."}`)
 	if len(evs429) != 1 || evs429[0].GetRateLimited() == nil || evs429[0].GetRateLimited().ResetIn != "2h15m" {

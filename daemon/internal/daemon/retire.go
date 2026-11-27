@@ -178,7 +178,7 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 	if d.rt.term == nil {
 		return
 	}
-	r := d.store.Read(ctx)
+	r := d.store.Read(ctx).WithMessageCache() // a run's messages are read once for the pass, not once per agent
 	v, err := d.Setting(r, "idle_retire")
 	if err != nil {
 		return

@@ -781,3 +781,47 @@ func TestWaitingIsFilledFromAnOlderDatabase(t *testing.T) {
 		t.Fatalf("after a second Open: %v", got)
 	}
 }
+
+// A cached reader reads a run's whole message list once: a later read of it is the first one (a snapshot), a read
+// with a limit or from a message is always fresh, and a plain reader or a Tx's own reader never caches.
+func TestMessageCacheReadsARunsWholeListOnce(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	put := func(id string) {
+		t.Helper()
+		if err := s.Write(ctx, nil, "", func(tx *Tx) error {
+			return tx.PutMessage(&v1.Message{Id: id, RunId: "r1", ToId: "a1", CreatedAt: timestamppb.New(fixed)})
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("m1")
+	cached := s.Read(ctx).WithMessageCache()
+	first, err := cached.RunMessages("r1", "", -1)
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first read %v, %v", first, err)
+	}
+	put("m2")
+	if again, _ := cached.RunMessages("r1", "", -1); len(again) != 1 || again[0] != first[0] {
+		t.Fatalf("a second read of the run went to the database: %d messages", len(again))
+	}
+	if limited, _ := cached.RunMessages("r1", "", 10); len(limited) != 2 {
+		t.Fatalf("a read with a limit is fresh: %d messages", len(limited))
+	}
+	if plain, _ := s.Read(ctx).RunMessages("r1", "", -1); len(plain) != 2 {
+		t.Fatalf("a plain reader cached: %d messages", len(plain))
+	}
+	if other, _ := cached.RunMessages("r2", "", -1); len(other) != 0 {
+		t.Fatalf("another run: %d messages", len(other))
+	}
+	err = s.Write(ctx, nil, "", func(tx *Tx) error {
+		msgs, err := tx.RunMessages("r1", "", -1)
+		if len(msgs) != 2 {
+			t.Errorf("a Tx's reader saw %d messages, %v", len(msgs), err)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

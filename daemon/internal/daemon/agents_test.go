@@ -94,6 +94,9 @@ func startWithAgents(t *testing.T, state, home string, tweak ...func(*daemon.Age
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Registered before serve's own cleanup, so it runs after the daemon stopped: the detached mesh-term keeps
+	// writing into the state dir until it exits, and t.TempDir's cleanup must not race it.
+	t.Cleanup(func() { stopTermHost(t, state) })
 	return &agentsHarness{harness: serve(t, d, state), home: home}
 }
 
@@ -113,7 +116,8 @@ func serve(t *testing.T, d *daemon.Daemon, state string) *harness {
 	return h
 }
 
-// stopTermHost ends the detached mesh-term of a state dir, as its owner would.
+// stopTermHost ends the detached mesh-term of a state dir, as its owner would, and waits until it is gone: it
+// writes into the state dir until then.
 func stopTermHost(t *testing.T, state string) {
 	b, err := os.ReadFile(termhost.Paths{Dir: statedir.Paths{Dir: state}.Term()}.Info())
 	if err != nil {
@@ -121,9 +125,19 @@ func stopTermHost(t *testing.T, state string) {
 	}
 	var info termhost.Info
 	json.Unmarshal(b, &info)
-	if ticks, err := proc.StartTicks(info.PID); err == nil {
-		proc.Signal(info.PID, ticks, syscall.SIGTERM)
+	ticks, err := proc.StartTicks(info.PID)
+	if err != nil {
+		return
 	}
+	proc.Signal(info.PID, ticks, syscall.SIGTERM)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if now, err := proc.StartTicks(info.PID); err != nil || now != ticks {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("mesh-term %d did not exit", info.PID)
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {

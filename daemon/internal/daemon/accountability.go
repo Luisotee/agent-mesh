@@ -234,7 +234,8 @@ func (t *waitTracker) woke(a *v1.Agent, wait time.Time) bool {
 // accountability is the periodic pass: for each agent that has a parent, its state says what to tell whom.
 func (d *Daemon) accountability(ctx context.Context) {
 	d.settleOverdueAsks(ctx)
-	r := d.store.Read(ctx)
+	// One read of each run's messages for the whole pass: every idle, quiet or limited agent judges from them.
+	r := d.store.Read(ctx).WithMessageCache()
 	nudgeAfter, err := d.Setting(r, "accountability.nudge_after")
 	if err != nil {
 		return
@@ -261,16 +262,16 @@ func (d *Daemon) accountability(ctx context.Context) {
 		var err error
 		switch {
 		case shown.State == v1.AgentState_AGENT_STATE_UNKNOWN:
-			err = d.alertOnce(ctx, a, "unknown", func(ctx context.Context) string {
+			err = d.alertOnce(ctx, r, a, "unknown", func(ctx context.Context) string {
 				return fmt.Sprintf("%s has gone quiet: nothing has been heard from it for %s (state %s). "+
 					"It may be hung or waiting at a prompt; look at its terminal.", a.Name, d.rt.cfg.UnknownAfter.Round(time.Minute),
 					strings.ToLower(strings.TrimPrefix(a.State.String(), "AGENT_STATE_"))) + d.afterwards(ctx, a)
 			})
 		case a.State == v1.AgentState_AGENT_STATE_LIMITED:
-			err = d.alertOnce(ctx, a, "limited", func(ctx context.Context) string { return d.limitedText(ctx, a) })
+			err = d.alertOnce(ctx, r, a, "limited", func(ctx context.Context) string { return d.limitedText(ctx, a) })
 		case a.State == v1.AgentState_AGENT_STATE_NEEDS_INPUT:
 			if inputAfter > 0 && a.LastActivity != nil && d.now().Sub(a.LastActivity.AsTime()) >= inputAfter {
-				err = d.alertOnce(ctx, a, "input", func(ctx context.Context) string {
+				err = d.alertOnce(ctx, r, a, "input", func(ctx context.Context) string {
 					return fmt.Sprintf("%s is waiting at a prompt for a person (%s). It can't go on until it is answered: "+
 						"tell the user, who answers it in its terminal (the app lists it as waiting).", a.Name, orDash(a.StateDetail))
 				})
@@ -281,11 +282,11 @@ func (d *Daemon) accountability(ctx context.Context) {
 				if rep, rerr := lastReport(r, a); rerr == nil && rep == nil {
 					login := authError(a.StateDetail)
 					skipNudge = login // a turn that fails on a dead login fails again on a nudge
-					err = d.alertOnce(ctx, a, "error", func(ctx context.Context) string { return errorText(a, login) + d.afterwards(ctx, a) })
+					err = d.alertOnce(ctx, r, a, "error", func(ctx context.Context) string { return errorText(a, login) + d.afterwards(ctx, a) })
 				}
 			}
 			if err == nil && !skipNudge && atPrompt(a.State) && nudge > 0 {
-				err = d.checkOwed(ctx, a, nudge, waitMax)
+				err = d.checkOwed(ctx, r, a, nudge, waitMax)
 			}
 		}
 		if err != nil && ctx.Err() == nil {
@@ -344,13 +345,13 @@ func (d *Daemon) limitedText(ctx context.Context, a *v1.Agent) string {
 
 // alertOnce tells the parent about an agent once per stretch of silence: the same alert is not repeated while
 // the agent's last activity is older than it.
-func (d *Daemon) alertOnce(ctx context.Context, a *v1.Agent, kind string, text func(context.Context) string) error {
+func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kind string, text func(context.Context) string) error {
 	since := time.Time{}
 	if a.LastActivity != nil {
 		since = a.LastActivity.AsTime()
 	}
 	// Told already? Looked at before the text is built: it can read GitHub, git and the screen.
-	if told, err := toldParent(d.store.Read(ctx), a, a.ParentId, alertHead(kind, a.Id), since); told || err != nil {
+	if told, err := toldParent(r, a, a.ParentId, alertHead(kind, a.Id), since); told || err != nil {
 		return err
 	}
 	body := text(ctx)
@@ -400,8 +401,8 @@ func (d *Daemon) alertOnce(ctx context.Context, a *v1.Agent, kind string, text f
 
 // checkOwed nudges or reports on an agent at its prompt that owes a report, re-checking inside the write that
 // a report or a message didn't arrive since the pass looked.
-func (d *Daemon) checkOwed(ctx context.Context, a *v1.Agent, nudge, waitMax time.Duration) error {
-	verdict, _, err := d.reportOwed(d.store.Read(ctx), a, d.now(), nudge, waitMax)
+func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nudge, waitMax time.Duration) error {
+	verdict, _, err := d.reportOwed(r, a, d.now(), nudge, waitMax)
 	if err != nil || verdict == owesNothing {
 		return err
 	}
