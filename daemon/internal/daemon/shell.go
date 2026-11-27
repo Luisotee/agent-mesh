@@ -228,7 +228,7 @@ func (d *Daemon) shellExited(ctx context.Context, id string) error {
 	d.rt.mu.Unlock()
 	_, err := d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: id}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
-		return nil // forgotten already (the watch and a close both got here): it was told then
+		return nil // forgotten already: (the host never answers not-found; kept for a host that does)
 	}
 	if err == nil {
 		d.bus.PublishShell(&v1.ShellChange{Shell: &v1.Shell{Id: id, Exited: true}, Closed: true})

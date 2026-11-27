@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -311,5 +312,30 @@ func TestARevokedDevicesHeldTasksAreDropped(t *testing.T) {
 	}
 	if n := len(h.held(t)); n != 0 {
 		t.Fatalf("a revoked device's task is still held: %d", n)
+	}
+}
+
+// A later task from someone else (the daemon's PR feedback, a device) is other work: its done answers nothing held for the
+// first task.
+func TestADoneForAnotherSendersTaskDoesNotReleaseATaskHeldForTheFirst(t *testing.T) {
+	h := startHeld(t)
+	t1 := h.task(t, h.a, h.asA, "first")
+	if _, err := h.hold(t, h.b, t1.Id, "second"); err != nil {
+		t.Fatal(err)
+	}
+	// A device sends the worker something else; the worker does it and reports it.
+	if _, err := h.device.Mesh.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: h.a.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task (no plan)\n\nsomething else"})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.asA.ReadInbox(context.Background(), connect.NewRequest(&v1.ReadInboxRequest{Meta: meta("")})); err != nil {
+		t.Fatal(err)
+	}
+	h.report(t, h.a, v1.MessageType_MESSAGE_TYPE_DONE)
+	waitFor(t, "the done stored", func() bool { return hasBody(inbox(t, h.asLead), "reported") })
+	// The release runs in the background after the done: wait for the task to be settled either way, then look.
+	time.Sleep(500 * time.Millisecond)
+	if hasBody(inbox(t, h.asB), "second") || len(h.held(t)) != 1 {
+		t.Fatalf("a done for another sender's task released it (held %d)", len(h.held(t)))
 	}
 }

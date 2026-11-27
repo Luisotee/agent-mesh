@@ -19,12 +19,6 @@ func (t *Tx) PutHeldTask(h *v1.HeldTask) error {
 	return err
 }
 
-// HeldTasksAfter returns the tasks held for a task, oldest first: the order they were asked in.
-func (r Reader) HeldTasksAfter(afterID string) ([]*v1.HeldTask, error) {
-	return scanAll(r, `SELECT data FROM held_tasks WHERE after_id = ? ORDER BY created_at, id`,
-		[]any{afterID}, func() *v1.HeldTask { return &v1.HeldTask{} })
-}
-
 // HeldTasks returns the held tasks of a run, or of every run when runID is empty, oldest first.
 func (r Reader) HeldTasks(runID string) ([]*v1.HeldTask, error) {
 	if runID == "" {

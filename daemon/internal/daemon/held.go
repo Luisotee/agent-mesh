@@ -30,7 +30,8 @@ const (
 
 // outcomeOf is how a task stands: answered by a done (that wins), by a failed, or neither. Reports name their task in
 // `Message.re`, and name the recipient's newest task when it was sent another before it reported (a follow-up), so a
-// report of the same recipient that names a task sent to it at or after this one answers this one too.
+// report of the same recipient that names a task its sender sent it at or after this one answers this one too (a
+// follow-up; a task from anyone else, the daemon's feedback say, is other work and answers nothing here).
 func outcomeOf(r store.Reader, runID, taskID string) (taskOutcome, error) {
 	msgs, err := r.RunMessages(runID, "", -1)
 	if err != nil {
@@ -46,7 +47,8 @@ func outcomeOf(r store.Reader, runID, taskID string) (taskOutcome, error) {
 	mine := map[string]bool{taskID: true} // the task, and the tasks its recipient was sent after it
 	if task != nil {
 		for _, m := range msgs {
-			if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.ToId == task.ToId && !m.CreatedAt.AsTime().Before(task.CreatedAt.AsTime()) {
+			if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.ToId == task.ToId && m.From.GetId() == task.From.GetId() &&
+				!m.CreatedAt.AsTime().Before(task.CreatedAt.AsTime()) {
 				mine[m.Id] = true
 			}
 		}
@@ -82,7 +84,7 @@ func (d *Daemon) holdTask(ctx context.Context, req *connect.Request[v1.SendMessa
 	}
 	after, err := d.store.Read(ctx).MessageByID(m.After)
 	if errors.Is(err, store.ErrNotFound) {
-		if _, herr := d.store.Read(ctx).GetHeldTask(m.After); herr == nil {
+		if held, herr := d.store.Read(ctx).GetHeldTask(m.After); herr == nil && (runScope(actor) == "" || runScope(actor) == held.RunId) {
 			return nil, true, invalid("%s is a held task: it has no task id until it is sent (send this one after that is sent)", m.After)
 		}
 		return nil, true, notFound("no task %q (the id in its `mesh inbox` header)", m.After)
@@ -215,12 +217,26 @@ func (d *Daemon) settleHeld(ctx context.Context, id string) {
 		return
 	}
 	if run == nil || run.Status != v1.RunStatus_RUN_STATUS_OPEN {
-		d.endHeld(ctx, h, "") // the run is over: nobody to tell
+		d.endHeld(ctx, h, "", false) // the run is over: nobody to tell
 		return
 	}
 	if _, err := r.GetAgent(h.To); errors.Is(err, store.ErrNotFound) {
-		d.endHeld(ctx, h, "the agent it is for is gone")
+		d.endHeld(ctx, h, "the agent it is for is gone", false)
 		return
+	}
+	if after, err := r.MessageByID(h.After); err == nil {
+		if _, err := r.GetAgent(after.ToId); errors.Is(err, store.ErrNotFound) {
+			d.endHeld(ctx, h, "the agent that had the task it waited for ("+h.After+") is gone, so no done can come", false)
+			return
+		}
+	}
+	if h.From.GetClass() == v1.ActorClass_ACTOR_CLASS_DEVICE {
+		// What a device queued does not outlive its token: revokeDevice drops it, and this covers a revoke that landed
+		// while this release was under way.
+		if dev, err := r.GetDevice(h.From.Id); errors.Is(err, store.ErrNotFound) || err == nil && dev.RevokedAt != nil {
+			d.endHeld(ctx, h, "", false)
+			return
+		}
 	}
 	o, err := outcomeOf(r, h.RunId, h.After)
 	if err != nil {
@@ -231,14 +247,14 @@ func (d *Daemon) settleHeld(ctx context.Context, id string) {
 	case taskOpen:
 		return
 	case taskFailed:
-		d.endHeld(ctx, h, fmt.Sprintf("the task it waited for (%s) was reported failed", h.After))
+		d.endHeld(ctx, h, fmt.Sprintf("the task it waited for (%s) was reported failed", h.After), false)
 		return
 	}
 	res, err := d.SendMessage(auth.WithActor(ctx, h.From), connect.NewRequest(&v1.SendMessageRequest{
 		Meta: &v1.RequestMeta{MutationId: "held:" + h.Id}, To: h.To, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: h.Body}))
 	if err == nil && res.Msg.ResumeError != "" {
 		// Stored for the agent's next resume, but it stayed stopped: the lead has to know.
-		d.endHeld(ctx, h, "it was sent, but the agent could not be resumed ("+clip(res.Msg.ResumeError, 300)+"); the task waits in its inbox for a resume")
+		d.endHeld(ctx, h, "the agent could not be resumed ("+clip(res.Msg.ResumeError, 300)+"); the task waits in its inbox for a resume (`mesh resume`)", true)
 		return
 	}
 	if err != nil {
@@ -255,15 +271,15 @@ func (d *Daemon) settleHeld(ctx context.Context, id string) {
 			d.log.Warn("sending a held task failed; it stays held", "id", h.Id, "err", err)
 			return
 		}
-		d.endHeld(ctx, h, "it was refused when it was due: "+clip(msg, 300))
+		d.endHeld(ctx, h, "it was refused when it was due: "+clip(msg, 300), false)
 		return
 	}
-	d.endHeld(ctx, h, "")
+	d.endHeld(ctx, h, "", false)
 }
 
-// endHeld drops a held task's row; a non-empty why tells the run's lead
-// that the task was not sent.
-func (d *Daemon) endHeld(ctx context.Context, h *v1.HeldTask, why string) {
+// endHeld drops a held task's row; a non-empty why tells the run's lead why the task was not sent, or, with sent, that
+// it was sent and what then went wrong.
+func (d *Daemon) endHeld(ctx context.Context, h *v1.HeldTask, why string, sent bool) {
 	var ring string
 	_, err := d.write(auth.WithActor(ctx, meshActor), &v1.RequestMeta{MutationId: "held-end:" + h.Id},
 		agentmeshv1connect.MeshServiceCancelHeldTaskProcedure, &v1.CancelHeldTaskResponse{}, func(t *store.Tx) error {
@@ -284,7 +300,11 @@ func (d *Daemon) endHeld(ctx context.Context, h *v1.HeldTask, why string) {
 			if a, err := t.GetAgent(h.To); err == nil {
 				to = a.Name
 			}
-			if _, err := tellTx(t, root, fmt.Sprintf("[mesh held %s] your task for %s was not sent: %s.", h.Id, to, why)); err != nil {
+			line := fmt.Sprintf("[mesh held %s] your task for %s was not sent: %s.", h.Id, to, why)
+			if sent {
+				line = fmt.Sprintf("[mesh held %s] your task for %s was sent, but %s.", h.Id, to, why)
+			}
+			if _, err := tellTx(t, root, line); err != nil {
 				return err
 			}
 			ring = root.Id

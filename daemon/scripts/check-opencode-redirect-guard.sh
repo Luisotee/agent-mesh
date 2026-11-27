@@ -36,13 +36,17 @@ class H(BaseHTTPRequestHandler):
         for o in out + ['data: [DONE]\n\n']: self.wfile.write(o.encode())
 HTTPServer(('127.0.0.1', int(sys.argv[1])), H).serve_forever()
 PY
+# The guard sits in a folder with a space in its name, named by a percent-encoded file URL as the daemon names it.
+mkdir -p "$work/a share"
+cp "$guard" "$work/a share/readonly-guard.js"
+guard_url="file://$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$work/a share/readonly-guard.js")"
 port=$((20000 + RANDOM % 20000))
 python3 "$work/fake.py" "$port" "$cmd" "$work/tool.log" & srv=$!
 sleep 1
 provider="\"provider\":{\"fake\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"fake\",\"options\":{\"baseURL\":\"http://127.0.0.1:$port/v1\",\"apiKey\":\"x\"},\"models\":{\"m\":{\"name\":\"m\",\"tool_call\":true,\"limit\":{\"context\":100000,\"output\":4000}}}}}"
 for mode in without with; do
   rm -f "$work/w/victim.txt" "$work/tool.log"
-  plugin=""; [ "$mode" = with ] && plugin="\"plugin\":[\"file://$guard\"],"
+  plugin=""; [ "$mode" = with ] && plugin="\"plugin\":[\"$guard_url\"],"
   (cd "$work/w" && HOME="$work/home" XDG_CONFIG_HOME="$work/home/.config" XDG_DATA_HOME="$work/home/.local/share" \
     XDG_STATE_HOME="$work/home/.local/state" XDG_CACHE_HOME="$work/home/.cache" OPENCODE_DISABLE_AUTOUPDATE=1 \
     OPENCODE_DISABLE_PROJECT_CONFIG=1 \
