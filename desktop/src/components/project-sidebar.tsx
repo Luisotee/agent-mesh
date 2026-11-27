@@ -427,7 +427,7 @@ function AgentButton({ hostId, agent: a, title, helpers, tag, onKeyDown }: { hos
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{title ?? a.name}</span>
         <span className="block truncate text-xs text-muted-foreground">{statusSentence(a)}</span>
-        <Chips className="mt-0.5">
+        <Chips className="mt-0.5 flex-wrap">
           <VendorIcon kind={a.kind} model={a.model} className="size-3" />
           {tag && <Chip className="border-identity/50 text-identity">{tag}</Chip>}
           {help && <Chip className={cn(anyWorking(helpers) && 'border-state-working/60')}>{help}</Chip>}
