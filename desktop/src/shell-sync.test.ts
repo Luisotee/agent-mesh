@@ -12,7 +12,7 @@ import { forward } from '../electron/bridge'
 import type { StoredHost } from '../electron/hosts'
 import type { DesktopApi } from '../shared/api'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
-import { HelloResponseSchema, ListAgentsResponseSchema, ListMessagesResponseSchema, ListSettingsResponseSchema, ListShellsResponseSchema, ListWaitingResponseSchema, ShellSchema, MeshService, SubscribeEventsResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { HelloResponseSchema, ListAgentsResponseSchema, ListMessagesResponseSchema, ListSettingsResponseSchema, ListWaitingResponseSchema, MeshService, SubscribeEventsResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, SettingSchema$ as SettingDescriptor, SettingSchemaSchema, UserNoticeSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import { createAppModel } from './model'
 
@@ -24,9 +24,6 @@ let closeStreams: () => void
 let settingsGate: Promise<void> | undefined
 /** What the fake host answers to ListWaiting: a test sets it before the event that changes it, as the real host's rule would. */
 let hostWaiting: ReturnType<typeof waiting>[]
-/** The host's project shells, and a gate that holds a ListShells answer (taken when it was asked) on its way. */
-let hostShells: ReturnType<typeof create<typeof ShellSchema>>[]
-let shellsGate: Promise<void> | undefined
 
 const NOW = () => Date.now()
 const agent = (id: string, name: string, role: AgentRole, parentId = '') => create(AgentSchema, { id, name, role, runId: 'r1', parentId, state: AgentState.IDLE })
@@ -49,8 +46,6 @@ beforeEach(async () => {
   settings = {}
   settingsGate = undefined
   hostWaiting = []
-  hostShells = []
-  shellsGate = undefined
   const queue: Event[] = []
   let wake: (() => void) | undefined
   let closed = false
@@ -68,11 +63,6 @@ beforeEach(async () => {
         router.service(MeshService, {
           hello: () => create(HelloResponseSchema, { daemonId: 'd', instanceId: 'i', version: 't', capabilities: [] }),
           listMessages: () => create(ListMessagesResponseSchema, { messages: [] }),
-          listShells: async () => {
-            const asked = [...hostShells]
-            await shellsGate
-            return create(ListShellsResponseSchema, { shells: asked })
-          },
           listWaiting: () => create(ListWaitingResponseSchema, { waiting: hostWaiting }),
           listAgents: () => create(ListAgentsResponseSchema, { agents: [agent('lead', 'app-lead', AgentRole.ROOT), agent('w1', 'app-fix', AgentRole.WORKER, 'lead')] }),
           listSettings: async () => {
@@ -256,38 +246,4 @@ it('a dismissed dock tile is spent once its agent leaves the state, so it shows 
   push(stateOf(AgentState.NEEDS_INPUT))
   await vi.waitFor(() => expect(hostStore.getState().agents.w1!.state).toBe(AgentState.NEEDS_INPUT))
   expect(model.store.getState().dismissed).toEqual({})
-})
-
-const shellOpened = (seq: number, id: string, repo = '/p/app') => event(seq, { case: 'shellOpened', value: { $typeName: 'agentmesh.v1.ShellOpened', id, repo, startedAt: timestampFromMs(NOW()) } }, 100, '')
-const shellClosed = (seq: number, id: string, exitCode = 0) => event(seq, { case: 'shellClosed', value: { $typeName: 'agentmesh.v1.ShellClosed', id, repo: '/p/app', exitCode } }, 100, '')
-
-it('follows a shell opened and ended on the host without listing again, and a replayed event changes nothing', async () => {
-  const { model } = await boot()
-  await vi.waitFor(() => expect(model.store.getState().shells['h']).toEqual([]))
-  push(shellOpened(1, 't1'))
-  await vi.waitFor(() => expect(model.store.getState().shells['h']?.map((x) => x.id)).toEqual(['t1']))
-  expect(model.store.getState().shells['h']![0]).toMatchObject({ repo: '/p/app', exited: false })
-  const listed = model.store.getState().shells['h']
-  push(shellOpened(2, 't1')) // the same shell again
-  push(shellOpened(3, 't2'))
-  await vi.waitFor(() => expect(model.store.getState().shells['h']?.map((x) => x.id)).toEqual(['t1', 't2']))
-  expect(model.store.getState().shells['h']![0]).toBe(listed![0])
-  // Ended: marked exited (its open tab keeps its project; the + menu stops offering it), not dropped.
-  push(shellClosed(4, 't1', 3))
-  await vi.waitFor(() => expect(model.store.getState().shells['h']![0]).toMatchObject({ id: 't1', exited: true, exitCode: 3 }))
-  expect(model.store.getState().shells['h']![1]).toMatchObject({ id: 't2', exited: false })
-})
-
-it('a shell opened while the list is on its way is not lost to it', async () => {
-  let open!: () => void
-  shellsGate = new Promise<void>((r) => (open = r))
-  const { model, hostStore } = await boot()
-  await vi.waitFor(() => expect(hostStore.getState().synced).toBe(true))
-  // The host read its shells before t1 opened (the answer in flight is empty); the event comes before the answer does.
-  hostShells = [create(ShellSchema, { id: 't1', repo: '/p/app' })]
-  push(shellOpened(1, 't1'))
-  await vi.waitFor(() => expect(hostStore.getState().cursor?.seq).toBe(1n))
-  expect(model.store.getState().shells['h']).toBeUndefined() // not read yet: the event does not make a partial list
-  open()
-  await vi.waitFor(() => expect(model.store.getState().shells['h']?.map((x) => x.id)).toEqual(['t1']))
 })

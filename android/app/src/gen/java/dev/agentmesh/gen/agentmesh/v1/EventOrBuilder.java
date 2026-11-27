@@ -465,27 +465,5 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.UserNotice getUserNotice();
 
-  /**
-   * <code>.agentmesh.v1.ShellOpened shell_opened = 43 [json_name = "shellOpened"];</code>
-   * @return Whether the shellOpened field is set.
-   */
-  boolean hasShellOpened();
-  /**
-   * <code>.agentmesh.v1.ShellOpened shell_opened = 43 [json_name = "shellOpened"];</code>
-   * @return The shellOpened.
-   */
-  dev.agentmesh.gen.agentmesh.v1.ShellOpened getShellOpened();
-
-  /**
-   * <code>.agentmesh.v1.ShellClosed shell_closed = 44 [json_name = "shellClosed"];</code>
-   * @return Whether the shellClosed field is set.
-   */
-  boolean hasShellClosed();
-  /**
-   * <code>.agentmesh.v1.ShellClosed shell_closed = 44 [json_name = "shellClosed"];</code>
-   * @return The shellClosed.
-   */
-  dev.agentmesh.gen.agentmesh.v1.ShellClosed getShellClosed();
-
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

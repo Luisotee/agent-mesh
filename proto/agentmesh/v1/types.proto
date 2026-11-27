@@ -290,8 +290,6 @@ message Event {
     PermissionChanged permission_changed = 40;
     AgentArchived agent_archived = 41;
     UserNotice user_notice = 42;
-    ShellOpened shell_opened = 43;
-    ShellClosed shell_closed = 44;
   }
 }
 
@@ -387,24 +385,6 @@ message AgentArchived {
   int32 unpushed = 3;
   // Archived although it had unpushed commits (`force`).
   bool forced = 4;
-}
-
-// A project shell started (`OpenShell`). A global event: no run, no agent. A shell is not in the snapshot: a client lists them
-// (`ListShells`) after one, then follows these. The fields are those of `Shell` (`mesh.proto`; a message of this file can't
-// name one of that).
-message ShellOpened {
-  string id = 1;
-  // The project folder it runs in (absolute).
-  string repo = 2;
-  google.protobuf.Timestamp started_at = 3;
-}
-
-// A project shell ended, whether it was closed (`CloseShell`) or the user left it. The host forgets it at once, so it is gone
-// from `ListShells`. Global, like `ShellOpened`.
-message ShellClosed {
-  string id = 1;
-  string repo = 2;
-  int32 exit_code = 3;
 }
 
 message RunStarted {

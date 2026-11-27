@@ -119,7 +119,7 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 	top = paths[i]
 	out := &v1.OpenShellResponse{}
 	var created string
-	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceOpenShellProcedure, out, func(tx *store.Tx) error {
+	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceOpenShellProcedure, out, func(*store.Tx) error {
 		// The host is asked with a deadline of its own: this runs under the store's write lock, and a wedged host must not stall every write.
 		ctx, cancel := context.WithTimeout(ctx, hostCallTimeout)
 		defer cancel()
@@ -145,10 +145,7 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 		}
 		created = res.Msg.Terminal.Id
 		out.Shell = shellOf(res.Msg.Terminal)
-		// Global, like a setting's change: no run, so every subscriber gets it, and a second device's tab bar follows without listing.
-		_, err = tx.AppendEvent(&v1.Event{Payload: &v1.Event_ShellOpened{ShellOpened: &v1.ShellOpened{
-			Id: out.Shell.Id, Repo: out.Shell.Repo, StartedAt: out.Shell.StartedAt}}})
-		return err
+		return nil
 	})
 	if err != nil && created != "" {
 		// The shell started but its record did not commit (the caller went away): a retry with the same mutation id would start a
@@ -218,15 +215,6 @@ func (d *Daemon) CloseShell(ctx context.Context, req *connect.Request[v1.CloseSh
 		return nil
 	})
 	return connect.NewResponse(out), err
-}
-
-// shellEnded tells the subscribers a shell is gone (`ShellClosed`), from the host's exit watch: the one place every end comes
-// through, a close (SIGHUP, then the grace) and the user typing `exit` alike, once per shell (the host forgets it on the ack).
-func (d *Daemon) shellEnded(ctx context.Context, id, repo string, code int32) error {
-	return d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
-		_, err := tx.AppendEvent(&v1.Event{Payload: &v1.Event_ShellClosed{ShellClosed: &v1.ShellClosed{Id: id, Repo: repo, ExitCode: code}}})
-		return err
-	})
 }
 
 // shellExited forgets an exited shell: there is nothing to record, and a client still on its stream was told by the stream.

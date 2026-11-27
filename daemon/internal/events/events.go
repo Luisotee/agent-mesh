@@ -283,8 +283,6 @@ func VisibleTo(viewer string, ev *v1.Event) bool {
 		return true
 	}
 	switch p := ev.Payload.(type) {
-	case *v1.Event_ShellOpened, *v1.Event_ShellClosed:
-		return false // the user's own shells and the folders they run in: not for a read-only agent on a third-party model
 	case *v1.Event_MessageSent:
 		m := p.MessageSent.GetMessage()
 		return m.GetFrom().GetId() == viewer || m.GetToId() == viewer
