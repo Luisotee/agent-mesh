@@ -1,5 +1,6 @@
 import { compareMessages } from './order'
 import { AgentRole, AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
+import type { Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import { NEW_FOR_MS, tabKey, type WorkspaceState } from './workspace'
 
 /** What the dock needs of one host: its runs, agents and the messages the app has seen. */
@@ -11,6 +12,8 @@ export interface HostView {
   messages: Record<string, Message>
   /** How far the host's clock is ahead of ours (ms). */
   clockSkewMs: number
+  /** Every wait the host lists (`ListWaiting`, for the user or not): who is waiting on an answer. */
+  waitingAll?: WaitingRow[]
 }
 
 export interface Tile {
@@ -26,6 +29,8 @@ export interface Tile {
   activity: string
   /** The last message the agent sent that the app has seen. */
   lastSent?: Message
+  /** The agent waits on an answer to a question or plan it sent. */
+  waiting: boolean
 }
 
 const alive = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
@@ -45,6 +50,7 @@ export function dockTiles(hosts: HostView[], ws: Pick<WorkspaceState, 'newTiles'
       const had = from ? lastSent.get(from) : undefined
       if (from && (!had || compareMessages(had, m) < 0)) lastSent.set(from, m)
     }
+    const waiting = new Set((h.waitingAll ?? []).map((w) => w.agentId))
     for (const a of Object.values(h.agents)) {
       const run = h.runs[a.runId]
       if (!alive(a) || (run && run.status === RunStatus.CLOSED)) continue
@@ -61,6 +67,7 @@ export function dockTiles(hosts: HostView[], ws: Pick<WorkspaceState, 'newTiles'
         isNew: marked !== undefined && now - marked < NEW_FOR_MS,
         activity: a.state === AgentState.WORKING ? a.stateDetail : '',
         lastSent: lastSent.get(a.id),
+        waiting: waiting.has(a.id),
       })
     }
   }
