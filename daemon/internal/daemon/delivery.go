@@ -615,7 +615,8 @@ func (d *Daemon) protocolPointer(a *v1.Agent) string {
 		return ""
 	}
 	protocol := filepath.Join(share, "protocol")
-	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT {
+	// A plain agent is the user's own conversation: a mesh message brought to it is read by the messaging rules, never the root's card.
+	if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && !a.Plain {
 		if d.isSetupRun(d.store.Read(context.Background()), a.RunId) {
 			return " (first one here: read " + filepath.Join(protocol, "PROTOCOL.md") + " once, then " + filepath.Join(protocol, setupFile) + ", and follow it)"
 		}

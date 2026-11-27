@@ -2425,6 +2425,47 @@ public  final class Agent extends
     archived_ = false;
   }
 
+  public static final int PLAIN_FIELD_NUMBER = 43;
+  private boolean plain_;
+  /**
+   * <pre>
+   * A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+   * with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 43 [json_name = "plain"];</code>
+   * @return The plain.
+   */
+  @java.lang.Override
+  public boolean getPlain() {
+    return plain_;
+  }
+  /**
+   * <pre>
+   * A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+   * with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 43 [json_name = "plain"];</code>
+   * @param value The plain to set.
+   */
+  private void setPlain(boolean value) {
+    
+    plain_ = value;
+  }
+  /**
+   * <pre>
+   * A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+   * with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 43 [json_name = "plain"];</code>
+   */
+  private void clearPlain() {
+
+    plain_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -4995,6 +5036,49 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+     * with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+     * </pre>
+     *
+     * <code>bool plain = 43 [json_name = "plain"];</code>
+     * @return The plain.
+     */
+    @java.lang.Override
+    public boolean getPlain() {
+      return instance.getPlain();
+    }
+    /**
+     * <pre>
+     * A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+     * with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+     * </pre>
+     *
+     * <code>bool plain = 43 [json_name = "plain"];</code>
+     * @param value The plain to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlain(boolean value) {
+      copyOnWrite();
+      instance.setPlain(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+     * with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+     * </pre>
+     *
+     * <code>bool plain = 43 [json_name = "plain"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlain() {
+      copyOnWrite();
+      instance.clearPlain();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -5054,15 +5138,16 @@ public  final class Agent extends
             "adoptedPid_",
             "adoptedPidStart_",
             "archived_",
+            "plain_",
           };
           java.lang.String info =
-              "\u0000*\u0000\u0001\u0001**\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000+\u0000\u0001\u0001++\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
               "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
               "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208(\u0004)\u0003*\u0007" +
-              "";
+              "+\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -40,10 +40,10 @@ test('the open tabs, a split and the folded sidebar come back after the app rest
   await tabs.getByRole('tab', { name: /repo-fix/ }).waitFor()
   // The lead on its chat (its view, unless the toggle showed its terminal).
   const leadView = page.getByRole('article', { name: 'repo-lead' })
-  if (await leadView.getByRole('region', { name: 'Terminal' }).isVisible()) await leadView.getByRole('button', { name: 'Terminal' }).click()
+  if (await leadView.getByRole('region', { name: 'Terminal' }).isVisible()) await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Chat' }).click()
   // Show the worker beside the lead, and fold the sidebar to icons.
-  await tabs.getByRole('tab', { name: /repo-fix/ }).hover()
-  await tabs.getByRole('button', { name: 'Show repo-fix beside' }).click()
+  await tabs.getByRole('tab', { name: /repo-fix/ }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Show beside' }).click()
   await page.getByRole('region', { name: 'Split pane' }).getByRole('article', { name: 'repo-fix' }).waitFor()
   await page.getByRole('button', { name: 'Fold the sidebar' }).click()
   await page.screenshot({ path: path.join(shots, 'layout-before-restart.png') })

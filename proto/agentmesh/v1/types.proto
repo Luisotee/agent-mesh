@@ -171,6 +171,9 @@ message Agent {
   // Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
   // recreates the worktree from the branch and clears this.
   bool archived = 42;
+  // A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+  // with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+  bool plain = 43;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.

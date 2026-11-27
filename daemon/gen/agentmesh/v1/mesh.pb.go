@@ -911,7 +911,10 @@ type SpawnAgentRequest struct {
 	Mcp []string `protobuf:"bytes,14,rep,name=mcp,proto3" json:"mcp,omitempty"`
 	// Who runs the review rounds of this worker's PR: "worker", "relay" (the worker runs them as a relay, for a risky PR)
 	// or "root"; empty means the `review.by` setting.
-	Reviews       string `protobuf:"bytes,15,opt,name=reviews,proto3" json:"reviews,omitempty"`
+	Reviews string `protobuf:"bytes,15,opt,name=reviews,proto3" json:"reviews,omitempty"`
+	// A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+	// plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+	Plain         bool `protobuf:"varint,16,opt,name=plain,proto3" json:"plain,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1049,6 +1052,13 @@ func (x *SpawnAgentRequest) GetReviews() string {
 		return x.Reviews
 	}
 	return ""
+}
+
+func (x *SpawnAgentRequest) GetPlain() bool {
+	if x != nil {
+		return x.Plain
+	}
+	return false
 }
 
 type SpawnAgentResponse struct {
@@ -8048,7 +8058,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x0fListRunsRequest\x12\x10\n" +
 	"\x03all\x18\x01 \x01(\bR\x03all\"9\n" +
 	"\x10ListRunsResponse\x12%\n" +
-	"\x04runs\x18\x01 \x03(\v2\x11.agentmesh.v1.RunR\x04runs\"\x93\x03\n" +
+	"\x04runs\x18\x01 \x03(\v2\x11.agentmesh.v1.RunR\x04runs\"\xa9\x03\n" +
 	"\x11SpawnAgentRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1c\n" +
@@ -8065,7 +8075,8 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04plan\x18\f \x01(\bR\x04plan\x12\x1b\n" +
 	"\texec_tier\x18\r \x01(\tR\bexecTier\x12\x10\n" +
 	"\x03mcp\x18\x0e \x03(\tR\x03mcp\x12\x18\n" +
-	"\areviews\x18\x0f \x01(\tR\areviews\"[\n" +
+	"\areviews\x18\x0f \x01(\tR\areviews\x12\x14\n" +
+	"\x05plain\x18\x10 \x01(\bR\x05plain\"[\n" +
 	"\x12SpawnAgentResponse\x12)\n" +
 	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\x12\x1a\n" +
 	"\bcapacity\x18\x02 \x01(\tR\bcapacity\"*\n" +

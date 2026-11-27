@@ -45,6 +45,8 @@ export type SpawnInput = Pick<SpawnAgentRequest, 'runId' | 'repo' | 'slug' | 'ki
   role: AgentRole
   /** The branch or commit the new worktree starts from; empty: the repo's default branch. */
   base?: string
+  /** A plain agent: the user's own conversation with the CLI, a root with no task that the mesh never resets or briefs. */
+  plain?: boolean
 }
 export const spawnAgent = (c: MeshClient, input: SpawnInput) => c.spawnAgent({ meta: meta(), ...input })
 
