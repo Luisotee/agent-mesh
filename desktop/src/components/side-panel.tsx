@@ -14,6 +14,8 @@ import { Changes, Progress, WorktreeActions } from './agent-work'
 import { StateIcon } from './state-icon'
 import { MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
+import { NEW_FOR_MS, tabKey } from '@/workspace'
+import { isActive } from '@/active'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
 import { cn } from '@/lib/utils'
@@ -111,6 +113,12 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const runs = useHostState(host, (s) => s.runs)
   const agents = useHostState(host, (s) => s.agents)
   const waiting = useHostState(host, (s) => s.waiting)
+  const waitingAll = useHostState(host, (s) => s.waitingAll)
+  const newTiles = useAppState((s) => s.newTiles)
+  // Asking for the resting ones holds for this run only: another run or host starts folded again.
+  const scope = `${host.info.id}/${agent.runId}`
+  const [asked, setAsked] = useState({ scope: '', on: false })
+  const showResting = asked.on && asked.scope === scope
   const row = useMemo(() => {
     const run = runs[agent.runId]
     if (!run) return undefined
@@ -118,7 +126,14 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
     const mine = Object.fromEntries(Object.entries(agents).filter(([, a]) => a.runId === run.id))
     return leadRows({ hostId: host.info.id, hostName: host.info.name, here: true, up: true, loading: false, runs: { [run.id]: run }, agents: mine, waiting: ids })[0]
   }, [runs, agents, waiting, agent.runId, host.info.id, host.info.name])
+  const waits = useMemo(() => new Set([...waitingAll, ...waiting].map((w) => w.agentId)), [waitingAll, waiting])
   if (!row) return null
+  // Live agents only; the idle and finished ones rest behind a count. A parent of a live agent stays, so the tree keeps its shape.
+  // A worker that just started stays, as in the dock (its new mark).
+  const isNew = (a: Agent) => { const at = newTiles[tabKey({ hostId: host.info.id, agentId: a.id })]; return at !== undefined && Date.now() - at < NEW_FOR_MS }
+  const live = (a: Agent) => isActive(a, { waiting: waits.has(a.id), keep: a.id === agent.id || isNew(a) })
+  const workerLive = (w: WorkerRow): boolean => live(w.agent) || w.helpers.some(live) || w.workers.some(workerLive)
+  const shown = (w: WorkerRow) => showResting || workerLive(w)
   const item = (a: Agent, depth: number) => (
     <li key={a.id}>
       <button
@@ -134,14 +149,27 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
       </button>
     </li>
   )
-  const worker = (w: WorkerRow, depth: number): React.ReactNode[] => [item(w.agent, depth), ...w.helpers.map((h) => item(h, depth + 1)), ...w.workers.flatMap((c) => worker(c, depth + 1))]
+  const helpers = (hs: Agent[]) => (showResting ? hs : hs.filter(live))
+  const rendered: Array<[Agent, number]> = []
+  const walk = (w: WorkerRow, depth: number) => {
+    rendered.push([w.agent, depth])
+    for (const h of helpers(w.helpers)) rendered.push([h, depth + 1])
+    for (const c of w.workers.filter(shown)) walk(c, depth + 1)
+  }
+  if (row.lead) rendered.push([row.lead, 0])
+  for (const h of helpers(row.helpers)) rendered.push([h, 1])
+  for (const w of row.workers.filter(shown)) walk(w, 1)
+  const total = (w: WorkerRow): number => 1 + w.helpers.length + w.workers.reduce((n, c) => n + total(c), 0)
+  const hidden = (row.lead ? 1 : 0) + row.helpers.length + row.workers.reduce((n, w) => n + total(w), 0) - rendered.length
   return (
     <Section title="Agent tree">
-      <ul aria-label="Agent tree">
-        {row.lead && item(row.lead, 0)}
-        {row.helpers.map((h) => item(h, 1))}
-        {row.workers.flatMap((w) => worker(w, 1))}
-      </ul>
+      <ul aria-label="Agent tree">{rendered.map(([a, depth]) => item(a, depth))}</ul>
+      {(hidden > 0 || showResting) && (
+        <button type="button" aria-pressed={showResting} onClick={() => setAsked({ scope, on: !showResting })} className="mt-1 flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring">
+          <ChevronRight className={cn('size-3 transition-transform motion-reduce:transition-none', showResting && 'rotate-90')} />
+          {showResting ? 'Hide resting' : `${hidden} resting`}
+        </button>
+      )}
     </Section>
   )
 }
