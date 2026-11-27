@@ -145,7 +145,7 @@ describe('worktree actions', () => {
     render(own.wrap(<WorktreeActions host={own.host} agent={own.agent} />))
     await userEvent.click(screen.getByRole('button', { name: 'Open in editor' }))
     expect(last(own.client.openInEditor)).toMatchObject({ agent: 'w1', path: '' })
-    expect(await screen.findByRole('status')).toHaveTextContent('Opened in the editor.')
+    await waitFor(() => expect(own.model.store.getState().notices.map((n) => [n.text, n.tone])).toEqual([['Opened in the editor.', 'info']]))
     cleanup()
     const paired = fixture('dev-phone')
     render(paired.wrap(<WorktreeActions host={paired.host} agent={paired.agent} />))
@@ -154,11 +154,11 @@ describe('worktree actions', () => {
   })
 
   it('shows what the host says when the editor can\'t open', async () => {
-    const { host, client, wrap, agent: a } = fixture()
+    const { host, client, wrap, agent: a, model } = fixture()
     client.openInEditor.mockRejectedValue(new ConnectError('the editor "code" isn\'t on this host\'s PATH', Code.FailedPrecondition))
     render(wrap(<WorktreeActions host={host} agent={a} />))
     await userEvent.click(screen.getByRole('button', { name: 'Open in editor' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent("isn't on this host's PATH")
+    await waitFor(() => expect(model.store.getState().notices.map((n) => [n.text, n.tone])).toEqual([[expect.stringContaining("isn't on this host's PATH"), 'error']]))
   })
 
   it('archives a clean agent after a confirmation', async () => {

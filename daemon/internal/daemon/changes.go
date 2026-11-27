@@ -36,6 +36,7 @@ func (d *Daemon) GetAgentChanges(ctx context.Context, req *connect.Request[v1.Ge
 
 // agentChanges reads an agent's worktree, or, when that is gone (archived), its branch in the repo.
 func agentChanges(ctx context.Context, a *v1.Agent) *v1.GetAgentChangesResponse {
+	a = onItsBranch(ctx, a)
 	out := &v1.GetAgentChangesResponse{}
 	if a.Peer || a.Repo == "" || a.Worktree == "" || a.Branch == "" {
 		out.Reason = "it has no worktree of its own"

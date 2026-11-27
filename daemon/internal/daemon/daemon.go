@@ -152,10 +152,12 @@ type Daemon struct {
 	// tailnetErr is why meshd isn't serving on the tailnet (Listen or Serve failed), for TailnetStatus.
 	tailnetErr atomic.Pointer[string]
 
-	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
-	views viewLimiter // when each agent last asked the app to show a view (view.go)
-	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
-	perms permTable   // permission prompts waiting for an answer (permission.go)
+	waits      waitTracker // declared waits the accountability pass has seen over (accountability.go)
+	plainSpawn sync.Mutex  // plain agents are named one spawn at a time (agents.go, plainSlug)
+	procs      procReads   // the terminals and the process table as last read for what an app shows (background.go)
+	views      viewLimiter // when each agent last asked the app to show a view (view.go)
+	prs        prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
+	perms      permTable   // permission prompts waiting for an answer (permission.go)
 }
 
 // New opens a state dir: takes its lock, opens (or migrates) the database, and makes the daemon's id and the

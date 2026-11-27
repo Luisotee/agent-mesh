@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -132,5 +133,118 @@ func TestAPlainAgentsFirstDoorbellNamesTheMessagingRulesNotTheRootCard(t *testin
 	d := doorbells(lines(t, log))[0]
 	if !strings.Contains(d, "PROTOCOL.md") || strings.Contains(d, "ROOT_CARD.md") {
 		t.Errorf("a plain agent's doorbell %q should name PROTOCOL.md and not ROOT_CARD.md", d)
+	}
+}
+
+// Each plain agent is a run of its own, so the run's own check of a name would let two of one CLI in a repo share a
+// name, and a tab: a second takes -2, a third -3, and a name an agent that was stopped had is free again.
+func TestTwoPlainAgentsOfOneRepoAreNamedApart(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	repo := gitRepo(t)
+	spawn := func() *v1.Agent {
+		t.Helper()
+		run := startRun(t, w.device.Mesh, "")
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			RunId: run.Id, Repo: repo, Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	}
+	first, second, third := spawn(), spawn(), spawn()
+	for i, a := range []*v1.Agent{first, second, third} {
+		want := []string{"shop-api-claude", "shop-api-claude-2", "shop-api-claude-3"}[i]
+		if a.Name != want || !strings.HasSuffix(a.Branch, "/"+strings.TrimPrefix(want, "shop-api-")) {
+			t.Errorf("plain agent %d: name %q branch %q, want %q", i+1, a.Name, a.Branch, want)
+		}
+	}
+	// Stopped, a name is free again; one of another repo never counted.
+	if _, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop"), RunId: second.RunId})); err != nil {
+		t.Fatal(err)
+	}
+	if again := spawn(); again.Name != "shop-api-claude-2" {
+		t.Errorf("after the second was stopped, a new one is %q, want shop-api-claude-2", again.Name)
+	}
+	other := startRun(t, w.device.Mesh, "")
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: other.Id, Repo: gitRepo(t), Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Msg.Agent.Name != "shop-api-claude" {
+		t.Errorf("a plain agent of another repo is %q, want shop-api-claude", res.Msg.Agent.Name)
+	}
+}
+
+// Stopping a plain agent removes its worktree when it is clean and its branch when what it holds is in the default
+// branch; a branch the default has not got stays, as does a worker's branch with commits of its own.
+func TestStoppingAPlainAgentDeletesItsMergedBranch(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	branches := func(repo string) string { return runGit(t, repo, "branch", "--list", "mesh/*") }
+	for _, tc := range []struct {
+		name   string
+		merged bool
+	}{{"merged", true}, {"not merged", false}} {
+		run, a, _ := w.plainRoot(t)
+		runGit(t, a.Worktree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work")
+		// The default branch as the repo last saw it: with the work in it, or where it started.
+		onMain := runGit(t, a.Repo, "rev-parse", "main")
+		if tc.merged {
+			onMain = runGit(t, a.Worktree, "rev-parse", "HEAD")
+		}
+		runGit(t, a.Repo, "update-ref", "refs/remotes/origin/main", onMain)
+		// origin/HEAD at some other, older branch of the remote does not hide that the work is in origin/main.
+		runGit(t, a.Repo, "update-ref", "refs/remotes/origin/develop", runGit(t, a.Repo, "rev-parse", "main"))
+		runGit(t, a.Repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+		res, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-" + tc.name), RunId: run.Id}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, gone := os.Stat(a.Worktree)
+		kept := strings.Contains(branches(a.Repo), a.Branch)
+		if !os.IsNotExist(gone) {
+			t.Errorf("%s: its clean worktree is still there", tc.name)
+		}
+		if kept == tc.merged {
+			t.Errorf("%s: branch kept = %v (outcomes %v)", tc.name, kept, res.Msg.Worktrees)
+		}
+	}
+}
+
+// Two "New agent" clicks at once must not both take the first free name.
+func TestPlainAgentsSpawnedAtOnceAreNamedApart(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	repo := gitRepo(t)
+	const n = 4
+	names := make(chan string, n)
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		run := startRun(t, w.device.Mesh, "")
+		go func() {
+			res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+				RunId: run.Id, Repo: repo, Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
+			if err != nil {
+				errs <- err
+				return
+			}
+			names <- res.Msg.Agent.Name
+		}()
+	}
+	seen := map[string]bool{}
+	for i := 0; i < n; i++ {
+		select {
+		case name := <-names:
+			if seen[name] {
+				t.Errorf("two plain agents are named %q", name)
+			}
+			seen[name] = true
+		case err := <-errs:
+			t.Fatal(err)
+		case <-time.After(20 * time.Second):
+			t.Fatal("a plain agent did not start")
+		}
 	}
 }
