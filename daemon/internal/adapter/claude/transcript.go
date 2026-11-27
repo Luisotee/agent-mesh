@@ -38,6 +38,9 @@ const doorbellMark = transcript.DoorbellMark
 
 var (
 	systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+	// Claude Code wraps what a user pasted in tags that carry a random id, the closing tag too (`<pasted_content id="x">…
+	// </pasted_content id="x">`): the user sees the pasted text, not the tags, so only the tags go.
+	pastedTag = regexp.MustCompile(`</?pasted_content(?:\s[^>]*)?>`)
 	// A slash command the user typed is recorded as tags: its name, then its arguments (the CLI also writes its
 	// output as <local-command-stdout>, which is dropped).
 	// Bash mode (`! cmd` in the box) is recorded as <bash-input>cmd</bash-input>, its output as <bash-stdout> and
@@ -138,7 +141,7 @@ const doorbellPrefix = "Another Claude session sent a message:"
 // user typed, or nothing (injected context, an empty line). A doorbell is a line that begins with the mark, alone or
 // after Claude's own prefix: injected context that only quotes it (the user's CLAUDE.md does) is not one.
 func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
-	text = strings.TrimSpace(systemReminder.ReplaceAllString(text, ""))
+	text = strings.TrimSpace(pastedTag.ReplaceAllString(systemReminder.ReplaceAllString(text, ""), ""))
 	if rest := strings.TrimSpace(strings.TrimPrefix(text, doorbellPrefix)); strings.HasPrefix(rest, doorbellMark) {
 		line, _, _ := strings.Cut(rest, "\n")
 		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_MESH, Text: line}

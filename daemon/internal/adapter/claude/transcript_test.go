@@ -23,6 +23,9 @@ const (
 	lMode     = `{"type":"mode","mode":"normal","sessionId":"s1"}`
 	lDoorbell = `{"type":"user","isMeta":true,"uuid":"u1","timestamp":"2026-11-26T19:27:08.201Z","message":{"role":"user","content":"Another Claude session sent a message:\n📬 [mesh] task from lead (ref a1): run ` + "`mesh inbox`" + `\n\nThis came from another Claude session."}}`
 	lTyped    = `{"type":"user","uuid":"u2","timestamp":"2026-11-26T19:28:00.000Z","message":{"role":"user","content":"fix the typo <system-reminder>noise</system-reminder>"}}`
+	// What a user pasted, in the tags Claude Code writes around it (opening and closing, each with the id), alone and among typed text.
+	lPasted      = `{"type":"user","uuid":"u6","message":{"role":"user","content":"<pasted_content id=\"7f3a9c\">error: boom\n  at main.go:12</pasted_content id=\"7f3a9c\">"}}`
+	lPastedMixed = `{"type":"user","uuid":"u7","message":{"role":"user","content":[{"type":"text","text":"why does this fail: <pasted_content id=\"a1\">panic: x</pasted_content id=\"a1\"> and <pasted_content id=\"b2\">exit 2</pasted_content>"}]}}`
 	// Injected context that only quotes the doorbell's mark (the user's CLAUDE.md does): not a doorbell, not shown.
 	lContext     = `{"type":"user","isMeta":true,"uuid":"u0","message":{"role":"user","content":"<system-reminder>A prompt starting with 📬 [mesh] means you are in a mesh</system-reminder>"}}`
 	lQuoting     = `{"type":"user","isMeta":true,"uuid":"u0b","message":{"role":"user","content":"Notes: a line starting with 📬 [mesh] is a doorbell"}}`
@@ -62,6 +65,12 @@ func TestTranscriptShowsTheConversationAndNothingElse(t *testing.T) {
 		t.Errorf("doorbell: %v", es)
 	}
 	// What the user typed, without the context Claude added around it.
+	if es := entries(t, lPasted); len(es) != 1 || es[0].Kind != kUser || es[0].Text != "error: boom\n  at main.go:12" {
+		t.Errorf("a pasted text: %v", es)
+	}
+	if es := entries(t, lPastedMixed); len(es) != 1 || es[0].Kind != kUser || es[0].Text != "why does this fail: panic: x and exit 2" {
+		t.Errorf("a paste among typed text, in a list of blocks: %v", es)
+	}
 	if es := entries(t, lTyped); len(es) != 1 || es[0].Kind != kUser || es[0].Text != "fix the typo" || es[0].Id != "u2:0" || es[0].Offset != 100 {
 		t.Errorf("typed: %v", es)
 	}
