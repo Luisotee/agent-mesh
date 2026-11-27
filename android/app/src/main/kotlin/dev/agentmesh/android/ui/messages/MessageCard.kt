@@ -105,7 +105,8 @@ fun AnswerForm(runtime: HostRuntime, m: Message) {
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        MarkdownField(box, Modifier.fillMaxWidth(), tag = "answer", placeholder = if (isPlan) "What should change? To approve, leave this empty." else "Your answer", minLines = 2, shape = RoundedCornerShape(12.dp))
+        MarkdownField(box, Modifier.fillMaxWidth(), tag = "answer", placeholder = if (isPlan) "What should change?" else "Your answer", minLines = 2, shape = RoundedCornerShape(12.dp))
+        if (isPlan) Text("To approve, leave this empty.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (isPlan) {
                 // Typed changes are not an approval: they go with Request changes.

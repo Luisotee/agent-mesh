@@ -383,7 +383,8 @@ private fun PromptComposer(
     val working = agent.state == AgentState.AGENT_STATE_WORKING || agent.state == AgentState.AGENT_STATE_UNKNOWN || atPrompt
     val canStop = agent.kind == "claude"
     val blank = draft.text.isBlank()
-    val asStop = working && canStop && blank && why.isEmpty()
+    // Not at a prompt: Esc there would deny or dismiss the dialog the agent waits on, not stop a turn.
+    val asStop = working && !atPrompt && canStop && blank && why.isEmpty()
     fun send() {
         val body = draft.text.toString().trim()
         if (body.isEmpty() || busy) return

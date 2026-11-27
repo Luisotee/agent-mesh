@@ -246,6 +246,14 @@ class AgentChatScreenTest {
         compose.onAllNodesWithTag("stop").assertCountEquals(0)
     }
 
+    @Test fun `an agent waiting at a prompt has no Stop, as Esc there would deny the dialog`() {
+        fresh()
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_NEEDS_INPUT).build())
+        show(rt)
+        compose.onAllNodesWithTag("stop").assertCountEquals(0)
+        compose.onNodeWithTag("prompt-at-prompt").assertIsDisplayed()
+    }
+
     @Test fun `an agent that is not Claude has no Stop`() {
         fresh()
         val rt = host(lead, worker.toBuilder().setKind("opencode").build())

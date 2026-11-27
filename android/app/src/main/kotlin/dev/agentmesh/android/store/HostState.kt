@@ -75,6 +75,9 @@ data class HostState(
 
 const val MAX_LOG = 200
 
+/** How many typed or withdrawn prompt ids are remembered, so a stale listing never brings one back: the newest. */
+private const val MAX_DONE = 500
+
 typealias Frame = SubscribeEventsResponse
 
 /**
@@ -207,7 +210,7 @@ private fun HostState.promptGone(agentId: String, id: String): HostState {
     val list = prompts[agentId]
     return copy(
         prompts = if (list?.any { it.id == id } == true) prompts + (agentId to list.filter { it.id != id }) else prompts,
-        promptsDone = promptsDone + id, promptTouch = touched(agentId),
+        promptsDone = (promptsDone + id).let { if (it.size > MAX_DONE) it.toList().takeLast(MAX_DONE).toSet() else it }, promptTouch = touched(agentId),
     )
 }
 
