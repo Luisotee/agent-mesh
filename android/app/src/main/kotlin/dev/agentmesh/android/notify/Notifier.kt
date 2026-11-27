@@ -40,8 +40,13 @@ class Notifier(private val context: Context) {
         sys.createNotificationChannel(NotificationChannel(CH_REPORTS, "Reports", NotificationManager.IMPORTANCE_DEFAULT).apply {
             description = "Agents that finished, failed or died"
         })
-        sys.createNotificationChannel(NotificationChannel(CH_CONNECTION, "Connection", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "Shown while the app keeps your hosts connected in the background"
+        // The notification Android requires while the background connection runs: minimum importance, so no status-bar icon
+        // and it sits at the bottom of the shade. A channel's importance can't be raised or lowered by the app after it
+        // exists, so this is a new channel, and the one earlier versions made (low importance, with an icon) is removed.
+        sys.deleteNotificationChannel(CH_CONNECTION_LEGACY)
+        sys.createNotificationChannel(NotificationChannel(CH_CONNECTION, "Background connection", NotificationManager.IMPORTANCE_MIN).apply {
+            description = "Shown while you have the app keep your hosts connected in the background (Settings)"
+            setShowBadge(false)
         })
     }
 
@@ -132,7 +137,8 @@ class Notifier(private val context: Context) {
     companion object {
         const val CH_WAITING = "waiting"
         const val CH_REPORTS = "reports"
-        const val CH_CONNECTION = "connection"
+        const val CH_CONNECTION = "connection_min"
+        const val CH_CONNECTION_LEGACY = "connection"
         private const val POSTED_MAX = 256
     }
 }
