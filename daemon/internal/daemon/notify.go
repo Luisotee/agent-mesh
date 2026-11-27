@@ -229,15 +229,16 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 		if err != nil {
 			return nil
 		}
-		var lastTask time.Time
+		// The store's order: time to the nanosecond, then id.
+		var lastTask *v1.Message
 		for _, m := range mine {
-			if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.CreatedAt.AsTime().After(lastTask) {
-				lastTask = m.CreatedAt.AsTime()
+			if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && (lastTask == nil || laterThan(m, lastTask)) {
+				lastTask = m
 			}
 		}
 		for _, m := range inbox {
 			if m.GetFrom().GetId() == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_DONE || m.Type == v1.MessageType_MESSAGE_TYPE_FAILED) &&
-				m.CreatedAt.AsTime().After(lastTask) {
+				(lastTask == nil || laterThan(m, lastTask)) {
 				reported[a.Id] = true
 			}
 		}
@@ -257,11 +258,14 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 		}
 	}
 	// What the lead put to the user and nobody answered is still open.
-	if asked, err := r.Waiting(userRecipient); err != nil {
+	// (as `ListWaiting` lists it: not one from an agent that has exited).
+	asked, err := r.Waiting(userRecipient)
+	if err != nil {
 		return nil
-	} else {
-		for _, m := range asked {
-			if m.RunId == lead.RunId {
+	}
+	for _, m := range asked {
+		for _, a := range agents {
+			if m.RunId == lead.RunId && a.Id == m.GetFrom().GetId() && a.State != v1.AgentState_AGENT_STATE_EXITED {
 				return nil
 			}
 		}
@@ -291,6 +295,15 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 		name = run.Title
 	}
 	return &notice.Notice{Kind: notice.Finished, Title: name + " finished", Body: "Its lead is idle and nothing of the run is left to do.", AgentID: lead.Id, Tab: notice.TabChat, ForUser: true, Tag: "run:" + lead.RunId}
+}
+
+// laterThan reports whether a came after b in the store's order: time to the nanosecond, then id.
+func laterThan(a, b *v1.Message) bool {
+	ta, tb := a.CreatedAt.AsTime(), b.CreatedAt.AsTime()
+	if !ta.Equal(tb) {
+		return ta.After(tb)
+	}
+	return a.Id > b.Id
 }
 
 // record stores a notice as a UserNotice event of the run and returns the event's number.
