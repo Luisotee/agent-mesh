@@ -47,8 +47,8 @@ describe('buildCommands', () => {
     const titles = cmds.map((c) => c.title)
     expect(titles).toEqual(expect.arrayContaining(['Go to app-lead', 'Go to app-w1', 'Go to app-gone', 'Go to run ship it', 'Go to run old', 'app-w1 sent a plan', 'app-w2 is waiting in its terminal', 'Start a run…', 'Open the host settings', 'Keyboard shortcuts…']))
     // Actions only for live agents; the switch only for one at its limit; approving only where a plan waits.
-    expect(titles).toContain('Stop app-w1')
-    expect(titles).not.toContain('Stop app-gone')
+    expect(titles).toContain('Shut down app-w1')
+    expect(titles).not.toContain('Shut down app-gone')
     expect(titles).toContain('Move app-w2 to its next model')
     expect(titles).not.toContain('Move app-w1 to its next model')
     expect(titles).toContain('Approve the plan of app-w1')
@@ -67,7 +67,7 @@ describe('buildCommands', () => {
   it('asks to confirm what stops or approves, and for the text a run needs', () => {
     const { model } = fixture()
     const by = Object.fromEntries(buildCommands(model).map((c) => [c.title, c]))
-    expect(by['Stop app-w1']!.confirm).toMatch(/process ends/)
+    expect(by['Shut down app-w1']!.confirm).toMatch(/process ends/)
     expect(by['Retire app-w1']!.confirm).toMatch(/conversation is kept/)
     expect(by['Approve the plan of app-w1']!.confirm).toBeDefined()
     expect(by['Ring app-w1']!.confirm).toBeUndefined()
@@ -183,7 +183,7 @@ describe('filterCommands', () => {
   const { model } = fixture()
   const cmds = buildCommands(model)
   it('needs every word, in the title or the detail, and puts title matches first', () => {
-    expect(filterCommands(cmds, 'stop w1').map((c) => c.title)).toEqual(['Stop app-w1'])
+    expect(filterCommands(cmds, 'shut down w1').map((c) => c.title)).toEqual(['Shut down app-w1'])
     expect(filterCommands(cmds, 'worker usage limit').map((c) => c.title)).toContain('Go to app-w2')
     expect(filterCommands(cmds, 'zzz')).toEqual([])
     const first = filterCommands(cmds, 'dock')[0]!

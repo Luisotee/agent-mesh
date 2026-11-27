@@ -105,7 +105,7 @@ export function TabBar() {
             },
           ] as MenuEntry[])
         : []),
-      ...(agent ? (['separator', { label: 'Stop…', onSelect: () => setStopping({ hostId: t.hostId, agent }), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
+      ...(agent ? (['separator', { label: 'Shut down…', onSelect: () => setStopping({ hostId: t.hostId, agent }), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
     ]
   }
 
@@ -193,8 +193,8 @@ export function TabBar() {
         })}
       </div>
       <PlusMenu project={project} host={runs} newLead={newLead} />
-      {/* The empty space: a double click starts a lead, as the + does; with no tab it says so. */}
-      <div className="flex min-w-4 flex-1 items-center self-stretch px-2" onDoubleClick={newLead}>
+      {/* The empty space: with no tab it says so. (A new lead starts from the +, as one thing does one way.) */}
+      <div className="flex min-w-4 flex-1 items-center self-stretch px-2">
         {tabs.length === 0 && <span className="text-xs text-muted-foreground">No agent open</span>}
       </div>
       {open && runs && openAgent && <OpenAgentControls host={runs} agent={openAgent} entries={entriesOf(open, openAgent, openAgent.name)} chord={keys.chat_toggle} />}
@@ -218,9 +218,9 @@ export function TabBar() {
       <ConfirmDialog
         open={!!stopping}
         onOpenChange={(o) => !o && setStopping(undefined)}
-        title={`Stop ${stopping?.agent.name ?? ''}?`}
+        title={`Shut down ${stopping?.agent.name ?? ''}?`}
         description={stopping?.agent.plain ? 'Its CLI exits. Its conversation is kept.' : 'Its CLI exits. A task or an answer to it later brings it back in the same conversation.'}
-        action={`Stop ${stopping?.agent.name ?? ''}`}
+        action={`Shut down ${stopping?.agent.name ?? ''}`}
         run={async () => {
           const h = hosts.find((x) => x.info.id === stopping?.hostId)
           if (!h || !stopping) throw new Error('That host is gone')
