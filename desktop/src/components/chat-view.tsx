@@ -1,4 +1,4 @@
-import { ChevronRight, Clock, Pencil, Send, Square, X } from 'lucide-react'
+import { Check, ChevronRight, Clock, Copy, Pencil, Quote, Send, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
 import { Button } from '@/components/ui/button'
@@ -17,7 +17,11 @@ import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { MessageCard } from './messages-panel'
+import { ContextRing } from './agent-work'
 import { Markdown } from './markdown'
+import { ago } from '@/dock'
+import { useNow } from '@/hooks'
+import { cn } from '@/lib/utils'
 import { hueStyle } from '@/hue'
 import { Tip } from '@/components/ui/tooltip'
 
@@ -172,6 +176,8 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   useEffect(() => {
     if (active && runId) host.loadMessages(runId)
   }, [active, runId, host])
+  const working = agent?.state === AgentState.WORKING
+  const lastTools = useMemo(() => [...blocks].reverse().find((b) => b.kind !== 'mesh'), [blocks])
   const items = useMemo(
     () => timeline(blocks, messageLoad === 'loaded' ? mine : undefined, transcript.atStart || !transcript.supported),
     [blocks, messageLoad, mine, transcript.atStart, transcript.supported],
@@ -248,7 +254,11 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
           <ol aria-label="Conversation" className="flex flex-col gap-3">
             {items.map((b) => (
               <li key={b.id}>
-                {b.kind === 'message' ? <MessageCard host={host} message={b.message} open={open.has(b.message.id)} /> : <ChatBlock block={b} />}
+                {b.kind === 'message' ? (
+                  <MessageCard host={host} message={b.message} open={open.has(b.message.id)} />
+                ) : (
+                  <ChatBlock block={b} agentId={agentId} running={b === lastTools && working && b.kind === 'tools' && b.calls.some((c) => !c.result)} />
+                )}
               </li>
             ))}
           </ol>
@@ -258,7 +268,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
       <p role="status" data-testid="chat-status" className="truncate text-xs text-muted-foreground">
         {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
       </p>
-      <Composer host={host} agentId={agentId} readOnly={readOnly} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
+      <Composer host={host} agentId={agentId} readOnly={readOnly} active={active} onSent={afterSend} openTerminal={onTerminal ?? (() => app.setTab('terminal'))} />
     </section>
   )
 }
@@ -345,7 +355,7 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
   )
 }
 
-function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void }) {
+function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void; active: boolean }) {
   const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
   // The app follows its first host's keys, as for the shortcuts (Settings edits them there).
@@ -482,6 +492,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
             }
           }}
         />
+        <ContextRing host={host} agent={agent} active={active} />
         {working && canStop && !why && (
           <Button type="button" variant="outline" disabled={stopping} aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
             <Square /> Stop
@@ -497,12 +508,47 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
   )
 }
 
-function ChatBlock({ block }: { block: Block }) {
+/** Copy, quote into the composer, and when it was said: shown on hover or focus of a prompt or a reply. */
+function BlockActions({ agentId, text, at, align }: { agentId: string; text: string; at: number; align: 'start' | 'end' }) {
+  const app = useApp()
+  const now = useNow(30_000)
+  const [copied, setCopied] = useState(false)
+  const quote = () => app.store.setState({ composerFill: { agentId, text: `${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n` } })
+  return (
+    <div className={cn('flex h-6 items-center gap-0.5 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none', align === 'end' && 'justify-end')}>
+      {at > 0 && <time dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()} className="px-1">{ago(at, now)}</time>}
+      <Tip label={copied ? 'Copied' : 'Copy'}>
+        <button
+          type="button"
+          aria-label="Copy"
+          onClick={() => {
+            void navigator.clipboard?.writeText(text)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          }}
+          className="grid size-6 place-items-center rounded outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </button>
+      </Tip>
+      <Tip label="Quote in a reply">
+        <button type="button" aria-label="Quote in a reply" onClick={quote} className="grid size-6 place-items-center rounded outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+          <Quote className="size-3.5" />
+        </button>
+      </Tip>
+    </div>
+  )
+}
+
+function ChatBlock({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
   switch (block.kind) {
     case 'user':
       return (
-        <div className="ml-auto w-fit max-w-[min(85%,72ch)] rounded-lg border border-identity/25 bg-identity/12 px-3 py-2 text-[15px] leading-relaxed break-words whitespace-pre-wrap" data-kind="user">
-          {block.entry.text}
+        <div className="group ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end" data-kind="user">
+          <div className="rounded-lg border border-identity/25 bg-identity/12 px-3 py-2">
+            <Markdown className="text-[15px] leading-relaxed">{block.entry.text}</Markdown>
+          </div>
+          <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="end" />
         </div>
       )
     case 'mesh':
@@ -513,9 +559,10 @@ function ChatBlock({ block }: { block: Block }) {
       )
     case 'assistant':
       return (
-        <div data-kind="assistant">
+        <div className="group" data-kind="assistant">
           <Markdown className="max-w-[72ch] text-[15px] leading-[1.6]">{block.entry.text}</Markdown>
           {block.entry.truncated && <p className="text-xs text-muted-foreground">… cut here</p>}
+          <BlockActions agentId={agentId} text={block.entry.text} at={block.at} align="start" />
         </div>
       )
     case 'tools':
@@ -523,7 +570,12 @@ function ChatBlock({ block }: { block: Block }) {
         <details className="rounded-md border bg-card text-xs" data-kind="tools">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1.5 text-muted-foreground [&::-webkit-details-marker]:hidden">
             <ChevronRight className="size-3.5 transition-transform [details[open]>summary>&]:rotate-90" />
-            {toolsSummary(block.calls)}
+            <span
+              data-running={running || undefined}
+              className={cn(running && 'animate-shimmer bg-linear-to-r from-muted-foreground via-foreground to-muted-foreground bg-size-[200%_100%] bg-clip-text text-transparent motion-reduce:animate-none motion-reduce:bg-none motion-reduce:text-muted-foreground')}
+            >
+              {toolsSummary(block.calls)}
+            </span>
           </summary>
           <ul className="flex flex-col gap-2 border-t p-2.5">
             {block.calls.map((c) => (

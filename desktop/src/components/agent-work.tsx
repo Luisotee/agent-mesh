@@ -30,37 +30,50 @@ function Section({ title, count, children }: { title: string; count?: string; ch
   )
 }
 
-/** The agent's plan (its todo list) and its context meter, from its CLI's record: for a CLI the host can't read, nothing. */
+/** The agent's plan (its todo list), from its CLI's record: for a CLI the host can't read, nothing. Its context is the composer's ring. */
 export function Progress({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const got = usePolled(async () => getAgentProgress(host.client, agent.id), `${host.info.id}/${agent.id}`, 20_000, !agent.archived, String(agent.state))
   const p = got.value
   if (!p?.supported) return null
   const plan = planSummary(p.plan)
-  const ctx = contextMeter(p.contextTokens, p.contextWindow)
-  if (plan.total === 0 && !ctx) return null
+  if (plan.total === 0) return null
   return (
-    <Section title="Progress" count={plan.total > 0 ? `${plan.done} of ${plan.total}` : undefined}>
-      {plan.total > 0 && (
-        <>
-          <progress aria-label="Plan progress" max={plan.total} value={plan.done} className="h-1.5 w-full overflow-hidden rounded bg-muted accent-primary" />
-          {plan.current && <p className="mt-1 truncate text-xs" title={plan.current}>Now: {plan.current}</p>}
-          <ol aria-label="Plan" className="mt-1.5 space-y-0.5 text-xs">
-            {p.plan.map((it, i) => (
-              <li key={i} className={cn('flex gap-1.5', it.status === 'completed' && 'text-muted-foreground line-through')}>
-                <span aria-hidden className="shrink-0">{it.status === 'completed' ? '✓' : it.status === 'in_progress' ? '›' : '·'}</span>
-                <span className="min-w-0 break-words">{it.content}</span>
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-      {ctx && (
-        <div className={cn(plan.total > 0 && 'mt-2')}>
-          <p className="flex justify-between text-xs text-muted-foreground"><span>Context</span><span data-testid="context-text">{ctx.text}</span></p>
-          <meter aria-label="Context used" min={0} max={100} low={70} high={90} optimum={0} value={ctx.pct} className="mt-0.5 h-1.5 w-full" />
-        </div>
-      )}
+    <Section title="Progress" count={`${plan.done} of ${plan.total}`}>
+      <progress aria-label="Plan progress" max={plan.total} value={plan.done} className="h-1.5 w-full overflow-hidden rounded bg-muted accent-primary" />
+      {plan.current && <p className="mt-1 truncate text-xs" title={plan.current}>Now: {plan.current}</p>}
+      <ol aria-label="Plan" className="mt-1.5 space-y-0.5 text-xs">
+        {p.plan.map((it, i) => (
+          <li key={i} className={cn('flex gap-1.5', it.status === 'completed' && 'text-muted-foreground line-through')}>
+            <span aria-hidden className="shrink-0">{it.status === 'completed' ? '✓' : it.status === 'in_progress' ? '›' : '·'}</span>
+            <span className="min-w-0 break-words">{it.content}</span>
+          </li>
+        ))}
+      </ol>
     </Section>
+  )
+}
+
+/**
+ * How much of its context window the agent's conversation fills, as a small ring by the composer (its CLI's record:
+ * for a CLI the host can't read, nothing). Amber from 70%, red from 90%: a long conversation the CLI will compact soon.
+ */
+export function ContextRing({ host, agent, active }: { host: HostRuntime; agent: Agent; active: boolean }) {
+  const got = usePolled(async () => getAgentProgress(host.client, agent.id), `${host.info.id}/${agent.id}/ring`, 30_000, active && !agent.archived, String(agent.state))
+  const p = got.value
+  const ctx = p?.supported ? contextMeter(p.contextTokens, p.contextWindow) : undefined
+  if (!ctx) return null
+  const r = 7
+  const c = 2 * Math.PI * r
+  const tone = ctx.pct >= 90 ? 'text-destructive' : ctx.pct >= 70 ? 'text-state-needs' : 'text-identity'
+  return (
+    <Tip label={`Context: ${ctx.text}`}>
+      <span role="meter" aria-label="Context used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={ctx.pct} aria-valuetext={ctx.text} data-testid="context-text" className="grid size-9 shrink-0 place-items-center">
+        <svg viewBox="0 0 18 18" className={cn('size-[18px] -rotate-90', tone)} aria-hidden>
+          <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2.5" />
+          <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - ctx.pct / 100)} />
+        </svg>
+      </span>
+    </Tip>
   )
 }
 

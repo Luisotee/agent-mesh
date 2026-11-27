@@ -1352,6 +1352,20 @@ describe('ChatView', () => {
     expect(within(card).getByRole('button', { name: 'Approve' })).toBeInTheDocument()
   })
 
+  it('quotes a reply into the composer, copies it, and shimmers a tool run the agent is still at', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.assign(navigator, { clipboard: { writeText } })
+    const running = [...tail, entry('c3', TranscriptKind.TOOL_CALL, { tool: 'Edit', toolUseId: 't3' })]
+    const { ui } = chat({ agent: { state: AgentState.WORKING }, read: vi.fn(async () => res(running)) })
+    render(ui)
+    const reply = (await screen.findByText('README.md')).closest('[data-kind="assistant"]')! as HTMLElement
+    await userEvent.click(within(reply).getByRole('button', { name: 'Copy' }))
+    expect(writeText).toHaveBeenCalledWith('Looking at **README.md**.')
+    await userEvent.click(within(reply).getByRole('button', { name: 'Quote in a reply' }))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveValue('> Looking at **README.md**.\n\n'))
+    expect(screen.getByText(/^Ran 3 tools/)).toHaveAttribute('data-running', 'true')
+  })
+
   it('reads earlier entries on request and puts them first', async () => {
     const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward && req.offset === 10n ? res([entry('old', TranscriptKind.USER, { text: 'the very first prompt' })], { startOffset: 0n, endOffset: 10n, atStart: true }) : res(tail)))
     const { ui } = chat({ read })
