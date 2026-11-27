@@ -156,7 +156,7 @@ mesh ask --repo <path> --review <PR> --size <size> --tier <tier> --kind claude  
 
 `--body` reads a file with `@path`. The answer to a plain question is the asker's own `done`; a worker may `mesh ask` its own agents too.
 
-- **An asker or reviewer** is an ordinary agent with a read-only task: Claude ones run under the deny list (no file edits, no `git push`, no `gh pr` writes), agy ones only under their prompt. It answers with one `done`. Their names are `<repo>-<slug>`: ask the same one again with `mesh ask <name> --body "…"` (it is resumed if retired), and `mesh retire` it once you have no follow-up (an idle one is retired after `idle_retire`).
+- **An asker or reviewer** is an ordinary agent with a read-only task: Claude ones run under the deny list (no file edits, no `git push`, no `gh pr` writes), agy ones only under their prompt. It answers with one `done`. Their names are `<repo>-<slug>`: ask the same one again with `mesh ask <name> --body "…"` (it is resumed if retired), and `mesh retire` it once you have no follow-up (an idle one is retired `idle_retire.review` seconds after its `done`, 15 by default, so a follow-up usually resumes it).
 - **The question:** give it what you know, as you would in a task file: what you are working on, what you need back, and in what form.
 ### Reviewing a PR
 

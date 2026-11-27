@@ -46,7 +46,7 @@ func TestScreenKeepsNoScrollbackAndRepaintsTheVisibleLines(t *testing.T) {
 		s.Write([]byte("line " + strings.Repeat("x", 10) + "\r\n"))
 	}
 	s.Write([]byte("last line"))
-	// The emulator's default scrollback (10,000 lines) holds ~220 MB for a big terminal and nothing reads it.
+	// The emulator's default scrollback (10,000 lines) holds 220 MB of heap (~440 MB of RSS) for a 200x50 terminal and nothing reads it.
 	if n := s.(*vtScreen).emu.ScrollbackLen(); n > 1 {
 		t.Errorf("scrollback holds %d lines, want at most 1", n)
 	}
