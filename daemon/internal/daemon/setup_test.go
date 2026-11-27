@@ -255,7 +255,7 @@ func TestStartSetupWithNoCLIInstalledSaysSo(t *testing.T) {
 // is not ready: the setup worktree must not be made in the enclosing repo.
 func TestStartSetupDoesNotUseAnEnclosingRepo(t *testing.T) {
 	share := shareWithSetup(t)
-	outer := t.TempDir()
+	outer := shortdir.New(t)
 	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "outer"}} {
 		if out, err := exec.Command("git", append([]string{"-C", outer}, args...)...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)

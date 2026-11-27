@@ -217,7 +217,7 @@ func TestBrowserRequestsAreRefusedOnEveryListener(t *testing.T) {
 }
 
 func TestNonLoopbackTCPIsRefused(t *testing.T) {
-	d, err := daemon.New(daemon.Config{StateDir: t.TempDir(), TCP: "0.0.0.0:0",
+	d, err := daemon.New(daemon.Config{StateDir: shortdir.New(t), TCP: "0.0.0.0:0",
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
 		t.Fatal(err)
