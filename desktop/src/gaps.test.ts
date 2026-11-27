@@ -87,7 +87,7 @@ describe('splitAtEdge', () => {
 })
 
 describe('the layout keeps dismissed tiles and pinned projects', () => {
-  const src = (o: Partial<LayoutSource> = {}): LayoutSource => ({ ...emptyWorkspace(), tab: 'overview', sidebarGroup: 'run', panelOpen: true, ...o })
+  const src = (o: Partial<LayoutSource> = {}): LayoutSource => ({ ...emptyWorkspace(), tab: 'overview', panelOpen: true, ...o })
 
   it('round-trips them for the hosts that are still there', () => {
     const l = parseLayout(JSON.stringify(layoutOf(src({ dismissed: { 'h/a': AgentState.IDLE, 'g/z': AgentState.EXITED }, pins: { h: ['/p/app', '/p/app'], g: ['/q'] } }))))!

@@ -124,18 +124,30 @@ export interface AppState extends WorkspaceState {
   watchOpen: boolean
   /** The command palette is open. */
   paletteOpen: boolean
+  /** The find bar is open (find in the window, Mod+F). */
+  findOpen: boolean
   /** The app started with no host and hasn't yet looked for one on this machine: the first-run screen connects by itself, once. */
   firstRun: boolean
   /** Why the setup agent couldn't be opened, and on which host (shown in that host's empty pane only). */
   setupError?: { hostId: string; message: string }
-  /** How the sidebar groups the agents. */
-  sidebarGroup: SidebarGroup
+  /** The sidebar is folded to a strip of icons (Ctrl+B). */
+  sidebarCollapsed: boolean
+  /** Projects the user took off the sidebar, by host id (device-local; one comes back while something in it waits on the user). */
+  hidden: Record<string, string[]>
+  /** The project whose settings dialog is open. */
+  projectSettings?: { hostId: string; repo: string }
+  /** The run whose title is being edited in the sidebar (F2, or its menu's Rename). */
+  renaming?: { hostId: string; runId: string }
+  /** Tabs closed in this session, the latest last (Ctrl+Shift+T opens them again; not kept). */
+  closedTabs: TabRef[]
   /** The side panel beside the open agent is shown. */
   panelOpen: boolean
   /** The New workspace dialog is open. */
   workspaceOpen: boolean
   /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */
   workspaceRun?: string
+  /** The project the New workspace dialog opens on (a project's "New lead here"). */
+  workspaceRepo?: string
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
   /** A queued prompt taken back to edit, for its agent's composer to take (and clear). */
@@ -146,12 +158,9 @@ export interface AppState extends WorkspaceState {
   dragTab?: TabRef
   /** Views an agent or the CLI asked the app to show, waiting for the user to open or dismiss them (the toasts). */
   viewRequests: ViewRequestRow[]
-  /** The projects the user pinned in the New workspace dialog, by host id (device-local, with the layout). */
+  /** The projects the user pinned (the sidebar and the New workspace dialog list them first), by host id (device-local, with the layout). */
   pins: Record<string, string[]>
 }
-
-/** How the sidebar groups the agents: by run (each as a tree from its lead), by repo, or by status bucket. */
-export type SidebarGroup = 'run' | 'project' | 'state'
 
 export type AgentTab = 'overview' | 'messages' | 'chat' | 'terminal'
 
@@ -170,6 +179,8 @@ export interface AppModel {
   setTab(tab: AgentTab): void
   /** Closes an agent's tab; when it was the open one, the next to its right shows. */
   closeTab(ref: TabRef): void
+  /** Moves a tab to where another is in the strip (a tab dragged onto another). */
+  moveTab(ref: TabRef, to: TabRef): void
   /** The tab after (1) or before (-1) the open one. */
   cycleTab(by: 1 | -1): void
   /** Shows or hides the live dock; showing it clears its count. */
@@ -191,9 +202,18 @@ export interface AppModel {
   dismissTile(hostId: string, agentId: string): void
   openSettings(open: boolean, query?: string): void
   openPalette(open: boolean): void
-  setSidebarGroup(g: SidebarGroup): void
+  openFind(open: boolean): void
+  setSidebarCollapsed(collapsed: boolean): void
+  /** Takes a project off the sidebar (or puts it back). */
+  toggleHidden(hostId: string, repo: string): void
+  openProjectSettings(project: { hostId: string; repo: string } | undefined): void
+  /** Starts (or ends) editing a run's title in the sidebar. */
+  renameRun(run: { hostId: string; runId: string } | undefined): void
+  /** Opens the last tab closed in this session again. */
+  reopenTab(): void
   setPanel(open: boolean): void
-  openWorkspace(open: boolean, runId?: string): void
+  /** Opens the New workspace dialog: on a run (to add an agent to it) or a project (to start a lead there), on a host. */
+  openWorkspace(open: boolean, runId?: string, at?: { hostId: string; repo: string }): void
   openPairing(open: boolean): void
   /** Shows or hides the grid of every live agent. */
   openWatch(open: boolean): void
@@ -264,7 +284,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, firstRun: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -303,7 +323,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   }
   let restored = false
   store.subscribe((s, prev) => {
-    if (restored && (s.tabs !== prev.tabs || s.views !== prev.views || s.hostId !== prev.hostId || s.agentId !== prev.agentId || s.tab !== prev.tab || s.side !== prev.side || s.splitDir !== prev.splitDir || s.sidebarGroup !== prev.sidebarGroup || s.panelOpen !== prev.panelOpen || s.dockOpen !== prev.dockOpen || s.dismissed !== prev.dismissed || s.pins !== prev.pins)) save()
+    if (restored && (s.tabs !== prev.tabs || s.views !== prev.views || s.hostId !== prev.hostId || s.agentId !== prev.agentId || s.tab !== prev.tab || s.side !== prev.side || s.splitDir !== prev.splitDir || s.sidebarCollapsed !== prev.sidebarCollapsed || s.hidden !== prev.hidden || s.panelOpen !== prev.panelOpen || s.dockOpen !== prev.dockOpen || s.dismissed !== prev.dismissed || s.pins !== prev.pins)) save()
   })
   const unwatch = new Map<string, () => void>()
   const watch = (rt: HostRuntime) =>
@@ -398,7 +418,8 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => {
         const hosts = s.hosts.filter((h) => h.info.id !== id)
         const { [id]: _pins, ...pins } = s.pins
-        return { ...forgetHost(s, id), pins, viewRequests: s.viewRequests.filter((r) => r.hostId !== id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
+        const { [id]: _hidden, ...hidden } = s.hidden
+        return { ...forgetHost(s, id), pins, hidden, closedTabs: s.closedTabs.filter((t) => t.hostId !== id), viewRequests: s.viewRequests.filter((r) => r.hostId !== id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
       })
       recount()
       configure()
@@ -409,14 +430,43 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => (agentId ? { ...activate(s, hostId, agentId, tab), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false } : { hostId, agentId: undefined, tab: tab ?? 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false })),
     openSettings: (open, query = '') => set({ settingsOpen: open, pairOpen: false, watchOpen: false, usageOpen: false, settingsQuery: open ? query : '' }),
     openPalette: (open) => set({ paletteOpen: open }),
-    setSidebarGroup: (sidebarGroup) => set({ sidebarGroup }),
+    openFind: (findOpen) => set({ findOpen }),
+    setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+    toggleHidden: (hostId, repo) =>
+      set((s) => {
+        const cur = s.hidden[hostId] ?? []
+        const next = cur.includes(repo) ? cur.filter((p) => p !== repo) : [...cur, repo]
+        const { [hostId]: _old, ...rest } = s.hidden
+        return { hidden: next.length > 0 ? { ...rest, [hostId]: next } : rest }
+      }),
+    openProjectSettings: (projectSettings) => set(projectSettings ? { projectSettings, hostId: projectSettings.hostId } : { projectSettings: undefined }),
+    renameRun: (renaming) => set({ renaming }),
+    reopenTab: () => {
+      const s = store.getState()
+      const last = s.closedTabs.at(-1)
+      if (!last) return
+      set({ closedTabs: s.closedTabs.slice(0, -1) })
+      const h = s.hosts.find((x) => x.info.id === last.hostId)
+      if (h?.store.getState().agents[last.agentId]) model.selectAgent(last.hostId, last.agentId)
+      else model.reopenTab()
+    },
     setPanel: (panelOpen) => set({ panelOpen }),
-    openWorkspace: (workspaceOpen, runId) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined }),
+    openWorkspace: (workspaceOpen, runId, at) => set((s) => ({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, hostId: workspaceOpen && at ? at.hostId : s.hostId })),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
     openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false, watchOpen: false }),
     setTab: (tab) => set({ tab }),
-    closeTab: (ref) => set((s) => closeTab(s, ref)),
+    closeTab: (ref) => set((s) => ({ ...closeTab(s, ref), closedTabs: s.tabs.some((t) => tabKey(t) === tabKey(ref)) ? [...s.closedTabs.filter((t) => tabKey(t) !== tabKey(ref)), ref].slice(-20) : s.closedTabs })),
+    moveTab: (ref, to) =>
+      set((s) => {
+        const from = s.tabs.findIndex((t) => tabKey(t) === tabKey(ref))
+        const at = s.tabs.findIndex((t) => tabKey(t) === tabKey(to))
+        if (from < 0 || at < 0 || from === at) return {}
+        const tabs = [...s.tabs]
+        const [moved] = tabs.splice(from, 1)
+        tabs.splice(at, 0, moved!)
+        return { tabs, dragTab: undefined }
+      }),
     cycleTab: (by) => {
       const next = cycleTab(store.getState(), by)
       if (next) set((s) => ({ ...activate(s, next.hostId, next.agentId), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false }))

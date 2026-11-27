@@ -5,7 +5,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
-import { RunSidebar } from './components/run-sidebar'
+import { ProjectSidebar } from './components/project-sidebar'
 import { NewRunDialog } from './components/spawn-dialogs'
 import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { SidePanel } from './components/side-panel'
@@ -126,10 +126,11 @@ describe('Watch all answers a plan or question in the tile', () => {
 })
 
 describe('renaming a run', () => {
-  it('edits the title in place: Enter saves it through the registry, and the pencil is there for every run', async () => {
-    const { host, client, wrap } = fixture()
-    render(wrap(<RunSidebar host={host} />))
-    await userEvent.click(screen.getByRole('button', { name: 'Rename ship it' }))
+  it('edits the title in place on F2: Enter saves it through the registry', async () => {
+    const { client, wrap } = fixture()
+    render(wrap(<ProjectSidebar />))
+    screen.getByRole('button', { name: /^ship it, lead/ }).focus()
+    await userEvent.keyboard('{F2}')
     const box = screen.getByLabelText('Run title')
     expect(box).toHaveValue('ship it')
     await userEvent.clear(box)
@@ -141,18 +142,19 @@ describe('renaming a run', () => {
   it('keeps the form open with the host\'s reason when the rename fails', async () => {
     const { host, client, wrap } = fixture()
     client.renameRun.mockRejectedValue(new ConnectError('give the run a title', Code.InvalidArgument))
-    render(wrap(<RunSidebar host={host} />))
-    await userEvent.click(screen.getByRole('button', { name: 'Rename ship it' }))
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of ship it' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Rename/ }))
     await userEvent.type(screen.getByLabelText('Run title'), ' now{Enter}')
     expect(await screen.findByRole('alert')).toHaveTextContent('give the run a title')
   })
 })
 
-describe('why there is nothing ready to review', () => {
+describe('why no pull request is read', () => {
   it('says the GitHub CLI is missing or not logged in, and nothing when it works', () => {
     const { host, wrap } = fixture()
     host.store.setState({ githubProblem: 'no_gh' })
-    render(wrap(<RunSidebar host={host} />))
+    render(wrap(<ProjectSidebar />))
     expect(screen.getByRole('note')).toHaveTextContent("isn't installed on the host")
     act(() => host.store.setState({ githubProblem: 'not_logged_in' }))
     expect(screen.getByRole('note')).toHaveTextContent('gh auth login')
@@ -229,6 +231,8 @@ describe('the side panel', () => {
     const { host, client, wrap } = fixture()
     client.getAgent.mockResolvedValue(create(GetAgentResponseSchema, { modelHistory: [create(ModelSwapSchema, { model: 'opus', effort: 'high', why: 'spawned' }), create(ModelSwapSchema, { model: 'sonnet', effort: 'medium', why: 'plan approved' })] }))
     render(wrap(<SidePanel host={host} agentId="w1" />))
+    // Folded to its count until opened.
+    await userEvent.click(await screen.findByRole('button', { name: /Model history/ }))
     const history = await screen.findByRole('list', { name: 'Model history' })
     expect(within(history).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['opus · highspawned', 'sonnet · mediumplan approved'])
     expect(lastReq(client.getAgent)).toMatchObject({ agent: 'w1' })
@@ -240,18 +244,6 @@ describe('the side panel', () => {
     render(wrap(<SidePanel host={host} agentId="w1" />))
     await waitFor(() => expect(client.getAgent).toHaveBeenCalled())
     expect(screen.queryByRole('list', { name: 'Model history' })).toBeNull()
-  })
-
-  it('shows the host\'s ask-before list one to a line and saves an edit as a whole list', async () => {
-    const { host, client, wrap } = fixture()
-    host.store.setState({ settings: { 'autonomy.ask_before': list('autonomy.ask_before', ['deploys']) } })
-    render(wrap(<SidePanel host={host} agentId="w1" />))
-    const box = screen.getByLabelText('Always ask me before')
-    expect(box).toHaveValue('deploys')
-    await userEvent.type(box, '{Enter}migrations{Enter}deploys')
-    await userEvent.tab()
-    await waitFor(() => expect(client.setSetting).toHaveBeenCalledTimes(1))
-    expect(lastReq<{ key: string; value: unknown }>(client.setSetting).key).toBe('autonomy.ask_before')
   })
 })
 

@@ -132,6 +132,8 @@ export interface DesktopApi {
   }
   /** Open an http(s) link in the user's browser. */
   openExternal(url: string): void
+  /** Find in page (`webContents.findInPage`): `again` steps to the next match of the same text. */
+  find: FindApi
   shell: ShellApi
 }
 
@@ -139,4 +141,11 @@ declare global {
   interface Window {
     desktop: DesktopApi
   }
+}
+
+export interface FindApi {
+  start(text: string, forward: boolean, again: boolean): void
+  stop(): void
+  /** Which match is selected and how many there are, after each `start`. */
+  onResult(cb: (r: { active: number; total: number }) => void): () => void
 }

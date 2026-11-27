@@ -1,5 +1,5 @@
 import { compareMessages } from './order'
-import { AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
+import { AgentRole, AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
 import { NEW_FOR_MS, tabKey, type WorkspaceState } from './workspace'
 
 /** What the dock needs of one host: its runs, agents and the messages the app has seen. */
@@ -66,6 +66,27 @@ export function dockTiles(hosts: HostView[], ws: Pick<WorkspaceState, 'newTiles'
   }
   const rank = (t: Tile) => (attention(t.agent) ? 0 : t.isNew ? 1 : 2)
   return tiles.sort((x, y) => rank(x) - rank(y) || at(y.agent) - at(x.agent) || x.agent.name.localeCompare(y.agent.name))
+}
+
+/** A dock tile with the read-only agents (reviewers, askers) that work for its agent, shown as a chip on it. */
+export interface TreeTile {
+  tile: Tile
+  helpers: Agent[]
+}
+
+const helper = (a: Agent) => a.role === AgentRole.REVIEWER || a.role === AgentRole.ASKER
+
+/**
+ * The dock follows the open agent's tree: the live agents of its run (the lead and its workers, a reviewer or asker
+ * folded into the agent it works for). With no agent open it shows the live leads of every host. Watch all is for everything.
+ */
+export function treeTiles(tiles: Tile[], focus?: { hostId: string; runId: string }): TreeTile[] {
+  const mine = focus ? tiles.filter((t) => t.hostId === focus.hostId && t.agent.runId === focus.runId) : tiles.filter((t) => t.agent.role === AgentRole.ROOT)
+  const shown = new Set(mine.filter((t) => !helper(t.agent)).map((t) => t.agent.id))
+  const out = new Map<string, TreeTile>()
+  for (const t of mine) if (!helper(t.agent) || !shown.has(t.agent.parentId)) out.set(t.agent.id, { tile: t, helpers: [] })
+  for (const t of mine) if (helper(t.agent) && shown.has(t.agent.parentId)) out.get(t.agent.parentId)!.helpers.push(t.agent)
+  return [...out.values()]
 }
 
 /** "sent a plan", for the last thing an agent said. */
