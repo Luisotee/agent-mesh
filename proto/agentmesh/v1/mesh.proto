@@ -485,6 +485,37 @@ service MeshService {
     };
   }
 
+  // Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
+  // daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
+  // host knows (a folder of `repos.dir`, or a repo an agent worked in: what `ListProjects` draws on).
+  rpc OpenShell(OpenShellRequest) returns (OpenShellResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "open-shell"
+      summary: "Start a shell in a project's folder on the host"
+    };
+  }
+
+  // The shells that are running (or exited and not yet seen to), oldest first.
+  rpc ListShells(ListShellsRequest) returns (ListShellsResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE, ACTOR_CLASS_READ_ONLY_DEVICE]
+      cli: "shells"
+      summary: "List the host's project shells"
+    };
+  }
+
+  // End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
+  rpc CloseShell(CloseShellRequest) returns (CloseShellResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "close-shell"
+      summary: "End a project shell"
+    };
+  }
+
   // An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
   // a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
   rpc ReadTranscript(ReadTranscriptRequest) returns (ReadTranscriptResponse) {
@@ -1575,9 +1606,46 @@ message GetBriefResponse {
 }
 
 message OpenTerminalRequest {
+  // The agent whose terminal to open. Exactly one of `agent` and `shell`.
   string agent = 1;
   // Ask for input rights; granted only to actors with the terminal.input right.
   bool input = 2;
+  // A project shell's id (`ListShells`): a ticket for `/v1/shell/<id>`. Devices only.
+  string shell = 3;
+}
+
+message OpenShellRequest {
+  RequestMeta meta = 1;
+  // The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
+  string repo = 2 [(path) = true, (repo_name) = true];
+}
+
+message OpenShellResponse {
+  Shell shell = 1;
+}
+
+message ListShellsRequest {}
+
+message ListShellsResponse {
+  repeated Shell shells = 1;
+}
+
+message CloseShellRequest {
+  RequestMeta meta = 1;
+  string id = 2;
+}
+
+message CloseShellResponse {}
+
+// A plain shell in a project's folder, held by the terminal host.
+message Shell {
+  string id = 1;
+  // The project folder it runs in (absolute).
+  string repo = 2;
+  google.protobuf.Timestamp started_at = 3;
+  // The shell ended; its stream still ends with the exit, then it is forgotten.
+  bool exited = 4;
+  int32 exit_code = 5;
 }
 
 message OpenTerminalResponse {

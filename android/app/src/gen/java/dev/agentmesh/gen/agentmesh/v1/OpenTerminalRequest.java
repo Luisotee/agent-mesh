@@ -16,10 +16,15 @@ public  final class OpenTerminalRequest extends
     OpenTerminalRequestOrBuilder {
   private OpenTerminalRequest() {
     agent_ = "";
+    shell_ = "";
   }
   public static final int AGENT_FIELD_NUMBER = 1;
   private java.lang.String agent_;
   /**
+   * <pre>
+   * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+   * </pre>
+   *
    * <code>string agent = 1 [json_name = "agent"];</code>
    * @return The agent.
    */
@@ -28,6 +33,10 @@ public  final class OpenTerminalRequest extends
     return agent_;
   }
   /**
+   * <pre>
+   * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+   * </pre>
+   *
    * <code>string agent = 1 [json_name = "agent"];</code>
    * @return The bytes for agent.
    */
@@ -37,6 +46,10 @@ public  final class OpenTerminalRequest extends
     return com.google.protobuf.ByteString.copyFromUtf8(agent_);
   }
   /**
+   * <pre>
+   * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+   * </pre>
+   *
    * <code>string agent = 1 [json_name = "agent"];</code>
    * @param value The agent to set.
    */
@@ -47,6 +60,10 @@ public  final class OpenTerminalRequest extends
     agent_ = value;
   }
   /**
+   * <pre>
+   * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+   * </pre>
+   *
    * <code>string agent = 1 [json_name = "agent"];</code>
    */
   private void clearAgent() {
@@ -54,6 +71,10 @@ public  final class OpenTerminalRequest extends
     agent_ = getDefaultInstance().getAgent();
   }
   /**
+   * <pre>
+   * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+   * </pre>
+   *
    * <code>string agent = 1 [json_name = "agent"];</code>
    * @param value The bytes for agent to set.
    */
@@ -100,6 +121,73 @@ public  final class OpenTerminalRequest extends
   private void clearInput() {
 
     input_ = false;
+  }
+
+  public static final int SHELL_FIELD_NUMBER = 3;
+  private java.lang.String shell_;
+  /**
+   * <pre>
+   * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+   * </pre>
+   *
+   * <code>string shell = 3 [json_name = "shell"];</code>
+   * @return The shell.
+   */
+  @java.lang.Override
+  public java.lang.String getShell() {
+    return shell_;
+  }
+  /**
+   * <pre>
+   * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+   * </pre>
+   *
+   * <code>string shell = 3 [json_name = "shell"];</code>
+   * @return The bytes for shell.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getShellBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(shell_);
+  }
+  /**
+   * <pre>
+   * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+   * </pre>
+   *
+   * <code>string shell = 3 [json_name = "shell"];</code>
+   * @param value The shell to set.
+   */
+  private void setShell(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    shell_ = value;
+  }
+  /**
+   * <pre>
+   * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+   * </pre>
+   *
+   * <code>string shell = 3 [json_name = "shell"];</code>
+   */
+  private void clearShell() {
+
+    shell_ = getDefaultInstance().getShell();
+  }
+  /**
+   * <pre>
+   * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+   * </pre>
+   *
+   * <code>string shell = 3 [json_name = "shell"];</code>
+   * @param value The bytes for shell to set.
+   */
+  private void setShellBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    shell_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.OpenTerminalRequest parseFrom(
@@ -200,6 +288,10 @@ public  final class OpenTerminalRequest extends
 
 
     /**
+     * <pre>
+     * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+     * </pre>
+     *
      * <code>string agent = 1 [json_name = "agent"];</code>
      * @return The agent.
      */
@@ -208,6 +300,10 @@ public  final class OpenTerminalRequest extends
       return instance.getAgent();
     }
     /**
+     * <pre>
+     * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+     * </pre>
+     *
      * <code>string agent = 1 [json_name = "agent"];</code>
      * @return The bytes for agent.
      */
@@ -217,6 +313,10 @@ public  final class OpenTerminalRequest extends
       return instance.getAgentBytes();
     }
     /**
+     * <pre>
+     * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+     * </pre>
+     *
      * <code>string agent = 1 [json_name = "agent"];</code>
      * @param value The agent to set.
      * @return This builder for chaining.
@@ -228,6 +328,10 @@ public  final class OpenTerminalRequest extends
       return this;
     }
     /**
+     * <pre>
+     * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+     * </pre>
+     *
      * <code>string agent = 1 [json_name = "agent"];</code>
      * @return This builder for chaining.
      */
@@ -237,6 +341,10 @@ public  final class OpenTerminalRequest extends
       return this;
     }
     /**
+     * <pre>
+     * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+     * </pre>
+     *
      * <code>string agent = 1 [json_name = "agent"];</code>
      * @param value The bytes for agent to set.
      * @return This builder for chaining.
@@ -288,6 +396,75 @@ public  final class OpenTerminalRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+     * </pre>
+     *
+     * <code>string shell = 3 [json_name = "shell"];</code>
+     * @return The shell.
+     */
+    @java.lang.Override
+    public java.lang.String getShell() {
+      return instance.getShell();
+    }
+    /**
+     * <pre>
+     * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+     * </pre>
+     *
+     * <code>string shell = 3 [json_name = "shell"];</code>
+     * @return The bytes for shell.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getShellBytes() {
+      return instance.getShellBytes();
+    }
+    /**
+     * <pre>
+     * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+     * </pre>
+     *
+     * <code>string shell = 3 [json_name = "shell"];</code>
+     * @param value The shell to set.
+     * @return This builder for chaining.
+     */
+    public Builder setShell(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setShell(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+     * </pre>
+     *
+     * <code>string shell = 3 [json_name = "shell"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearShell() {
+      copyOnWrite();
+      instance.clearShell();
+      return this;
+    }
+    /**
+     * <pre>
+     * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+     * </pre>
+     *
+     * <code>string shell = 3 [json_name = "shell"];</code>
+     * @param value The bytes for shell to set.
+     * @return This builder for chaining.
+     */
+    public Builder setShellBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setShellBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.OpenTerminalRequest)
   }
   @java.lang.Override
@@ -306,10 +483,11 @@ public  final class OpenTerminalRequest extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "agent_",
             "input_",
+            "shell_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0007" +
-              "";
+              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u0208\u0002\u0007" +
+              "\u0003\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

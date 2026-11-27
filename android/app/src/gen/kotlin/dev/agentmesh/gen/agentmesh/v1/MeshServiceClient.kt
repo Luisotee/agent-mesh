@@ -516,6 +516,53 @@ public class MeshServiceClient(
 
 
   /**
+   *  Start a plain login shell in a project's folder, on the host's terminal host (it survives an app restart and a
+   *  daemon restart). Not an agent: no run, no row, no confinement. Needs the `terminal.input` right, and a project the
+   *  host knows (a folder of `repos.dir`, or a repo an agent worked in: what `ListProjects` draws on).
+   */
+  override suspend fun openShell(request: OpenShellRequest, headers: Headers): ResponseMessage<OpenShellResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/OpenShell",
+      dev.agentmesh.gen.agentmesh.v1.OpenShellRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.OpenShellResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  The shells that are running (or exited and not yet seen to), oldest first.
+   */
+  override suspend fun listShells(request: ListShellsRequest, headers: Headers): ResponseMessage<ListShellsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListShells",
+      dev.agentmesh.gen.agentmesh.v1.ListShellsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListShellsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
+   */
+  override suspend fun closeShell(request: CloseShellRequest, headers: Headers): ResponseMessage<CloseShellResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CloseShell",
+      dev.agentmesh.gen.agentmesh.v1.CloseShellRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CloseShellResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
    *  a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
    */
