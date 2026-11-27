@@ -166,6 +166,68 @@ func TestAReportAnUnreadMessageOrADeclaredWaitHoldsTheNudge(t *testing.T) {
 	}
 }
 
+// sendUntil sends the worker's wait with its own deadline (`until`) and returns the stored message.
+func (a *acct) sendUntil(typ v1.MessageType, until string) (*v1.Message, error) {
+	a.t.Helper()
+	res, err := a.as(a.workerTok).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "parent", Type: typ, Body: "CI is running", Until: until}))
+	if err != nil {
+		return nil, err
+	}
+	return res.Msg.Message, nil
+}
+
+// A wait with a deadline of its own holds the nudge until then, not for wait_max; after it the agent is nudged
+// as any silent one.
+func TestAWaitWithItsOwnDeadlineHoldsTheNudgeUntilThen(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	a.taskRead()
+	if _, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, "2s"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 0 {
+		t.Fatalf("nudged before the wait's deadline: %d", n)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
+		t.Fatalf("nudges after the deadline: %d, want 1", n)
+	}
+}
+
+// `until` is capped at wait_max, and refused when it is not a future time, not understood, or not on a wait.
+func TestAWaitsUntilIsCappedAndBadOnesAreRefused(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.wait_max", 60.0)
+	a.taskRead()
+	before := time.Now()
+	msg, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, "100h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := msg.WaitUntil.AsTime(); got.After(before.Add(61*time.Second)) || got.Before(before.Add(55*time.Second)) {
+		t.Fatalf("until 100h with wait_max 60s stored %v, want about 60s from now", got.Sub(before))
+	}
+	msg, err = a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, "")
+	if err != nil || msg.WaitUntil != nil {
+		t.Fatalf("a wait with no until: %v, %v", msg, err)
+	}
+	for _, bad := range []string{"-5m", "0s", "soon", "2020-01-01T00:00:00Z", "5"} {
+		if _, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, bad); code(err) != connect.CodeInvalidArgument {
+			t.Errorf("until %q: %v, want invalid argument", bad, err)
+		}
+	}
+	if _, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_QUESTION, "5m"); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("until on a question: %v", err)
+	}
+	if msg, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, time.Now().Add(30*time.Minute).UTC().Format(time.RFC3339)); err != nil || msg.WaitUntil == nil {
+		t.Errorf("an RFC 3339 until: %v, %v", msg, err)
+	}
+}
+
 func TestAReportEndsWhatIsOwed(t *testing.T) {
 	a := newAcct(t)
 	a.setting("accountability.nudge_after", 1.0)

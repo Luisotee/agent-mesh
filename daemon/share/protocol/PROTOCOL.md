@@ -42,7 +42,7 @@ The message is stored when `mesh send` returns, and your parent's doorbell rings
 
 ## Rules
 
-**Waiting on purpose:** before you end your turn to wait for something long you started (a background test suite that will wake you), declare it: `mesh send parent --type wait --body "<what you wait for>"`. The daemon then holds its nudge for up to `accountability.wait_max` (4 h) or until your next task or answer. A wait is not a report and rings no doorbell: when it is over, report as usual. Without it, a turn that ends waiting is nudged like any other.
+**Waiting on purpose:** before you end your turn to wait for something long you started (a background test suite that will wake you), declare it: `mesh send parent --type wait --body "<what you wait for>"`. The daemon then holds its nudge for up to `accountability.wait_max` (4 h) or until your next task or answer. If you know when it should be over, add `--until 45m` (a duration from now, or an RFC 3339 time): the hold then ends at that deadline. `--until` is capped at `accountability.wait_max`, and a negative, zero or unparsable value is refused. A wait is not a report and rings no doorbell: when it is over, report as usual. Without it, a turn that ends waiting is nudged like any other.
 
 Claude Code: a background command you started and that is still running counts as a wait, declared or not (the daemon sees it), for 30 minutes from your last activity; after that you get one nudge to declare a wait or stop it. Declare one anyway for anything else you wait on, and always on the other CLIs.
 

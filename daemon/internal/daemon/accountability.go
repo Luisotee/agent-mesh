@@ -134,17 +134,21 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	// Everything since the agent's last task or answer decides: a report, a declared wait, the nudge.
 	var task time.Time
 	var reported, nudged bool
-	var wait, nudgedAt time.Time
+	var wait, waitUntil, nudgedAt time.Time
 	for _, m := range msgs {
 		switch {
 		case m.ToId == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
-			task, reported, nudged, wait, nudgedAt = m.CreatedAt.AsTime(), false, false, time.Time{}, time.Time{}
+			task, reported, nudged, wait, waitUntil, nudgedAt = m.CreatedAt.AsTime(), false, false, time.Time{}, time.Time{}, time.Time{}
 		case m.From.GetId() == a.Id && m.ToId == a.ParentId && isReport(m.Type):
 			reported = true
 		case m.From.GetId() == a.Id && m.ToId == a.ParentId && m.Type == v1.MessageType_MESSAGE_TYPE_WAIT:
 			// A wait answers an earlier nudge: its next silent wake is a first one again, nudged, not alerted (an
 			// agent that waits on background jobs ends a turn at each job's notification, each time still waiting).
 			wait, nudged, nudgedAt = m.CreatedAt.AsTime(), false, time.Time{}
+			waitUntil = time.Time{}
+			if m.WaitUntil != nil {
+				waitUntil = m.WaitUntil.AsTime()
+			}
 		case m.ToId == a.Id && m.From.GetId() == meshActor.Id && strings.HasPrefix(m.Body, nudgeTag):
 			nudged, nudgedAt = true, m.CreatedAt.AsTime()
 		}
@@ -170,7 +174,12 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	}
 	// A declared wait: the agent said it is waiting on purpose, until it is over: its deadline, or the agent woke
 	// (was active again after the turn end that declared it) and ended a turn with no report (bin/mesh's wait_over).
-	if !wait.IsZero() && now.Sub(wait) < waitMax && !d.waits.woke(a, wait) {
+	// It holds until its own deadline (`until`) when it gave one, and never past wait_max from its start.
+	holdEnd := wait.Add(waitMax)
+	if !waitUntil.IsZero() && waitUntil.Before(holdEnd) {
+		holdEnd = waitUntil
+	}
+	if !wait.IsZero() && now.Before(holdEnd) && !d.waits.woke(a, wait) {
 		return owesNothing, task, nil
 	}
 	idleSince := task
