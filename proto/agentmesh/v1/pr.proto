@@ -29,6 +29,13 @@ message PullRequest {
   // The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
   // head is its branch.
   string head_ref = 11;
+  // The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+  // worker. Unset until the PR was first watched.
+  google.protobuf.Timestamp feedback_cursor = 12;
+  // The head commit whose failing checks were last announced to the worker, so one failure is told once.
+  string failing_head = 13;
+  // How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+  int32 feedback_resumes = 14;
 }
 
 // WorkEvidence is what a worker's branch and worktree show of its work, for a worker with no PR.
