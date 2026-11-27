@@ -62,8 +62,20 @@ type agentsHarness struct {
 	home string
 }
 
+// agentConfig is the daemon's agent settings for a test. Its memory guard reads files of its own, with plenty of memory and
+// no pressure: the host's /proc/pressure/memory and /proc/meminfo are the machine's (several gates at once push its
+// pressure over `memory_pressure_max` and refused 121 spawns at once), and a test of the guard points the paths at its own
+// numbers with a tweak.
 func agentConfig(t *testing.T, home string) daemon.AgentConfig {
+	procDir, err := shortdir.Make("proc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(procDir) })
+	mem := writeProc(t, procDir, "meminfo", meminfoText(24000, 4000, 32000, 4000))
+	psi := writeProc(t, procDir, "pressure", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 	return daemon.AgentConfig{
+		MeminfoPath: mem, PressurePath: psi,
 		TermLaunch: termclient.LaunchDetached, TermBinary: filepath.Join(bins, "mesh-term"),
 		TermArgs: []string{"--max-lifetime", "3m"}, Mesh: filepath.Join(bins, "mesh"),
 		Binaries:      map[string]string{"claude": filepath.Join(bins, "claude"), "agy": filepath.Join(bins, "agy"), "opencode": filepath.Join(bins, "opencode")},
