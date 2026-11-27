@@ -3,6 +3,7 @@ package dev.agentmesh.android.ui
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,7 +29,12 @@ import androidx.compose.ui.semantics.semantics
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TextStyle
 import com.termux.terminal.WcWidth
+import dev.agentmesh.android.term.CellPos
+import dev.agentmesh.android.term.Selection
 import dev.agentmesh.android.term.TermScreen
+import dev.agentmesh.android.term.absoluteRow
+import dev.agentmesh.android.term.externalRow
+import dev.agentmesh.android.term.wordRange
 import dev.agentmesh.android.theme.TerminalColors
 import kotlin.math.ceil
 import kotlin.math.max
@@ -80,13 +87,14 @@ private const val READABLE_SP = 8f
 
 /**
  * Draws a [TermScreen]: each row of the emulator's buffer, cell by cell, in the theme's 16 colours plus the 256 and
- * true colours of the program. Read only: a drag scrolls the history (the view stays on the lines being read as
- * new ones arrive), a pinch zooms and pans, a double tap fits the host's width to the screen. The host's size is
+ * true colours of the program. A drag scrolls the history (the view stays on the lines being read as
+ * new ones arrive), a pinch zooms and pans, a double tap fits the host's width to the screen, a long press selects a word
+ * and dragging extends it ([selection] is drawn; a tap clears it). The host's size is
  * whatever the desktop (or the agent's last client) made it; a phone shows it small or scrolls sideways, and never
  * resizes it.
  */
 @Composable
-fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier) {
+fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier, selection: Selection? = null, onSelection: (Selection?) -> Unit = {}, onTap: () -> Unit = {}) {
     // The state is the screen's: a new screen (another agent) starts from the fitted size and no pan.
     // 0 fits the host's width to the screen; a pinch sets a size of the user's own.
     var userSp by remember(screen) { mutableFloatStateOf(0f) }
@@ -94,7 +102,7 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
     var dragPx by remember(screen) { mutableFloatStateOf(0f) }
     // What the gestures need of the last drawing: the size (sp), its pixels per sp, the columns and the width. Kept
     // outside the state and written while drawing, and by a pinch at once, so events between two draws compound.
-    val drawn = remember(screen) { floatArrayOf(READABLE_SP, 1f, 1f, 1f) }
+    val drawn = remember(screen) { floatArrayOf(READABLE_SP, 1f, 1f, 1f, 1f, 1f, 0f) }
     val paints = remember { arrayOfNulls<TermPaints>(1) }
     // For TalkBack: the last lines on screen, refreshed at most a few times a second. Not read from the version in
     // composition: that would recompose the canvas on every output frame; drawing reads it instead.
@@ -105,6 +113,11 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
             delay(DESCRIPTION_EVERY_MS)
         }
     }
+    // The gesture blocks below run for as long as their key (the screen) holds, so what they call must be read afresh: the
+    // selection's owner changes when the screen is made again, and a tap's meaning with the keyboard.
+    val currentOnSelection by rememberUpdatedState(onSelection)
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentSelection by rememberUpdatedState(selection)
     Canvas(
         modifier.fillMaxSize()
             .semantics { contentDescription = description }
@@ -121,16 +134,45 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                     }
                 }
             }
-            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }) },
+            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }, onTap = {
+                // A tap that drops a selection is only that: it doesn't also ask for the keyboard.
+                val had = currentSelection != null
+                currentOnSelection(null)
+                if (!had) currentOnTap()
+            }) }
+            // A long press selects the word under the finger, and dragging on extends it from there.
+            .pointerInput(screen) {
+                var anchor: CellPos? = null
+                fun cellAt(o: androidx.compose.ui.geometry.Offset): CellPos {
+                    val cell = cellAt(drawn[0] * drawn[1])
+                    val cols = drawn[2].toInt()
+                    val rows = drawn[4].toInt()
+                    val shift = bottomShift(drawn[5], rows, cell.h)
+                    return Selection.cellAt(o.x, o.y, cell.w, cell.h, drawn[6], shift, screen.absoluteRow(-screen.scrollBack), cols, rows)
+                }
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { o ->
+                        val c = cellAt(o)
+                        val word = screen.wordRange(screen.externalRow(c.row), c.col)
+                        anchor = CellPos(word.first, c.row)
+                        currentOnSelection(Selection(anchor!!, CellPos(word.last, c.row)))
+                    },
+                    onDrag = { change, _ -> anchor?.let { currentOnSelection(Selection(it, cellAt(change.position))) } },
+                    onDragEnd = { anchor = null },
+                    onDragCancel = { anchor = null },
+                )
+            },
     ) {
         val emu = screen.emulator ?: return@Canvas
         screen.version // the dependency: a changed screen redraws (and only redraws)
         val pxPerSp = density * fontScale
         val sp = if (userSp > 0f) userSp else fitWidthSp(size.width, emu.mColumns, pxPerSp)
-        drawn[0] = sp; drawn[1] = pxPerSp; drawn[2] = emu.mColumns.toFloat(); drawn[3] = size.width
+        drawn[0] = sp; drawn[1] = pxPerSp; drawn[2] = emu.mColumns.toFloat(); drawn[3] = size.width; drawn[4] = emu.mRows.toFloat(); drawn[5] = size.height
         val px = sp * pxPerSp
         val p = paints[0]?.takeIf { it.px == px } ?: TermPaints(px).also { paints[0] = it }
-        drawTerminal(emu, screen, theme, p, clampPan(panX, emu.mColumns, p.cell.w, size.width), emu.mColumns, emu.mRows)
+        val pan = clampPan(panX, emu.mColumns, p.cell.w, size.width)
+        drawn[6] = pan
+        drawTerminal(emu, screen, theme, p, pan, emu.mColumns, emu.mRows, selection)
     }
 }
 
@@ -148,7 +190,7 @@ fun fitWidthSp(widthPx: Float, cols: Int, pxPerSp: Float): Float {
     return (widthPx / (cols.coerceAtLeast(1) * unit) / pxPerSp).coerceIn(READABLE_SP, MAX_SP)
 }
 
-private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, theme: TerminalColors, paints: TermPaints, panX: Float, cols: Int, rows: Int) {
+private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, theme: TerminalColors, paints: TermPaints, panX: Float, cols: Int, rows: Int, selection: Selection?) {
     val cell = paints.cell
     val regular = paints.regular
     val bold = paints.bold
@@ -163,6 +205,7 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
         if (y + cell.h < 0f) continue
         val row = top + r
         if (row < -buf.activeTranscriptRows || row >= rows) continue
+        val absRow = screen.absoluteRow(row)
         val line = buf.allocateFullLineIfNecessary(buf.externalToInternalRow(row))
         val text = line.mText
         val used = line.spaceUsed
@@ -189,6 +232,7 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
             if (w == 0) { ci += chars; continue }
             val x = x0 + col * cell.w
             if (bg != theme.background) drawRect(bg, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
+            if (selection != null && (col until col + w).any { selection.contains(it, absRow, cols) }) drawRect(theme.selection, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
             if (chars > 0 && cp != ' '.code && fx and TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE == 0) {
                 val p = if (boldFx) bold else regular
                 p.color = fg.toArgb()

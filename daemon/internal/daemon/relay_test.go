@@ -25,13 +25,14 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/pairing"
 	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/tlsutil"
 )
 
 func startWithConfig(t *testing.T, cfg daemon.Config) *harness {
 	t.Helper()
 	if cfg.StateDir == "" {
-		cfg.StateDir = filepath.Join(t.TempDir(), "state")
+		cfg.StateDir = shortdir.State(t)
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))

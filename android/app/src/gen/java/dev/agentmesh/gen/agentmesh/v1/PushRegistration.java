@@ -23,6 +23,7 @@ public  final class PushRegistration extends
     deviceId_ = "";
     endpointHost_ = "";
     lastError_ = "";
+    events_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int DEVICE_ID_FIELD_NUMBER = 1;
@@ -365,6 +366,135 @@ public  final class PushRegistration extends
   private void clearFailingSince() {
     failingSince_ = null;
     bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
+  public static final int EVENTS_FIELD_NUMBER = 7;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> events_;
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @return A list containing the events.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getEventsList() {
+    return events_;
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @return The count of events.
+   */
+  @java.lang.Override
+  public int getEventsCount() {
+    return events_.size();
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param index The index of the element to return.
+   * @return The events at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getEvents(int index) {
+    return events_.get(index);
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the events at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEventsBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        events_.get(index));
+  }
+  private void ensureEventsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        events_;  if (!tmp.isModifiable()) {
+      events_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param index The index to set the value at.
+   * @param value The events to set.
+   */
+  private void setEvents(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureEventsIsMutable();
+    events_.set(index, value);
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param value The events to add.
+   */
+  private void addEvents(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureEventsIsMutable();
+    events_.add(value);
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param values The events to add.
+   */
+  private void addAllEvents(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureEventsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, events_);
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   */
+  private void clearEvents() {
+    events_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param value The bytes of the events to add.
+   */
+  private void addEventsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureEventsIsMutable();
+    events_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.PushRegistration parseFrom(
@@ -825,6 +955,134 @@ public  final class PushRegistration extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @return A list containing the events.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getEventsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getEventsList());
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @return The count of events.
+     */
+    @java.lang.Override
+    public int getEventsCount() {
+      return instance.getEventsCount();
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @param index The index of the element to return.
+     * @return The events at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getEvents(int index) {
+      return instance.getEvents(index);
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the events at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEventsBytes(int index) {
+      return instance.getEventsBytes(index);
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @param index The index to set the value at.
+     * @param value The events to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEvents(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setEvents(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @param value The events to add.
+     * @return This builder for chaining.
+     */
+    public Builder addEvents(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addEvents(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @param values The events to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllEvents(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllEvents(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEvents() {
+      copyOnWrite();
+      instance.clearEvents();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+     * </pre>
+     *
+     * <code>repeated string events = 7 [json_name = "events"];</code>
+     * @param value The bytes of the events to add.
+     * @return This builder for chaining.
+     */
+    public Builder addEventsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addEventsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.PushRegistration)
   }
   @java.lang.Override
@@ -848,10 +1106,11 @@ public  final class PushRegistration extends
             "lastOkAt_",
             "lastError_",
             "failingSince_",
+            "events_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u1009\u0000\u0004\u1009\u0001\u0005\u0208\u0006\u1009\u0002";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u1009\u0000\u0004\u1009\u0001\u0005\u0208\u0006\u1009\u0002\u0007\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

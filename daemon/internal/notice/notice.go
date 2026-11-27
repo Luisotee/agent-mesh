@@ -21,6 +21,8 @@ const (
 	Report   = "report"
 	Failed   = "failed"
 	Exited   = "exited"
+	Limited  = "limited"
+	Error    = "error"
 )
 
 // The screen a notification opens, as the apps name their tabs.
@@ -43,7 +45,7 @@ type Notice struct {
 func (n *Notice) Waiting() bool { return n.Kind == Input || n.Kind == Plan || n.Kind == Question }
 
 // For returns the notice for an event, or nil: an agent stopped at a prompt, a plan, a question, a report or a
-// failure sent to a run's lead, an agent that died. Never what a device (the user) did. agent looks an agent up
+// failure sent to a run's lead, an agent that died, one that hit its usage limit or is in error. Never what a device (the user) did. agent looks an agent up
 // by id (nil when unknown). Unlike the apps, it doesn't judge whether the event is live: meshd calls it only for
 // events as they commit.
 func For(e *v1.Event, agent func(id string) *v1.Agent) *Notice {
@@ -51,14 +53,28 @@ func For(e *v1.Event, agent func(id string) *v1.Agent) *Notice {
 	case *v1.Event_AgentStateChanged:
 		a := agent(e.AgentId)
 		ch := p.AgentStateChanged
-		if a == nil || ch.To != v1.AgentState_AGENT_STATE_NEEDS_INPUT || ch.From == v1.AgentState_AGENT_STATE_NEEDS_INPUT {
+		if a == nil || ch.To == ch.From {
 			return nil
 		}
 		body := Brief(ch.Detail)
-		if body == "" {
-			body = "It is stopped at a prompt in its terminal."
+		switch ch.To {
+		case v1.AgentState_AGENT_STATE_NEEDS_INPUT:
+			if body == "" {
+				body = "It is stopped at a prompt in its terminal."
+			}
+			return &Notice{Kind: Input, Title: a.Name + " needs you", Body: body, AgentID: a.Id, Tab: TabTerminal}
+		case v1.AgentState_AGENT_STATE_LIMITED:
+			if body == "" {
+				body = "Its terminal says more."
+			}
+			return &Notice{Kind: Limited, Title: a.Name + " hit its usage limit", Body: body, AgentID: a.Id, Tab: TabTerminal}
+		case v1.AgentState_AGENT_STATE_ERROR:
+			if body == "" {
+				body = "Its terminal says more."
+			}
+			return &Notice{Kind: Error, Title: a.Name + " is in error", Body: body, AgentID: a.Id, Tab: TabTerminal}
 		}
-		return &Notice{Kind: Input, Title: a.Name + " needs you", Body: body, AgentID: a.Id, Tab: TabTerminal}
+		return nil
 	case *v1.Event_MessageSent:
 		m := p.MessageSent.GetMessage()
 		if m == nil || m.GetFrom().GetClass() == v1.ActorClass_ACTOR_CLASS_DEVICE {

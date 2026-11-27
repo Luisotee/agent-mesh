@@ -18,6 +18,7 @@ public  final class RegisterPushRequest extends
     endpoint_ = "";
     p256Dh_ = "";
     auth_ = "";
+    events_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -266,6 +267,153 @@ public  final class RegisterPushRequest extends
     checkByteStringIsUtf8(value);
     auth_ = value.toStringUtf8();
 
+  }
+
+  public static final int EVENTS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> events_;
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @return A list containing the events.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getEventsList() {
+    return events_;
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @return The count of events.
+   */
+  @java.lang.Override
+  public int getEventsCount() {
+    return events_.size();
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param index The index of the element to return.
+   * @return The events at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getEvents(int index) {
+    return events_.get(index);
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the events at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEventsBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        events_.get(index));
+  }
+  private void ensureEventsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        events_;  if (!tmp.isModifiable()) {
+      events_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param index The index to set the value at.
+   * @param value The events to set.
+   */
+  private void setEvents(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureEventsIsMutable();
+    events_.set(index, value);
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param value The events to add.
+   */
+  private void addEvents(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureEventsIsMutable();
+    events_.add(value);
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param values The events to add.
+   */
+  private void addAllEvents(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureEventsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, events_);
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   */
+  private void clearEvents() {
+    events_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param value The bytes of the events to add.
+   */
+  private void addEventsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureEventsIsMutable();
+    events_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.RegisterPushRequest parseFrom(
@@ -619,6 +767,152 @@ public  final class RegisterPushRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @return A list containing the events.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getEventsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getEventsList());
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @return The count of events.
+     */
+    @java.lang.Override
+    public int getEventsCount() {
+      return instance.getEventsCount();
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @param index The index of the element to return.
+     * @return The events at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getEvents(int index) {
+      return instance.getEvents(index);
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the events at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEventsBytes(int index) {
+      return instance.getEventsBytes(index);
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @param index The index to set the value at.
+     * @param value The events to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEvents(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setEvents(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @param value The events to add.
+     * @return This builder for chaining.
+     */
+    public Builder addEvents(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addEvents(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @param values The events to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllEvents(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllEvents(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEvents() {
+      copyOnWrite();
+      instance.clearEvents();
+      return this;
+    }
+    /**
+     * <pre>
+     * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+     * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+     * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+     * </pre>
+     *
+     * <code>repeated string events = 5 [json_name = "events"];</code>
+     * @param value The bytes of the events to add.
+     * @return This builder for chaining.
+     */
+    public Builder addEventsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addEventsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.RegisterPushRequest)
   }
   @java.lang.Override
@@ -640,10 +934,11 @@ public  final class RegisterPushRequest extends
             "endpoint_",
             "p256Dh_",
             "auth_",
+            "events_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\u0208\u0004\u0208";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u0208\u0004\u0208\u0005\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

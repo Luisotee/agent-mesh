@@ -46,6 +46,31 @@ func TestPromptNotifiesOnceAtTheTransition(t *testing.T) {
 	}
 }
 
+func TestAnAgentThatHitsItsLimitOrIsInErrorNotifiesOnceAtTheTransition(t *testing.T) {
+	for _, c := range []struct {
+		to          v1.AgentState
+		kind, title string
+	}{
+		{v1.AgentState_AGENT_STATE_LIMITED, Limited, "shop-fix hit its usage limit"},
+		{v1.AgentState_AGENT_STATE_ERROR, Error, "shop-fix is in error"},
+	} {
+		n := For(stateChanged("w1", v1.AgentState_AGENT_STATE_WORKING, c.to, "5-hour window"), lookup)
+		if n == nil || n.Kind != c.kind || n.Title != c.title || n.Body != "5-hour window" || n.Tab != TabTerminal || n.AgentID != "w1" || n.Waiting() {
+			t.Fatalf("%v: got %+v", c.to, n)
+		}
+		if n := For(stateChanged("w1", c.to, c.to, ""), lookup); n != nil {
+			t.Fatalf("%v: staying there notified: %+v", c.to, n)
+		}
+		if n := For(stateChanged("w1", v1.AgentState_AGENT_STATE_WORKING, c.to, ""), lookup); n.Body != "Its terminal says more." {
+			t.Fatalf("%v: empty detail: %q", c.to, n.Body)
+		}
+	}
+	// Leaving them notifies nothing.
+	if n := For(stateChanged("w1", v1.AgentState_AGENT_STATE_LIMITED, v1.AgentState_AGENT_STATE_WORKING, ""), lookup); n != nil {
+		t.Fatalf("recovering notified: %+v", n)
+	}
+}
+
 func TestWhatReachesTheLeadNotifies(t *testing.T) {
 	kind := func(mt v1.MessageType) *Notice { return For(sent("w1", "lead", mt, "# Plan\n- **do** `x`"), lookup) }
 	for mt, want := range map[v1.MessageType]string{

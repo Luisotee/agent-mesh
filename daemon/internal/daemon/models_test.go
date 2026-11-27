@@ -19,6 +19,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 const (
@@ -55,7 +56,7 @@ func startModelsHarness(t *testing.T, agyListing, ocListing *string, now *time.T
 			return *ocListing, nil
 		}
 	}
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{
 		StateDir: state,
 		TCP:      "127.0.0.1:0",
@@ -285,7 +286,7 @@ func TestModelsAKindWhoseCLIIsGoneIsDroppedAndTheCacheApplies(t *testing.T) {
 	}
 	ag := agy.New()
 	ag.ListModels = func(context.Context, string, map[string]string) (string, error) { return agyList, nil }
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{
 		StateDir: state, TCP: "127.0.0.1:0",
 		Now:    func() time.Time { return now },

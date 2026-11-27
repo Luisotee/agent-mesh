@@ -48,13 +48,18 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit, onEdit: (String) -> Unit, onSettings: () -> Unit) {
+fun HostsScreen(onOpen: (String) -> Unit, onAdd: () -> Unit, onPair: () -> Unit, onEdit: (String) -> Unit, onSettings: () -> Unit, onLive: () -> Unit = {}) {
     val container = LocalContainer.current
     val hosts by container.hosts.hosts.collectAsStateWithLifecycleCompat()
     val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
     var removing by remember { mutableStateOf<Host?>(null) }
     Scaffold(
-        topBar = { TopAppBar(title = { Text("agent-mesh") }, actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") } }) },
+        topBar = {
+            TopAppBar(title = { Text("agent-mesh") }, actions = {
+                if (hosts.isNotEmpty()) androidx.compose.material3.TextButton(onClick = onLive, modifier = Modifier.testTag("live-all")) { Text("Live") }
+                IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Settings") }
+            })
+        },
         floatingActionButton = {
             var addMenu by remember { mutableStateOf(false) }
             Column {

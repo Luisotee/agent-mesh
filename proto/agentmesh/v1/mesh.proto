@@ -1760,6 +1760,10 @@ message RegisterPushRequest {
   string p256dh = 3;
   // The 16-byte authentication secret, base64url (RFC 8291 `auth`).
   string auth = 4;
+  // What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+  // exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+  // push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+  repeated string events = 5;
 }
 
 message RegisterPushResponse {
