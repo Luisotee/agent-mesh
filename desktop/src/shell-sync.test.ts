@@ -12,20 +12,26 @@ import { forward } from '../electron/bridge'
 import type { StoredHost } from '../electron/hosts'
 import type { DesktopApi } from '../shared/api'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
-import { HelloResponseSchema, ListAgentsResponseSchema, ListMessagesResponseSchema, ListSettingsResponseSchema, ListWaitingResponseSchema, MeshService, SubscribeEventsResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { HelloResponseSchema, ListAgentsResponseSchema, ListMessagesResponseSchema, ListSettingsResponseSchema, ListShellsResponseSchema, ListWaitingResponseSchema, MeshService, ShellChangeSchema, ShellSchema, SubscribeEventsResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, SettingSchema$ as SettingDescriptor, SettingSchemaSchema, UserNoticeSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import { createAppModel } from './model'
 
 let dir: string
 let server: http.Server
 let push: (e: Event) => void
+/** A frame that is no event (a shell change), told to the app's stream. */
+let pushFrame: (frame: ReturnType<typeof shellFrame>) => void
 let settings: Record<string, Value>
 let closeStreams: () => void
 let settingsGate: Promise<void> | undefined
 /** What the fake host answers to ListWaiting: a test sets it before the event that changes it, as the real host's rule would. */
 let hostWaiting: ReturnType<typeof waiting>[]
+/** The host's project shells, and a gate that holds a ListShells answer (computed when it was asked) on its way. */
+let hostShells: string[]
+let shellsGate: Promise<void> | undefined
 
 const NOW = () => Date.now()
+const shellFrame = (id: string, closed: boolean) => create(SubscribeEventsResponseSchema, { frame: { case: 'shell', value: create(ShellChangeSchema, { shell: create(ShellSchema, { id, repo: '/p/app' }), closed }) } })
 const agent = (id: string, name: string, role: AgentRole, parentId = '') => create(AgentSchema, { id, name, role, runId: 'r1', parentId, state: AgentState.IDLE })
 const msg = (id: string, type: MessageType, from: string, to: string, body: string) =>
   create(MessageSchema, { id, runId: 'r1', type, body, toId: to, createdAt: timestampFromMs(NOW()), from: { $typeName: 'agentmesh.v1.Actor', id: from, name: from, class: ActorClass.WORKER, runId: 'r1' } })
@@ -46,11 +52,18 @@ beforeEach(async () => {
   settings = {}
   settingsGate = undefined
   hostWaiting = []
+  hostShells = ['a']
+  shellsGate = undefined
   const queue: Event[] = []
+  const frames: ReturnType<typeof shellFrame>[] = []
   let wake: (() => void) | undefined
   let closed = false
   push = (e) => {
     queue.push(e)
+    wake?.()
+  }
+  pushFrame = (f) => {
+    frames.push(f)
     wake?.()
   }
   closeStreams = () => {
@@ -63,6 +76,11 @@ beforeEach(async () => {
         router.service(MeshService, {
           hello: () => create(HelloResponseSchema, { daemonId: 'd', instanceId: 'i', version: 't', capabilities: [] }),
           listMessages: () => create(ListMessagesResponseSchema, { messages: [] }),
+          listShells: async () => {
+            const asked = hostShells.map((id) => create(ShellSchema, { id, repo: '/p/app' })) // the host's shells when it was asked
+            await shellsGate
+            return create(ListShellsResponseSchema, { shells: asked })
+          },
           listWaiting: () => create(ListWaitingResponseSchema, { waiting: hostWaiting }),
           listAgents: () => create(ListAgentsResponseSchema, { agents: [agent('lead', 'app-lead', AgentRole.ROOT), agent('w1', 'app-fix', AgentRole.WORKER, 'lead')] }),
           listSettings: async () => {
@@ -84,6 +102,7 @@ beforeEach(async () => {
             })
             while (!closed) {
               while (queue.length) yield create(SubscribeEventsResponseSchema, { frame: { case: 'event', value: queue.shift()! } })
+              while (frames.length) yield frames.shift()!
               await new Promise<void>((r) => (wake = r))
             }
           },
@@ -246,4 +265,28 @@ it('a dismissed dock tile is spent once its agent leaves the state, so it shows 
   push(stateOf(AgentState.NEEDS_INPUT))
   await vi.waitFor(() => expect(hostStore.getState().agents.w1!.state).toBe(AgentState.NEEDS_INPUT))
   expect(model.store.getState().dismissed).toEqual({})
+})
+
+it('follows a shell opening and ending on the host without listing again', async () => {
+  const { model } = await boot()
+  const ids = () => (model.store.getState().shells['h'] ?? []).map((x) => x.id)
+  await vi.waitFor(() => expect(ids()).toEqual(['a'])) // listed once, when the host connected
+  pushFrame(shellFrame('b', false))
+  await vi.waitFor(() => expect(ids()).toEqual(['a', 'b']))
+  pushFrame(shellFrame('a', true))
+  await vi.waitFor(() => expect(ids()).toEqual(['b']))
+})
+
+it('a shell opened while the list is on its way is not lost to it', async () => {
+  let open!: () => void
+  shellsGate = new Promise<void>((r) => (open = r))
+  const { model } = await boot()
+  const ids = () => (model.store.getState().shells['h'] ?? []).map((x) => x.id)
+  // The host read its shells ('a' only) before 'b' opened; the frame comes before the answer does, and finds no list to join.
+  hostShells = ['a', 'b']
+  pushFrame(shellFrame('b', false))
+  await new Promise((r) => setTimeout(r, 100))
+  expect(model.store.getState().shells['h']).toBeUndefined()
+  open()
+  await vi.waitFor(() => expect(ids()).toEqual(['a', 'b']))
 })

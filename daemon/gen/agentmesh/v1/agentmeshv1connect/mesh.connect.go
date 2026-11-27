@@ -64,6 +64,12 @@ const (
 	MeshServiceStopRunProcedure = "/agentmesh.v1.MeshService/StopRun"
 	// MeshServiceSendMessageProcedure is the fully-qualified name of the MeshService's SendMessage RPC.
 	MeshServiceSendMessageProcedure = "/agentmesh.v1.MeshService/SendMessage"
+	// MeshServiceListHeldTasksProcedure is the fully-qualified name of the MeshService's ListHeldTasks
+	// RPC.
+	MeshServiceListHeldTasksProcedure = "/agentmesh.v1.MeshService/ListHeldTasks"
+	// MeshServiceCancelHeldTaskProcedure is the fully-qualified name of the MeshService's
+	// CancelHeldTask RPC.
+	MeshServiceCancelHeldTaskProcedure = "/agentmesh.v1.MeshService/CancelHeldTask"
 	// MeshServiceReadInboxProcedure is the fully-qualified name of the MeshService's ReadInbox RPC.
 	MeshServiceReadInboxProcedure = "/agentmesh.v1.MeshService/ReadInbox"
 	// MeshServiceAdoptSessionProcedure is the fully-qualified name of the MeshService's AdoptSession
@@ -272,6 +278,11 @@ type MeshServiceClient interface {
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
+	// The tasks held for a task that is not reported done yet (`SendMessage` with `after`), oldest first. A lead reads its
+	// own run's.
+	ListHeldTasks(context.Context, *connect.Request[v1.ListHeldTasksRequest]) (*connect.Response[v1.ListHeldTasksResponse], error)
+	// Drop a held task: it is never sent.
+	CancelHeldTask(context.Context, *connect.Request[v1.CancelHeldTaskRequest]) (*connect.Response[v1.CancelHeldTaskResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
 	// Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
@@ -576,6 +587,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceSendMessageProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("SendMessage")),
+			connect.WithClientOptions(opts...),
+		),
+		listHeldTasks: connect.NewClient[v1.ListHeldTasksRequest, v1.ListHeldTasksResponse](
+			httpClient,
+			baseURL+MeshServiceListHeldTasksProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListHeldTasks")),
+			connect.WithClientOptions(opts...),
+		),
+		cancelHeldTask: connect.NewClient[v1.CancelHeldTaskRequest, v1.CancelHeldTaskResponse](
+			httpClient,
+			baseURL+MeshServiceCancelHeldTaskProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("CancelHeldTask")),
 			connect.WithClientOptions(opts...),
 		),
 		readInbox: connect.NewClient[v1.ReadInboxRequest, v1.ReadInboxResponse](
@@ -1006,6 +1029,8 @@ type meshServiceClient struct {
 	openView            *connect.Client[v1.OpenViewRequest, v1.OpenViewResponse]
 	stopRun             *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	sendMessage         *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	listHeldTasks       *connect.Client[v1.ListHeldTasksRequest, v1.ListHeldTasksResponse]
+	cancelHeldTask      *connect.Client[v1.CancelHeldTaskRequest, v1.CancelHeldTaskResponse]
 	readInbox           *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
 	adoptSession        *connect.Client[v1.AdoptSessionRequest, v1.AdoptSessionResponse]
 	checkAgent          *connect.Client[v1.CheckAgentRequest, v1.CheckAgentResponse]
@@ -1149,6 +1174,16 @@ func (c *meshServiceClient) StopRun(ctx context.Context, req *connect.Request[v1
 // SendMessage calls agentmesh.v1.MeshService.SendMessage.
 func (c *meshServiceClient) SendMessage(ctx context.Context, req *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
 	return c.sendMessage.CallUnary(ctx, req)
+}
+
+// ListHeldTasks calls agentmesh.v1.MeshService.ListHeldTasks.
+func (c *meshServiceClient) ListHeldTasks(ctx context.Context, req *connect.Request[v1.ListHeldTasksRequest]) (*connect.Response[v1.ListHeldTasksResponse], error) {
+	return c.listHeldTasks.CallUnary(ctx, req)
+}
+
+// CancelHeldTask calls agentmesh.v1.MeshService.CancelHeldTask.
+func (c *meshServiceClient) CancelHeldTask(ctx context.Context, req *connect.Request[v1.CancelHeldTaskRequest]) (*connect.Response[v1.CancelHeldTaskResponse], error) {
+	return c.cancelHeldTask.CallUnary(ctx, req)
 }
 
 // ReadInbox calls agentmesh.v1.MeshService.ReadInbox.
@@ -1527,6 +1562,11 @@ type MeshServiceHandler interface {
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
+	// The tasks held for a task that is not reported done yet (`SendMessage` with `after`), oldest first. A lead reads its
+	// own run's.
+	ListHeldTasks(context.Context, *connect.Request[v1.ListHeldTasksRequest]) (*connect.Response[v1.ListHeldTasksResponse], error)
+	// Drop a held task: it is never sent.
+	CancelHeldTask(context.Context, *connect.Request[v1.CancelHeldTaskRequest]) (*connect.Response[v1.CancelHeldTaskResponse], error)
 	// The calling agent's messages; unread ones are marked read unless peek is set.
 	ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error)
 	// Make a running Claude Code session the run's root, in place: the session keeps its terminal, and its `mesh`
@@ -1827,6 +1867,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceSendMessageProcedure,
 		svc.SendMessage,
 		connect.WithSchema(meshServiceMethods.ByName("SendMessage")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListHeldTasksHandler := connect.NewUnaryHandler(
+		MeshServiceListHeldTasksProcedure,
+		svc.ListHeldTasks,
+		connect.WithSchema(meshServiceMethods.ByName("ListHeldTasks")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceCancelHeldTaskHandler := connect.NewUnaryHandler(
+		MeshServiceCancelHeldTaskProcedure,
+		svc.CancelHeldTask,
+		connect.WithSchema(meshServiceMethods.ByName("CancelHeldTask")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceReadInboxHandler := connect.NewUnaryHandler(
@@ -2269,6 +2321,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceStopRunHandler.ServeHTTP(w, r)
 		case MeshServiceSendMessageProcedure:
 			meshServiceSendMessageHandler.ServeHTTP(w, r)
+		case MeshServiceListHeldTasksProcedure:
+			meshServiceListHeldTasksHandler.ServeHTTP(w, r)
+		case MeshServiceCancelHeldTaskProcedure:
+			meshServiceCancelHeldTaskHandler.ServeHTTP(w, r)
 		case MeshServiceReadInboxProcedure:
 			meshServiceReadInboxHandler.ServeHTTP(w, r)
 		case MeshServiceAdoptSessionProcedure:
@@ -2472,6 +2528,14 @@ func (UnimplementedMeshServiceHandler) StopRun(context.Context, *connect.Request
 
 func (UnimplementedMeshServiceHandler) SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SendMessage is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListHeldTasks(context.Context, *connect.Request[v1.ListHeldTasksRequest]) (*connect.Response[v1.ListHeldTasksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListHeldTasks is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) CancelHeldTask(context.Context, *connect.Request[v1.CancelHeldTaskRequest]) (*connect.Response[v1.CancelHeldTaskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.CancelHeldTask is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) ReadInbox(context.Context, *connect.Request[v1.ReadInboxRequest]) (*connect.Response[v1.ReadInboxResponse], error) {
