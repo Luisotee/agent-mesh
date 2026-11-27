@@ -23,6 +23,7 @@ public  final class AgentPullRequests extends
     agentName_ = "";
     pullRequests_ = emptyProtobufList();
     reviewing_ = emptyProtobufList();
+    reviews_ = "";
   }
   private int bitField0_;
   public static final int AGENT_ID_FIELD_NUMBER = 1;
@@ -425,6 +426,78 @@ public  final class AgentPullRequests extends
   private void clearReadFailed() {
 
     readFailed_ = false;
+  }
+
+  public static final int REVIEWS_FIELD_NUMBER = 7;
+  private java.lang.String reviews_;
+  /**
+   * <pre>
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   * </pre>
+   *
+   * <code>string reviews = 7 [json_name = "reviews"];</code>
+   * @return The reviews.
+   */
+  @java.lang.Override
+  public java.lang.String getReviews() {
+    return reviews_;
+  }
+  /**
+   * <pre>
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   * </pre>
+   *
+   * <code>string reviews = 7 [json_name = "reviews"];</code>
+   * @return The bytes for reviews.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReviewsBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(reviews_);
+  }
+  /**
+   * <pre>
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   * </pre>
+   *
+   * <code>string reviews = 7 [json_name = "reviews"];</code>
+   * @param value The reviews to set.
+   */
+  private void setReviews(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    reviews_ = value;
+  }
+  /**
+   * <pre>
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   * </pre>
+   *
+   * <code>string reviews = 7 [json_name = "reviews"];</code>
+   */
+  private void clearReviews() {
+
+    reviews_ = getDefaultInstance().getReviews();
+  }
+  /**
+   * <pre>
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   * </pre>
+   *
+   * <code>string reviews = 7 [json_name = "reviews"];</code>
+   * @param value The bytes for reviews to set.
+   */
+  private void setReviewsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    reviews_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.AgentPullRequests parseFrom(
@@ -943,6 +1016,80 @@ public  final class AgentPullRequests extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+     * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+     * </pre>
+     *
+     * <code>string reviews = 7 [json_name = "reviews"];</code>
+     * @return The reviews.
+     */
+    @java.lang.Override
+    public java.lang.String getReviews() {
+      return instance.getReviews();
+    }
+    /**
+     * <pre>
+     * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+     * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+     * </pre>
+     *
+     * <code>string reviews = 7 [json_name = "reviews"];</code>
+     * @return The bytes for reviews.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReviewsBytes() {
+      return instance.getReviewsBytes();
+    }
+    /**
+     * <pre>
+     * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+     * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+     * </pre>
+     *
+     * <code>string reviews = 7 [json_name = "reviews"];</code>
+     * @param value The reviews to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviews(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setReviews(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+     * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+     * </pre>
+     *
+     * <code>string reviews = 7 [json_name = "reviews"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviews() {
+      copyOnWrite();
+      instance.clearReviews();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+     * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+     * </pre>
+     *
+     * <code>string reviews = 7 [json_name = "reviews"];</code>
+     * @param value The bytes for reviews to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setReviewsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AgentPullRequests)
   }
   @java.lang.Override
@@ -967,10 +1114,11 @@ public  final class AgentPullRequests extends
             "evidence_",
             "reviewing_",
             "readFailed_",
+            "reviews_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u001b\u0004\u1009\u0000\u0005\u021a\u0006\u0007";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0002\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u001b\u0004\u1009\u0000\u0005\u021a\u0006\u0007\u0007\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

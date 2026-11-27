@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/pr.proto.
  */
 export const file_agentmesh_v1_pr: GenFile = /*@__PURE__*/
-  fileDesc("ChVhZ2VudG1lc2gvdjEvcHIucHJvdG8SDGFnZW50bWVzaC52MSK+AgoLUHVsbFJlcXVlc3QSEAoIYWdlbnRfaWQYASABKAkSCwoDdXJsGAIgASgJEg4KBm51bWJlchgDIAEoBRINCgVzdGF0ZRgEIAEoCRINCgVkcmFmdBgFIAEoCBIOCgZjaGVja3MYBiABKAkSDgoGc291cmNlGAcgASgJEi4KCmNoZWNrZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXN0YWxlGAkgASgIEgwKBGhlbGQYCiABKAgSEAoIaGVhZF9yZWYYCyABKAkSMwoPZmVlZGJhY2tfY3Vyc29yGAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxmYWlsaW5nX2hlYWQYDSABKAkSGAoQZmVlZGJhY2tfcmVzdW1lcxgOIAEoBSJ6CgxXb3JrRXZpZGVuY2USDwoHY29tbWl0cxgBIAEoBRITCgtoYXNfY29tbWl0cxgCIAEoCBIOCgZwdXNoZWQYAyABKAgSEgoKaGFzX3B1c2hlZBgEIAEoCBINCgVkaXJ0eRgFIAEoCBIRCgloYXNfZGlydHkYBiABKAgiwQEKEUFnZW50UHVsbFJlcXVlc3RzEhAKCGFnZW50X2lkGAEgASgJEhIKCmFnZW50X25hbWUYAiABKAkSMAoNcHVsbF9yZXF1ZXN0cxgDIAMoCzIZLmFnZW50bWVzaC52MS5QdWxsUmVxdWVzdBIsCghldmlkZW5jZRgEIAEoCzIaLmFnZW50bWVzaC52MS5Xb3JrRXZpZGVuY2USEQoJcmV2aWV3aW5nGAUgAygJEhMKC3JlYWRfZmFpbGVkGAYgASgIIkkKF0xpc3RQdWxsUmVxdWVzdHNSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRINCgVhZ2VudBgCIAEoCRIPCgdyZWZyZXNoGAMgASgIImMKGExpc3RQdWxsUmVxdWVzdHNSZXNwb25zZRIvCgZhZ2VudHMYASADKAsyHy5hZ2VudG1lc2gudjEuQWdlbnRQdWxsUmVxdWVzdHMSFgoOZ2l0aHViX3Byb2JsZW0YAiABKAkibgoSUHVsbFJlcXVlc3RDaGFuZ2VkEi8KDHB1bGxfcmVxdWVzdBgBIAEoCzIZLmFnZW50bWVzaC52MS5QdWxsUmVxdWVzdBISCgpmcm9tX3N0YXRlGAIgASgJEhMKC2Zyb21fY2hlY2tzGAMgASgJYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChVhZ2VudG1lc2gvdjEvcHIucHJvdG8SDGFnZW50bWVzaC52MSLMAgoLUHVsbFJlcXVlc3QSEAoIYWdlbnRfaWQYASABKAkSCwoDdXJsGAIgASgJEg4KBm51bWJlchgDIAEoBRINCgVzdGF0ZRgEIAEoCRINCgVkcmFmdBgFIAEoCBIOCgZjaGVja3MYBiABKAkSDgoGc291cmNlGAcgASgJEi4KCmNoZWNrZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXN0YWxlGAkgASgIEgwKBGhlbGQYCiABKAgSEAoIaGVhZF9yZWYYCyABKAkSMwoPZmVlZGJhY2tfY3Vyc29yGAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxmYWlsaW5nX2hlYWQYDSABKAkSGAoQZmVlZGJhY2tfcmVzdW1lcxgOIAEoBRIMCgRoZWFkGA8gASgJInoKDFdvcmtFdmlkZW5jZRIPCgdjb21taXRzGAEgASgFEhMKC2hhc19jb21taXRzGAIgASgIEg4KBnB1c2hlZBgDIAEoCBISCgpoYXNfcHVzaGVkGAQgASgIEg0KBWRpcnR5GAUgASgIEhEKCWhhc19kaXJ0eRgGIAEoCCLSAQoRQWdlbnRQdWxsUmVxdWVzdHMSEAoIYWdlbnRfaWQYASABKAkSEgoKYWdlbnRfbmFtZRgCIAEoCRIwCg1wdWxsX3JlcXVlc3RzGAMgAygLMhkuYWdlbnRtZXNoLnYxLlB1bGxSZXF1ZXN0EiwKCGV2aWRlbmNlGAQgASgLMhouYWdlbnRtZXNoLnYxLldvcmtFdmlkZW5jZRIRCglyZXZpZXdpbmcYBSADKAkSEwoLcmVhZF9mYWlsZWQYBiABKAgSDwoHcmV2aWV3cxgHIAEoCSJJChdMaXN0UHVsbFJlcXVlc3RzUmVxdWVzdBIOCgZydW5faWQYASABKAkSDQoFYWdlbnQYAiABKAkSDwoHcmVmcmVzaBgDIAEoCCJjChhMaXN0UHVsbFJlcXVlc3RzUmVzcG9uc2USLwoGYWdlbnRzGAEgAygLMh8uYWdlbnRtZXNoLnYxLkFnZW50UHVsbFJlcXVlc3RzEhYKDmdpdGh1Yl9wcm9ibGVtGAIgASgJIm4KElB1bGxSZXF1ZXN0Q2hhbmdlZBIvCgxwdWxsX3JlcXVlc3QYASABKAsyGS5hZ2VudG1lc2gudjEuUHVsbFJlcXVlc3QSEgoKZnJvbV9zdGF0ZRgCIAEoCRITCgtmcm9tX2NoZWNrcxgDIAEoCWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * PullRequest is a pull request an agent owns, as GitHub last said it.
@@ -113,6 +113,14 @@ export type PullRequest = Message<"agentmesh.v1.PullRequest"> & {
    * @generated from field: int32 feedback_resumes = 14;
    */
   feedbackResumes: number;
+
+  /**
+   * The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+   * with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+   *
+   * @generated from field: string head = 15;
+   */
+  head: string;
 };
 
 /**
@@ -211,6 +219,14 @@ export type AgentPullRequests = Message<"agentmesh.v1.AgentPullRequests"> & {
    * @generated from field: bool read_failed = 6;
    */
   readFailed: boolean;
+
+  /**
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   *
+   * @generated from field: string reviews = 7;
+   */
+  reviews: string;
 };
 
 /**

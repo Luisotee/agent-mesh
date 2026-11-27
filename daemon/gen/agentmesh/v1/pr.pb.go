@@ -52,8 +52,11 @@ type PullRequest struct {
 	FailingHead string `protobuf:"bytes,13,opt,name=failing_head,json=failingHead,proto3" json:"failing_head,omitempty"`
 	// How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
 	FeedbackResumes int32 `protobuf:"varint,14,opt,name=feedback_resumes,json=feedbackResumes,proto3" json:"feedback_resumes,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The PR's head commit as GitHub last said (headRefOid); empty until a read gave it. A worker's `done` compares it
+	// with the head its last review round covered (the "commits after the last reviewed head" of its outcome line).
+	Head          string `protobuf:"bytes,15,opt,name=head,proto3" json:"head,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PullRequest) Reset() {
@@ -184,6 +187,13 @@ func (x *PullRequest) GetFeedbackResumes() int32 {
 	return 0
 }
 
+func (x *PullRequest) GetHead() string {
+	if x != nil {
+		return x.Head
+	}
+	return ""
+}
+
 // WorkEvidence is what a worker's branch and worktree show of its work, for a worker with no PR.
 type WorkEvidence struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -282,7 +292,10 @@ type AgentPullRequests struct {
 	// Reviewer agents of this run that haven't reported since their last review task, per PR url of this agent.
 	Reviewing []string `protobuf:"bytes,5,rep,name=reviewing,proto3" json:"reviewing,omitempty"`
 	// GitHub could not be read for this agent the last time: an empty list means unknown, not none.
-	ReadFailed    bool `protobuf:"varint,6,opt,name=read_failed,json=readFailed,proto3" json:"read_failed,omitempty"`
+	ReadFailed bool `protobuf:"varint,6,opt,name=read_failed,json=readFailed,proto3" json:"read_failed,omitempty"`
+	// What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+	// "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+	Reviews       string `protobuf:"bytes,7,opt,name=reviews,proto3" json:"reviews,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -357,6 +370,13 @@ func (x *AgentPullRequests) GetReadFailed() bool {
 		return x.ReadFailed
 	}
 	return false
+}
+
+func (x *AgentPullRequests) GetReviews() string {
+	if x != nil {
+		return x.Reviews
+	}
+	return ""
 }
 
 type ListPullRequestsRequest struct {
@@ -543,7 +563,7 @@ var File_agentmesh_v1_pr_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\n" +
-	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x03\n" +
+	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x03\n" +
 	"\vPullRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x16\n" +
@@ -560,7 +580,8 @@ const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\bhead_ref\x18\v \x01(\tR\aheadRef\x12C\n" +
 	"\x0ffeedback_cursor\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\x0efeedbackCursor\x12!\n" +
 	"\ffailing_head\x18\r \x01(\tR\vfailingHead\x12)\n" +
-	"\x10feedback_resumes\x18\x0e \x01(\x05R\x0ffeedbackResumes\"\xb3\x01\n" +
+	"\x10feedback_resumes\x18\x0e \x01(\x05R\x0ffeedbackResumes\x12\x12\n" +
+	"\x04head\x18\x0f \x01(\tR\x04head\"\xb3\x01\n" +
 	"\fWorkEvidence\x12\x18\n" +
 	"\acommits\x18\x01 \x01(\x05R\acommits\x12\x1f\n" +
 	"\vhas_commits\x18\x02 \x01(\bR\n" +
@@ -569,7 +590,7 @@ const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\n" +
 	"has_pushed\x18\x04 \x01(\bR\thasPushed\x12\x14\n" +
 	"\x05dirty\x18\x05 \x01(\bR\x05dirty\x12\x1b\n" +
-	"\thas_dirty\x18\x06 \x01(\bR\bhasDirty\"\x84\x02\n" +
+	"\thas_dirty\x18\x06 \x01(\bR\bhasDirty\"\x9e\x02\n" +
 	"\x11AgentPullRequests\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
@@ -578,7 +599,8 @@ const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\bevidence\x18\x04 \x01(\v2\x1a.agentmesh.v1.WorkEvidenceR\bevidence\x12\x1c\n" +
 	"\treviewing\x18\x05 \x03(\tR\treviewing\x12\x1f\n" +
 	"\vread_failed\x18\x06 \x01(\bR\n" +
-	"readFailed\"`\n" +
+	"readFailed\x12\x18\n" +
+	"\areviews\x18\a \x01(\tR\areviews\"`\n" +
 	"\x17ListPullRequestsRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x18\n" +

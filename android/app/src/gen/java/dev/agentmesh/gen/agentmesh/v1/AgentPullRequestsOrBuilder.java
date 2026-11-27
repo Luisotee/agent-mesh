@@ -109,4 +109,26 @@ public interface AgentPullRequestsOrBuilder extends
    * @return The readFailed.
    */
   boolean getReadFailed();
+
+  /**
+   * <pre>
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   * </pre>
+   *
+   * <code>string reviews = 7 [json_name = "reviews"];</code>
+   * @return The reviews.
+   */
+  java.lang.String getReviews();
+  /**
+   * <pre>
+   * What the worker's PR reviews came to, once its `done` is in: "settled", "running" (a round still collecting) or
+   * "needs you"; empty before the `done`, or with no PR or round to speak of. The word `mesh brief` shows.
+   * </pre>
+   *
+   * <code>string reviews = 7 [json_name = "reviews"];</code>
+   * @return The bytes for reviews.
+   */
+  com.google.protobuf.ByteString
+      getReviewsBytes();
 }
