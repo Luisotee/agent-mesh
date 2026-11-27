@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ListAgentsResponseSchema, ListWaitingResponseSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { ListAgentsResponseSchema, ListPermissionsResponseSchema, ListWaitingResponseSchema, PendingPermissionSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ListPullRequestsResponseSchema, AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
 import { AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
 import { hostRefresher } from './refresh'
@@ -21,7 +21,7 @@ function gate<T>() {
 function setup() {
   const store = createHostStore()
   store.setState({ conn: { kind: 'ready', hello: {} as never }, synced: true })
-  const client = { listWaiting: vi.fn(), listAgents: vi.fn(), listPullRequests: vi.fn().mockResolvedValue(create(ListPullRequestsResponseSchema)) }
+  const client = { listWaiting: vi.fn(), listAgents: vi.fn(), listPullRequests: vi.fn().mockResolvedValue(create(ListPullRequestsResponseSchema)), listPermissions: vi.fn().mockResolvedValue(create(ListPermissionsResponseSchema)) }
   const log = vi.fn()
   const r = hostRefresher(client as never, store, log, undefined, { debounceMs: 200, agentsEveryMs: 30_000 })
   return { store, client, log, r }
@@ -248,5 +248,64 @@ describe('the pull requests', () => {
     expect(client.listPullRequests).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getState().pullRequests.w1?.pullRequests[0]?.number).toBe(12)
+  })
+})
+
+describe('the permission prompts the host holds', () => {
+  const perm = (id: string) => create(PendingPermissionSchema, { id, agentId: 'a', tool: 'Bash' })
+  const changed = (): Event => create(EventSchema, { agentId: 'a', payload: { case: 'permissionChanged', value: { $typeName: 'agentmesh.v1.PermissionChanged', id: 'p1', agentName: 'a', state: 'asked' } } })
+
+  it('are listed at a snapshot and again whenever the host says one was held or ended', async () => {
+    const { store, client, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    client.listPermissions.mockResolvedValueOnce(create(ListPermissionsResponseSchema, { permissions: [perm('p1')] })).mockResolvedValue(create(ListPermissionsResponseSchema))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().permissions.map((p) => p.id)).toEqual(['p1'])
+    r.event(changed())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.listPermissions).toHaveBeenCalledTimes(2)
+    expect(store.getState().permissions).toEqual([])
+  })
+
+  it('are listed one call at a time, and once more when an event came while a call was on its way', async () => {
+    const { client, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    const slow = gate<ReturnType<typeof create<typeof ListPermissionsResponseSchema>>>()
+    client.listPermissions.mockReturnValueOnce(slow.p).mockResolvedValue(create(ListPermissionsResponseSchema))
+    r.event(changed())
+    r.event(changed())
+    r.event(changed())
+    expect(client.listPermissions).toHaveBeenCalledTimes(1)
+    slow.resolve(create(ListPermissionsResponseSchema))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.listPermissions).toHaveBeenCalledTimes(2)
+  })
+
+  it('keep the last list when the host does not know the action, and say so once', async () => {
+    const { store, client, log, r } = setup()
+    store.setState({ permissions: [perm('p1')] })
+    client.listPermissions.mockRejectedValue(new Error('unimplemented'))
+    r.event(changed())
+    await vi.advanceTimersByTimeAsync(0)
+    r.event(changed())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().permissions).toHaveLength(1)
+    expect(log).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('why GitHub cannot be read', () => {
+  it('is kept from the pull request lists and cleared when they work again', async () => {
+    const { store, client, r } = setup()
+    store.setState({ runs: { r1: create(RunSchema, { id: 'r1', status: RunStatus.OPEN }) } })
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    client.listPullRequests.mockResolvedValueOnce(create(ListPullRequestsResponseSchema, { githubProblem: 'no_gh' })).mockResolvedValue(create(ListPullRequestsResponseSchema))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().githubProblem).toBe('no_gh')
+    r.start()
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(store.getState().githubProblem).toBe('')
   })
 })

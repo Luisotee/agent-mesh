@@ -385,8 +385,11 @@ func (x *ListPullRequestsRequest) GetRefresh() bool {
 }
 
 type ListPullRequestsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Agents        []*AgentPullRequests   `protobuf:"bytes,1,rep,name=agents,proto3" json:"agents,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Agents []*AgentPullRequests   `protobuf:"bytes,1,rep,name=agents,proto3" json:"agents,omitempty"`
+	// Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+	// (`gh auth status` fails). Empty when `gh` works.
+	GithubProblem string `protobuf:"bytes,2,opt,name=github_problem,json=githubProblem,proto3" json:"github_problem,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -426,6 +429,13 @@ func (x *ListPullRequestsResponse) GetAgents() []*AgentPullRequests {
 		return x.Agents
 	}
 	return nil
+}
+
+func (x *ListPullRequestsResponse) GetGithubProblem() string {
+	if x != nil {
+		return x.GithubProblem
+	}
+	return ""
 }
 
 // PullRequestChanged is a PR whose state or checks changed since the daemon last read it (a merge, a check
@@ -530,9 +540,10 @@ const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\x17ListPullRequestsRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x18\n" +
-	"\arefresh\x18\x03 \x01(\bR\arefresh\"S\n" +
+	"\arefresh\x18\x03 \x01(\bR\arefresh\"z\n" +
 	"\x18ListPullRequestsResponse\x127\n" +
-	"\x06agents\x18\x01 \x03(\v2\x1f.agentmesh.v1.AgentPullRequestsR\x06agents\"\x92\x01\n" +
+	"\x06agents\x18\x01 \x03(\v2\x1f.agentmesh.v1.AgentPullRequestsR\x06agents\x12%\n" +
+	"\x0egithub_problem\x18\x02 \x01(\tR\rgithubProblem\"\x92\x01\n" +
 	"\x12PullRequestChanged\x12<\n" +
 	"\fpull_request\x18\x01 \x01(\v2\x19.agentmesh.v1.PullRequestR\vpullRequest\x12\x1d\n" +
 	"\n" +

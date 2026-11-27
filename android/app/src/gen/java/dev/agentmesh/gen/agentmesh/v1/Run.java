@@ -349,6 +349,83 @@ public  final class Run extends
     setup_ = false;
   }
 
+  public static final int AUTONOMY_FIELD_NUMBER = 8;
+  private dev.agentmesh.gen.agentmesh.v1.RunAutonomy autonomy_;
+  /**
+   * <pre>
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAutonomy() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RunAutonomy getAutonomy() {
+    return autonomy_ == null ? dev.agentmesh.gen.agentmesh.v1.RunAutonomy.getDefaultInstance() : autonomy_;
+  }
+  /**
+   * <pre>
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+   */
+  private void setAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+    java.util.Objects.requireNonNull(value);
+    autonomy_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+    java.util.Objects.requireNonNull(value);
+    if (autonomy_ != null &&
+        autonomy_ != dev.agentmesh.gen.agentmesh.v1.RunAutonomy.getDefaultInstance()) {
+      autonomy_ =
+        dev.agentmesh.gen.agentmesh.v1.RunAutonomy.newBuilder(autonomy_).mergeFrom(value).buildPartial();
+    } else {
+      autonomy_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+   */
+  private void clearAutonomy() {
+    autonomy_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Run parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -792,6 +869,89 @@ public  final class Run extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+     * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+     * its `ask_before` is added to the settings'.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAutonomy() {
+      return instance.hasAutonomy();
+    }
+    /**
+     * <pre>
+     * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+     * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+     * its `ask_before` is added to the settings'.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RunAutonomy getAutonomy() {
+      return instance.getAutonomy();
+    }
+    /**
+     * <pre>
+     * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+     * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+     * its `ask_before` is added to the settings'.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+     */
+    public Builder setAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+      copyOnWrite();
+      instance.setAutonomy(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+     * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+     * its `ask_before` is added to the settings'.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+     */
+    public Builder setAutonomy(
+        dev.agentmesh.gen.agentmesh.v1.RunAutonomy.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAutonomy(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+     * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+     * its `ask_before` is added to the settings'.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+     */
+    public Builder mergeAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+      copyOnWrite();
+      instance.mergeAutonomy(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+     * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+     * its `ask_before` is added to the settings'.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 8 [json_name = "autonomy"];</code>
+     */
+    public Builder clearAutonomy() {  copyOnWrite();
+      instance.clearAutonomy();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Run)
   }
   @java.lang.Override
@@ -816,10 +976,11 @@ public  final class Run extends
             "createdBy_",
             "overReserve_",
             "setup_",
+            "autonomy_",
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0007\u0007\u0007";
+              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\f" +
+              "\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0007\u0007\u0007\b\u1009\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

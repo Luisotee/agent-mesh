@@ -14,6 +14,7 @@ import type { HostRuntime } from '@/model'
 import type { HostState } from '@/store'
 import { fromTail } from '@/transcript'
 import { tailLines, type TailLine } from '@/watch'
+import { AnswerForm } from './messages-panel'
 import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
 
@@ -89,7 +90,10 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
   const runs = useStoreOf(host, (s) => s.runs)
   const agents = useStoreOf(host, (s) => s.agents)
   const pullRequests = useStoreOf(host, (s) => s.pullRequests)
-  const waiting = useMemo(() => waitingIds(joinWaiting(rows ?? [], runs ?? {}, agents ?? {})), [rows, runs, agents])
+  const joined = useMemo(() => joinWaiting(rows ?? [], runs ?? {}, agents ?? {}), [rows, runs, agents])
+  const waiting = useMemo(() => waitingIds(joined), [joined])
+  // The plans and questions of this agent that nobody has answered: answered here, in the tile.
+  const asks = useMemo(() => joined.filter((w) => w.agent.id === a.id && w.message), [joined, a.id])
   const bucket = bucketOf(a, { waiting, pullRequests: pullRequests ?? {} })
   const last = activityMs(a)
   const needs = a.state === AgentState.NEEDS_INPUT
@@ -126,6 +130,12 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
         </ul>
         <span className="mt-auto pt-1 text-[11px] text-muted-foreground">{last ? ago(last, now + tile.clockSkewMs) : ''}</span>
       </button>
+      {host && asks.map((w) => (
+        <section key={w.message!.id} aria-label={`${w.kind === 'plan' ? 'Plan' : 'Question'} from ${a.name}`} className="flex flex-col gap-2 border-t border-state-needs p-3">
+          <p className="line-clamp-6 text-[12px] leading-snug whitespace-pre-line">{w.message!.body}</p>
+          <AnswerForm host={host} message={w.message!} />
+        </section>
+      ))}
     </li>
   )
 }

@@ -72,7 +72,7 @@ func TestOtherRunsDoNotFillAFilteredSubscriber(t *testing.T) {
 	}
 	defer s.Close()
 	bus := New(s)
-	sub := bus.subscribe("r1", false, false)
+	sub := bus.subscribe("r1", false, false, false)
 	evs := make([]*v1.Event, LiveBuffer+10)
 	for i := range evs {
 		evs[i] = &v1.Event{Seq: int64(i + 1), RunId: "r2"}
@@ -151,8 +151,8 @@ func TestDeviceEventsFilteredFromNonDeviceSubscribers(t *testing.T) {
 	}
 
 	// Live publishing also drops device events for non-device subscribers.
-	nonDevSub := bus.subscribe("r1", false, false)
-	devSub := bus.subscribe("r1", true, false)
+	nonDevSub := bus.subscribe("r1", false, false, false)
+	devSub := bus.subscribe("r1", true, false, false)
 	bus.Publish([]*v1.Event{
 		{Seq: 100, Payload: &v1.Event_DevicePaired{DevicePaired: &v1.DevicePaired{Device: &v1.Device{Id: "dev2"}}}},
 		{Seq: 101, Payload: &v1.Event_DeviceRevoked{DeviceRevoked: &v1.DeviceRevoked{DeviceId: "dev2"}}},
@@ -202,9 +202,9 @@ func TestActivityFramesAreLiveOnlyScopedAndNeverDropASubscriber(t *testing.T) {
 	}
 	defer s.Close()
 	bus := New(s)
-	mine := bus.subscribe("r1", false, true)
-	other := bus.subscribe("r2", false, true)
-	none := bus.subscribe("", false, false)
+	mine := bus.subscribe("r1", false, true, false)
+	other := bus.subscribe("r2", false, true, false)
+	none := bus.subscribe("", false, false, false)
 	// Past the buffer: the frames are skipped and the subscriber stays.
 	for i := 0; i < ActivityBuffer+10; i++ {
 		bus.PublishActivity(&v1.AgentActivity{RunId: "r1", AgentId: "a1", Detail: "Bash"})

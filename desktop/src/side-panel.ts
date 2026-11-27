@@ -1,5 +1,5 @@
 import { AgentRole, type Agent } from './gen/agentmesh/v1/types_pb'
-import type { GetUsageResponse } from './gen/agentmesh/v1/mesh_pb'
+import type { GetUsageResponse, ModelSwap } from './gen/agentmesh/v1/mesh_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
 import type { GetCostResponse } from './gen/agentmesh/v1/report_pb'
 
@@ -79,3 +79,8 @@ export function resetsIn(at: Date | undefined, now = new Date()): string {
 }
 
 export const isLead = (a: Agent) => a.role === AgentRole.ROOT
+
+/** One line of an agent's model history: what it ran on from when (the host's `ModelSwap`, oldest first). */
+export function historyRows(swaps: ModelSwap[]): Array<{ text: string; why: string; at?: number }> {
+  return swaps.map((m) => ({ text: [m.model, m.effort].filter(Boolean).join(' · ') || 'the CLI\'s default', why: m.why, at: m.time ? Number(m.time.seconds) * 1000 : undefined }))
+}

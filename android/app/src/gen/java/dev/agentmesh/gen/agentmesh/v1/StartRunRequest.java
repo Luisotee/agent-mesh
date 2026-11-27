@@ -112,6 +112,73 @@ public  final class StartRunRequest extends
 
   }
 
+  public static final int AUTONOMY_FIELD_NUMBER = 3;
+  private dev.agentmesh.gen.agentmesh.v1.RunAutonomy autonomy_;
+  /**
+   * <pre>
+   * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAutonomy() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RunAutonomy getAutonomy() {
+    return autonomy_ == null ? dev.agentmesh.gen.agentmesh.v1.RunAutonomy.getDefaultInstance() : autonomy_;
+  }
+  /**
+   * <pre>
+   * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+   */
+  private void setAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+    java.util.Objects.requireNonNull(value);
+    autonomy_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+    java.util.Objects.requireNonNull(value);
+    if (autonomy_ != null &&
+        autonomy_ != dev.agentmesh.gen.agentmesh.v1.RunAutonomy.getDefaultInstance()) {
+      autonomy_ =
+        dev.agentmesh.gen.agentmesh.v1.RunAutonomy.newBuilder(autonomy_).mergeFrom(value).buildPartial();
+    } else {
+      autonomy_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+   */
+  private void clearAutonomy() {
+    autonomy_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.StartRunRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -305,6 +372,77 @@ public  final class StartRunRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAutonomy() {
+      return instance.hasAutonomy();
+    }
+    /**
+     * <pre>
+     * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RunAutonomy getAutonomy() {
+      return instance.getAutonomy();
+    }
+    /**
+     * <pre>
+     * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+     */
+    public Builder setAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+      copyOnWrite();
+      instance.setAutonomy(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+     */
+    public Builder setAutonomy(
+        dev.agentmesh.gen.agentmesh.v1.RunAutonomy.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAutonomy(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+     */
+    public Builder mergeAutonomy(dev.agentmesh.gen.agentmesh.v1.RunAutonomy value) {
+      copyOnWrite();
+      instance.mergeAutonomy(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+     */
+    public Builder clearAutonomy() {  copyOnWrite();
+      instance.clearAutonomy();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.StartRunRequest)
   }
   @java.lang.Override
@@ -324,10 +462,11 @@ public  final class StartRunRequest extends
             "bitField0_",
             "meta_",
             "title_",
+            "autonomy_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0001\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208";
+              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u1009\u0001";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

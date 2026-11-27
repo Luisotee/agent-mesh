@@ -574,6 +574,8 @@ func AppLeaves() []Leaf {
 			Summary: "key in the chat's composer: interrupt the agent's turn while it works (Claude Code's Esc)"},
 		{Key: "app.chat_keys.recall", Type: ChatKey, Default: "ArrowUp",
 			Summary: "key in the chat's composer, when it is empty: take back the newest prompt still waiting to be typed, to edit or drop it (Claude Code's Up arrow)"},
+		{Key: "app.open_views", Type: Bool, Default: false,
+			Summary: "let an agent or the CLI switch the app to a view it asked for (an agent's chat or terminal, the settings, a run) by itself, never while you type (off: the app shows a toast you open or dismiss); only you can change it, an agent can't"},
 		{Key: "app.keys.palette", Type: Shortcut, Default: "Mod+Shift+P", Summary: "shortcut: open the command palette"},
 		{Key: "app.keys.settings", Type: Shortcut, Default: "Mod+,", Summary: "shortcut: open or close the host's settings"},
 		{Key: "app.keys.chat_toggle", Type: Shortcut, Default: "Mod+Shift+J", Summary: "shortcut: switch the open agent between its chat and its terminal"},
