@@ -84,6 +84,47 @@ public  final class GetAgentChangesRequest extends
 
   }
 
+  public static final int WITH_IGNORED_FIELD_NUMBER = 2;
+  private boolean withIgnored_;
+  /**
+   * <pre>
+   * Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+   * so only when asked.
+   * </pre>
+   *
+   * <code>bool with_ignored = 2 [json_name = "withIgnored"];</code>
+   * @return The withIgnored.
+   */
+  @java.lang.Override
+  public boolean getWithIgnored() {
+    return withIgnored_;
+  }
+  /**
+   * <pre>
+   * Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+   * so only when asked.
+   * </pre>
+   *
+   * <code>bool with_ignored = 2 [json_name = "withIgnored"];</code>
+   * @param value The withIgnored to set.
+   */
+  private void setWithIgnored(boolean value) {
+    
+    withIgnored_ = value;
+  }
+  /**
+   * <pre>
+   * Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+   * so only when asked.
+   * </pre>
+   *
+   * <code>bool with_ignored = 2 [json_name = "withIgnored"];</code>
+   */
+  private void clearWithIgnored() {
+
+    withIgnored_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.GetAgentChangesRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -250,6 +291,49 @@ public  final class GetAgentChangesRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+     * so only when asked.
+     * </pre>
+     *
+     * <code>bool with_ignored = 2 [json_name = "withIgnored"];</code>
+     * @return The withIgnored.
+     */
+    @java.lang.Override
+    public boolean getWithIgnored() {
+      return instance.getWithIgnored();
+    }
+    /**
+     * <pre>
+     * Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+     * so only when asked.
+     * </pre>
+     *
+     * <code>bool with_ignored = 2 [json_name = "withIgnored"];</code>
+     * @param value The withIgnored to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWithIgnored(boolean value) {
+      copyOnWrite();
+      instance.setWithIgnored(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+     * so only when asked.
+     * </pre>
+     *
+     * <code>bool with_ignored = 2 [json_name = "withIgnored"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearWithIgnored() {
+      copyOnWrite();
+      instance.clearWithIgnored();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetAgentChangesRequest)
   }
   @java.lang.Override
@@ -267,9 +351,11 @@ public  final class GetAgentChangesRequest extends
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
             "agent_",
+            "withIgnored_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u0208";
+              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0007" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

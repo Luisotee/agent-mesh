@@ -68,6 +68,8 @@ dependencies {
     implementation(libs.connect.javalite)
     implementation(libs.protobuf.javalite)
     implementation(libs.markdown.m3)
+    // Syntax colours in the code blocks of a chat reply (Highlights, pure Kotlin, ~40 languages).
+    implementation(libs.markdown.code)
     // The pairing screen's QR scanner: CameraX for the preview and frames, ZXing (pure Java, Apache-2.0) to decode them.
     implementation(libs.camerax.core)
     implementation(libs.camerax.camera2)

@@ -58,12 +58,34 @@ func copyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes in
 		skip("%s: %v", repo, err)
 		return out
 	}
+	ignored, ok := repoIgnoredByList(ctx, repo, list, skip)
+	if !ok {
+		return out
+	}
+	// Everything is written through a handle on the worktree that refuses a path leaving it: the checked-out branch may hold a
+	// symlink where the repo has a directory, and a write through it would land wherever it points.
+	dest, err := os.OpenRoot(worktree)
+	if err != nil {
+		skip("%s: %v", worktree, err)
+		return out
+	}
+	defer dest.Close()
+	for _, rel := range ignored {
+		walkInclude(root, dest, strings.TrimSuffix(rel, "/"), maxBytes, &out, skip)
+	}
+	return out
+}
+
+// repoIgnoredByList is what `.worktreeinclude` (the list file) names in a repo that the repo's own ignore rules cover too, sorted: a
+// file, or a folder whole (a trailing slash), or the files of a folder the list names whole but the repo ignores only in part. It is
+// what a new worktree is copied from; `ok` is false when git could not say (`skip` was told why).
+func repoIgnoredByList(ctx context.Context, repo, list string, skip func(string, ...any)) (ignored []string, ok bool) {
 	// The files git would ignore by the list's patterns (a directory that matches whole comes as one entry), then only
 	// those the repo's own ignore rules cover too.
 	raw, _, _, err := gitRORaw(ctx, repo, "ls-files", "-z", "--others", "--ignored", "--directory", "--exclude-from="+list)
 	if err != nil {
 		skip("git ls-files: %v", err)
-		return out
+		return nil, false
 	}
 	var candidates []string
 	for _, p := range strings.Split(string(raw), "\x00") {
@@ -71,10 +93,10 @@ func copyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes in
 			candidates = append(candidates, p)
 		}
 	}
-	ignored, err := gitIgnored(ctx, repo, candidates)
+	ignored, err = gitIgnored(ctx, repo, candidates)
 	if err != nil {
 		skip("git check-ignore: %v", err)
-		return out
+		return nil, false
 	}
 	// A directory the list names whole but the repo ignores only in part (`config/.env` is ignored, `config/` is not): its files
 	// are looked at one by one.
@@ -105,18 +127,7 @@ func copyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes in
 		ignored = append(ignored, more...)
 	}
 	sort.Strings(ignored)
-	// Everything is written through a handle on the worktree that refuses a path leaving it: the checked-out branch may hold a
-	// symlink where the repo has a directory, and a write through it would land wherever it points.
-	dest, err := os.OpenRoot(worktree)
-	if err != nil {
-		skip("%s: %v", worktree, err)
-		return out
-	}
-	defer dest.Close()
-	for _, rel := range ignored {
-		walkInclude(root, dest, strings.TrimSuffix(rel, "/"), maxBytes, &out, skip)
-	}
-	return out
+	return ignored, true
 }
 
 // unsafeRel says why a path git listed can't be used ("" when it can): absolute, or climbing out of the repo.

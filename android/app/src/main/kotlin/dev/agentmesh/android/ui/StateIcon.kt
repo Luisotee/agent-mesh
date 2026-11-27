@@ -1,6 +1,5 @@
 package dev.agentmesh.android.ui
 
-import android.provider.Settings
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -20,7 +19,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -52,13 +50,6 @@ fun colorOf(state: AgentState, exitCode: Int, detail: String, c: dev.agentmesh.a
     else -> c.idle
 }
 
-/** Whether the system asks for no animation (the "remove animations" accessibility setting). */
-@Composable
-private fun reducedMotion(): Boolean {
-    val ctx = LocalContext.current
-    return remember { Settings.Global.getFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }
-}
-
 /**
  * An agent's state as an icon: working spins, needs-you is a triangle, idle a ring, finished a check (a cross when
  * it failed), unknown a dashed ring, retired a ring with a pause mark, starting a dot. The shapes differ, and stay static under reduced motion.
@@ -69,11 +60,18 @@ fun StateIcon(state: AgentState, exitCode: Int, detail: String, description: Str
     val color = colorOf(state, exitCode, detail, colors)
     var shape = shapeOf(state)
     if (shape == StateShape.Check && color == colors.failed) shape = StateShape.Cross
-    val still = reducedMotion()
+    val still = LocalReducedMotion.current
     val angle = if (shape == StateShape.Spinner && !still) {
         rememberInfiniteTransition(label = "spin").animateFloat(0f, 360f, infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart), label = "angle").value
     } else 0f
-    Canvas(modifier.size(size).semantics { contentDescription = description }) { drawShape(shape, color, angle) }
+    // A state that needs the user glows: a soft halo in the theme's glow colour, which breathes unless motion is reduced.
+    val glow = if (shape == StateShape.Triangle) stateGlow(still) else null
+    val glowColor = LocalMeshTheme.current.glow
+    Canvas(modifier.size(size).semantics { contentDescription = description }) {
+        // The alpha is read here, in the draw phase: the breathing redraws the icon and never recomposes it.
+        if (glow != null) drawCircle(glowColor.copy(alpha = glow.value), radius = this.size.minDimension * 0.5f)
+        drawShape(shape, color, angle)
+    }
 }
 
 private fun DrawScope.drawShape(shape: StateShape, color: Color, angle: Float) {
@@ -118,4 +116,11 @@ private fun DrawScope.drawShape(shape: StateShape, color: Color, angle: Float) {
             drawLine(color, Offset(w * 0.67f, w * 0.33f), Offset(w * 0.33f, w * 0.67f), strokeWidth = w * 0.12f, cap = StrokeCap.Round)
         }
     }
+}
+
+/** The needs-you halo's alpha: breathing between a quiet and a clear glow, or a steady one under reduced motion. */
+@Composable
+private fun stateGlow(still: Boolean): androidx.compose.runtime.State<Float> {
+    if (still) return androidx.compose.runtime.remember { androidx.compose.runtime.mutableFloatStateOf(0.28f) }
+    return rememberInfiniteTransition(label = "glow").animateFloat(0.14f, 0.38f, infiniteRepeatable(tween(1400, easing = androidx.compose.animation.core.FastOutSlowInEasing), RepeatMode.Reverse), label = "glow-alpha")
 }

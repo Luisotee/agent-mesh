@@ -1,11 +1,10 @@
-# With a host already added (add-host.yaml) and a worker that sent a plan to its run's lead: open it from "Waiting
+# With a host already added (add-host.yaml) and a worker that sent a plan to its run's lead: open it from home's "Waiting
 # on you" and approve. Pass the worker's name.
 #   maestro test -e AGENT=shop-api-fix android/maestro/approve-plan.yaml
 appId: dev.agentmesh.android.debug
 ---
 - launchApp
-- tapOn: "Test host"
-- assertVisible: "WAITING ON YOU.*"
+- assertVisible: "Waiting on you.*"
 - tapOn: "${AGENT} sent a plan"
 - assertVisible: "waiting for you"
 - tapOn: "Approve"

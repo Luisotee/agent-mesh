@@ -11,6 +11,7 @@ import dev.agentmesh.gen.agentmesh.term.v1.Attached
 import dev.agentmesh.gen.agentmesh.term.v1.Exited
 import dev.agentmesh.gen.agentmesh.term.v1.Output
 import dev.agentmesh.gen.agentmesh.term.v1.ReplayDone
+import dev.agentmesh.gen.agentmesh.term.v1.Resized
 import dev.agentmesh.gen.agentmesh.term.v1.Screen
 import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
 import kotlinx.coroutines.channels.Channel
@@ -296,6 +297,9 @@ object Frames {
 
     fun output(text: String, offset: Long, epoch: Long = 1) =
         TermFrame.newBuilder().setOutput(Output.newBuilder().setEpoch(epoch).setOffset(offset).setData(ByteString.copyFromUtf8(text))).build()
+
+    fun resized(epoch: Long, offset: Long, cols: Int, rows: Int) =
+        TermFrame.newBuilder().setResized(Resized.newBuilder().setEpoch(epoch).setOffset(offset).setCols(cols).setRows(rows)).build()
 
     fun replayDone(offset: Long = 0) = TermFrame.newBuilder().setReplayDone(ReplayDone.newBuilder().setOffset(offset)).build()
     fun exited(code: Int = 0, signal: Int = 0) = TermFrame.newBuilder().setExited(Exited.newBuilder().setExitCode(code).setSignal(signal)).build()

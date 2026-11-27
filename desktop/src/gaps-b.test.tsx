@@ -207,6 +207,26 @@ describe('worktree actions', () => {
     expect(within(again).getByRole('button', { name: 'Archive' })).toBeDisabled()
   })
 
+  it('asks for the ignored files and lists them with their sizes before the user archives', async () => {
+    const { host, client, wrap, agent: a } = fixture()
+    client.getAgentChanges.mockResolvedValue(create(GetAgentChangesResponseSchema, {
+      available: true,
+      ignored: [{ path: 'node_modules/', bytes: 222_300_000n, partial: true }, { path: '.env.local', bytes: 11n }],
+      ignoredMore: 3,
+    }))
+    render(wrap(<WorktreeActions host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Archive app-fix?' })
+    const list = await within(dialog).findByRole('list', { name: 'Ignored files that will be deleted' })
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['node_modules/at least 212.0 MB', '.env.local11 B', 'and 3 more'])
+    // The walk of the worktree is asked once, by its own call; the plain read of what changed is not asked to do it.
+    const asked = client.getAgentChanges.mock.calls.map((c) => (c[0] as { withIgnored?: boolean }).withIgnored ?? false)
+    expect(asked.filter((w) => w)).toHaveLength(1)
+    expect(asked.some((w) => !w)).toBe(true)
+    // The tick is for what git can lose (commits no remote has), not for build output: archiving stays one click.
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Archive' })).toBeEnabled())
+  })
+
   it('says so in the dialog when the worktree cannot be read, and keeps Archive off', async () => {
     const { host, client, wrap, agent: a } = fixture()
     client.getAgentChanges.mockRejectedValue(new Error('host is unreachable'))

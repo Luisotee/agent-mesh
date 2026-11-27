@@ -4,7 +4,8 @@
 appId: dev.agentmesh.android.debug
 ---
 - launchApp
-- tapOn: "Test host"
+# A worker is listed by name under its project in the drawer (a lead shows as its run's title: pass a worker).
+- tapOn: "Menu"
 - tapOn: "${AGENT}"
 - tapOn: "Terminal"
 - assertVisible: "Read only"
