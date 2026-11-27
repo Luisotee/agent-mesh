@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { controlFor, fromText, groupOf, toText } from './settings-form'
+import { controlFor, fromText, groupOf, labelOf, matches, sectionsOf, toText, type Listed } from './settings-form'
 
 describe('controlFor', () => {
   it('picks a control by the schema type', () => {
@@ -47,8 +47,48 @@ describe('text and values', () => {
     expect(fromText('int_or_auto', t, 'auto')).toEqual({ ok: true, value: 'auto' })
     expect(fromText('int_or_auto', t, '12')).toEqual({ ok: true, value: 12 })
   })
-  it('groups a key by its first segment', () => {
-    expect(groupOf('tiers.claude.mid.model')).toBe('tiers')
-    expect(groupOf('quota_stop')).toBe('general')
+})
+
+const item = (key: string, label: string, group: string, o: { advanced?: boolean; isSet?: boolean; summary?: string } = {}): Listed => ({
+  key,
+  isSet: o.isSet ?? false,
+  schema: { label, group, advanced: o.advanced ?? false, summary: o.summary ?? `about ${key}` },
+})
+
+describe('the screen\'s sections', () => {
+  const all = [
+    item('quota_stop', 'Stop starting agents at quota', 'Limits and quota'),
+    item('app.theme', 'Theme', 'Appearance'),
+    item('compact.agy', 'Compact an agy conversation at', 'Limits and quota', { advanced: true }),
+    item('app.keys.tab_2', 'Go to the second tab', 'Shortcuts'),
+    item('app.keys.tab_10', 'Go to the tenth tab', 'Shortcuts'),
+    item('app.keys.palette', 'Command palette', 'Shortcuts'),
+    item('old.thing', 'old.thing', ''),
+  ]
+  it('puts a setting under the group the host names, an unnamed one under Other, and orders the groups', () => {
+    expect(sectionsOf(all, '', false).map((x) => x.group)).toEqual(['Appearance', 'Shortcuts', 'Limits and quota', 'Other'])
+    expect(groupOf(all[6]!)).toBe('Other')
+    expect(labelOf(all[6]!)).toBe('old.thing')
+  })
+  it('folds the advanced ones, and lists them when searching or filtering to the changed', () => {
+    const limits = (q: string, changed = false) => sectionsOf(all, q, changed).find((x) => x.group === 'Limits and quota')!
+    expect(limits('')).toMatchObject({ count: 2, advanced: [{ key: 'compact.agy' }] })
+    expect(limits('').shown.map((s) => s.key)).toEqual(['quota_stop'])
+    expect(limits('compact').advanced).toEqual([])
+    expect(limits('compact').shown.map((s) => s.key)).toEqual(['compact.agy'])
+  })
+  it('searches the label, the description and the key, every word of the query', () => {
+    expect(matches(all[0]!, 'quota')).toBe(true)
+    expect(matches(all[0]!, 'agents QUOTA')).toBe(true)
+    expect(matches(all[0]!, 'about quota_stop')).toBe(true)
+    expect(matches(all[0]!, 'quota theme')).toBe(false)
+    expect(matches(item('a', 'A', 'Appearance', { summary: 'draws the colours' }), 'colours')).toBe(true)
+  })
+  it('keeps the shortcuts in key order and the rest by label', () => {
+    expect(sectionsOf(all, '', false).find((x) => x.group === 'Shortcuts')!.shown.map((s) => s.key)).toEqual(['app.keys.palette', 'app.keys.tab_2', 'app.keys.tab_10'])
+  })
+  it('lists only what was set when asked', () => {
+    const some = [...all, item('x', 'Retire', 'Agents and models', { isSet: true })]
+    expect(sectionsOf(some, '', true).map((x) => x.group)).toEqual(['Agents and models'])
   })
 })

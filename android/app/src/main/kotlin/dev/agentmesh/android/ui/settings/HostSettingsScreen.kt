@@ -81,6 +81,9 @@ fun HostSettingsScreen(runtime: HostRuntime, onBack: () -> Unit) {
 /** A setting whose value is a key chord (`app.keys.*`). */
 fun isShortcut(s: Setting): Boolean = s.schema.type == "shortcut"
 
+/** What a setting is called: the host's label, or its key for a host that sends none. */
+fun labelOf(s: Setting): String = s.schema.label.ifEmpty { s.key }
+
 private fun valueText(s: Setting): String {
     val c = controlFor(s.schema.type, s.schema.choicesList)
     val t = toText(c, s.value.toJson()).replace('\n', ' ')
@@ -90,7 +93,7 @@ private fun valueText(s: Setting): String {
 @Composable
 private fun SettingRow(s: Setting, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Text(s.key, style = MaterialTheme.typography.bodyMedium)
+        Text(labelOf(s), style = MaterialTheme.typography.bodyMedium)
         Text(s.schema.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             valueText(s) + if (s.isSet) "" else "  (default)",
@@ -119,7 +122,7 @@ private fun SettingDialog(runtime: HostRuntime, s: Setting, onClose: () -> Unit)
 
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text(s.key) },
+        title = { Text(labelOf(s)) },
         text = {
             Column {
                 Text(s.schema.summary, style = MaterialTheme.typography.bodySmall)

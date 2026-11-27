@@ -27,7 +27,7 @@ export function ShortcutField({ host, id, value, busy, save, bare = false }: { h
       // A composer key and a window shortcut act in different places: each only clashes with its own kind.
       const other = key !== id && key.startsWith(bare ? 'app.chat_keys.' : 'app.keys.') ? jsonOf(s) : undefined
       const have = typeof other === 'string' ? parseChord(other) : undefined
-      if (have && sameChord(have, want)) return (s.schema?.summary ?? key).replace(/^shortcut: /, '')
+      if (have && sameChord(have, want)) return s.schema?.label || (s.schema?.summary ?? key).replace(/^shortcut: /, '')
     }
     return undefined
   }
