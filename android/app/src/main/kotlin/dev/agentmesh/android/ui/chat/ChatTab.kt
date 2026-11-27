@@ -587,10 +587,11 @@ private fun ToolCallRow(call: ToolCall) {
             var cut by remember { mutableStateOf(false) }
             Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)).padding(8.dp)) {
                 Text(
-                    r.text + if (r.truncated) "\n… cut here" else "", style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    r.text, style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     maxLines = if (all) Int.MAX_VALUE else TOOL_RESULT_LINES, overflow = TextOverflow.Ellipsis,
                     onTextLayout = { if (!all) cut = it.hasVisualOverflow },
                 )
+                if (r.truncated) Text("… cut here", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (all || cut) Text(
                     if (all) "Show less" else "Show all", Modifier.clickable { all = !all }.padding(top = 6.dp).testTag("tool-result-toggle"),
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,

@@ -17,7 +17,11 @@ import kotlinx.coroutines.withContext
  */
 object MarkdownCache {
     const val MAX_ENTRIES = 300
-    const val MAX_CHARS = 600_000
+    /** The parse of a text is several times its size: a cap by characters keeps a long conversation within a few MB. */
+    const val MAX_CHARS = 300_000
+
+    /** A body longer than this is not parsed ahead (one parse cannot be cut short): its row shows a placeholder until its own parse lands. */
+    const val WARM_MAX_CHARS = 12_000
     const val WARM_BUDGET_MS = 250L
 
     private val lock = Any()
@@ -51,7 +55,7 @@ object MarkdownCache {
         for (t in texts) {
             ensureActive()
             if (System.nanoTime() > until) break
-            if (hasMarkdown(t) && get(t) == null) parse(t)
+            if (t.length <= WARM_MAX_CHARS && hasMarkdown(t) && get(t) == null) parse(t)
         }
     }
 

@@ -68,7 +68,7 @@ fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean
     var toggled by remember { mutableStateOf(false) }
     val long = isLong(m.body)
     Card(
-        Modifier.fillMaxWidth().then(if (toggled) Modifier.motionSize() else Modifier).testTag("message"),
+        Modifier.fillMaxWidth().motionSize(animate = toggled).testTag("message"),
         colors = CardDefaults.cardColors(containerColor = if (open) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

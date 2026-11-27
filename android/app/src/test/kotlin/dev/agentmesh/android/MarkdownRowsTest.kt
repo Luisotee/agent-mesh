@@ -26,7 +26,9 @@ import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.messages.MarkdownCache
 import dev.agentmesh.android.ui.messages.MarkdownText
 import dev.agentmesh.android.ui.messages.SYNC_PARSE_MAX
+import dev.agentmesh.android.ui.messages.alignments
 import dev.agentmesh.android.ui.messages.columnWidth
+import dev.agentmesh.android.ui.messages.shownLength
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -123,8 +125,25 @@ class MarkdownRowsTest {
         // Four columns of their own widths are wider than the phone: the table holds them and scrolls.
         val table = compose.onNodeWithTag("md-table").fetchSemanticsNode()
         assertTrue(table.boundsInRoot.width > 0)
+        // The rules under the header and between rows reach across the whole table (a scrolling parent measures with no limit).
+        val rules = compose.onAllNodesWithTag("md-rule", useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue(rules.size >= 2)
+        // (What shows of them is the phone's width: the rest is scrolled off. A rule that measured 0 wide, unbounded, showed nothing.)
+        rules.forEach { assertTrue("a rule is ${it.boundsInRoot.width} px wide", it.boundsInRoot.width >= 1200f) }
         compose.onNodeWithText("Notes", substring = true, useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Recommended", substring = true, useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun `a cell's length is what it shows, and a column's alignment is the separator's`() {
+        assertEquals(5, shownLength(" **Hello** "))
+        assertEquals(4, shownLength("[Link](https://example.com/a/very/long/address/indeed)"))
+        assertEquals(listOf(androidx.compose.ui.text.style.TextAlign.Start, androidx.compose.ui.text.style.TextAlign.Center, androidx.compose.ui.text.style.TextAlign.End, androidx.compose.ui.text.style.TextAlign.Start), alignments("|---|:---:|---:|:---|"))
+    }
+
+    @Test fun `a body too long to parse ahead is left to its row`() {
+        runBlocking { MarkdownCache.warm(listOf("**x** " + "y".repeat(MarkdownCache.WARM_MAX_CHARS), "**short**")) }
+        assertNull(MarkdownCache.get("**x** " + "y".repeat(MarkdownCache.WARM_MAX_CHARS)))
+        assertNotNull(MarkdownCache.get("**short**"))
     }
 
     @Test fun `columns are as wide as their text, within a floor and a cap`() {
@@ -133,9 +152,10 @@ class MarkdownRowsTest {
         assertTrue(columnWidth(20).value in 150f..200f)
     }
 
-    private val tmp = org.junit.rules.TemporaryFolder().also { it.create() }
+    @get:Rule val tmp = org.junit.rules.TemporaryFolder()
     private val api = RecordingApi()
     private val started = mutableListOf<dev.agentmesh.android.HostRuntime>()
+    @After fun stopRuntimes() { started.forEach { it.stop() } }
 
     private fun chatWith(result: String, truncated: Boolean) {
         fun e(id: String, kind: dev.agentmesh.gen.agentmesh.v1.TranscriptKind, text: String = "", tool: String = "", input: String = "") =
@@ -161,19 +181,21 @@ class MarkdownRowsTest {
         chatWith("x".repeat(30).let { w -> (1..12).joinToString(" ") { w } }, truncated = false)
         compose.onNodeWithTag("tool-result-toggle").assertExists().performClick()
         compose.onNodeWithText("Show less").assertExists()
-        started.forEach { it.stop() }
     }
 
     @Test fun `a short answer has no Show all`() {
         chatWith("done", truncated = false)
         compose.onAllNodesWithTag("tool-result-toggle").assertCountEquals(0)
-        started.forEach { it.stop() }
     }
 
     @Test fun `an answer the host cut says so without being expanded`() {
         chatWith("three\nshort\nlines", truncated = true)
         compose.onNodeWithText("cut here", substring = true, useUnmergedTree = true).assertExists()
         compose.onAllNodesWithTag("tool-result-toggle").assertCountEquals(0)
-        started.forEach { it.stop() }
+    }
+
+    @Test fun `the cut marker of a long answer shows under the eight lines, without Show all`() {
+        chatWith((1..30).joinToString("\n") { "line $it" }, truncated = true)
+        compose.onNodeWithText("… cut here", useUnmergedTree = true).assertExists()
     }
 }

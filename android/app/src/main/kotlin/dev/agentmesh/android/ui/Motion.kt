@@ -55,9 +55,14 @@ fun LazyItemScope.motionItem(glide: Boolean = true): Modifier =
         fadeOutSpec = spring(stiffness = 400f),
     )
 
-/** A size change that animates (a card opening), or none under reduced motion. */
+/**
+ * A size change that animates (a card opening), or none under reduced motion. With [animate] false the node is there but
+ * snaps: a size that is the first layout (a row scrolled into view) must not animate, and one the user asked for must, from
+ * the first time (a node attached with the change takes the new size as its start).
+ */
 @Composable
-fun Modifier.motionSize(): Modifier = if (LocalReducedMotion.current) this else this.animateContentSize()
+fun Modifier.motionSize(animate: Boolean = true): Modifier =
+    if (LocalReducedMotion.current) this else this.animateContentSize(if (animate) spring() else androidx.compose.animation.core.snap())
 
 /** A spring for what answers a touch, or no animation at all under reduced motion. */
 fun <T> motionSpring(reduced: Boolean, stiffness: Float = 500f): FiniteAnimationSpec<T> =

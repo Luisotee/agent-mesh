@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +32,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -165,29 +165,47 @@ private fun MeshTable(content: String, node: ASTNode, style: TextStyle) {
     val body = remember(rows) { rows.map(::cellsOf) }
     val widths = remember(content, node) {
         val all = listOf(head) + body
-        List(all.maxOf { it.size }) { c -> columnWidth(all.maxOf { r -> r.getOrNull(c)?.getTextInNode(content)?.trim()?.length ?: 0 }) }
+        List(all.maxOf { it.size }) { c -> columnWidth(all.maxOf { r -> r.getOrNull(c)?.getTextInNode(content)?.let { shownLength(it.toString()) } ?: 0 }) }
     }
+    // `:---`, `:---:` and `---:` under the header: left, centre and right.
+    val aligns = remember(content, node) { alignments(node.children.firstOrNull { it.type == GFMTokenTypes.TABLE_SEPARATOR }?.getTextInNode(content)?.toString().orEmpty()) }
     if (widths.isEmpty()) return
     val annotator = annotatorSettings()
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(8.dp)
-    Column(Modifier.padding(vertical = 4.dp).clip(shape).border(1.dp, colors.outlineVariant, shape).horizontalScroll(rememberScrollState()).testTag("md-table")) {
-        @Composable fun Line(cells: List<ASTNode>, bold: Boolean, background: Color) {
-            Row(Modifier.background(background).height(IntrinsicSize.Min)) {
-                widths.forEachIndexed { c, w ->
-                    Box(Modifier.width(w).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                        cells.getOrNull(c)?.let { MarkdownTableBasicText(content, it, if (bold) style.copy(fontWeight = FontWeight.SemiBold) else style, Int.MAX_VALUE, TextOverflow.Clip, annotator) }
+    val total = widths.fold(0.dp) { sum, w -> sum + w }
+    Box(Modifier.padding(vertical = 4.dp).clip(shape).border(1.dp, colors.outlineVariant, shape).horizontalScroll(rememberScrollState()).testTag("md-table")) {
+        // The width is set: a scrolling parent measures with no limit, and the rules (which fill the width) would be 0 wide.
+        Column(Modifier.width(total)) {
+            @Composable fun Line(cells: List<ASTNode>, bold: Boolean, background: Color) {
+                Row(Modifier.background(background)) {
+                    widths.forEachIndexed { c, w ->
+                        val align = aligns.getOrNull(c) ?: TextAlign.Start
+                        Box(Modifier.width(w).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                            cells.getOrNull(c)?.let {
+                                MarkdownTableBasicText(content, it, (if (bold) style.copy(fontWeight = FontWeight.SemiBold) else style).copy(textAlign = align), Int.MAX_VALUE, TextOverflow.Clip, annotator)
+                            }
+                        }
                     }
                 }
             }
-        }
-        if (head.isNotEmpty()) { Line(head, true, colors.surfaceContainerHigh); HorizontalDivider(color = colors.outlineVariant) }
-        body.forEachIndexed { i, r ->
-            Line(r, false, if (i % 2 == 1) colors.surfaceContainerLow else Color.Transparent)
-            if (i < body.size - 1) HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.5f))
+            if (head.isNotEmpty()) { Line(head, true, colors.surfaceContainerHigh); HorizontalDivider(Modifier.testTag("md-rule"), color = colors.outlineVariant) }
+            body.forEachIndexed { i, r ->
+                Line(r, false, if (i % 2 == 1) colors.surfaceContainerLow else Color.Transparent)
+                if (i < body.size - 1) HorizontalDivider(Modifier.testTag("md-rule"), color = colors.outlineVariant.copy(alpha = 0.5f))
+            }
         }
     }
 }
+
+private val LINK = Regex("""\[([^\]]*)]\([^)]*\)""")
+
+/** How many characters a cell shows: its Markdown's marks (emphasis, code ticks, a link's address) are not part of it. */
+internal fun shownLength(source: String): Int = source.trim().replace(LINK, "$1").count { it != '*' && it != '_' && it != '`' && it != '~' }
+
+/** The alignment each column asks for in the separator row (`|:---|:---:|---:|`). */
+internal fun alignments(separator: String): List<TextAlign> =
+    separator.trim().trim('|').split('|').map { c -> val t = c.trim(); if (t.startsWith(":") && t.endsWith(":")) TextAlign.Center else if (t.endsWith(":")) TextAlign.End else TextAlign.Start }
 
 private val MAX_COLUMN = 240.dp
 
