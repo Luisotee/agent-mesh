@@ -64,6 +64,12 @@ export const retireAgent = (c: MeshClient, agent: string) => c.retireAgent({ met
 /** Stops a run: every agent in it is retired and the run is closed; a clean worktree goes, one with changes stays. */
 export const stopRun = (c: MeshClient, runId: string) => c.stopRun({ meta: meta(), runId })
 
+/**
+ * Deletes an ended run: the host forgets its agents, messages and files (a live one is refused), and a worktree or branch that
+ * holds work stays on disk. The answer lists what became of each worktree.
+ */
+export const deleteRun = (c: MeshClient, runId: string) => c.deleteRun({ meta: meta(), runId })
+
 /** Rings an agent that has unread messages again (the host says why when it can't). */
 export const ringAgent = (c: MeshClient, agent: string) => c.ringAgent({ meta: meta(), agent })
 
