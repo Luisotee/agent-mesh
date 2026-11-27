@@ -75,7 +75,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
           hooks?.spawned(info.id, p.value.agent, prefs.dockNewAgents)
         }
         // The host's own preferences say whether and what to notify about its events.
-        const n = prefs.notifyEnabled ? noticeFor(f.value, before.agents, Date.now(), before.clockSkewMs) : undefined
+        const n = prefs.notifyEnabled ? noticeFor(f.value, Date.now(), before.clockSkewMs) : undefined
         if (n && prefs.notifyEvents.has(n.kind)) {
           api.shell.notify({ tag: `${info.id}:${n.tag}`, title: n.title, body: n.body, sound: prefs.notifySound, hostId: info.id, agentId: n.agentId, tab: n.tab })
         }

@@ -208,5 +208,12 @@ func (d *Daemon) PRFeedbackPass(ctx context.Context) { d.prFeedbackPass(ctx) }
 // PRLastRead is when an agent's PRs were last read in full (zero after a failed read).
 func (d *Daemon) PRLastRead(agentID string) time.Time { return d.prs.lastRead(agentID) }
 
+// SetPermNoticeAfter shortens how long a held permission prompt waits before the user is told; the returned func restores it.
+func SetPermNoticeAfter(d time.Duration) func() {
+	old := permNoticeAfter
+	permNoticeAfter = d
+	return func() { permNoticeAfter = old }
+}
+
 // FailingChecks exposes failingChecks.
 func FailingChecks(rollup []map[string]any) []string { return failingChecks(rollup) }

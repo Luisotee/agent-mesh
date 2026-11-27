@@ -397,6 +397,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_UNSPECIFIED {
 		return nil, invalid("no message type given")
 	}
+	if req.Msg.To == userRecipient {
+		return d.sendToUser(ctx, req)
+	}
 	waitFor, err := parseWaitUntil(req.Msg.Type, req.Msg.Until, d.now())
 	if err != nil {
 		return nil, err

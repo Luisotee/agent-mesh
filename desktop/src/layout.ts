@@ -206,3 +206,27 @@ export function saveDraft(hostId: string, agentId: string, text: string, store: 
     // Storage full or refused: the draft lives only as long as the view.
   }
 }
+
+const SEEN_KEY = 'agentmesh.activitySeen'
+
+/** The newest Activity entry (its event number) the user has opened the list over, on this device, for a host; 0 when none. */
+export function loadActivitySeen(hostId: string, store: Pick<Storage, 'getItem'> = localStorage): bigint {
+  try {
+    const v: unknown = JSON.parse(store.getItem(SEEN_KEY) ?? '{}')
+    const n = v && typeof v === 'object' ? (v as Record<string, unknown>)[hostId] : undefined
+    return typeof n === 'string' && /^\d+$/.test(n) ? BigInt(n) : 0n
+  } catch {
+    return 0n
+  }
+}
+
+/** Keeps how far the Activity list was seen for a host (this device only: it is never sent to a host). */
+export function saveActivitySeen(hostId: string, seq: bigint, store: Pick<Storage, 'getItem' | 'setItem'> = localStorage): void {
+  try {
+    const v: unknown = JSON.parse(store.getItem(SEEN_KEY) ?? '{}')
+    const all = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+    store.setItem(SEEN_KEY, JSON.stringify({ ...all, [hostId]: seq.toString() }))
+  } catch {
+    // Storage full or refused: the count starts over next time.
+  }
+}

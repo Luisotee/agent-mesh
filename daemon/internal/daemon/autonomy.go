@@ -33,7 +33,7 @@ func runAutonomyBrief(a *v1.RunAutonomy, ask []string) []string {
 	var out []string
 	switch {
 	case a.UserApprovesPlans:
-		out = append(out, "this run: the user approves its plans and merges its PRs: don't `mesh approve` a plan (put it to the user: a `question` in your notes, then wait), and never merge a PR")
+		out = append(out, "this run: the user approves its plans and merges its PRs: don't `mesh approve` a plan (the user sees each worker's plan in their app and approves it there: leave it waiting, don't relay it; for a decision of your own put it to them with `mesh send user --type question --body \"…\"`, then wait for their answer), and never merge a PR")
 	case a.UserMerges:
 		out = append(out, "this run: the user merges its PRs: never merge one; tell the user when it is ready")
 	default:
@@ -69,7 +69,7 @@ func (d *Daemon) autonomyBrief(r store.Reader, run *v1.Run) []string {
 	listed := map[string]bool{}
 	for _, repo := range approves {
 		listed[filepath.Clean(repo)] = true
-		out = append(out, fmt.Sprintf("repo %s: the user approves its plans and merges its PRs: don't `mesh approve` a plan there (put it to the user: a `question` in your notes, then wait), and never merge its PRs", repo))
+		out = append(out, fmt.Sprintf("repo %s: the user approves its plans and merges its PRs: don't `mesh approve` a plan there (the user sees each worker's plan in their app and approves it there: leave it waiting, don't relay it; for a decision of your own put it to them with `mesh send user --type question --body \"…\"`, then wait for their answer), and never merge its PRs", repo))
 	}
 	for _, repo := range merges {
 		if !listed[filepath.Clean(repo)] {
@@ -83,4 +83,40 @@ func (d *Daemon) autonomyBrief(r store.Reader, run *v1.Run) []string {
 		out = append([]string{"the user's autonomy settings (`mesh settings`, keys `repos.user_approves_plans`, `repos.user_merges`, `autonomy.ask_before`); a repo not listed is yours as before:"}, out...)
 	}
 	return out
+}
+
+// inRepoList reports whether repo is in list: an entry is a path (a leading ~ is the daemon's home), or a bare name
+// of a repo's folder.
+func inRepoList(list []string, repo string) bool {
+	if repo == "" {
+		return false
+	}
+	for _, e := range list {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if sameDir(expandHome(e), repo) || filepath.Clean(e) == filepath.Base(repo) {
+			return true
+		}
+	}
+	return false
+}
+
+// userApprovesPlans reports whether the user, not the root, approves the plans for repo in this run: the run's own
+// autonomy when it has one (and doesn't keep the repo lists), else `repos.user_approves_plans`. The rule the root's
+// brief states (autonomyBrief prints the same lists, line by line).
+func (d *Daemon) userApprovesPlans(r store.Reader, run *v1.Run, repo string) bool {
+	if run != nil && run.Autonomy != nil && !run.Autonomy.KeepRepoLists {
+		return run.Autonomy.UserApprovesPlans
+	}
+	return inRepoList(d.strings(r, "repos.user_approves_plans"), repo)
+}
+
+// userMerges reports whether the user merges the PRs for repo in this run (approving plans implies it).
+func (d *Daemon) userMerges(r store.Reader, run *v1.Run, repo string) bool {
+	if run != nil && run.Autonomy != nil && !run.Autonomy.KeepRepoLists {
+		return run.Autonomy.UserMerges || run.Autonomy.UserApprovesPlans
+	}
+	return inRepoList(d.strings(r, "repos.user_merges"), repo) || inRepoList(d.strings(r, "repos.user_approves_plans"), repo)
 }

@@ -38,7 +38,7 @@ import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext, useApp, useHostState } from './context'
 import { messagesOf } from './derive'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, UserNoticeSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
@@ -539,8 +539,10 @@ const msg = (id: string, type: MessageType, from: string, to: string, ms: number
 const putMessages = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => host.store.setState((s) => ({ messages: { ...s.messages, ...Object.fromEntries(ms.map((m) => [m.id, m])) } }))
 
 /** What the host says waits: a row per plan or question, as ListWaiting returns them. */
-const waitOn = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) =>
-  host.store.setState({ waiting: ms.map((m) => create(WaitingSchema, { kind: m.type === MessageType.PLAN ? WaitingKind.PLAN : WaitingKind.QUESTION, runId: 'r1', agentId: m.from!.id, message: m })) })
+const waitOn = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => {
+  const waiting = ms.map((m) => create(WaitingSchema, { kind: m.type === MessageType.PLAN ? WaitingKind.PLAN : WaitingKind.QUESTION, runId: 'r1', agentId: m.from!.id, message: m, forUser: true }))
+  host.store.setState({ waiting, waitingAll: waiting })
+}
 
 /** The agent's message cards, as its chat shows them (without the conversation around them). */
 function Cards({ host, agentId }: { host: HostRuntime; agentId: string }) {
@@ -1046,6 +1048,27 @@ describe('ProjectSettingsDialog', () => {
 })
 
 describe('SidebarFooter', () => {
+  it('has a bell with an Activity list: unread counted on this device, an entry opens its agent', async () => {
+    localStorage.clear()
+    const { host, wrap, model } = fixture()
+    const notice = (seq: number, title: string, forUser: boolean) => ({ seq: BigInt(seq), at: Date.now(), notice: create(UserNoticeSchema, { kind: 'plan', title, body: 'Plan do x', agentId: 'w1', tab: 'chat', forUser }) })
+    host.store.setState({ activity: [notice(5, 'app-fix sent a plan', false), notice(6, 'app-lead asks you', true)] })
+    render(wrap(<SidebarFooter />))
+    const bell = screen.getByRole('button', { name: 'Activity' })
+    expect(bell).toHaveTextContent('2')
+    await userEvent.click(bell)
+    const list = await screen.findByRole('list', { name: 'Activity' })
+    const items = within(list).getAllByRole('listitem')
+    expect(items[0]).toHaveTextContent('app-lead asks you')
+    expect(items[0]).toHaveTextContent('for you')
+    expect(items[1]).not.toHaveTextContent('for you')
+    // Opened: read, and kept on this device.
+    await waitFor(() => expect(localStorage.getItem('agentmesh.activitySeen')).toContain('"h1":"6"'))
+    await userEvent.click(within(items[0]!).getByRole('button'))
+    expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1', tab: 'chat' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Activity' })).not.toHaveTextContent('2'))
+  })
+
   it('shows the quota as meters, amber at the reserve, and opens Usage and cost on a click', async () => {
     const { client, wrap, model } = fixture()
     const usage = create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: '5h', used: 42 }), create(ClaudeUsageWindowSchema, { label: '7d', used: 95 })], atReserve: ['7d'] }) })
