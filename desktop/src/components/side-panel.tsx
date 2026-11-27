@@ -82,6 +82,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
       </Section>
       <Progress host={host} agent={agent} />
       <Changes host={host} agent={agent} />
+      <div className="border-b px-3 pb-2.5 empty:hidden"><WorktreeActions key={agent.id} host={host} agent={agent} /></div>
       <Fold title={lead ? 'Run total' : 'Cost'} summary={total ?? (cost.error ? 'unread' : undefined)}>
         {cost.error && !cost.value && <p className="text-xs text-destructive">Couldn't read the cost: {cost.error}</p>}
         {cost.loading && !cost.value && <SkeletonLines label="Reading the cost" lines={2} />}
@@ -192,7 +193,6 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
         )}
       </dl>
       <ModelControl host={host} agent={agent} className="mt-1.5" />
-      <WorktreeActions key={agent.id} host={host} agent={agent} />
       <div className="mt-2 flex gap-1.5">
         {canTerminal && agent.terminalId && (
           <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>

@@ -169,6 +169,7 @@ export function buildCommands(app: AppModel): Command[] {
     out.push({ id: 'split-dir', title: s.splitDir === 'row' ? 'Stack the panes' : 'Put the panes side by side', group: 'View', detail: 'split layout', run: () => app.setSplitDir(s.splitDir === 'row' ? 'column' : 'row') })
     out.push({ id: 'split-close', title: 'Close the splits', group: 'View', detail: 'panes beside', run: () => s.side.forEach((p) => app.unsplit(p)) })
   }
+  if (selected) out.push({ id: 'usage', title: s.usageOpen ? 'Close Usage and cost' : 'Usage and cost', group: 'View', detail: 'quota spend tokens', run: () => app.openUsage(!s.usageOpen) })
   if (selected && canPair(selected.store)) out.push({ id: 'pair', title: 'Pair a device', group: 'View', run: () => app.openPairing(true) })
   out.push({ id: 'shortcuts', title: 'Keyboard shortcuts…', group: 'View', detail: 'rebind keys', run: () => app.openSettings(true, 'app.keys') })
   if (selected) {

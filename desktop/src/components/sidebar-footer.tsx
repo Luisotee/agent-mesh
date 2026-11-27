@@ -39,7 +39,10 @@ export function SidebarFooter() {
     { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !mayPair },
   ]
   const hostEntries: MenuEntry[] = [
-    ...hosts.map((h) => ({ label: many ? `${h.info.name}: settings` : 'Host settings', onSelect: () => { app.selectHost(h.info.id); app.openSettings(true) } })),
+    ...hosts.flatMap((h) => [
+      { label: many ? `${h.info.name}: settings` : 'Host settings', onSelect: () => { app.selectHost(h.info.id); app.openSettings(true) } },
+      { label: many ? `${h.info.name}: usage and cost` : 'Usage and cost', onSelect: () => toggleUsage(app, h.info.id) },
+    ]),
     ...(fixed ? [] : (['separator', ...hosts.map((h) => ({ label: `Remove ${h.info.name}…`, onSelect: () => setRemoving(h), destructive: true })), { label: 'Connect a host…', onSelect: () => setAdding(true) }] as MenuEntry[])),
   ]
   return (
@@ -65,7 +68,19 @@ export function SidebarFooter() {
 /** "wsl, daemon 0.9.1, you are Desktop": which host the settings, usage and pairing screens are of. */
 function HostLine({ host }: { host: HostRuntime }) {
   const c = useHostState(host, (s) => s.conn)
-  return <>{c.kind === 'ready' ? `${host.info.name}, daemon ${c.hello.version}${c.hello.actor?.name ? `, you are ${c.hello.actor.name}` : ''}` : `${host.info.name}, ${c.kind}`}</>
+  return (
+    <span role="status" aria-label={`Host ${host.info.name}, ${c.kind}`}>
+      {c.kind === 'ready' ? `${host.info.name}, daemon ${c.hello.version}${c.hello.actor?.name ? `, you are ${c.hello.actor.name}` : ''}` : `${host.info.name}, ${c.kind}`}
+    </span>
+  )
+}
+
+/** Opens a host's Usage and cost, or closes it when it is the one showing. */
+function toggleUsage(app: ReturnType<typeof useApp>, hostId: string) {
+  const st = app.store.getState()
+  if (st.usageOpen && st.hostId === hostId) return app.openUsage(false)
+  app.selectHost(hostId)
+  app.openUsage(true)
 }
 
 const toneOf = (r: QuotaRow): MeterTone => (r.used >= 100 ? 'over' : r.atReserve ? 'warn' : 'ok')
@@ -81,7 +96,7 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
     <button
       type="button"
       aria-label={`Quota${many ? ` of ${host.info.name}` : ''}: open usage and cost`}
-      onClick={() => { app.selectHost(host.info.id); app.openUsage(true) }}
+      onClick={() => toggleUsage(app, host.info.id)}
       className="mb-1 flex w-full flex-col gap-1 rounded-md px-1.5 py-1 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
     >
       {many && <span className="text-xs font-medium text-muted-foreground">{host.info.name}</span>}
