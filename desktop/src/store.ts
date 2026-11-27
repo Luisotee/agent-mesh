@@ -1,5 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Device, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Cursor, Device, Event, Message, QueuedPrompt, Run, Setting } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
@@ -35,6 +35,8 @@ export interface HostState {
   devices: Device[]
   /** The pairing each device came through (a `DevicePaired` event's `pairingId`), by device id; a device with no entry is one whose event we didn't see, or from a host before the field. */
   pairedVia: Record<string, string>
+  /** The prompts sent to an agent's chat that wait to be typed, by agent id, oldest first: read with ListPrompts when its chat is shown, then kept by the Prompt* events. */
+  prompts: Record<string, QueuedPrompt[]>
   cursor?: Cursor
   log: LogLine[]
 }
@@ -45,7 +47,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, prompts: {}, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -173,6 +175,17 @@ function applyEvent(s: HostState, e: Event): HostState {
       const merged: AgentPullRequests = { ...(cur ?? { $typeName: 'agentmesh.v1.AgentPullRequests', agentId: pr.agentId, agentName: '', reviewing: [], readFailed: false }), pullRequests: prs }
       return { ...next, pullRequests: { ...s.pullRequests, [pr.agentId]: merged } }
     }
+    // The chat's queue: a prompt joins it, and leaves it once typed or taken back.
+    case 'promptQueued': {
+      const q = p.value.prompt
+      if (!q) return next
+      const list = (s.prompts[q.agentId] ?? []).filter((x) => x.id !== q.id)
+      const sorted = [...list, q].sort((a, b) => Number((a.createdAt?.seconds ?? 0n) - (b.createdAt?.seconds ?? 0n)) || (a.createdAt?.nanos ?? 0) - (b.createdAt?.nanos ?? 0))
+      return { ...next, prompts: { ...s.prompts, [q.agentId]: sorted } }
+    }
+    case 'promptTyped':
+    case 'promptWithdrawn':
+      return withoutPrompt(next, e.agentId, p.value.promptId)
     case 'devicePaired': {
       const d = p.value.device
       if (!d) return next
@@ -185,6 +198,32 @@ function applyEvent(s: HostState, e: Event): HostState {
     }
     default:
       return next
+  }
+}
+
+function withoutPrompt(s: HostState, agentId: string, id: string): HostState {
+  const list = s.prompts[agentId]
+  return list?.some((x) => x.id === id) ? { ...s, prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : s
+}
+
+/** An agent's queue as the host listed it, which replaces what we hold for it. */
+export function setPrompts(agentId: string, list: QueuedPrompt[]): (s: HostState) => Partial<HostState> {
+  return (s) => ({ prompts: { ...s.prompts, [agentId]: list } })
+}
+
+/** A prompt the host answered as queued, added before its event arrives (the event replaces it). */
+export function addPrompt(q: QueuedPrompt): (s: HostState) => Partial<HostState> {
+  return (s) => {
+    const list = s.prompts[q.agentId] ?? []
+    return list.some((x) => x.id === q.id) ? {} : { prompts: { ...s.prompts, [q.agentId]: [...list, q] } }
+  }
+}
+
+/** A prompt taken back, removed at once (its event follows). */
+export function dropPrompt(agentId: string, id: string): (s: HostState) => Partial<HostState> {
+  return (s) => {
+    const list = s.prompts[agentId]
+    return list?.some((x) => x.id === id) ? { prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : {}
   }
 }
 

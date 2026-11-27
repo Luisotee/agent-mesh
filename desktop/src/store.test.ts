@@ -3,7 +3,7 @@ import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { applyFrame, createHostStore, emptyHost, mergeMessages, storeSink, type HostState } from './store'
-import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, AgentSchema, AgentState, EventSchema, MessageSchema, ReopenSchema, AgentRole, RunSchema, RunStatus, QueuedPromptSchema, type Event } from './gen/agentmesh/v1/types_pb'
 import type { Frame } from './connection'
 
 const agent = (id: string, extra = {}) => create(AgentSchema, { id, runId: 'r1', name: id, state: AgentState.STARTING, ...extra })
@@ -105,6 +105,16 @@ describe('applyFrame', () => {
     expect(Object.keys(s.messages)).toEqual(['m1'])
     expect(s.messages.m1?.deliveredAt).toBeTruthy()
     expect(s.cursor?.seq).toBe(8n)
+  })
+
+  it('a queued prompt joins its agent\'s queue in order, once, and leaves it when typed or taken back', () => {
+    const q = (id: string, sec: number) => create(QueuedPromptSchema, { id, agentId: 'a1', text: id, createdAt: timestampFromMs(sec * 1000) })
+    const queued = (seq: number, p: ReturnType<typeof q>): Frame => ev(seq, { case: 'promptQueued', value: { $typeName: 'agentmesh.v1.PromptQueued', prompt: p } })
+    let s = run([snapshot(), queued(6, q('late', 9)), queued(7, q('early', 2)), queued(8, q('early', 2))])
+    expect(s.prompts.a1?.map((p) => p.id)).toEqual(['early', 'late'])
+    s = run([ev(9, { case: 'promptTyped', value: { $typeName: 'agentmesh.v1.PromptTyped', promptId: 'early' } }), ev(10, { case: 'promptWithdrawn', value: { $typeName: 'agentmesh.v1.PromptWithdrawn', promptId: 'late' } })], s)
+    expect(s.prompts.a1).toEqual([])
+    expect(s.cursor?.seq).toBe(10n)
   })
 
   it('a loaded page never replaces a message events already updated', () => {

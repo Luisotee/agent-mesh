@@ -255,7 +255,39 @@ message Event {
     DoorbellHeld doorbell_held = 33;
     WorktreeCreated worktree_created = 34;
     PullRequestChanged pull_request_changed = 35;
+    PromptQueued prompt_queued = 36;
+    PromptTyped prompt_typed = 37;
+    PromptWithdrawn prompt_withdrawn = 38;
   }
+}
+
+// A prompt the user sent an agent's chat that waits to be typed into its terminal (`PromptAgent`, `ListPrompts`).
+message QueuedPrompt {
+  string id = 1;
+  string agent_id = 2;
+  string text = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // Who sent it (a device).
+  Actor from = 5;
+  // What it waits for now, for the app to say: "working", "starting", "at_prompt", "limited", "stopped", "draft" (a
+  // human's draft is in the agent's box), "typing" (someone types in its terminal), "no_box" (its screen shows no
+  // input box), or empty when it is due. Set by ListPrompts; the queue's order is the order they are typed in.
+  string held = 6;
+}
+
+// A prompt was queued for an agent (`PromptAgent` while it couldn't take one).
+message PromptQueued {
+  QueuedPrompt prompt = 1;
+}
+
+// A queued prompt was typed into the agent's terminal.
+message PromptTyped {
+  string prompt_id = 1;
+}
+
+// A queued prompt was taken back before it was typed (`WithdrawPrompt`).
+message PromptWithdrawn {
+  string prompt_id = 1;
 }
 
 message Worktree {
@@ -403,7 +435,8 @@ message SettingChanged {
 
 // What a setting's value may be, enough for a client to draw its editor and validate before it sends.
 message SettingSchema {
-  // One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json.
+  // One of: string, strings, int, percent, bool, seconds, effort, chain, slots, kinds, mb_or_auto, int_or_auto, json,
+  // shortcut, chat_key.
   //   string      a non-empty string
   //   strings     a list of strings
   //   int         a whole number, 0 or more
@@ -417,6 +450,8 @@ message SettingSchema {
   //   mb_or_auto  "auto" or a whole number of MB, 0 or more
   //   int_or_auto "auto" or a whole number, 0 or more
   //   json        any JSON value
+  //   shortcut    a key chord such as "Mod+Shift+P" (a modifier besides Shift, or a function key), or "" for none
+  //   chat_key    a key the chat's composer acts on: a named key alone ("Escape", "ArrowUp") or a chord, or ""
   string type = 1;
   string summary = 2;
   // The values a dropdown offers: an effort's levels, the agent kinds a `kinds` or `slots` entry may name.

@@ -10,8 +10,8 @@ export type Control =
   | { kind: 'lines' }
   /** A set of the choices (checkboxes). */
   | { kind: 'multi'; choices: string[] }
-  /** A key chord, recorded by pressing it. */
-  | { kind: 'shortcut' }
+  /** A key chord, recorded by pressing it; `bare`: a named key alone (Escape, ArrowUp) may be one too (the chat composer's keys). */
+  | { kind: 'shortcut'; bare?: boolean }
   | { kind: 'json' }
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
@@ -41,6 +41,8 @@ export function controlFor(type: string, choices: string[]): Control {
       return { kind: 'text' }
     case 'shortcut':
       return { kind: 'shortcut' }
+    case 'chat_key':
+      return { kind: 'shortcut', bare: true }
     default:
       // slots, json, and any type a newer host has that this app doesn't know: raw JSON is always right.
       return { kind: 'json' }

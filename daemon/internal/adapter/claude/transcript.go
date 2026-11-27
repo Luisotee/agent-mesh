@@ -30,6 +30,9 @@ const (
 	// CapBracketedPaste is the capability of a CLI whose input box takes a bracketed paste, so a prompt of several
 	// lines is one prompt.
 	CapBracketedPaste = "bracketed-paste"
+	// CapInterruptEsc is the capability of a CLI whose turn Esc interrupts, leaving it at its prompt
+	// (InterruptAgent).
+	CapInterruptEsc = "interrupt-esc"
 
 	// DefaultTranscriptBytes is how much of the record a read covers when the caller doesn't say.
 	DefaultTranscriptBytes = 256 << 10

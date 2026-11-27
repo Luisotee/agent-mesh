@@ -1,12 +1,16 @@
-import { ChevronRight, Send } from 'lucide-react'
+import { ChevronRight, Clock, Pencil, Send, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { promptAgent, readTranscript } from '@/actions'
+import { interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/input'
-import { useApp, useHostState } from '@/context'
+import { useApp, useAppState, useHostState } from '@/context'
 import { statusSentence } from '@/derive'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 import type { TranscriptEntry } from '@/gen/agentmesh/v1/chat_pb'
+import type { QueuedPrompt } from '@/gen/agentmesh/v1/types_pb'
+import { matches, parseChord } from '@/keys'
+import { chatKeys } from '@/prefs'
+import { addPrompt, dropPrompt, setPrompts } from '@/store'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { emptyTranscript, fromTail, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
@@ -153,6 +157,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
   const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
   const { transcript, loaded, error, sync, loadEarlier, earlierBusy } = useTranscript(host, agentId, agent?.sessionId ?? '', active)
   const blocks = useMemo(() => toBlocks(transcript.entries), [transcript.entries])
+  const queued = useQueue(host, agentId, active)
 
   // Scrolling: follow the end while the reader is at it; keep the place when earlier entries come in above.
   const scroller = useRef<HTMLDivElement>(null)
@@ -217,6 +222,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
             ))}
           </ol>
         )}
+        {queued.length > 0 && <QueuedList host={host} agentId={agentId} prompts={queued} readOnly={readOnly} />}
       </div>
       <p role="status" data-testid="chat-status" className="truncate text-xs text-muted-foreground">
         {agent.state === AgentState.WORKING && agent.stateDetail ? `Working: ${agent.stateDetail}` : statusSentence(agent)}
@@ -226,14 +232,98 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
   )
 }
 
+/** An agent's queued prompts: listed when its chat is shown and again when its state changes (what they wait for follows it), kept by the host's events in between. */
+function useQueue(host: HostRuntime, agentId: string, active: boolean): QueuedPrompt[] {
+  const state = useHostState(host, (s) => s.agents[agentId]?.state)
+  const prompts = useHostState(host, (s) => s.prompts[agentId])
+  useEffect(() => {
+    if (!active) return
+    let live = true
+    listPrompts(host.client, agentId)
+      .then((res) => live && host.store.setState(setPrompts(agentId, res.prompts)))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [host, agentId, active, state])
+  return prompts ?? NO_PROMPTS
+}
+
+const NO_PROMPTS: QueuedPrompt[] = []
+
+/** What a queued prompt waits for, as the host says (`QueuedPrompt.held`). */
+const HELD: Record<string, string> = {
+  working: 'Sent when it finishes its turn',
+  starting: 'Sent once it has started',
+  at_prompt: 'Sent once the prompt in its terminal is answered',
+  limited: 'Sent once it is off its usage limit',
+  stopped: 'Sent when it runs again',
+  draft: 'Held: its input box holds a draft. Clear it in the terminal to send this',
+  typing: 'Held: someone is typing in its terminal',
+  no_box: 'Held: its screen shows no input box (a dialog may be open in the terminal)',
+}
+
+/** The prompts that wait to be typed, under the conversation: each can be taken back to edit, or dropped. */
+function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; agentId: string; prompts: QueuedPrompt[]; readOnly: boolean }) {
+  const app = useApp()
+  const [error, setError] = useState('')
+  async function take(p: QueuedPrompt, edit: boolean) {
+    setError('')
+    try {
+      const res = await withdrawPrompt(host.client, agentId, p.id)
+      host.store.setState(dropPrompt(agentId, p.id))
+      if (edit && res.prompt) app.store.setState({ composerFill: { agentId, text: res.prompt.text } })
+    } catch (e) {
+      setError(say(e))
+    }
+  }
+  return (
+    <section aria-label="Queued prompts" className="flex flex-col items-end gap-1.5">
+      {prompts.map((p) => (
+        <div key={p.id} data-kind="queued" className="group flex max-w-[85%] flex-col items-end gap-0.5">
+          <div className="w-fit rounded-lg border border-dashed bg-accent/50 px-3 py-2 text-[13px] break-words whitespace-pre-wrap opacity-80">{p.text}</div>
+          <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Clock className="size-3" />
+            <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
+            {!readOnly && (
+              <>
+                <button type="button" aria-label="Edit the queued prompt" title="Take it back to edit" onClick={() => void take(p, true)} className="grid size-5 place-items-center rounded hover:bg-muted">
+                  <Pencil className="size-3" />
+                </button>
+                <button type="button" aria-label="Remove the queued prompt" title="Take it back" onClick={() => void take(p, false)} className="grid size-5 place-items-center rounded hover:bg-muted">
+                  <X className="size-3" />
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+      ))}
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+    </section>
+  )
+}
+
 function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: HostRuntime; agentId: string; readOnly: boolean; onSent: () => void; openTerminal: () => void }) {
+  const app = useApp()
   const agent = useHostState(host, (s) => s.agents[agentId])
+  const settings = useHostState(host, (s) => s.settings)
+  const keys = useMemo(() => chatKeys(settings), [settings])
+  const fill = useAppState((s) => s.composerFill)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // A queued prompt taken back to edit lands here.
+  useEffect(() => {
+    if (fill && fill.agentId === agentId) {
+      setText(fill.text)
+      app.store.setState({ composerFill: undefined })
+    }
+  }, [fill, agentId, app])
+  const hasQueue = useHostState(host, (s) => (s.prompts[agentId]?.length ?? 0) > 0)
   if (!agent) return null
   const gone = agent.state === AgentState.EXITED || agent.state === AgentState.RETIRED || !agent.terminalId
   const atPrompt = agent.state === AgentState.NEEDS_INPUT
+  const working = agent.state === AgentState.WORKING || atPrompt
   const why = readOnly
     ? 'This device is read-only: it can read the conversation, not type into the agent.'
     : gone
@@ -245,13 +335,36 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
     setBusy(true)
     setError('')
     try {
-      await promptAgent(host.client, agentId, body)
+      const res = await promptAgent(host.client, agentId, body)
+      if (res.queued) host.store.setState(addPrompt(res.queued))
       setText('')
       onSent()
     } catch (e) {
       setError(say(e))
     } finally {
       setBusy(false)
+    }
+  }
+  async function stop() {
+    setError('')
+    try {
+      const res = await interruptAgent(host.client, agentId)
+      if (!res.stopped) setError("Sent Esc, but it hasn't stopped yet: look at its terminal.")
+    } catch (e) {
+      setError(say(e))
+    }
+  }
+  /** Up in an empty box takes back the newest queued prompt to edit, as Claude Code's Up arrow does. */
+  async function recall() {
+    setError('')
+    try {
+      const res = await withdrawPrompt(host.client, agentId)
+      if (res.prompt) {
+        host.store.setState(dropPrompt(agentId, res.prompt.id))
+        setText(res.prompt.text)
+      }
+    } catch (e) {
+      setError(say(e))
     }
   }
   return (
@@ -265,7 +378,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
     >
       {atPrompt && !why && (
         <p role="status" className="flex items-center gap-2 text-xs text-state-needs">
-          It is waiting at a prompt in its terminal: answer it there.
+          It is waiting at a prompt in its terminal: answer it there. What you send now waits until then.
           <Button type="button" size="sm" variant="outline" onClick={openTerminal}>Open the terminal</Button>
         </p>
       )}
@@ -275,18 +388,36 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
           className="max-h-40 min-h-9 flex-1 resize-none"
           rows={Math.min(6, Math.max(1, text.split('\n').length))}
           value={text}
-          disabled={!!why || atPrompt}
-          placeholder={why ? '' : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
+          disabled={!!why}
+          placeholder={why ? '' : working ? 'Write to the agent: it is sent when it finishes its turn. Esc stops it.' : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            if (e.nativeEvent.isComposing) return
+            const interrupt = parseChord(keys.interrupt)
+            if (interrupt && working && matches(e.nativeEvent, interrupt)) {
+              e.preventDefault()
+              void stop()
+              return
+            }
+            const back = parseChord(keys.recall)
+            if (back && !text && hasQueue && matches(e.nativeEvent, back)) {
+              e.preventDefault()
+              void recall()
+              return
+            }
+            if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
               void send()
             }
           }}
         />
-        <Button type="submit" disabled={!!why || atPrompt || busy || !text.trim()}>
-          <Send /> Send
+        {working && !why && (
+          <Button type="button" variant="outline" aria-label="Stop the agent" title={`Interrupt its turn${keys.interrupt ? ` (${keys.interrupt})` : ''}`} onClick={() => void stop()}>
+            <Square /> Stop
+          </Button>
+        )}
+        <Button type="submit" disabled={!!why || busy || !text.trim()}>
+          <Send /> {working ? 'Queue' : 'Send'}
         </Button>
       </div>
       {why && <p className="text-xs text-muted-foreground">{why}</p>}

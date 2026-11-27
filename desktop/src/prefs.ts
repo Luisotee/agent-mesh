@@ -74,3 +74,19 @@ export function appKeys(settings: Record<string, Setting>): Record<KeyedCommand,
   }
   return out
 }
+
+/** The chat composer's own keys, with the host's defaults (`app.chat_keys.*`): they act only while the composer has focus. */
+export const DEFAULT_CHAT_KEYS = { interrupt: 'Escape', recall: 'ArrowUp' } as const
+
+export type ChatKey = keyof typeof DEFAULT_CHAT_KEYS
+
+/** The composer's keys as the host has them ("" is unbound); the default until the host's settings arrive. */
+export function chatKeys(settings: Record<string, Setting>): Record<ChatKey, string> {
+  const out = { ...DEFAULT_CHAT_KEYS } as Record<ChatKey, string>
+  for (const id of Object.keys(DEFAULT_CHAT_KEYS) as ChatKey[]) {
+    const v = jsonOf(settings[`app.chat_keys.${id}`])
+    if (typeof v === 'string') out[id] = v
+  }
+  return out
+}
+

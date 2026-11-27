@@ -196,6 +196,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 
 - ★ Toggle between the chat view and the CLI's terminal (O).
   - Built in the desktop for Claude Code (2026-11-26): `ReadTranscript` and `PromptAgent` (`daemon/README.md`, "Chat view"); the tool calls fold, the composer types into the PTY. The other CLIs show the terminal's note and the composer, until their records are read.
+  - The chat's queue and stop (2026-11-27): a send is queued while the agent can't take it and typed at its next idle (`ListPrompts`, `WithdrawPrompt`: Up takes the newest back), and Esc interrupts a Claude turn (`InterruptAgent`); `daemon/README.md`, "Chat view".
 - ★ A streaming timeline: Markdown, diagrams, images, grouped tool calls that expand to their diffs (P, O).
 - ★ Inline cards for plans, questions and permissions (P, O).
 - ★ While a turn runs: interrupt, steer, or queue the message, with an editable queue (P, O).
