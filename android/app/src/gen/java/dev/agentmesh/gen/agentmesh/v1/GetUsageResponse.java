@@ -436,6 +436,108 @@ public  final class GetUsageResponse extends
     notes_.add(value.toStringUtf8());
   }
 
+  public static final int QUOTA_STOP_WEEKLY_FIELD_NUMBER = 7;
+  private int quotaStopWeekly_;
+  /**
+   * <pre>
+   * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+   * </pre>
+   *
+   * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>
+   * @return The quotaStopWeekly.
+   */
+  @java.lang.Override
+  public int getQuotaStopWeekly() {
+    return quotaStopWeekly_;
+  }
+  /**
+   * <pre>
+   * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+   * </pre>
+   *
+   * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>
+   * @param value The quotaStopWeekly to set.
+   */
+  private void setQuotaStopWeekly(int value) {
+    
+    quotaStopWeekly_ = value;
+  }
+  /**
+   * <pre>
+   * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+   * </pre>
+   *
+   * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>
+   */
+  private void clearQuotaStopWeekly() {
+
+    quotaStopWeekly_ = 0;
+  }
+
+  public static final int REVIEWS_ONLY_CLAUDE_FIELD_NUMBER = 8;
+  private int reviewsOnlyClaude_;
+  /**
+   * <pre>
+   * quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+   * </pre>
+   *
+   * <code>int32 reviews_only_claude = 8 [json_name = "reviewsOnlyClaude"];</code>
+   * @return The reviewsOnlyClaude.
+   */
+  @java.lang.Override
+  public int getReviewsOnlyClaude() {
+    return reviewsOnlyClaude_;
+  }
+  /**
+   * <pre>
+   * quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+   * </pre>
+   *
+   * <code>int32 reviews_only_claude = 8 [json_name = "reviewsOnlyClaude"];</code>
+   * @param value The reviewsOnlyClaude to set.
+   */
+  private void setReviewsOnlyClaude(int value) {
+    
+    reviewsOnlyClaude_ = value;
+  }
+  /**
+   * <pre>
+   * quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+   * </pre>
+   *
+   * <code>int32 reviews_only_claude = 8 [json_name = "reviewsOnlyClaude"];</code>
+   */
+  private void clearReviewsOnlyClaude() {
+
+    reviewsOnlyClaude_ = 0;
+  }
+
+  public static final int REVIEWS_ONLY_AGY_FIELD_NUMBER = 9;
+  private int reviewsOnlyAgy_;
+  /**
+   * <code>int32 reviews_only_agy = 9 [json_name = "reviewsOnlyAgy"];</code>
+   * @return The reviewsOnlyAgy.
+   */
+  @java.lang.Override
+  public int getReviewsOnlyAgy() {
+    return reviewsOnlyAgy_;
+  }
+  /**
+   * <code>int32 reviews_only_agy = 9 [json_name = "reviewsOnlyAgy"];</code>
+   * @param value The reviewsOnlyAgy to set.
+   */
+  private void setReviewsOnlyAgy(int value) {
+    
+    reviewsOnlyAgy_ = value;
+  }
+  /**
+   * <code>int32 reviews_only_agy = 9 [json_name = "reviewsOnlyAgy"];</code>
+   */
+  private void clearReviewsOnlyAgy() {
+
+    reviewsOnlyAgy_ = 0;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.GetUsageResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -968,6 +1070,114 @@ public  final class GetUsageResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+     * </pre>
+     *
+     * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>
+     * @return The quotaStopWeekly.
+     */
+    @java.lang.Override
+    public int getQuotaStopWeekly() {
+      return instance.getQuotaStopWeekly();
+    }
+    /**
+     * <pre>
+     * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+     * </pre>
+     *
+     * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>
+     * @param value The quotaStopWeekly to set.
+     * @return This builder for chaining.
+     */
+    public Builder setQuotaStopWeekly(int value) {
+      copyOnWrite();
+      instance.setQuotaStopWeekly(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+     * </pre>
+     *
+     * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearQuotaStopWeekly() {
+      copyOnWrite();
+      instance.clearQuotaStopWeekly();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+     * </pre>
+     *
+     * <code>int32 reviews_only_claude = 8 [json_name = "reviewsOnlyClaude"];</code>
+     * @return The reviewsOnlyClaude.
+     */
+    @java.lang.Override
+    public int getReviewsOnlyClaude() {
+      return instance.getReviewsOnlyClaude();
+    }
+    /**
+     * <pre>
+     * quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+     * </pre>
+     *
+     * <code>int32 reviews_only_claude = 8 [json_name = "reviewsOnlyClaude"];</code>
+     * @param value The reviewsOnlyClaude to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewsOnlyClaude(int value) {
+      copyOnWrite();
+      instance.setReviewsOnlyClaude(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+     * </pre>
+     *
+     * <code>int32 reviews_only_claude = 8 [json_name = "reviewsOnlyClaude"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviewsOnlyClaude() {
+      copyOnWrite();
+      instance.clearReviewsOnlyClaude();
+      return this;
+    }
+
+    /**
+     * <code>int32 reviews_only_agy = 9 [json_name = "reviewsOnlyAgy"];</code>
+     * @return The reviewsOnlyAgy.
+     */
+    @java.lang.Override
+    public int getReviewsOnlyAgy() {
+      return instance.getReviewsOnlyAgy();
+    }
+    /**
+     * <code>int32 reviews_only_agy = 9 [json_name = "reviewsOnlyAgy"];</code>
+     * @param value The reviewsOnlyAgy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewsOnlyAgy(int value) {
+      copyOnWrite();
+      instance.setReviewsOnlyAgy(value);
+      return this;
+    }
+    /**
+     * <code>int32 reviews_only_agy = 9 [json_name = "reviewsOnlyAgy"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviewsOnlyAgy() {
+      copyOnWrite();
+      instance.clearReviewsOnlyAgy();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetUsageResponse)
   }
   @java.lang.Override
@@ -993,10 +1203,13 @@ public  final class GetUsageResponse extends
             "quotaStop_",
             "minQuota_",
             "notes_",
+            "quotaStopWeekly_",
+            "reviewsOnlyClaude_",
+            "reviewsOnlyAgy_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0003\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u0004\u0005\u0004\u0006\u021a";
+              "\u0000\t\u0000\u0001\u0001\t\t\u0000\u0003\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
+              "\u001b\u0004\u0004\u0005\u0004\u0006\u021a\u0007\u0004\b\u0004\t\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

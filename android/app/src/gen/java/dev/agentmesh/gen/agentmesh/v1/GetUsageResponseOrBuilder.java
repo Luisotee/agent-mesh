@@ -101,4 +101,30 @@ public interface GetUsageResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getNotesBytes(int index);
+
+  /**
+   * <pre>
+   * quota_stop.weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+   * </pre>
+   *
+   * <code>int32 quota_stop_weekly = 7 [json_name = "quotaStopWeekly"];</code>
+   * @return The quotaStopWeekly.
+   */
+  int getQuotaStopWeekly();
+
+  /**
+   * <pre>
+   * quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+   * </pre>
+   *
+   * <code>int32 reviews_only_claude = 8 [json_name = "reviewsOnlyClaude"];</code>
+   * @return The reviewsOnlyClaude.
+   */
+  int getReviewsOnlyClaude();
+
+  /**
+   * <code>int32 reviews_only_agy = 9 [json_name = "reviewsOnlyAgy"];</code>
+   * @return The reviewsOnlyAgy.
+   */
+  int getReviewsOnlyAgy();
 }

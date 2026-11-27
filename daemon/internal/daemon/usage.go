@@ -89,6 +89,11 @@ type agyReserveHit struct {
 	model     string
 	display   string
 	label     string
+	// reviewsOnly: the row is under its reserve but past the reviews-only line, so only a reviewer may start on it.
+	reviewsOnly bool
+	weekly      bool
+	// line is the percent used the row was held at (its reserve, or the reviews-only line).
+	line float64
 }
 
 type claudeWindowMeta struct {
@@ -112,16 +117,50 @@ func claudeWindowLabel(key string) string {
 	return key
 }
 
-// quotaStop returns the `quota_stop` percentage from settings (default 90).
-func (d *Daemon) quotaStop(r store.Reader) float64 {
-	v, err := d.Setting(r, "quota_stop")
+// percentSetting reads a Percent setting, or def when it is unreadable.
+func (d *Daemon) percentSetting(r store.Reader, key string, def float64) float64 {
+	v, err := d.Setting(r, key)
 	if err != nil {
-		return 90
+		return def
 	}
 	if f, ok := v.(float64); ok {
 		return f
 	}
-	return 90
+	return def
+}
+
+// quotaStop returns the `quota_stop` percentage from settings (default 90): the short (five-hour) windows' reserve.
+func (d *Daemon) quotaStop(r store.Reader) float64 { return d.percentSetting(r, "quota_stop", 90) }
+
+// reserveLimits are the lines of one CLI's quota: the percent used at which a short window and a weekly window take
+// no new work (`quota_stop`, `quota_stop.weekly`), and the one at which the CLI takes only PR reviews
+// (`quota_reviews_only.<kind>`; 100 is off).
+type reserveLimits struct {
+	short, weekly, reviews float64
+}
+
+func (d *Daemon) reserveLimits(r store.Reader, kind string) reserveLimits {
+	l := reserveLimits{short: d.quotaStop(r), weekly: d.percentSetting(r, "quota_stop.weekly", 90), reviews: 100}
+	if kind == "claude" || kind == "agy" {
+		l.reviews = d.percentSetting(r, "quota_reviews_only."+kind, 100)
+	}
+	return l
+}
+
+// off reports there is nothing to enforce: no reserve on any window and no reviews-only line.
+func (l reserveLimits) off() bool { return l.short >= 100 && l.weekly >= 100 && l.reviews >= 100 }
+
+// line is the percent used at which a window takes no new work of this sort, and whether that line is the
+// reviews-only one: a reviewer runs up to the window's reserve, anything else only up to the reviews-only line.
+func (l reserveLimits) line(weekly, reviewer bool) (pct float64, reviewsOnly bool) {
+	stop := l.short
+	if weekly {
+		stop = l.weekly
+	}
+	if !reviewer && l.reviews < stop {
+		return l.reviews, true
+	}
+	return stop, false
 }
 
 func (d *Daemon) usageEnv(key string) string {
@@ -570,10 +609,9 @@ func (d *Daemon) resolveAgyModelDisplay(ctx context.Context, model, effort strin
 }
 
 // warmUsage pre-fetches vendor usage and resolves model display names outside store.Write so pick()/reserveCheck()
-// never shell out or hit the network under SQLite's writer lock. Skipped when quota_stop >= 100.
+// never shell out or hit the network under SQLite's writer lock. Skipped when no reserve is set.
 func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, extra ...agyResolveKey) {
-	stop := d.quotaStop(r)
-	if stop >= 100 {
+	if d.reserveLimits(r, kind).off() {
 		return
 	}
 	switch kind {
@@ -600,32 +638,35 @@ func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, ext
 	}
 }
 
-func (d *Daemon) agyModelAtReserveCached(model, effort string, stop float64) *agyReserveHit {
-	if stop >= 100 || model == "" {
+// agyRowHit is the row of a model's that is at its line for this sort of work: a row at its reserve outranks one
+// only at the reviews-only line, and then the one with the least left.
+func agyRowHit(rows []agy.UsageRow, lim reserveLimits, reviewer bool) (row agy.UsageRow, reviewsOnly, ok bool) {
+	for _, r := range rows {
+		line, ro := lim.line(r.Weekly(), reviewer)
+		if line >= 100 || r.Left > int(math.Round(100-line)) {
+			continue
+		}
+		if !ok || (reviewsOnly && !ro) || (ro == reviewsOnly && r.Left < row.Left) {
+			row, reviewsOnly, ok = r, ro, true
+		}
+	}
+	return row, reviewsOnly, ok
+}
+
+func (d *Daemon) agyModelAtReserveCached(model, effort string, lim reserveLimits, reviewer bool) *agyReserveHit {
+	if lim.off() || model == "" {
 		return nil
 	}
-	minQuota := int(math.Round(100 - stop))
 	rows, fetchedAt := d.cachedAgyUsageRows(d.now())
 	if len(rows) == 0 {
 		return nil
 	}
 	id, disp := d.resolveAgyModelDisplay(context.Background(), model, effort, false)
-	q, ok := agy.ModelQuota(id, disp, rows)
-	if !ok || q.Left > minQuota {
-		return nil
-	}
-	return &agyReserveHit{
-		left:      q.Left,
-		resets:    q.Resets,
-		fetchedAt: fetchedAt,
-		model:     id,
-		display:   disp,
-		label:     q.Label,
-	}
+	return agyHitOf(rows, fetchedAt, id, disp, lim, reviewer)
 }
 
-func (d *Daemon) agyModelAtReserve(ctx context.Context, model, effort string, stop float64, allowExec bool) *agyReserveHit {
-	if stop >= 100 || model == "" {
+func (d *Daemon) agyModelAtReserve(ctx context.Context, model, effort string, lim reserveLimits, reviewer, allowExec bool) *agyReserveHit {
+	if lim.off() || model == "" {
 		return nil
 	}
 	rows, fetchedAt := d.agyUsageRows(ctx, allowExec, false)
@@ -633,21 +674,25 @@ func (d *Daemon) agyModelAtReserve(ctx context.Context, model, effort string, st
 		return nil
 	}
 	id, disp := d.resolveAgyModelDisplay(ctx, model, effort, allowExec)
-	q, ok := agy.ModelQuota(id, disp, rows)
+	return agyHitOf(rows, fetchedAt, id, disp, lim, reviewer)
+}
+
+func agyHitOf(rows []agy.UsageRow, fetchedAt time.Time, id, disp string, lim reserveLimits, reviewer bool) *agyReserveHit {
+	q, ro, ok := agyRowHit(agy.ModelRows(id, disp, rows), lim, reviewer)
 	if !ok {
 		return nil
 	}
-	minQuota := int(math.Round(100 - stop))
-	if q.Left > minQuota {
-		return nil
-	}
+	line, _ := lim.line(q.Weekly(), reviewer)
 	return &agyReserveHit{
-		left:      q.Left,
-		resets:    q.Resets,
-		fetchedAt: fetchedAt,
-		model:     id,
-		display:   disp,
-		label:     q.Label,
+		left:        q.Left,
+		resets:      q.Resets,
+		fetchedAt:   fetchedAt,
+		model:       id,
+		display:     disp,
+		label:       q.Label,
+		reviewsOnly: ro,
+		weekly:      q.Weekly(),
+		line:        line,
 	}
 }
 
@@ -665,15 +710,27 @@ func claudeWindowApplies(key, model string) bool {
 	}
 }
 
-func (d *Daemon) claudeAtReserve(ctx context.Context, model string, stop float64, network bool) (key, label string, used float64, resets string, hit bool) {
-	if stop >= 100 {
-		return "", "", 0, "", false
+// claudeHit is a Claude window at its line for a sort of work.
+type claudeHit struct {
+	key, label  string
+	used, line  float64
+	resets      string
+	reviewsOnly bool
+}
+
+// claudeAtReserve is the window of a Claude model's at its line for this sort of work: one at its reserve outranks
+// one only at the reviews-only line.
+func (d *Daemon) claudeAtReserve(ctx context.Context, model string, lim reserveLimits, reviewer, network bool) (claudeHit, bool) {
+	if lim.off() {
+		return claudeHit{}, false
 	}
 	snap := d.claudeUsage(ctx, network, false)
 	if snap == nil {
-		return "", "", 0, "", false
+		return claudeHit{}, false
 	}
 	now := d.now()
+	var soft claudeHit
+	haveSoft := false
 	for _, meta := range claudeWindowOrder {
 		if !claudeWindowApplies(meta.key, model) {
 			continue
@@ -682,21 +739,39 @@ func (d *Daemon) claudeAtReserve(ctx context.Context, model string, stop float64
 		if !ok || claudeWindowStale(w, now) {
 			continue
 		}
-		if w.Used >= stop {
-			return meta.key, meta.label, w.Used, w.Resets, true
+		line, ro := lim.line(meta.key != "five_hour", reviewer)
+		if w.Used < line {
+			continue
+		}
+		h := claudeHit{key: meta.key, label: meta.label, used: w.Used, line: line, resets: w.Resets, reviewsOnly: ro}
+		if !ro {
+			return h, true
+		}
+		if !haveSoft {
+			soft, haveSoft = h, true
 		}
 	}
-	return "", "", 0, "", false
+	return soft, haveSoft
 }
 
-// ReserveGuard enforces `quota_stop`: it returns ResourceExhausted if `kind`/`model` is at or past `quota_stop`
-// and the run has not been placed `over_reserve` via `SetReserve` (`mesh reserve off`).
-func (d *Daemon) ReserveGuard(ctx context.Context, r store.Reader, runID, kind, model, effort, what string) error {
+// ReserveGuard enforces the quota reserves: it returns ResourceExhausted if `kind`/`model` is at or past the
+// reserve of its window (`quota_stop` short, `quota_stop.weekly` weekly), or, for work that is not a PR review
+// (`reviewer` false), past `quota_reviews_only.<kind>`, and the run has not been placed `over_reserve` via
+// `SetReserve` (`mesh reserve off`).
+func (d *Daemon) ReserveGuard(ctx context.Context, r store.Reader, runID, kind, model, effort, what string, reviewer bool) error {
 	d.warmUsage(ctx, r, kind)
-	return d.reserveCheck(r, runID, kind, model, effort, what)
+	return d.reserveCheck(r, runID, kind, model, effort, what, reviewer)
 }
 
-func (d *Daemon) reserveCheck(r store.Reader, runID, kind, model, effort, what string) error {
+// stopKey names the setting that holds a window's reserve.
+func stopKey(weekly bool) string {
+	if weekly {
+		return "quota_stop.weekly"
+	}
+	return "quota_stop"
+}
+
+func (d *Daemon) reserveCheck(r store.Reader, runID, kind, model, effort, what string, reviewer bool) error {
 	ctx := context.Background()
 	allowLive := false
 	if runID != "" {
@@ -708,22 +783,26 @@ func (d *Daemon) reserveCheck(r store.Reader, runID, kind, model, effort, what s
 			return nil
 		}
 	}
-	stop := d.quotaStop(r)
-	if stop >= 100 {
+	lim := d.reserveLimits(r, kind)
+	if lim.off() {
 		return nil
 	}
 	switch kind {
 	case "claude":
-		if _, label, used, resets, hit := d.claudeAtReserve(ctx, model, stop, allowLive); hit {
+		if h, hit := d.claudeAtReserve(ctx, model, lim, reviewer, allowLive); hit {
 			resetPart := ""
-			if resets != "" {
-				resetPart = ", resets " + resets
+			if h.resets != "" {
+				resetPart = ", resets " + h.resets
 			}
-			return exhausted("%s: claude %s is at %.0f%% (quota_stop %.0f%%%s); wait for reset or run `mesh reserve off`",
-				what, label, used, stop, resetPart)
+			if h.reviewsOnly {
+				return exhausted("%s: claude %s is at %.0f%% (quota_reviews_only.claude %.0f%%%s): claude takes only PR reviews now; use another CLI, wait for reset or run `mesh reserve off`",
+					what, h.label, h.used, h.line, resetPart)
+			}
+			return exhausted("%s: claude %s is at %.0f%% (%s %.0f%%%s); wait for reset or run `mesh reserve off`",
+				what, h.label, h.used, stopKey(h.key != "five_hour"), h.line, resetPart)
 		}
 	case "agy":
-		if hit := d.agyModelAtReserve(ctx, model, effort, stop, allowLive); hit != nil {
+		if hit := d.agyModelAtReserve(ctx, model, effort, lim, reviewer, allowLive); hit != nil {
 			name := hit.model
 			if hit.display != "" {
 				name = hit.display
@@ -732,8 +811,12 @@ func (d *Daemon) reserveCheck(r store.Reader, runID, kind, model, effort, what s
 			if hit.resets != "" {
 				resetPart = ", resets " + hit.resets
 			}
-			return exhausted("%s: agy %s has %d%% left (quota_stop %.0f%%%s); wait for reset or run `mesh reserve off`",
-				what, name, hit.left, stop, resetPart)
+			if hit.reviewsOnly {
+				return exhausted("%s: agy %s has %d%% left (%s, quota_reviews_only.agy %.0f%%%s): agy takes only PR reviews now; use another CLI, wait for reset or run `mesh reserve off`",
+					what, name, hit.left, hit.label, hit.line, resetPart)
+			}
+			return exhausted("%s: agy %s has %d%% left (%s, %s %.0f%%%s); wait for reset or run `mesh reserve off`",
+				what, name, hit.left, hit.label, stopKey(hit.weekly), hit.line, resetPart)
 		}
 	}
 	return nil
@@ -764,10 +847,14 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 	r := d.store.Read(ctx)
 	stop := d.quotaStop(r)
 	refresh := req.Msg.Refresh
+	climits, alimits := d.reserveLimits(r, "claude"), d.reserveLimits(r, "agy")
 
 	out := &v1.GetUsageResponse{
-		QuotaStop: int32(math.Round(stop)),
-		MinQuota:  int32(math.Round(100 - stop)),
+		QuotaStop:         int32(math.Round(stop)),
+		MinQuota:          int32(math.Round(100 - stop)),
+		QuotaStopWeekly:   int32(math.Round(alimits.weekly)),
+		ReviewsOnlyClaude: int32(math.Round(climits.reviews)),
+		ReviewsOnlyAgy:    int32(math.Round(alimits.reviews)),
 	}
 
 	if snap := d.claudeUsage(ctx, true, refresh); snap != nil {
@@ -783,17 +870,23 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 			if !ok {
 				continue
 			}
+			line, _ := climits.line(meta.key != "five_hour", true)
 			cw := &v1.ClaudeUsageWindow{
-				Key:   meta.key,
-				Label: meta.label,
-				Used:  w.Used,
+				Key:     meta.key,
+				Label:   meta.label,
+				Used:    w.Used,
+				Reserve: int32(math.Round(line)),
 			}
 			if rt, ok := parseClaudeReset(w.Resets); ok {
 				cw.ResetsAt = timestamppb.New(rt)
 			}
 			cu.Windows = append(cu.Windows, cw)
-			if stop < 100 && !claudeWindowStale(w, now) && w.Used >= stop {
-				cu.AtReserve = append(cu.AtReserve, meta.label)
+			if stale := claudeWindowStale(w, now); !stale {
+				if w.Used >= line && line < 100 {
+					cu.AtReserve = append(cu.AtReserve, meta.label)
+				} else if w.Used >= climits.reviews {
+					cu.ReviewsOnly = append(cu.ReviewsOnly, meta.label)
+				}
 			}
 		}
 		out.Claude = cu
@@ -804,11 +897,15 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		out.Notes = append(out.Notes, agyLoginNote)
 	}
 	for _, row := range rows {
+		line, _ := alimits.line(row.Weekly(), true)
+		atReserve := line < 100 && row.Left <= int(math.Round(100-line))
 		out.AgyRows = append(out.AgyRows, &v1.AgyUsageRow{
-			Group:  row.Group,
-			Label:  row.Label,
-			Left:   int32(row.Left),
-			Resets: row.Resets,
+			Group:       row.Group,
+			Label:       row.Label,
+			Left:        int32(row.Left),
+			Resets:      row.Resets,
+			AtReserve:   atReserve,
+			ReviewsOnly: !atReserve && alimits.reviews < 100 && row.Left <= int(math.Round(100-alimits.reviews)),
 		})
 	}
 
@@ -821,7 +918,7 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		for _, m := range chain {
 			d.resolveAgyModelDisplay(ctx, m, effort, true)
 		}
-		picked := d.firstFree(r, "agy", effort, chain)
+		picked := d.firstFree(r, "agy", effort, chain, false)
 		tp := &v1.AgyTierPick{Tier: tier, Model: picked}
 		id, disp := d.resolveAgyModelDisplay(ctx, picked, effort, false)
 		if q, ok := agy.ModelQuota(id, disp, rows); ok {
@@ -831,8 +928,12 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		for _, m := range chain {
 			if until, _, err := r.ModelHold("agy", m, now); err == nil && !until.IsZero() {
 				tp.Notes = append(tp.Notes, fmt.Sprintf("%s held until %s", m, until.UTC().Format(time.RFC3339)))
-			} else if hit := d.agyModelAtReserveCached(m, effort, stop); hit != nil {
-				tp.Notes = append(tp.Notes, fmt.Sprintf("%s at reserve (%d%% left)", m, hit.left))
+			} else if hit := d.agyModelAtReserveCached(m, effort, alimits, false); hit != nil {
+				if hit.reviewsOnly {
+					tp.Notes = append(tp.Notes, fmt.Sprintf("%s takes only PR reviews (%d%% left)", m, hit.left))
+				} else {
+					tp.Notes = append(tp.Notes, fmt.Sprintf("%s at reserve (%d%% left)", m, hit.left))
+				}
 			}
 		}
 		out.AgyTiers = append(out.AgyTiers, tp)
@@ -862,11 +963,12 @@ func (d *Daemon) SetReserve(ctx context.Context, req *connect.Request[v1.SetRese
 		return nil, invalid("run_id is required")
 	}
 
-	formatSummary := func(over bool, stop float64) string {
+	formatSummary := func(over bool, r store.Reader) string {
+		stop, weekly := d.quotaStop(r), d.percentSetting(r, "quota_stop.weekly", 90)
 		if over {
-			return fmt.Sprintf("reserve off: new tasks allowed past %.0f%% quota_stop", stop)
+			return fmt.Sprintf("reserve off: new tasks allowed past %.0f%% quota_stop (5h) and %.0f%% quota_stop.weekly, and past any reviews-only line", stop, weekly)
 		}
-		return fmt.Sprintf("reserve on: new tasks stop at %.0f%% quota_stop", stop)
+		return fmt.Sprintf("reserve on: new tasks stop at %.0f%% quota_stop (5h) and %.0f%% quota_stop.weekly (weekly)", stop, weekly)
 	}
 
 	if mode == "" {
@@ -883,7 +985,7 @@ func (d *Daemon) SetReserve(ctx context.Context, req *connect.Request[v1.SetRese
 			Run:         run,
 			OverReserve: run.OverReserve,
 			QuotaStop:   int32(math.Round(stop)),
-			Summary:     formatSummary(run.OverReserve, stop),
+			Summary:     formatSummary(run.OverReserve, r),
 		}), nil
 	}
 
@@ -915,7 +1017,7 @@ func (d *Daemon) SetReserve(ctx context.Context, req *connect.Request[v1.SetRese
 		out.Run = run
 		out.OverReserve = run.OverReserve
 		out.QuotaStop = int32(math.Round(stop))
-		out.Summary = formatSummary(run.OverReserve, stop)
+		out.Summary = formatSummary(run.OverReserve, tx.Reader)
 		return nil
 	})
 	if err != nil {
@@ -925,11 +1027,12 @@ func (d *Daemon) SetReserve(ctx context.Context, req *connect.Request[v1.SetRese
 }
 
 // reserveAlertPass notifies the lead of any open run (not over_reserve) when a vendor window or active agy
-// model reaches `quota_stop`, deduped per run + alert key + reset window.
+// model reaches its reserve (`quota_stop`, `quota_stop.weekly`) or its reviews-only line, deduped per run + alert
+// key + reset window.
 func (d *Daemon) reserveAlertPass(ctx context.Context) {
 	r := d.store.Read(ctx)
-	stop := d.quotaStop(r)
-	if stop >= 100 {
+	climits, alimits := d.reserveLimits(r, "claude"), d.reserveLimits(r, "agy")
+	if climits.off() && alimits.off() {
 		return
 	}
 	runs, err := r.ListRuns(true)
@@ -996,7 +1099,14 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 		if models := activeClaudeModels[run.Id]; len(models) > 0 && claudeSnap != nil {
 			for _, meta := range claudeWindowOrder {
 				w, ok := claudeSnap.Windows[meta.key]
-				if !ok || claudeWindowStale(w, now) || w.Used < stop {
+				if !ok || claudeWindowStale(w, now) {
+					continue
+				}
+				weekly := meta.key != "five_hour"
+				stopLine, _ := climits.line(weekly, true)
+				atStop := stopLine < 100 && w.Used >= stopLine
+				reviewsOnly := !atStop && w.Used >= climits.reviews
+				if !atStop && !reviewsOnly {
 					continue
 				}
 				applies := false
@@ -1014,17 +1124,20 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 				if w.Resets != "" {
 					resetPart = ", resets " + w.Resets
 				}
-				alerts = append(alerts, alertItem{
-					key:       dedupeKey,
-					expiresAt: expiresAt,
-					body: fmt.Sprintf("[mesh alert reserve claude-%s] claude %s is at %.0f%% (quota_stop %.0f%%%s). "+
-						"New tasks on claude are held until reset or `mesh reserve off`.",
-						meta.key, meta.label, w.Used, stop, resetPart),
-				})
+				body := fmt.Sprintf("[mesh alert reserve claude-%s] claude %s is at %.0f%% (%s %.0f%%%s). "+
+					"New tasks on claude are held until reset or `mesh reserve off`.",
+					meta.key, meta.label, w.Used, stopKey(weekly), stopLine, resetPart)
+				if reviewsOnly {
+					dedupeKey += ":reviews"
+					body = fmt.Sprintf("[mesh alert reserve claude-%s] claude %s is at %.0f%% (quota_reviews_only.claude %.0f%%%s). "+
+						"Claude now starts only PR reviews: send tasks to another CLI, wait for reset or `mesh reserve off`.",
+						meta.key, meta.label, w.Used, climits.reviews, resetPart)
+				}
+				alerts = append(alerts, alertItem{key: dedupeKey, expiresAt: expiresAt, body: body})
 			}
 		}
 		for k := range activeAgyModels[run.Id] {
-			if hit := d.agyModelAtReserve(ctx, k.model, k.effort, stop, false); hit != nil {
+			if hit := d.agyModelAtReserve(ctx, k.model, k.effort, alimits, false, false); hit != nil {
 				name := hit.model
 				if hit.display != "" {
 					name = hit.display
@@ -1045,13 +1158,16 @@ func (d *Daemon) reserveAlertPass(ctx context.Context) {
 				if hit.resets != "" {
 					resetPart = ", resets " + hit.resets
 				}
-				alerts = append(alerts, alertItem{
-					key:       dedupeKey,
-					expiresAt: expiresAt,
-					body: fmt.Sprintf("[mesh alert reserve agy-%s] agy %s has %d%% left (quota_stop %.0f%%%s). "+
-						"Consider switching models or `mesh reserve off`.",
-						hit.model, name, hit.left, stop, resetPart),
-				})
+				body := fmt.Sprintf("[mesh alert reserve agy-%s] agy %s has %d%% left (%s, %s %.0f%%%s). "+
+					"Consider switching models or `mesh reserve off`.",
+					hit.model, name, hit.left, hit.label, stopKey(hit.weekly), hit.line, resetPart)
+				if hit.reviewsOnly {
+					dedupeKey += ":reviews"
+					body = fmt.Sprintf("[mesh alert reserve agy-%s] agy %s has %d%% left (%s, quota_reviews_only.agy %.0f%%%s). "+
+						"This model now starts only PR reviews: send tasks to another model or CLI, wait for reset or `mesh reserve off`.",
+						hit.model, name, hit.left, hit.label, hit.line, resetPart)
+				}
+				alerts = append(alerts, alertItem{key: dedupeKey, expiresAt: expiresAt, body: body})
 			}
 		}
 		for _, al := range alerts {

@@ -332,7 +332,7 @@ func TestAReviewerThatCouldNotBeAskedAgainLeavesTheRoundsCapPlace(t *testing.T) 
 	reset := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 	w.typeInto(w.spawnClaude(t, w.run, "usage", v1.AgentRole_AGENT_ROLE_WORKER), `/ratelimits {"five_hour":{"used_percentage":95,"resets_at":"`+reset+`"}}`+"\r")
 	waitFor(t, "the reserve to fill", func() bool {
-		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "sonnet", "high", "test") != nil
+		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "sonnet", "high", "test", false) != nil
 	})
 	w.set(t, "caps.agents", 3) // the root, the running reviewer and the worker fill it
 

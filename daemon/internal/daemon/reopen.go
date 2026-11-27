@@ -94,15 +94,15 @@ func (d *Daemon) tierChain(r store.Reader, kind, tier string) ([]string, string,
 // pick resolves what an agent runs on: a tier's first model with quota left (limits.go) at its effort, or a named model (at the effort
 // named, else the one its name fixes, as an exact agy id does, else the tier's, else high). There is no default:
 // neither is InvalidArgument.
-func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string) (string, string, error) {
-	return d.pickIn(r, "", "", kind, tier, model, effort, what)
+func (d *Daemon) pick(r store.Reader, kind, tier, model, effort, what string, reviewer bool) (string, string, error) {
+	return d.pickIn(r, "", "", kind, tier, model, effort, what, reviewer)
 }
 
 // pickIn is pick for work in a repo that may be set to keep its code from OpenCode's free models (freemodels.go):
 // `freeOff` is the setting's entry that lists the repo ("" when it may use them), and `repo` names it in the error.
 // Only the zero-cost models are held back: a named one that is free (or can't be told from one) is refused, and a
 // tier's chain loses its free models.
-func (d *Daemon) pickIn(r store.Reader, repo, freeOff, kind, tier, model, effort, what string) (string, string, error) {
+func (d *Daemon) pickIn(r store.Reader, repo, freeOff, kind, tier, model, effort, what string, reviewer bool) (string, string, error) {
 	if freeOff != "" && kind == opencode.Kind && model != "" {
 		if err := d.checkNotFree(repo, freeOff, model); err != nil {
 			return "", "", err
@@ -129,7 +129,7 @@ func (d *Daemon) pickIn(r store.Reader, repo, freeOff, kind, tier, model, effort
 		}
 		if kind == opencode.Kind && model == opencode.FreeFamily {
 			expanded := d.expandChain(kind, []string{model})
-			chosen := d.firstFree(r, kind, effort, expanded)
+			chosen := d.firstFree(r, kind, effort, expanded, reviewer)
 			if chosen == "" {
 				return "", "", invalid("%s", d.openCodeNoFreeError())
 			}
@@ -154,7 +154,7 @@ func (d *Daemon) pickIn(r store.Reader, repo, freeOff, kind, tier, model, effort
 	if effort == "" {
 		effort = e
 	}
-	chosen := d.firstFree(r, kind, effort, chain)
+	chosen := d.firstFree(r, kind, effort, chain, reviewer)
 	if chosen == "" {
 		return "", "", invalid("%s", d.openCodeNoFreeError())
 	}
@@ -507,7 +507,7 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened on its "+
 				"execution model: approve it again once it has started", a.Name)
 		}
-		if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "approving "+a.Name); err != nil {
+		if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "approving "+a.Name, isReviewer(a)); err != nil {
 			return err
 		}
 		body := "approved"
@@ -623,7 +623,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 					effort = namedEffort
 				}
 				expanded := d.expandChain(a.Kind, []string{model})
-				model = d.firstFree(tx.Reader, a.Kind, effort, expanded)
+				model = d.firstFree(tx.Reader, a.Kind, effort, expanded, isReviewer(a))
 				if model == "" {
 					return failedPrecondition("%s", d.openCodeNoFreeError())
 				}
@@ -665,7 +665,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 				if a.Kind == opencode.Kind {
 					// OpenCode's expanded `free` chain can change while running: take the first unheld model,
 					// or refuse with the soonest reset when every model in the chain is held.
-					if model = d.nextFree(tx.Reader, a.Kind, effort, chain, -1); model == "" {
+					if model = d.nextFree(tx.Reader, a.Kind, effort, chain, -1, isReviewer(a)); model == "" {
 						if soonest := d.soonestHold(tx.Reader, a.Kind, chain); !soonest.IsZero() {
 							return failedPrecondition("every model of the %s %s chain (%s) is held; soonest reset at %s",
 								a.Kind, phaseTier, strings.Join(chain, ", "), soonest.UTC().Format(time.RFC3339))
@@ -679,7 +679,7 @@ func (d *Daemon) SwitchAgent(ctx context.Context, req *connect.Request[v1.Switch
 			case i+1 < len(chain):
 				// Never back to one before: they were tried. The first with quota left, else the next one
 				// (OpenCode refuses instead of reopening onto a held model).
-				if model = d.nextFree(tx.Reader, a.Kind, effort, chain, i); model == "" {
+				if model = d.nextFree(tx.Reader, a.Kind, effort, chain, i, isReviewer(a)); model == "" {
 					if a.Kind == opencode.Kind {
 						if soonest := d.soonestHold(tx.Reader, a.Kind, chain[i+1:]); !soonest.IsZero() {
 							return failedPrecondition("every remaining model of the %s %s chain (%s) is held; soonest reset at %s",
@@ -933,7 +933,7 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 		if err != nil {
 			return nil, err
 		}
-		if err := d.reserveCheck(r1, targetRunID, a0.Kind, pm, pe, "resuming "+a0.Name); err != nil {
+		if err := d.reserveCheck(r1, targetRunID, a0.Kind, pm, pe, "resuming "+a0.Name, isReviewer(a0)); err != nil {
 			return nil, err
 		}
 	}
@@ -1237,7 +1237,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 		}
 		a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
 		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
-			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
+			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name, isReviewer(a)); err != nil {
 				return nil, err
 			}
 		}
@@ -1261,7 +1261,7 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 		}
 		a.Pinned, deny = spec.model != "" || spec.effort != "", adapter.ReadOnly(a.Role)
 		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
-			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name); err != nil {
+			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name, isReviewer(a)); err != nil {
 				return nil, err
 			}
 		}

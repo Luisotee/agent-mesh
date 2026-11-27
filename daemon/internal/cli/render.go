@@ -165,6 +165,9 @@ func renderUsage(m proto.Message, w io.Writer) {
 		if len(c.AtReserve) > 0 {
 			line += " — at the reserve: " + strings.Join(c.AtReserve, ", ")
 		}
+		if len(c.ReviewsOnly) > 0 {
+			line += " — takes only PR reviews: " + strings.Join(c.ReviewsOnly, ", ")
+		}
 		fmt.Fprintln(w, line)
 	} else {
 		fmt.Fprintln(w, "Claude: unknown (no reading)")
@@ -172,7 +175,14 @@ func renderUsage(m proto.Message, w io.Writer) {
 	if len(u.AgyRows) > 0 {
 		fmt.Fprintln(w)
 		for _, r := range u.AgyRows {
-			fmt.Fprintf(w, "  %-24s %-16s %3d%% left  (%s)\n", r.Group, r.Label, r.Left, r.Resets)
+			mark := ""
+			switch {
+			case r.AtReserve:
+				mark = "  at the reserve"
+			case r.ReviewsOnly:
+				mark = "  only PR reviews"
+			}
+			fmt.Fprintf(w, "  %-24s %-16s %3d%% left  (%s)%s\n", r.Group, r.Label, r.Left, r.Resets, mark)
 		}
 	} else if len(u.Notes) == 0 {
 		fmt.Fprintln(w, "agy: `agy -p /usage` gave no quota rows")
@@ -197,7 +207,19 @@ func renderUsage(m proto.Message, w io.Writer) {
 			}
 		}
 	}
-	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota once %d%% of it is used (quota_stop)\n", u.QuotaStop)
+	weekly := u.QuotaStopWeekly
+	if weekly == 0 {
+		weekly = u.QuotaStop // a host that predates the weekly line
+	}
+	fmt.Fprintf(w, "\nreserve: mesh starts nothing new on a quota window once %d%% of a five-hour one (quota_stop) or %d%% of a weekly one (quota_stop.weekly) is used\n", u.QuotaStop, weekly)
+	for _, o := range []struct {
+		kind string
+		at   int32
+	}{{"claude", u.ReviewsOnlyClaude}, {"agy", u.ReviewsOnlyAgy}} {
+		if o.at > 0 && o.at < 100 {
+			fmt.Fprintf(w, "reviews only: %s starts only PR reviews once %d%% of a window is used (quota_reviews_only.%s)\n", o.kind, o.at, o.kind)
+		}
+	}
 }
 
 // renderBrief prints the brief as the text it is.

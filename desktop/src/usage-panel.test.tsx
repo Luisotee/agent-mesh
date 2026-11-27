@@ -39,7 +39,7 @@ describe('UsagePanel', () => {
     render(ui)
     const week = await screen.findByRole('progressbar', { name: 'weekly window used' })
     expect(week).toHaveAttribute('aria-valuenow', '95')
-    expect(screen.getByRole('alert')).toHaveTextContent('At the reserve (90% of a quota used): Claude weekly window')
+    expect(screen.getByRole('alert')).toHaveTextContent('At the reserve (90% of a five-hour window, 90% of a weekly one): Claude weekly window')
     expect(document.querySelector('[data-window="five_hour"]')).not.toHaveTextContent('at the reserve')
     expect(client.getUsage).toHaveBeenCalledWith({ refresh: false })
     // Tokens are the main figure; the dollars follow, as what the Claude sessions would cost at API prices.
@@ -62,6 +62,34 @@ describe('UsagePanel', () => {
     await waitFor(() => expect(client.getCost).toHaveBeenLastCalledWith({ agents: true, runId: 'r1', since: '' }))
     await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     await waitFor(() => expect(client.getUsage).toHaveBeenLastCalledWith({ refresh: true }))
+  })
+
+  it('draws each window against its own reserve and says which are kept for PR reviews', async () => {
+    const { ui } = fixture({
+      usage: async () =>
+        create(GetUsageResponseSchema, {
+          quotaStop: 85,
+          quotaStopWeekly: 95,
+          reviewsOnlyClaude: 70,
+          claude: {
+            source: 'live',
+            reviewsOnly: ['five-hour window'],
+            windows: [
+              { key: 'five_hour', label: 'five-hour window', used: 75, reserve: 85 },
+              { key: 'seven_day', label: 'weekly window', used: 20, reserve: 95 },
+            ],
+          },
+        }),
+    })
+    render(ui)
+    await screen.findByRole('progressbar', { name: 'five-hour window used' })
+    expect(document.querySelector('[data-window="five_hour"] [title="reserve: 85%"]')).not.toBeNull()
+    expect(document.querySelector('[data-window="seven_day"] [title="reserve: 95%"]')).not.toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('Only PR reviews: Claude five-hour window')
+    expect(screen.queryByRole('alert')).toBeNull()
+    const text = document.body.textContent ?? ''
+    expect(text).toContain('85% of a five-hour one (quota_stop) or 95% of a weekly one (quota_stop.weekly) is used')
+    expect(text).toContain('Claude starts only PR reviews from 70% (quota_reviews_only.claude)')
   })
 
   it('says so when there is no Claude reading and nothing was spent, and shows the host\'s error', async () => {

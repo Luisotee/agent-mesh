@@ -11,6 +11,10 @@ export interface QuotaBar {
   used: number
   /** At or past the reserve: the host starts nothing new on it (`quota_stop`, `ReserveGuard` in the daemon). */
   atReserve: boolean
+  /** The percent used at which this window's reserve is: `quota_stop` for the five-hour one, `quota_stop.weekly` for a weekly one. */
+  reserve: number
+  /** Past the CLI's reviews-only line, under the reserve: the host starts only PR reviews on it. */
+  reviewsOnly: boolean
   resetsAt?: Date
 }
 
@@ -20,6 +24,9 @@ export interface AgyRow {
   left: number
   resets: string
   atReserve: boolean
+  /** The percent used at which this row's reserve is: `quota_stop` for a short row, `quota_stop.weekly` for a weekly one. */
+  reserve: number
+  reviewsOnly: boolean
 }
 
 export interface AgyTier {
@@ -31,8 +38,12 @@ export interface AgyTier {
 }
 
 export interface UsageView {
-  /** The percent of a quota used at which the host starts nothing new. */
+  /** The percent of a five-hour quota used at which the host starts nothing new (`quota_stop`). */
   reserve: number
+  /** The same for a weekly quota (`quota_stop.weekly`). */
+  reserveWeekly: number
+  /** Where Claude and agy take only PR reviews (`quota_reviews_only.*`); 100 is off. */
+  reviewsOnly: { claude: number; agy: number }
   /** Claude's windows; empty when the host has no reading. */
   claude: QuotaBar[]
   claudeSource: string
@@ -41,26 +52,51 @@ export interface UsageView {
   tiers: AgyTier[]
   /** The windows and rows at the reserve, named, for a warning. */
   warnings: string[]
+  /** The windows and rows past the reviews-only line but under the reserve, named. */
+  reviewsOnlyWarnings: string[]
 }
 
 const date = (t?: { seconds: bigint }) => (t ? new Date(Number(t.seconds) * 1000) : undefined)
 
 export function usageView(u: GetUsageResponse): UsageView {
   const reserve = u.quotaStop
+  // A host that predates the weekly reserve says 0 for it: its one reserve held every window.
+  const reserveWeekly = u.quotaStopWeekly || u.quotaStop
   const claude = (u.claude?.windows ?? []).map((w) => ({
     key: w.key,
     label: w.label,
     used: w.used,
     // The host says which windows are at the reserve (a window whose reset has passed isn't, whatever it last read).
     atReserve: (u.claude?.atReserve ?? []).includes(w.label),
+    reserve: w.reserve || (w.key === 'five_hour' ? reserve : reserveWeekly),
+    reviewsOnly: (u.claude?.reviewsOnly ?? []).includes(w.label),
     resetsAt: date(w.resetsAt),
   }))
-  // agy reports what is left. The host's guard (`agyModelAtReserve`): no reserve at all once `quota_stop` is 100, else a
-  // row is at it when no more than `min_quota` (100 - `quota_stop`) is left, so at `quota_stop` 0 every row is.
-  const agy = u.agyRows.map((r) => ({ group: r.group, label: r.label, left: r.left, resets: r.resets, atReserve: reserve < 100 && r.left <= u.minQuota }))
+  // agy reports what is left; the host says which rows are at their line (`agyRowHit`: a weekly row has the weekly reserve).
+  const agy = u.agyRows.map((r) => ({
+    group: r.group,
+    label: r.label,
+    left: r.left,
+    resets: r.resets,
+    atReserve: r.atReserve,
+    reserve: /week/i.test(r.label) ? reserveWeekly : reserve,
+    reviewsOnly: r.reviewsOnly,
+  }))
   const tiers = u.agyTiers.map((t) => ({ tier: t.tier, model: t.model, left: t.hasLeft ? t.left : undefined, notes: t.notes }))
   const warnings = [...claude.filter((w) => w.atReserve).map((w) => `Claude ${w.label}`), ...agy.filter((r) => r.atReserve).map((r) => `agy ${r.group} ${r.label}`)]
-  return { reserve, claude, claudeSource: u.claude?.source ?? '', claudeFetchedAt: date(u.claude?.fetchedAt), agy, tiers, warnings }
+  const reviewsOnlyWarnings = [...claude.filter((w) => w.reviewsOnly).map((w) => `Claude ${w.label}`), ...agy.filter((r) => r.reviewsOnly).map((r) => `agy ${r.group} ${r.label}`)]
+  return {
+    reserve,
+    reserveWeekly,
+    reviewsOnly: { claude: u.reviewsOnlyClaude || 100, agy: u.reviewsOnlyAgy || 100 },
+    claude,
+    claudeSource: u.claude?.source ?? '',
+    claudeFetchedAt: date(u.claude?.fetchedAt),
+    agy,
+    tiers,
+    warnings,
+    reviewsOnlyWarnings,
+  }
 }
 
 /** One bar of the footer's quota: a window of a provider. */
@@ -72,6 +108,10 @@ export interface QuotaLine {
   /** Percent used, 0 to 100. */
   used: number
   atReserve: boolean
+  /** The percent used at which this bar's reserve is (its own: five-hour and weekly differ). */
+  reserve: number
+  /** Past the reviews-only line: the host starts only PR reviews on it. */
+  reviewsOnly: boolean
   resetsAt?: Date
   /** agy gives its reset as text ("1h"), not a time. */
   resetsIn?: string
@@ -114,7 +154,7 @@ export function quotaSections(u: GetUsageResponse): { reserve: number; sections:
   const sections: QuotaSection[] = []
   const claude: QuotaLine[] = v.claude
     .filter((w) => !minorWindow(w.key, w.label) || w.atReserve)
-    .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, resetsAt: w.resetsAt }))
+    .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, reserve: w.reserve, reviewsOnly: w.reviewsOnly, resetsAt: w.resetsAt }))
   if (claude.length > 0) sections.push({ vendor: 'claude', name: 'Claude', lines: claude })
   // With no tier to say what is used, the fullest row stands for agy; with tiers, the rows they start on.
   const named = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || rowIsUsed(r, v.tiers)) : []
@@ -122,7 +162,7 @@ export function quotaSections(u: GetUsageResponse): { reserve: number; sections:
   const chosen = used.sort((x, y) => x.left - y.left).slice(0, 3)
   // Two pools can share a label ("Weekly Limit Remaining"): the group then says which.
   const clash = (r: AgyRow) => chosen.filter((o) => (o.label || o.group) === (r.label || r.group)).length > 1
-  const agy: QuotaLine[] = chosen.map((r) => ({ label: clash(r) ? `${r.group} ${r.label}`.trim() : r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, resetsIn: r.resets }))
+  const agy: QuotaLine[] = chosen.map((r) => ({ label: clash(r) ? `${r.group} ${r.label}`.trim() : r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, reserve: r.reserve, reviewsOnly: r.reviewsOnly, resetsIn: r.resets }))
   if (agy.length > 0) sections.push({ vendor: 'gemini', name: 'agy', lines: agy })
   return { reserve: v.reserve, sections }
 }

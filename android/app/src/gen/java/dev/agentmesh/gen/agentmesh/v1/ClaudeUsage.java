@@ -18,6 +18,7 @@ public  final class ClaudeUsage extends
     windows_ = emptyProtobufList();
     source_ = "";
     atReserve_ = emptyProtobufList();
+    reviewsOnly_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int WINDOWS_FIELD_NUMBER = 1;
@@ -232,7 +233,7 @@ public  final class ClaudeUsage extends
   private com.google.protobuf.Internal.ProtobufList<java.lang.String> atReserve_;
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -244,7 +245,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -256,7 +257,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -269,7 +270,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -291,7 +292,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -306,7 +307,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -320,7 +321,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -334,7 +335,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -344,7 +345,7 @@ public  final class ClaudeUsage extends
   }
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -355,6 +356,135 @@ public  final class ClaudeUsage extends
     checkByteStringIsUtf8(value);
     ensureAtReserveIsMutable();
     atReserve_.add(value.toStringUtf8());
+  }
+
+  public static final int REVIEWS_ONLY_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> reviewsOnly_;
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @return A list containing the reviewsOnly.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getReviewsOnlyList() {
+    return reviewsOnly_;
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @return The count of reviewsOnly.
+   */
+  @java.lang.Override
+  public int getReviewsOnlyCount() {
+    return reviewsOnly_.size();
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param index The index of the element to return.
+   * @return The reviewsOnly at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getReviewsOnly(int index) {
+    return reviewsOnly_.get(index);
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the reviewsOnly at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReviewsOnlyBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        reviewsOnly_.get(index));
+  }
+  private void ensureReviewsOnlyIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        reviewsOnly_;  if (!tmp.isModifiable()) {
+      reviewsOnly_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param index The index to set the value at.
+   * @param value The reviewsOnly to set.
+   */
+  private void setReviewsOnly(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReviewsOnlyIsMutable();
+    reviewsOnly_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param value The reviewsOnly to add.
+   */
+  private void addReviewsOnly(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureReviewsOnlyIsMutable();
+    reviewsOnly_.add(value);
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param values The reviewsOnly to add.
+   */
+  private void addAllReviewsOnly(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureReviewsOnlyIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, reviewsOnly_);
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   */
+  private void clearReviewsOnly() {
+    reviewsOnly_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param value The bytes of the reviewsOnly to add.
+   */
+  private void addReviewsOnlyBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureReviewsOnlyIsMutable();
+    reviewsOnly_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.ClaudeUsage parseFrom(
@@ -674,7 +804,7 @@ public  final class ClaudeUsage extends
 
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -688,7 +818,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -700,7 +830,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -713,7 +843,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -727,7 +857,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -743,7 +873,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -758,7 +888,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -773,7 +903,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -786,7 +916,7 @@ public  final class ClaudeUsage extends
     }
     /**
      * <pre>
-     * Labels of windows currently at or over quota_stop.
+     * Labels of windows currently at or over their own reserve (quota_stop, quota_stop.weekly).
      * </pre>
      *
      * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -797,6 +927,134 @@ public  final class ClaudeUsage extends
         com.google.protobuf.ByteString value) {
       copyOnWrite();
       instance.addAtReserveBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @return A list containing the reviewsOnly.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getReviewsOnlyList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getReviewsOnlyList());
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @return The count of reviewsOnly.
+     */
+    @java.lang.Override
+    public int getReviewsOnlyCount() {
+      return instance.getReviewsOnlyCount();
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @param index The index of the element to return.
+     * @return The reviewsOnly at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getReviewsOnly(int index) {
+      return instance.getReviewsOnly(index);
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the reviewsOnly at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReviewsOnlyBytes(int index) {
+      return instance.getReviewsOnlyBytes(index);
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @param index The index to set the value at.
+     * @param value The reviewsOnly to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewsOnly(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setReviewsOnly(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @param value The reviewsOnly to add.
+     * @return This builder for chaining.
+     */
+    public Builder addReviewsOnly(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addReviewsOnly(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @param values The reviewsOnly to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllReviewsOnly(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllReviewsOnly(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviewsOnly() {
+      copyOnWrite();
+      instance.clearReviewsOnly();
+      return this;
+    }
+    /**
+     * <pre>
+     * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+     * </pre>
+     *
+     * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+     * @param value The bytes of the reviewsOnly to add.
+     * @return This builder for chaining.
+     */
+    public Builder addReviewsOnlyBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addReviewsOnlyBytes(value);
       return this;
     }
 
@@ -822,10 +1080,11 @@ public  final class ClaudeUsage extends
             "fetchedAt_",
             "source_",
             "atReserve_",
+            "reviewsOnly_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0002\u0000\u0001\u001b\u0002\u1009" +
-              "\u0000\u0003\u0208\u0004\u021a";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0003\u0000\u0001\u001b\u0002\u1009" +
+              "\u0000\u0003\u0208\u0004\u021a\u0005\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
