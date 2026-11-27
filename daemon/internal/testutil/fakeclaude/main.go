@@ -28,6 +28,10 @@
 // With $FAKECLAUDE_ESC set the terminal leaves canonical mode, so a lone Esc reaches it as a key: it interrupts a
 // /hold turn (no Stop hook, as Claude Code fires none for an interrupted turn) and does nothing between turns.
 //
+// Like Claude Code, it runs the hooks of the project's `.claude/settings.json` and `.claude/settings.local.json`
+// (under its working directory) along with the --settings ones, unless `--setting-sources` is given and leaves
+// `project` and `local` out: a test of what an untrusted PR head can run puts a hook there.
+//
 // With $FAKECLAUDE_INPUT_LOG set, every line typed into it is appended there, one per line.
 //
 // With $FAKECLAUDE_COMPACT_LOG set, the focus of every typed /compact is appended there, one per line.
@@ -87,6 +91,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -114,6 +119,8 @@ type settings struct {
 var (
 	session string
 	conf    settings
+	// sources is the --setting-sources list ("" = the flag is absent: user, project and local).
+	sources string
 	cwd, _  = os.Getwd()
 
 	box        = os.Getenv("FAKECLAUDE_BOX") != ""
@@ -179,6 +186,9 @@ func main() {
 				fmt.Fprintf(os.Stderr, "fakeclaude: bad --settings: %v\n", err)
 				os.Exit(2)
 			}
+		case "--setting-sources":
+			i++
+			sources = args[i]
 		case "--model", "--effort":
 			i++
 		case "--disallowedTools":
@@ -210,6 +220,12 @@ func main() {
 			time.Sleep(time.Hour) // a fresh start that never reaches its prompt
 		}
 	}
+	// The inbox is bound before anything is drawn: a daemon that takes the terminal for settled once its output
+	// is quiet must find the socket there, or it types the doorbell (a race a loaded host lost one run in thirty).
+	frames := make(chan string, 8)
+	if dir := os.Getenv("FAKECLAUDE_INBOX"); dir != "" {
+		serveInbox(dir, frames)
+	}
 	fmt.Printf("fake claude %s\r\n", session)
 	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
 		fmt.Print("Quick safety check: Is this a project you created or one you trust?\r\n" +
@@ -231,10 +247,6 @@ func main() {
 				fmt.Print("\x1b7\x1b[1;118H.\x1b8")
 			}
 		}()
-	}
-	frames := make(chan string, 8)
-	if dir := os.Getenv("FAKECLAUDE_INBOX"); dir != "" {
-		serveInbox(dir, frames)
 	}
 	dropped, stuck := 0, 0
 	for {
@@ -633,7 +645,18 @@ func hook(event string, fields map[string]any) []byte {
 		body[k] = v
 	}
 	payload, _ := json.Marshal(body)
-	for _, group := range conf.Hooks[event] {
+	groups := conf.Hooks[event]
+	for _, file := range []struct{ name, source string }{{"settings.json", "project"}, {"settings.local.json", "local"}} {
+		src, f := file.source, file.name
+		if sources != "" && !slices.Contains(strings.Split(sources, ","), src) {
+			continue
+		}
+		var proj settings
+		if b, err := os.ReadFile(filepath.Join(cwd, ".claude", f)); err == nil && json.Unmarshal(b, &proj) == nil {
+			groups = append(groups, proj.Hooks[event]...)
+		}
+	}
+	for _, group := range groups {
 		for _, h := range group.Hooks {
 			cmd := exec.Command("sh", "-c", h.Command)
 			cmd.Stdin = bytes.NewReader(payload)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -727,6 +728,33 @@ func TestAWorkerThatMovedToAnotherBranchStillReviewsItsPR(t *testing.T) {
 	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
 		t.Errorf("another worker's branch checked out in its worktree: %v", err)
 	}
+}
+
+// A worker that stacks PRs names its branches `mesh/<run>/<slug>`, `<slug>-2`, `<slug>-3`: registered on one, it opens
+// the next from a worktree that has moved on. Its series is its own; another run's, a longer slug's and a series
+// another worker is registered on are not.
+func TestAWorkersOwnStackedPRsAreItsOwn(t *testing.T) {
+	a := startAuthor(t, "")
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	series := regexp.MustCompile(`-[0-9]+$`).ReplaceAllString(a.worker.Branch, "")
+	for _, head := range []string{series + "-3", series, series + "-12"} {
+		a.pr.headRef = head
+		a.pr.push(t, "stacked "+head)
+		// The guard is what is under test: the later rounds meet the ceiling of one round, which is not it.
+		if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) == connect.CodePermissionDenied {
+			t.Errorf("its own series, %s: %v", head, err)
+		}
+	}
+	parts := strings.Split(series, "/")
+	a.movedAskRefused(t, "another run's series", "mesh/other-run/"+parts[2]+"-3")
+	a.movedAskRefused(t, "a different slug that begins with its own", series+"-ui")
+	a.movedAskRefused(t, "a different slug", series+"x-3")
+	// Another worker registered on a branch of the series owns it: its PR is not this worker's.
+	other := a.reviewWorld.spawnUnder(t, a.asRoot, parts[2]+"-5", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+	if other.Branch != series+"-5" {
+		t.Fatalf("the other worker is on %s, want %s", other.Branch, series+"-5")
+	}
+	a.movedAskRefused(t, "another worker registered on a branch of the series", other.Branch)
 }
 
 // movedAskRefused is a worker whose worktree is on `head` asking a review of the PR from it: refused as another's.
