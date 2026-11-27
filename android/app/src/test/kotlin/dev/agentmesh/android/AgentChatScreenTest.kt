@@ -285,12 +285,35 @@ class AgentChatScreenTest {
         val rt = host(lead, worker)
         show(rt)
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Held: its input box holds a draft. Clear it in the terminal to send this").assertIsDisplayed()
+        compose.onNodeWithText("Held: its input box holds a draft. Clear it in the terminal, or send this anyway").assertIsDisplayed()
         compose.onNodeWithTag("queued-drop-p1").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isEmpty() }
         assertEquals(listOf("p1"), api.withdrawn.toList())
         // Dropped, not edited: nothing is put in the box.
         compose.onNodeWithTag("prompt").assertTextContains("", substring = true)
+    }
+
+    @Test fun `a prompt held by a draft is sent over it after the draft is named and confirmed`() {
+        fresh()
+        api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later", held = "draft", heldText = "half a thou"))
+        val rt = host(lead, worker)
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-anyway-p1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("queued-anyway-p1").performClick()
+        compose.onNodeWithTag("send-anyway-draft").assertTextContains("half a thou", substring = true)
+        compose.onNodeWithTag("send-anyway-confirm").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isEmpty() }
+        assertEquals(listOf(listOf("w1", "p1", "half a thou")), api.overDrafts.toList())
+    }
+
+    @Test fun `a prompt held for another reason has no Send anyway`() {
+        fresh()
+        api.queued["w1"] = listOf(queuedPrompt("p1", "w1", "later", held = "working"), queuedPrompt("p2", "w1", "then", held = "draft"))
+        val rt = host(lead, worker)
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-p1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithTag("queued-anyway-p1").assertCountEquals(0)
+        compose.onAllNodesWithTag("queued-anyway-p2").assertCountEquals(0) // no draft text to name
     }
 
     @Test fun `a queue that arrives under a long conversation is brought into view`() {
