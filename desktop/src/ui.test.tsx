@@ -182,6 +182,18 @@ describe('ProjectSidebar', () => {
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledTimes(1))
   })
 
+  it('stops a whole run from its menu, after a confirmation', async () => {
+    const { client, wrap } = fixture()
+    ;(client as unknown as { stopRun: unknown }).stopRun = vi.fn(async () => ({}))
+    const stopRunMock = (client as unknown as { stopRun: ReturnType<typeof vi.fn> }).stopRun
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of ship it' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Stop run…' }))
+    expect(stopRunMock).not.toHaveBeenCalled()
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop the run' }))
+    await waitFor(() => expect(stopRunMock).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r1' })))
+  })
+
   it('offers Archive only for an agent the host would archive: a worker with a worktree, not the lead', async () => {
     const { host, wrap } = fixture()
     host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, worktree: '/w/fix' } } }))

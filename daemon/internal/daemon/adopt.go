@@ -10,7 +10,9 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,6 +26,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -93,6 +96,22 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 		return nil, failedPrecondition("run %s is closed", run.Id)
 	}
+	top := sess.Cwd // (a git subprocess: before the locks, so a slow one holds no other adoption up)
+	if t, err := topOf(ctx, sess.Cwd); err == nil && t != "" {
+		top = t
+	}
+	// One adoption of a run at a time, from the scan of its agents to the identity file: two sessions adopting at once
+	// then see each other (one root, the second refused), a retry with the same mutation id finds the file the first
+	// call wrote or repairs a missing one, and never mints a token that call is about to overwrite. Keyed by the run,
+	// whether it has a root yet or not.
+	amu := d.agentLock("adopt:" + run.Id)
+	amu.Lock()
+	defer amu.Unlock()
+	// And one run at a time for a session: the same process adopted into two runs at once would write one identity file
+	// for two roots.
+	pmu := d.agentLock(fmt.Sprintf("adopt-pid:%d", pid))
+	pmu.Lock()
+	defer pmu.Unlock()
 	all, err := r.AllAgents()
 	if err != nil {
 		return nil, err
@@ -113,10 +132,6 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		d.rt.sys.ProcAlive(int(root.AdoptedPid), root.AdoptedPidStart) {
 		return nil, failedPrecondition("the run's root is another adopted session (process %d): end it first", root.AdoptedPid)
 	}
-	top := sess.Cwd
-	if t, err := topOf(ctx, sess.Cwd); err == nil && t != "" {
-		top = t
-	}
 	if err := d.ensureRunDir(run.Id); err != nil {
 		return nil, err
 	}
@@ -130,6 +145,10 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		defer mu.Unlock()
 	}
 	replayed, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAdoptSessionProcedure, out, func(tx *store.Tx) error {
+		// The run may have been stopped since it was read: a session is no root of a closed run.
+		if cur, err := tx.GetRun(run.Id); err != nil || cur.Status != v1.RunStatus_RUN_STATUS_OPEN {
+			return failedPrecondition("run %s is closed", run.Id)
+		}
 		now := tx.Now()
 		if root != nil {
 			cur, err := tx.GetAgent(root.Id)
@@ -199,7 +218,13 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		return nil, err
 	}
 	if replayed {
-		return connect.NewResponse(out), nil // the first call did all of it; its token and file stand
+		// The first call did all of it, and its file stands; if the file write failed after the store's commit (a full
+		// disk), the stored answer is all there is and the token was lost with it: mint another and write it. The
+		// run's adoption lock is held (above) from before the write to here, so a replay never mints a token while the first call writes its file, and two replays do not both mint.
+		if err := d.repairAdoptedFile(ctx, out.GetAgent().GetId(), m); err != nil {
+			return nil, err
+		}
+		return connect.NewResponse(out), nil
 	}
 	if old != nil {
 		d.endTakenOverRoot(ctx, old, agent, out)
@@ -211,6 +236,35 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		return nil, err
 	}
 	return connect.NewResponse(out), nil
+}
+
+// repairAdoptedFile rewrites the identity file of an adopted session, when the call that adopted it left none: the
+// session of this process is still the agent's, and `<state>/adopted/<pid>.json` is missing. The agent's tokens go (the
+// lost one was never delivered, and the file was the only place a token lived) and a new one is written to it.
+func (d *Daemon) repairAdoptedFile(ctx context.Context, agentID string, m *v1.AdoptSessionRequest) error {
+	if agentID == "" {
+		return nil
+	}
+	cur, err := d.store.Read(ctx).GetAgent(agentID)
+	if err != nil || !isAdopted(cur) || stopped(cur) || cur.AdoptedPid != m.Pid || cur.AdoptedPidStart != m.PidStartTicks {
+		return nil // another session's row now, or gone: the replay's answer is all that is owed
+	}
+	if _, err := os.Stat(d.paths.Adopted(int(cur.AdoptedPid))); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err // unreadable, not missing: no token is revoked for it
+	}
+	token := auth.NewToken()
+	err = d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
+		if err := tx.RevokeTokens(cur.Id); err != nil {
+			return err
+		}
+		return tx.PutToken(auth.Hash(token), store.TokenRecord{Class: ClassOf(cur.Role), SubjectID: cur.Id, Name: cur.Name, RunID: cur.RunId})
+	})
+	if err != nil {
+		return err
+	}
+	return d.writeAdoptedFile(cur, token)
 }
 
 // endTakenOverRoot stops what the run's own root left running once its row has become an adopted session's: its
@@ -250,7 +304,7 @@ func (d *Daemon) writeAdoptedFile(a *v1.Agent, token string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o600)
+	return fsutil.WriteAtomic(path, b, 0o600) // a failed write leaves no half file, which a repair would take for a good one
 }
 
 // adoptedPass follows the adopted sessions: one whose process is gone is exited (its token revoked, its file

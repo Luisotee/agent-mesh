@@ -3649,7 +3649,14 @@ type SettingSchema struct {
 	// The values a dropdown offers: an effort's levels, the agent kinds a `kinds` or `slots` entry may name.
 	Choices []string `protobuf:"bytes,3,rep,name=choices,proto3" json:"choices,omitempty"`
 	// Read only when the daemon starts: a change takes effect at the next restart.
-	Restart       bool `protobuf:"varint,4,opt,name=restart,proto3" json:"restart,omitempty"`
+	Restart bool `protobuf:"varint,4,opt,name=restart,proto3" json:"restart,omitempty"`
+	// What a settings screen calls it, in sentence case: "Retire idle agents after".
+	Label string `protobuf:"bytes,5,opt,name=label,proto3" json:"label,omitempty"`
+	// The section it is listed under: Appearance, Notifications, Shortcuts, Agents and models, Reviews, Projects and
+	// autonomy, Limits and quota or Delivery.
+	Group string `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
+	// True for a setting that is folded away in its group until asked for: tuning most people never touch.
+	Advanced      bool `protobuf:"varint,7,opt,name=advanced,proto3" json:"advanced,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3708,6 +3715,27 @@ func (x *SettingSchema) GetChoices() []string {
 func (x *SettingSchema) GetRestart() bool {
 	if x != nil {
 		return x.Restart
+	}
+	return false
+}
+
+func (x *SettingSchema) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *SettingSchema) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *SettingSchema) GetAdvanced() bool {
+	if x != nil {
+		return x.Advanced
 	}
 	return false
 }
@@ -4384,12 +4412,15 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value\x122\n" +
 	"\bprevious\x18\x03 \x01(\v2\x16.google.protobuf.ValueR\bprevious\x12\x1d\n" +
 	"\n" +
-	"to_default\x18\x04 \x01(\bR\ttoDefault\"q\n" +
+	"to_default\x18\x04 \x01(\bR\ttoDefault\"\xb9\x01\n" +
 	"\rSettingSchema\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x18\n" +
 	"\asummary\x18\x02 \x01(\tR\asummary\x12\x18\n" +
 	"\achoices\x18\x03 \x03(\tR\achoices\x12\x18\n" +
-	"\arestart\x18\x04 \x01(\bR\arestart\"\xb6\x02\n" +
+	"\arestart\x18\x04 \x01(\bR\arestart\x12\x14\n" +
+	"\x05label\x18\x05 \x01(\tR\x05label\x12\x14\n" +
+	"\x05group\x18\x06 \x01(\tR\x05group\x12\x1a\n" +
+	"\badvanced\x18\a \x01(\bR\badvanced\"\xb6\x02\n" +
 	"\aSetting\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12,\n" +
 	"\x05value\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05value\x120\n" +

@@ -49,7 +49,8 @@ func settingOf(l settings.Leaf, rec *store.SettingRecord) (*v1.Setting, error) {
 		return nil, err
 	}
 	out := &v1.Setting{Key: l.Key, Value: def, Default: def, Schema: &v1.SettingSchema{
-		Type: string(l.Type), Summary: l.Summary, Choices: l.Choices, Restart: l.Restart}}
+		Type: string(l.Type), Summary: l.Summary, Choices: l.Choices, Restart: l.Restart,
+		Label: l.Label, Group: l.Group, Advanced: l.Advanced}}
 	if rec == nil {
 		return out, nil
 	}

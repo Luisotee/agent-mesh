@@ -4,9 +4,13 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
 )
 
 func TestStartTicksIdentifiesAProcess(t *testing.T) {
@@ -140,5 +144,60 @@ func TestUsageCountsTheCPUOfFinishedChildren(t *testing.T) {
 	}
 	if after-before < 5 { // at least 50 ms of the child CPU
 		t.Errorf("CPU ticks went from %d to %d: the finished child was not counted", before, after)
+	}
+}
+
+// A shell's background job has a process group of its own but the shell's session: SignalSession reaches it, and
+// leaves the shell (the leader's own group) to SignalGroup.
+func TestSignalSessionReachesJobsOutsideTheLeadersGroup(t *testing.T) {
+	cmd := exec.Command("bash", "-c", "set -m; sleep 4343 & echo JOB=$!; wait")
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		t.Skipf("no pty: %v", err)
+	}
+	defer ptmx.Close()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	buf := make([]byte, 0, 256)
+	one := make([]byte, 64)
+	var job int
+	for deadline := time.Now().Add(10 * time.Second); job == 0 && time.Now().Before(deadline); {
+		n, _ := ptmx.Read(one)
+		buf = append(buf, one[:n]...)
+		if _, rest, ok := strings.Cut(string(buf), "JOB="); ok && strings.Contains(rest, "\n") {
+			job, _ = strconv.Atoi(strings.TrimSpace(rest))
+		}
+	}
+	if job <= 1 {
+		t.Fatalf("no job pid in %q", buf)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(job, syscall.SIGKILL) })
+	tty, err := TTY(cmd.Process.Pid)
+	if err != nil || tty == 0 {
+		t.Fatalf("TTY = %d, %v", tty, err)
+	}
+	if f, err := stat(job); err != nil || f[2] == strconv.Itoa(cmd.Process.Pid) {
+		t.Fatalf("the job should have a group of its own: %v, %v", f, err)
+	}
+	// A pid that leads no session, or no terminal, signals nothing.
+	SignalSession(1, tty, syscall.SIGKILL)
+	SignalSession(cmd.Process.Pid, 0, syscall.SIGKILL)
+	SignalSession(job, tty, syscall.SIGKILL) // the job leads no session: nothing has its session id
+	if f, err := stat(job); err != nil || f[0] == "Z" {
+		t.Fatalf("the job was signalled: %v, %v", f, err)
+	}
+	SignalSession(cmd.Process.Pid, tty, syscall.SIGKILL)
+	gone := func() bool {
+		f, err := stat(job)
+		return err != nil || f[0] == "Z"
+	}
+	for deadline := time.Now().Add(5 * time.Second); !gone() && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	}
+	if !gone() {
+		t.Error("the background job is still running")
+	}
+	// The shell is not signalled (its `wait` ends because the job did): it exits by itself, not on a signal.
+	_ = cmd.Wait()
+	if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); !ok || ws.Signaled() {
+		t.Errorf("the leader was signalled: %v", cmd.ProcessState)
 	}
 }
