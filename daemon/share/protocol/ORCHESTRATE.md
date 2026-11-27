@@ -144,7 +144,7 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
 
 ## Questions and reviews
 
-A question about another repo, or a review of a PR, goes to a worker too, so it can be asked again later and can take the change on itself. `mesh ask` starts the read-only agent (or asks one you have) and, for a round of reviewers, collects the answers.
+A question about another repo, or a review of a PR, goes to a worker too, so it can be asked again later and can take the change on itself. `mesh ask` starts the read-only agent (or asks one you have) and, for a round of reviewers, collects the answers. On a host with no room for the round's first reviewer (`caps.agents`, the memory floor) the review `mesh ask` waits for a place, up to `review.wait_room` (5 min), and says in its notes how long it waited: it stays open meanwhile, so run it in the background if it must not block you.
 
 ```bash
 mesh ask --repo <path> --tier <tier> --body "…"          # a fresh asker, named <repo>-ask-<words of the question>

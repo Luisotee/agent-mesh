@@ -207,12 +207,11 @@ func (b *Bus) ServeFor(ctx context.Context, req *v1.SubscribeEventsRequest, devi
 		sent = snap.Cursor.Seq
 	}
 
-	// What queued while the backlog or snapshot was sent is older than events the client has just applied.
+	// What queued while the backlog or snapshot was sent is older than events the client has just applied. Not the
+	// views: an `OpenView` is no state the snapshot covers, and one asked for just after the client got its snapshot
+	// (it can act before this loop runs) is a view the app must open, not one to drop.
 	for n := len(live.act); n > 0; n-- {
 		<-live.act
-	}
-	for n := len(live.views); n > 0; n-- {
-		<-live.views
 	}
 	for {
 		// The frames queued now are told before the event after them: they were published first (an activity frame

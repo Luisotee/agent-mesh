@@ -190,6 +190,13 @@ func CopyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes in
 	return copyWorktreeInclude(ctx, repo, worktree, maxBytes)
 }
 
+// SetRoomPoll sets how often a review round waits for room looks again; it returns the old one.
+func SetRoomPoll(d time.Duration) time.Duration {
+	old := roomPoll
+	roomPoll = d
+	return old
+}
+
 // LostIn is lostIn: the bytes, files and whether the count stopped early, under a path of a worktree that a restore would not give back.
 func LostIn(ctx context.Context, worktree, rel string, safe func(string) bool) (int64, int, bool) {
 	return lostIn(ctx, worktree, rel, safe)

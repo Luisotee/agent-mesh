@@ -10,6 +10,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // A review round counts as one agent against `caps.agents`: its first reviewer has to fit, the others then join
@@ -44,6 +45,7 @@ func TestAReviewRoundOnAFullHostIsRefusedUpFront(t *testing.T) {
 	w := startReviews(t)
 	w.pr.push(t, "the feature")
 	w.set(t, "caps.agents", 1) // the root alone fills it
+	w.set(t, "review.wait_room", 0)
 
 	_, err := w.asRoot.Ask(context.Background(), connect.NewRequest(&v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"}))
 	if err == nil || !strings.Contains(err.Error(), "caps.agents 1") {
@@ -57,6 +59,139 @@ func TestAReviewRoundOnAFullHostIsRefusedUpFront(t *testing.T) {
 		if a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
 			t.Errorf("reviewer %s was started on a full host", a.Name)
 		}
+	}
+}
+
+// With review.wait_room a round on a full host waits, its request open, for a place, and starts when one frees (the
+// cap raised here: a retire does the same), with a note on how long it waited.
+func TestAReviewRoundOnAFullHostWaitsForRoom(t *testing.T) {
+	old := daemon.SetRoomPoll(100 * time.Millisecond)
+	t.Cleanup(func() { daemon.SetRoomPoll(old) })
+	w := startReviews(t)
+	w.pr.push(t, "the feature")
+	w.set(t, "caps.agents", 1)
+	w.set(t, "review.wait_room", 30)
+
+	type result struct {
+		res *connect.Response[v1.AskResponse]
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		res, err := w.asRoot.Ask(context.Background(), connect.NewRequest(&v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"}))
+		done <- result{res, err}
+	}()
+	select {
+	case r := <-done:
+		t.Fatalf("the round did not wait for room: %v", r.err)
+	case <-time.After(700 * time.Millisecond):
+	}
+	if asks, _ := w.asRoot.ListAsks(context.Background(), connect.NewRequest(&v1.ListAsksRequest{})); asks != nil && len(asks.Msg.Asks) != 0 {
+		t.Errorf("a round waiting for room is stored: %v", asks.Msg.Asks)
+	}
+	w.set(t, "caps.agents", 3) // a place frees
+	r := <-done
+	if r.err != nil {
+		t.Fatalf("the round after room came: %v", r.err)
+	}
+	if len(r.res.Msg.Agents) != 2 {
+		t.Errorf("started %d reviewers: %v", len(r.res.Msg.Agents), r.res.Msg.Notes)
+	}
+	noted := false
+	for _, n := range r.res.Msg.Notes {
+		noted = noted || strings.Contains(n, "waited") && strings.Contains(n, "for room")
+	}
+	if !noted {
+		t.Errorf("no note that it waited for room: %v", r.res.Msg.Notes)
+	}
+}
+
+// A retry of a round that was cut off while it started (its ask stored, `Starting`) is not held for room: it
+// finds the ask and goes on with the members it left, whatever room there is, and is not told it waited.
+func TestARetryOfAHalfStartedRoundDoesNotWaitForRoom(t *testing.T) {
+	w := startReviews(t)
+	w.pr.push(t, "the feature")
+	req := func() *v1.AskRequest {
+		return &v1.AskRequest{Meta: meta("ask-retry"), Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"}
+	}
+	first, err := w.asRoot.Ask(context.Background(), connect.NewRequest(req()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// As if the first call had been cut off: its ask is still starting.
+	if err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAsk(first.Msg.Ask.Id)
+		if err != nil {
+			return err
+		}
+		a.Starting = true
+		if err := tx.PutAsk(a); err != nil {
+			return err
+		}
+		// ... and its final write, which records the mutation, never happened.
+		_, err = tx.PruneMutations(time.Now().Add(time.Hour), time.Now().Add(time.Hour))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w.set(t, "caps.agents", 1) // the round's own reviewers now fill the host
+	w.set(t, "review.wait_room", 60)
+	began := time.Now()
+	res, err := w.asRoot.Ask(context.Background(), connect.NewRequest(req()))
+	if waited := time.Since(began); waited > 20*time.Second {
+		t.Errorf("the retry took %s: it waited for room (%v)", waited, err)
+	}
+	if err == nil {
+		for _, n := range res.Msg.Notes {
+			if strings.Contains(n, "for room") {
+				t.Errorf("a retry told it waited: %v", res.Msg.Notes)
+			}
+		}
+	}
+}
+
+// The wait ends: past review.wait_room the round is refused as before, with the cap named and nobody started.
+func TestAReviewRoundThatNeverGetsRoomIsRefusedAfterWaitRoom(t *testing.T) {
+	old := daemon.SetRoomPoll(100 * time.Millisecond)
+	t.Cleanup(func() { daemon.SetRoomPoll(old) })
+	w := startReviews(t)
+	w.pr.push(t, "the feature")
+	w.set(t, "caps.agents", 1)
+	w.set(t, "review.wait_room", 1)
+
+	began := time.Now()
+	_, err := w.asRoot.Ask(context.Background(), connect.NewRequest(&v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"}))
+	if err == nil || !strings.Contains(err.Error(), "caps.agents 1") {
+		t.Fatalf("a round that never got room: %v, want the refusal naming caps.agents 1", err)
+	}
+	if waited := time.Since(began); waited < time.Second {
+		t.Errorf("refused after %s, before review.wait_room", waited)
+	}
+}
+
+// A round whose every slot has a reviewer running to reuse starts no process, so a host short of memory is no reason
+// to hold it (the wait is for the first reviewer a round has to launch).
+func TestAReReviewOfRunningReviewersDoesNotWaitForRoom(t *testing.T) {
+	dir := t.TempDir()
+	mem := writeProc(t, dir, "meminfo", meminfoText(12000, 0, 16000, 0))
+	w := startReviews(t, func(c *daemon.AgentConfig) { c.MeminfoPath = mem })
+	w.pr.push(t, "round 1")
+	r1 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude,agy"})
+	if len(r1.Agents) != 2 {
+		t.Fatalf("round 1 started %d reviewers: %v", len(r1.Agents), r1.Notes)
+	}
+	for _, a := range r1.Agents {
+		w.quiet(t, a.Id)
+		w.say(t, a.Id, v1.MessageType_MESSAGE_TYPE_DONE, a.Kind+": fine")
+	}
+	waitFor(t, "round 1 finished", func() bool { return len(w.answers(t)) == 1 })
+	writeProc(t, dir, "meminfo", meminfoText(100, 0, 16000, 0)) // no memory left: nothing new may start
+	w.set(t, "review.wait_room", 60)
+	w.pr.push(t, "round 2")
+	began := time.Now()
+	r2 := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "auto"})
+	if waited := time.Since(began); waited > 20*time.Second || len(r2.Agents) != 2 {
+		t.Errorf("the re-review of running reviewers took %s and started %d (notes %v)", waited, len(r2.Agents), r2.Notes)
 	}
 }
 

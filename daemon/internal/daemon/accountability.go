@@ -113,15 +113,19 @@ func (d *Daemon) noteParentTx(tx *store.Tx, a *v1.Agent, kind, text string) (*v1
 type owed int
 
 const (
-	owesNothing owed = iota
-	owesNudge        // ended a turn with no report: nudge it
-	owesAlert        // nudged, and ended another turn the same way: tell its parent
+	owesNothing   owed = iota
+	owesNudge          // ended a turn with no report: nudge it
+	owesWaitNudge      // its declared wait ran out with no deadline of its own and nothing that could wake it: nudge it about that
+	owesAlert          // nudged, and ended another turn the same way: tell its parent
 )
 
 // reportOwed judges an agent at its prompt: does it owe a report, and has the nudge been given? It reads only
 // the store and the clock, so the pass and the write that acts on it agree. It returns the time the agent's
 // task or answer came, which dedupes an alert to its parent.
-func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAfter, waitMax time.Duration) (owed, time.Time, error) {
+//
+// unseen is how long a declared wait with no deadline of its own holds when nothing the daemon can see would wake
+// the agent from it (waitHold); it is asked only once the wait is older than that.
+func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAfter, waitMax time.Duration, w waitHold) (owed, time.Time, error) {
 	// An agent that asked for its own tools is idle on purpose until the daemon reopens it, for as long as a wait
 	// may last; any other pending reopen (a switch, an approval, a limit) is no reason to leave it unwatched.
 	if p := a.PendingReopen; p != nil && p.Why == toolsAddedWhy && now.Sub(p.RequestedAt.AsTime()) < waitMax {
@@ -179,6 +183,13 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 	if !waitUntil.IsZero() && waitUntil.Before(holdEnd) {
 		holdEnd = waitUntil
 	}
+	// No deadline of its own: the hold is the full wait_max only if something the daemon can see would wake the
+	// agent (a background command of a Claude agent: its notification). A job started with `nohup … &` sends none,
+	// so a wait on one would sleep for wait_max after the job ended (a root slept 2 h 51 min on its finished gates).
+	unseenHold := false
+	if !wait.IsZero() && waitUntil.IsZero() && w.after > 0 && w.after < waitMax && !now.Before(wait.Add(w.after)) && now.Before(holdEnd) && (w.visible == nil || !w.visible()) {
+		holdEnd, unseenHold = wait.Add(w.after), true
+	}
 	if !wait.IsZero() && now.Before(holdEnd) && !d.waits.woke(a, wait) {
 		return owesNothing, task, nil
 	}
@@ -200,7 +211,28 @@ func (d *Daemon) reportOwed(r store.Reader, a *v1.Agent, now time.Time, nudgeAft
 		}
 		return owesAlert, task, nil
 	}
+	if unseenHold && !d.waits.woke(a, wait) {
+		return owesWaitNudge, task, nil // the hold was cut to wait_unseen: the text says why
+	}
 	return owesNudge, task, nil
+}
+
+// waitHold is what reportOwed asks about a declared wait that has no deadline: how long it holds when nothing
+// visible would wake the agent (`accountability.wait_unseen`; 0 is off), and whether something visible would
+// (visible reads the agent's terminal, so it is made once per check, before the write that acts on it).
+type waitHold struct {
+	after   time.Duration
+	visible func() bool
+}
+
+// waitHoldFor is the question for one agent: a background command is visible only for a Claude agent's terminal.
+func (d *Daemon) waitHoldFor(ctx context.Context, a *v1.Agent, after time.Duration) waitHold {
+	var once sync.Once
+	var seen bool
+	return waitHold{after: after, visible: func() bool {
+		once.Do(func() { seen = d.backgroundWork(ctx, a) })
+		return seen
+	}}
 }
 
 // waitTracker tells a wait that is over because its agent woke. An agent that declares a wait ends its turn, and
@@ -253,6 +285,10 @@ func (d *Daemon) accountability(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	waitUnseen := time.Duration(0)
+	if v, err := d.Setting(r, "accountability.wait_unseen"); err == nil {
+		waitUnseen = time.Duration(v.(float64) * float64(time.Second))
+	}
 	nudge := time.Duration(nudgeAfter.(float64) * float64(time.Second))
 	waitMax := time.Duration(waitMaxV.(float64) * float64(time.Second))
 	agents, err := r.ListAgents("")
@@ -295,7 +331,7 @@ func (d *Daemon) accountability(ctx context.Context) {
 				}
 			}
 			if err == nil && !skipNudge && atPrompt(a.State) && nudge > 0 {
-				err = d.checkOwed(ctx, r, a, nudge, waitMax)
+				err = d.checkOwed(ctx, r, a, nudge, waitMax, waitUnseen)
 			}
 		}
 		if err != nil && ctx.Err() == nil {
@@ -439,16 +475,17 @@ func (d *Daemon) alertOnceSince(ctx context.Context, r store.Reader, a *v1.Agent
 
 // checkOwed nudges or reports on an agent at its prompt that owes a report, re-checking inside the write that
 // a report or a message didn't arrive since the pass looked.
-func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nudge, waitMax time.Duration) error {
-	verdict, _, err := d.reportOwed(r, a, d.now(), nudge, waitMax)
+func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nudge, waitMax, waitUnseen time.Duration) error {
+	hold := d.waitHoldFor(ctx, a, waitUnseen)
+	verdict, _, err := d.reportOwed(r, a, d.now(), nudge, waitMax, hold)
 	if err != nil || verdict == owesNothing {
 		return err
 	}
 	// A Claude agent whose background command still runs is waiting on it, for a while; after that it is nudged
 	// once about the command (background.go).
 	// Only for the first nudge: once an agent ignored it, the alert follows as for any silent agent.
-	bg := d.backgroundWork(ctx, a)
-	if verdict == owesNudge && bg && d.withinBackgroundGrace(a, waitMax) {
+	bg := hold.visible() // memoized: the terminal is read here, before the write, once
+	if (verdict == owesNudge || verdict == owesWaitNudge) && bg && d.withinBackgroundGrace(a, waitMax) {
 		return nil
 	}
 	extras := ""
@@ -461,11 +498,17 @@ func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nud
 		if err != nil || !atPrompt(cur.State) {
 			return err
 		}
-		v, task, err := d.reportOwed(tx.Reader, cur, tx.Now(), nudge, waitMax)
+		v, task, err := d.reportOwed(tx.Reader, cur, tx.Now(), nudge, waitMax, hold)
 		if err != nil || v != verdict {
 			return err
 		}
 		switch v {
+		case owesWaitNudge:
+			if bg {
+				ring, err = tellTx(tx, cur, backgroundNudge(cur.Name))
+				break
+			}
+			ring, err = tellTx(tx, cur, waitNudge(cur.Name))
 		case owesNudge:
 			if bg {
 				ring, err = tellTx(tx, cur, backgroundNudge(cur.Name))
@@ -542,4 +585,13 @@ func unreadInstructions(r store.Reader, a *v1.Agent) error {
 	}
 	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("you have unread instructions (%s): read them with `mesh inbox`, "+
 		"act on them, then send one report that covers them too (nothing was sent)", strings.Join(waiting, ", ")))
+}
+
+// waitNudge is the nudge of an agent whose declared wait (no deadline of its own) ran out with nothing that
+// could have woken it: a job it started with `nohup … &` or `setsid` sends no notification when it ends.
+func waitNudge(name string) string {
+	return nudgeTag + " Your declared wait has run its course with no deadline of its own, and the daemon sees nothing under this terminal that would have woken you " +
+		"(a job ending wakes you only when the CLI notifies you of it: Claude Code's Bash `run_in_background` and Monitor do, a job started with `nohup … &` or `setsid` does not, and the other CLIs have no such notification). " +
+		"If your job ended, run `mesh inbox`, then report: `mesh send parent --type done --body @$(mesh dir)/reports/" + name + ".md` (or `plan`, `question`, `failed`). " +
+		"If it still runs, check its log, then declare a fresh wait with a deadline: `mesh send parent --type wait --until <duration> --body \"<what>\"`."
 }

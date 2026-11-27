@@ -49,13 +49,17 @@ func TestReadOnlyRolesLaunchWithADenyListEvenUnderSkipPermissions(t *testing.T) 
 				t.Errorf("%v: no %q in %q", role, want, argv)
 			}
 		}
-		if last := "Bash(" + publishCommands[len(publishCommands)-1] + ":*)"; !strings.Contains(argv, last+"\x00--settings") {
-			t.Errorf("%v: the deny list is not followed by a flag: %q", role, argv)
+		// An untrusted PR head's project settings, hooks and .mcp.json are not read: only the user's own settings
+		// (the mesh's hooks and plugin come by --settings and --plugin-dir, which are not sources).
+		if last := "Bash(" + publishCommands[len(publishCommands)-1] + ":*)"; !strings.Contains(argv, last+"\x00--setting-sources\x00user\x00--settings") {
+			t.Errorf("%v: the deny list is not followed by --setting-sources user and --settings: %q", role, argv)
 		}
 	}
 	for _, role := range []agentmeshv1.AgentRole{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, agentmeshv1.AgentRole_AGENT_ROLE_ROOT} {
 		if argv := strings.Join(plan(role), " "); strings.Contains(argv, "--disallowedTools") {
 			t.Errorf("%v got a deny list: %s", role, argv)
+		} else if strings.Contains(argv, "--setting-sources") {
+			t.Errorf("%v does not read an untrusted head: its own repo's settings are part of its job: %s", role, argv)
 		}
 	}
 }
