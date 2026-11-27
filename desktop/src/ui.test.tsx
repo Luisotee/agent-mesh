@@ -460,6 +460,27 @@ describe('MessagesPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('permission denied')
   })
 
+  it("marks the plan an OpenView named, expanded and in view, and the mark goes after a few seconds", async () => {
+    const { host, wrap, model } = fixture()
+    putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000), msg('p2', MessageType.PLAN, 'w1', 'lead', 2000, 'x'.repeat(2000)))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(wrap(<MessagesPanel host={host} agentId="w1" />))
+      // The card was shown, collapsed, before the request came: the request expands it too.
+      expect(within(screen.getAllByRole('article')[1]!).getByRole('button', { name: /Show all/ })).toBeInTheDocument()
+      act(() => model.store.setState({ focusMessage: { hostId: host.info.id, id: 'p2' } }))
+      const [first, second] = screen.getAllByRole('article')
+      expect(first).not.toHaveAttribute('aria-current')
+      expect(second).toHaveAttribute('aria-current', 'true')
+      expect(within(second!).getByRole('button', { name: /Show less/ })).toBeInTheDocument()
+      await act(async () => { await vi.advanceTimersByTimeAsync(3100) })
+      expect(model.store.getState().focusMessage).toBeUndefined()
+      expect(screen.getAllByRole('article')[1]).not.toHaveAttribute('aria-current')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('shows reports and failures without a form, a long one collapsed', async () => {
     const { host, wrap } = fixture()
     putMessages(host, msg('d1', MessageType.DONE, 'w1', 'lead', 1000, 'All **done**.'), msg('f1', MessageType.FAILED, 'w1', 'lead', 2000, 'x'.repeat(2000)))

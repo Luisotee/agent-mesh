@@ -50,6 +50,21 @@ fun usageView(u: GetUsageResponse): UsageView {
     return UsageView(reserve, claude, u.claude.source, if (u.claude.hasFetchedAt()) u.claude.fetchedAt.toMillis() else null, agy, tiers, warnings)
 }
 
+/** One line of the drawer's quota footer. */
+class QuotaLine(val label: String, val used: Double, val atReserve: Boolean, val resetsAtMs: Long?)
+
+/** The tone of a quota line: ok below the reserve, warn from it on, over when used up. */
+enum class QuotaTone { Ok, Warn, Over }
+
+val QuotaLine.tone: QuotaTone get() = if (used >= 100) QuotaTone.Over else if (atReserve) QuotaTone.Warn else QuotaTone.Ok
+
+/** The compact reading the drawer shows (the desktop's `quotaRows`): Claude's windows, and agy's fullest row; empty without a reading. */
+fun quotaLines(v: UsageView): List<QuotaLine> {
+    val rows = v.claude.map { QuotaLine("Claude ${it.label}", it.used, it.atReserve, it.resetsAtMs) }.toMutableList()
+    v.agy.minByOrNull { it.left }?.let { rows.add(QuotaLine("agy ${it.group} ${it.label}".trim(), 100.0 - it.left, it.atReserve, null)) }
+    return rows
+}
+
 /** When a window resets, as a span from [nowMs] ("resets in 2 h 10 min") within a day, else the day and time. */
 fun resetText(atMs: Long?, nowMs: Long, dayAndTime: (Long) -> String): String {
     if (atMs == null) return "reset time unknown"

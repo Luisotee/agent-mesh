@@ -70,6 +70,89 @@ func TestAgentChangesListsFilesUncommittedWorkAndUnpushedCommits(t *testing.T) {
 	}
 }
 
+// What archiving would delete that git ignores is listed on request: a folder whole (with its size), a stray file, largest first, none
+// that `.worktreeinclude` brings back, a cap with a count of the rest, and nothing unless asked (the side panel polls without it).
+func TestAgentChangesListsTheIgnoredFilesArchivingWouldDelete(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	// A restore copies from the repo's own checkout: `.env` is the same there (so it comes back); `.env.edited` is not (the agent
+	// changed it, and the repo's older copy would come back); `.env.local` is not in the list; `.env.mine` is listed but the repo
+	// has none.
+	writeFile(t, filepath.Join(a.Repo, ".worktreeinclude"), ".env\n.env.edited\n.env.mine\n", 0o644)
+	writeFile(t, filepath.Join(a.Repo, ".gitignore"), ".env*\n", 0o644)
+	writeFile(t, filepath.Join(a.Repo, ".env"), "KEY=1\n", 0o644)
+	writeFile(t, filepath.Join(a.Repo, ".env.edited"), "the older copy\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, ".gitignore"), "node_modules/\n.env*\n*.log\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, ".env.edited"), "edited in worktree\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, ".env.mine"), "m\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, "node_modules", "a", "index.js"), strings.Repeat("x", 3000), 0o644)
+	writeFile(t, filepath.Join(a.Worktree, "node_modules", "b.js"), strings.Repeat("y", 2000), 0o644)
+	// A link to a big file outside the worktree counts as the link, not as what it points to.
+	big := filepath.Join(t.TempDir(), "big")
+	writeFile(t, big, strings.Repeat("z", 100_000), 0o644)
+	if err := os.Symlink(big, filepath.Join(a.Worktree, "node_modules", "link")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(a.Worktree, ".env"), "KEY=1\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, ".env.local"), "NOTES=mine\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, "src", "kept.txt"), "not ignored\n", 0o644)
+	ask := func(with bool) *v1.GetAgentChangesResponse {
+		res, err := w.device.Mesh.GetAgentChanges(ctx, connect.NewRequest(&v1.GetAgentChangesRequest{Agent: a.Id, WithIgnored: with}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg
+	}
+	if got := ask(false); len(got.Ignored) != 0 || got.IgnoredMore != 0 {
+		t.Errorf("listed without being asked: %v", got.Ignored)
+	}
+	got := ask(true)
+	var seen []string
+	for _, e := range got.Ignored {
+		seen = append(seen, fmt.Sprintf("%s=%d", e.Path, e.Bytes))
+	}
+	if want := fmt.Sprintf("node_modules/=%d .env.edited=19 .env.local=11 .env.mine=2", 5000+len(big)); strings.Join(seen, " ") != want {
+		t.Errorf("ignored = %q, want %q (.env is the repo's copy too, so it comes back; src/kept.txt is not ignored)", strings.Join(seen, " "), want)
+	}
+	for i := 0; i < 22; i++ {
+		writeFile(t, filepath.Join(a.Worktree, fmt.Sprintf("run-%02d.log", i)), "log\n", 0o644)
+	}
+	got = ask(true)
+	if len(got.Ignored) != 20 || got.IgnoredMore != 6 || got.Ignored[0].Path != "node_modules/" {
+		t.Errorf("past the cap: %d listed, %d more", len(got.Ignored), got.IgnoredMore)
+	}
+}
+
+// The sizing of an ignored folder stops when the budget is over (a cancelled context stops the walk at once, saying it is partial), and
+// a folder it can't read says so too, instead of a size that looks complete.
+func TestSizingAnIgnoredFolderStopsWithItsBudgetAndSaysWhatItCouldNotRead(t *testing.T) {
+	root := t.TempDir()
+	for i := 0; i < 30; i++ {
+		writeFile(t, filepath.Join(root, "dir", fmt.Sprintf("d%02d", i), "f"), "12345", 0o644)
+	}
+	if b, n, partial := daemon.LostIn(context.Background(), root, "dir/", nil); b != 150 || n != 30 || partial {
+		t.Errorf("whole: %d bytes, %d files, partial %v", b, n, partial)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, n, partial := daemon.LostIn(ctx, root, "dir", nil); n != 0 || !partial {
+		t.Errorf("past the budget: %d files counted, partial %v", n, partial)
+	}
+	if os.Geteuid() != 0 {
+		hidden := filepath.Join(root, "dir", "d00")
+		if err := os.Chmod(hidden, 0); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(hidden, 0o755)
+		if _, _, partial := daemon.LostIn(context.Background(), root, "dir", nil); !partial {
+			t.Error("a folder that can't be read counted as complete")
+		}
+	}
+}
+
 // A tracked file a commit added and the working tree lost is uncommitted and deleted, not untracked; and when git can't count the
 // commits the answer is unavailable, not "nothing".
 func TestAgentChangesNamesADeletedTrackedFileAndAnUnreadableBranch(t *testing.T) {

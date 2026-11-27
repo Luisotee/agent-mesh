@@ -481,6 +481,7 @@ type Terminal struct {
 	ring       *Ring
 	screen     Screen
 	epoch      uint64
+	epochAt    uint64 // the output offset where the current epoch starts
 	cols, rows uint16
 	clients    map[*client]struct{}
 	exited     bool
@@ -622,8 +623,9 @@ func (t *Terminal) closeClients(reason string) {
 }
 
 // resizeLocked sets the PTY to the smallest attached client's size. A change is a sync boundary: the epoch
-// moves, so an exact reattach from before it gets a repaint instead.
-func (t *Terminal) resizeLocked() {
+// moves, so an exact reattach from before it gets a repaint instead, and every attached client but `except` is
+// told (`Resized`). It reports whether the size changed.
+func (t *Terminal) resizeLocked(except *client) bool {
 	var cols, rows uint16
 	for c := range t.clients {
 		if c.cols == 0 || c.rows == 0 {
@@ -637,17 +639,28 @@ func (t *Terminal) resizeLocked() {
 		}
 	}
 	if cols == 0 || (cols == t.cols && rows == t.rows) {
-		return
+		return false
 	}
-	t.setSizeLocked(cols, rows)
+	t.setSizeLocked(cols, rows, except)
+	return true
 }
 
-func (t *Terminal) setSizeLocked(cols, rows uint16) {
+// setSizeLocked moves the terminal to a size, in a new epoch, and queues a Resized for every attached client but `except`,
+// after the output of the old epoch (the same queue) and before that of the new: from the offset it names, the output is in
+// the new epoch. A client of the old kind ignores it and finds out as it always did, by the epoch of the next output.
+func (t *Terminal) setSizeLocked(cols, rows uint16, except *client) {
 	t.cols, t.rows = cols, rows
 	t.epoch++
+	t.epochAt = t.ring.End()
 	t.screen.Resize(int(cols), int(rows))
 	if !t.exited {
 		pty.Setsize(t.ptmx, &pty.Winsize{Cols: cols, Rows: rows})
+	}
+	f := frameOf(&termv1.Resized{Epoch: t.epoch, Offset: t.epochAt, Cols: uint32(cols), Rows: uint32(rows)})
+	for c := range t.clients {
+		if c != except {
+			t.sendLocked(c, f)
+		}
 	}
 }
 
@@ -659,12 +672,12 @@ func (t *Terminal) redraw() {
 		t.mu.Unlock()
 		return
 	}
-	t.setSizeLocked(cols-1, rows)
+	t.setSizeLocked(cols-1, rows, nil)
 	t.mu.Unlock()
 	time.Sleep(50 * time.Millisecond)
 	t.mu.Lock()
 	if !t.exited && t.cols == cols-1 && t.rows == rows {
-		t.setSizeLocked(cols, rows)
+		t.setSizeLocked(cols, rows, nil)
 	}
 	t.mu.Unlock()
 }

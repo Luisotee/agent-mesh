@@ -18,7 +18,6 @@ import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.AgentScreen
-import dev.agentmesh.android.ui.HostScreen
 import dev.agentmesh.android.ui.LocalContainer
 import dev.agentmesh.android.ui.HostsScreen
 import dev.agentmesh.gen.agentmesh.v1.AgentRole
@@ -44,13 +43,13 @@ private object Silent : MeshApi {
     override suspend fun listMessages(runId: String, afterId: String): dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse = error("unused")
     override suspend fun sendMessage(to: String, type: dev.agentmesh.gen.agentmesh.v1.MessageType, body: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
     override suspend fun approveAgent(agent: String): dev.agentmesh.gen.agentmesh.v1.Message = error("unused")
-    override suspend fun openTerminal(agent: String): String = error("unused")
+    override suspend fun openTerminal(agent: String, input: Boolean): String = error("unused")
     override fun connectTerminal(path: String): dev.agentmesh.android.net.TerminalSocket = error("unused")
     override suspend fun listSettings(prefix: String) = emptyList<dev.agentmesh.gen.agentmesh.v1.Setting>()
     override suspend fun setSetting(key: String, value: com.google.protobuf.Value) = error("unused")
     override suspend fun resetSetting(key: String) = error("unused")
     override suspend fun revokeSelf() = error("unused")
-    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
+    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String, events: List<String>): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
     override suspend fun unregisterPush(): Boolean = error("unused")
     override suspend fun testPush(): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
     override suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse = error("unused")
@@ -63,6 +62,9 @@ private object Silent : MeshApi {
     override suspend fun holdPullRequest(url: String, release: Boolean): List<dev.agentmesh.gen.agentmesh.v1.PullRequest> = error("unused")
     override suspend fun getUsage(refresh: Boolean): dev.agentmesh.gen.agentmesh.v1.GetUsageResponse = error("unused")
     override suspend fun getCost(runId: String, since: String, agents: Boolean): dev.agentmesh.gen.agentmesh.v1.GetCostResponse = error("unused")
+    override suspend fun startRun(title: String): dev.agentmesh.gen.agentmesh.v1.Run = error("unused")
+    override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: dev.agentmesh.gen.agentmesh.v1.AgentRole, kind: String, tier: String, model: String, task: String): dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse = error("unused")
+    override suspend fun listProjects(): List<dev.agentmesh.gen.agentmesh.v1.Project> = error("unused")
 }
 
 @RunWith(RobolectricTestRunner::class)
@@ -82,41 +84,6 @@ class ScreensTest {
     private fun HostRuntime.feed(vararg frames: dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse) {
         onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         frames.forEach(::onFrame)
-    }
-
-    @Test fun `the host screen shows each run as a tree and what waits on the user`() {
-        val rt = runtime()
-        val lead = agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead", state = AgentState.AGENT_STATE_WORKING)
-        val worker = agent("w1", parent = "lead", name = "shop-fix-typo", state = AgentState.AGENT_STATE_NEEDS_INPUT, needsInput = 1, detail = "Bash", at = 2_000)
-        rt.feed(snapshot(listOf(run("r1", "Fix the typo")), listOf(lead, worker)))
-        rt.onFrame(messageSent(1, message("m1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, at = 3_000)))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
-        // The run's title heads its tree and sits under each waiting row.
-        compose.onAllNodesWithText("Fix the typo").assertCountEquals(3)
-        compose.onNodeWithText("shop-lead").assertIsDisplayed()
-        compose.onNodeWithText("shop-fix-typo").assertIsDisplayed()
-        compose.onNodeWithText("Needs you: Bash").assertIsDisplayed()
-        // The plan and the prompt both wait on the user.
-        compose.onNodeWithText("WAITING ON YOU (2)").assertIsDisplayed()
-        compose.onNodeWithText("shop-fix-typo sent a plan").assertIsDisplayed()
-    }
-
-    @Test fun `a closed run is collapsed until it is tapped`() {
-        val rt = runtime()
-        rt.feed(snapshot(listOf(run("r1", "Old work", status = dev.agentmesh.gen.agentmesh.v1.RunStatus.RUN_STATUS_CLOSED)), listOf(agent("a1", name = "old-agent", state = AgentState.AGENT_STATE_EXITED))))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
-        compose.onNodeWithText("Old work").assertIsDisplayed()
-        compose.onNodeWithText("old-agent").assertDoesNotExistCompat()
-        compose.onNodeWithText("Old work").performClick()
-        compose.onNodeWithText("old-agent").assertIsDisplayed()
-    }
-
-    @Test fun `a host that is not connected says why and offers a retry`() {
-        val rt = runtime()
-        rt.onState(ConnState.Stopped(ConnState.Reason.Auth, "bad token"))
-        compose.setContent { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
-        compose.onNodeWithText("The host refused this device's token").assertIsDisplayed()
-        compose.onNodeWithText("Retry").assertIsDisplayed()
     }
 
     @Test fun `the agent screen shows where it works`() {

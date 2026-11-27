@@ -1,5 +1,6 @@
 package dev.agentmesh.android.ui.messages
 
+import dev.agentmesh.android.ui.motionSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,7 +62,7 @@ fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean
     var expanded by rememberSaveable(m.id) { mutableStateOf(false) }
     val long = isLong(m.body)
     Card(
-        Modifier.fillMaxWidth().testTag("message"),
+        Modifier.fillMaxWidth().motionSize().testTag("message"),
         colors = CardDefaults.cardColors(containerColor = if (open) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

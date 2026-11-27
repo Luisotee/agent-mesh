@@ -9,7 +9,9 @@ import dev.agentmesh.gen.agentmesh.v1.Event
 import dev.agentmesh.gen.agentmesh.v1.MessageType
 
 /** What a notification is about; the host's `app.notify.events` setting names these (docs/apps.md, "Notifications"). */
-enum class NoticeKind(val key: String) { Input("input"), Plan("plan"), Question("question"), Report("report"), Failed("failed"), Exited("exited") }
+enum class NoticeKind(val key: String) {
+    Input("input"), Plan("plan"), Question("question"), Report("report"), Failed("failed"), Exited("exited"), Limited("limited"), Error("error"),
+}
 
 /** The screen a notification opens. */
 enum class Tab { Overview, Chat, Messages, Terminal }
@@ -46,7 +48,7 @@ fun brief(text: String): String {
 
 /**
  * What an event means to the person, if anything: an agent stopped at a prompt, a plan, a question, a report or a
- * failure sent to a run's lead, an agent that died. Only live events (history replayed after a reconnect stays
+ * failure sent to a run's lead, an agent that died, one that hit its usage limit or is in error. Only live events (history replayed after a reconnect stays
  * quiet), and never what the user did themselves. [agents] is the state before the event; [clockSkewMs] is how far
  * the host's clock is ahead of ours. The same rules as the desktop's `notify.ts` and the daemon's
  * `internal/notice` (what it pushes): change one, change all three.
@@ -62,8 +64,14 @@ private fun noticeOf(e: Event, agents: Map<String, Agent>, nowMs: Long, clockSke
         Event.PayloadCase.AGENT_STATE_CHANGED -> {
             val a = agents[e.agentId] ?: return null
             val ch = e.agentStateChanged
-            if (ch.to != AgentState.AGENT_STATE_NEEDS_INPUT || ch.from == AgentState.AGENT_STATE_NEEDS_INPUT) return null
-            return Notice(NoticeKind.Input, "${a.name} needs you", brief(ch.detail).ifEmpty { "It is stopped at a prompt in its terminal." }, a.id, Tab.Terminal)
+            if (ch.to == ch.from) return null
+            val detail = brief(ch.detail)
+            return when (ch.to) {
+                AgentState.AGENT_STATE_NEEDS_INPUT -> Notice(NoticeKind.Input, "${a.name} needs you", detail.ifEmpty { "It is stopped at a prompt in its terminal." }, a.id, Tab.Terminal)
+                AgentState.AGENT_STATE_LIMITED -> Notice(NoticeKind.Limited, "${a.name} hit its usage limit", detail.ifEmpty { "Its terminal says more." }, a.id, Tab.Terminal)
+                AgentState.AGENT_STATE_ERROR -> Notice(NoticeKind.Error, "${a.name} is in error", detail.ifEmpty { "Its terminal says more." }, a.id, Tab.Terminal)
+                else -> null
+            }
         }
         Event.PayloadCase.MESSAGE_SENT -> {
             val m = e.messageSent.message

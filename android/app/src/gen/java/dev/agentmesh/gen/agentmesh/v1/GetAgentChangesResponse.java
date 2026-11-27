@@ -17,6 +17,7 @@ public  final class GetAgentChangesResponse extends
   private GetAgentChangesResponse() {
     files_ = emptyProtobufList();
     reason_ = "";
+    ignored_ = emptyProtobufList();
   }
   public static final int FILES_FIELD_NUMBER = 1;
   private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.ChangedFile> files_;
@@ -387,6 +388,181 @@ public  final class GetAgentChangesResponse extends
     checkByteStringIsUtf8(value);
     reason_ = value.toStringUtf8();
 
+  }
+
+  public static final int IGNORED_FIELD_NUMBER = 8;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.IgnoredEntry> ignored_;
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.IgnoredEntry> getIgnoredList() {
+    return ignored_;
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.IgnoredEntryOrBuilder> 
+      getIgnoredOrBuilderList() {
+    return ignored_;
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  @java.lang.Override
+  public int getIgnoredCount() {
+    return ignored_.size();
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.IgnoredEntry getIgnored(int index) {
+    return ignored_.get(index);
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.IgnoredEntryOrBuilder getIgnoredOrBuilder(
+      int index) {
+    return ignored_.get(index);
+  }
+  private void ensureIgnoredIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.IgnoredEntry> tmp = ignored_;
+    if (!tmp.isModifiable()) {
+      ignored_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  private void setIgnored(
+      int index, dev.agentmesh.gen.agentmesh.v1.IgnoredEntry value) {
+    java.util.Objects.requireNonNull(value);
+    ensureIgnoredIsMutable();
+    ignored_.set(index, value);
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  private void addIgnored(dev.agentmesh.gen.agentmesh.v1.IgnoredEntry value) {
+    java.util.Objects.requireNonNull(value);
+    ensureIgnoredIsMutable();
+    ignored_.add(value);
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  private void addIgnored(
+      int index, dev.agentmesh.gen.agentmesh.v1.IgnoredEntry value) {
+    java.util.Objects.requireNonNull(value);
+    ensureIgnoredIsMutable();
+    ignored_.add(index, value);
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  private void addAllIgnored(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.IgnoredEntry> values) {
+    ensureIgnoredIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, ignored_);
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  private void clearIgnored() {
+    ignored_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+   * at most 20, and how many more there are.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+   */
+  private void removeIgnored(int index) {
+    ensureIgnoredIsMutable();
+    ignored_.remove(index);
+  }
+
+  public static final int IGNORED_MORE_FIELD_NUMBER = 9;
+  private int ignoredMore_;
+  /**
+   * <code>int32 ignored_more = 9 [json_name = "ignoredMore"];</code>
+   * @return The ignoredMore.
+   */
+  @java.lang.Override
+  public int getIgnoredMore() {
+    return ignoredMore_;
+  }
+  /**
+   * <code>int32 ignored_more = 9 [json_name = "ignoredMore"];</code>
+   * @param value The ignoredMore to set.
+   */
+  private void setIgnoredMore(int value) {
+    
+    ignoredMore_ = value;
+  }
+  /**
+   * <code>int32 ignored_more = 9 [json_name = "ignoredMore"];</code>
+   */
+  private void clearIgnoredMore() {
+
+    ignoredMore_ = 0;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.GetAgentChangesResponse parseFrom(
@@ -881,6 +1057,196 @@ public  final class GetAgentChangesResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.IgnoredEntry> getIgnoredList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getIgnoredList());
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    @java.lang.Override
+    public int getIgnoredCount() {
+      return instance.getIgnoredCount();
+    }/**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.IgnoredEntry getIgnored(int index) {
+      return instance.getIgnored(index);
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder setIgnored(
+        int index, dev.agentmesh.gen.agentmesh.v1.IgnoredEntry value) {
+      copyOnWrite();
+      instance.setIgnored(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder setIgnored(
+        int index, dev.agentmesh.gen.agentmesh.v1.IgnoredEntry.Builder builderForValue) {
+      copyOnWrite();
+      instance.setIgnored(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder addIgnored(dev.agentmesh.gen.agentmesh.v1.IgnoredEntry value) {
+      copyOnWrite();
+      instance.addIgnored(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder addIgnored(
+        int index, dev.agentmesh.gen.agentmesh.v1.IgnoredEntry value) {
+      copyOnWrite();
+      instance.addIgnored(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder addIgnored(
+        dev.agentmesh.gen.agentmesh.v1.IgnoredEntry.Builder builderForValue) {
+      copyOnWrite();
+      instance.addIgnored(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder addIgnored(
+        int index, dev.agentmesh.gen.agentmesh.v1.IgnoredEntry.Builder builderForValue) {
+      copyOnWrite();
+      instance.addIgnored(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder addAllIgnored(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.IgnoredEntry> values) {
+      copyOnWrite();
+      instance.addAllIgnored(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder clearIgnored() {
+      copyOnWrite();
+      instance.clearIgnored();
+      return this;
+    }
+    /**
+     * <pre>
+     * With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+     * at most 20, and how many more there are.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.IgnoredEntry ignored = 8 [json_name = "ignored"];</code>
+     */
+    public Builder removeIgnored(int index) {
+      copyOnWrite();
+      instance.removeIgnored(index);
+      return this;
+    }
+
+    /**
+     * <code>int32 ignored_more = 9 [json_name = "ignoredMore"];</code>
+     * @return The ignoredMore.
+     */
+    @java.lang.Override
+    public int getIgnoredMore() {
+      return instance.getIgnoredMore();
+    }
+    /**
+     * <code>int32 ignored_more = 9 [json_name = "ignoredMore"];</code>
+     * @param value The ignoredMore to set.
+     * @return This builder for chaining.
+     */
+    public Builder setIgnoredMore(int value) {
+      copyOnWrite();
+      instance.setIgnoredMore(value);
+      return this;
+    }
+    /**
+     * <code>int32 ignored_more = 9 [json_name = "ignoredMore"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearIgnoredMore() {
+      copyOnWrite();
+      instance.clearIgnoredMore();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetAgentChangesResponse)
   }
   @java.lang.Override
@@ -905,10 +1271,13 @@ public  final class GetAgentChangesResponse extends
             "unpushed_",
             "available_",
             "reason_",
+            "ignored_",
+            dev.agentmesh.gen.agentmesh.v1.IgnoredEntry.class,
+            "ignoredMore_",
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0000\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u001b\u0002\u0007" +
-              "\u0003\u0004\u0004\u0004\u0005\u0004\u0006\u0007\u0007\u0208";
+              "\u0000\t\u0000\u0000\u0001\t\t\u0000\u0002\u0000\u0001\u001b\u0002\u0007\u0003\u0004" +
+              "\u0004\u0004\u0005\u0004\u0006\u0007\u0007\u0208\b\u001b\t\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

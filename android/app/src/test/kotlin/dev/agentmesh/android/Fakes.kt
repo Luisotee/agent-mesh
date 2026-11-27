@@ -11,6 +11,7 @@ import dev.agentmesh.gen.agentmesh.term.v1.Attached
 import dev.agentmesh.gen.agentmesh.term.v1.Exited
 import dev.agentmesh.gen.agentmesh.term.v1.Output
 import dev.agentmesh.gen.agentmesh.term.v1.ReplayDone
+import dev.agentmesh.gen.agentmesh.term.v1.Resized
 import dev.agentmesh.gen.agentmesh.term.v1.Screen
 import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
 import kotlinx.coroutines.channels.Channel
@@ -88,9 +89,13 @@ class RecordingApi : MeshApi {
     val tickets = mutableListOf<String>()
     var terminalError: Throwable? = null
 
-    override suspend fun openTerminal(agent: String): String {
+    /** Whether each ticket asked for the input right. */
+    val ticketInputs = mutableListOf<Boolean>()
+
+    override suspend fun openTerminal(agent: String, input: Boolean): String {
         terminalError?.let { throw it }
         tickets += agent
+        ticketInputs += input
         return "/v1/term/$agent?ticket=t${tickets.size}"
     }
 
@@ -104,14 +109,21 @@ class RecordingApi : MeshApi {
     /** What push calls reached the host: "register <endpoint>", "unregister", "test". */
     val push = java.util.Collections.synchronizedList(mutableListOf<String>())
     var failPush: Exception? = null
+    /** The kinds each RegisterPush named, in order (an empty list: follow the host's). */
+    val pushEvents = java.util.Collections.synchronizedList(mutableListOf<List<String>>())
 
     /** While set, RegisterPush hangs until it completes, even when cancelled: a request already on its way. */
     @Volatile var registerGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
 
-    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): dev.agentmesh.gen.agentmesh.v1.PushRegistration {
+    /** RegisterPush calls that began (a gated one hasn't finished). */
+    val registerCalls = java.util.concurrent.atomic.AtomicInteger()
+
+    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String, events: List<String>): dev.agentmesh.gen.agentmesh.v1.PushRegistration {
+        registerCalls.incrementAndGet()
         registerGate?.let { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { it.await() } }
         failPush?.let { throw it }
         push += "register $endpoint"
+        pushEvents += events
         return dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance()
     }
 
@@ -230,6 +242,36 @@ class RecordingApi : MeshApi {
         failCost?.let { throw it }
         return cost
     }
+    // ── Starting runs and spawning agents ──
+
+    val runsStarted = java.util.Collections.synchronizedList(mutableListOf<String>())
+    @Volatile var failStartRun: Exception? = null
+
+    override suspend fun startRun(title: String): dev.agentmesh.gen.agentmesh.v1.Run {
+        failStartRun?.let { throw it }
+        runsStarted += title
+        return run("run-${runsStarted.size}", title)
+    }
+
+    /** What each SpawnAgent asked: run, repo, slug, role, kind, tier, model, task. */
+    val spawns = java.util.Collections.synchronizedList(mutableListOf<List<String>>())
+    @Volatile var failSpawn: Exception? = null
+
+    override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: dev.agentmesh.gen.agentmesh.v1.AgentRole, kind: String, tier: String, model: String, task: String): dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse {
+        failSpawn?.let { throw it }
+        spawns += listOf(runId, repo, slug, role.name, kind, tier, model, task)
+        return dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse.newBuilder().setAgent(agent("spawned-${spawns.size}", runId = runId)).build()
+    }
+
+    @Volatile var projects: List<dev.agentmesh.gen.agentmesh.v1.Project> = emptyList()
+    var projectListings = 0
+    @Volatile var failProjects: Exception? = null
+
+    override suspend fun listProjects(): List<dev.agentmesh.gen.agentmesh.v1.Project> {
+        projectListings++
+        failProjects?.let { throw it }
+        return projects
+    }
 }
 
 /** A terminal stream a test scripts: what the host sends is put in with [host], what the app sent is in [sent]. */
@@ -255,6 +297,9 @@ object Frames {
 
     fun output(text: String, offset: Long, epoch: Long = 1) =
         TermFrame.newBuilder().setOutput(Output.newBuilder().setEpoch(epoch).setOffset(offset).setData(ByteString.copyFromUtf8(text))).build()
+
+    fun resized(epoch: Long, offset: Long, cols: Int, rows: Int) =
+        TermFrame.newBuilder().setResized(Resized.newBuilder().setEpoch(epoch).setOffset(offset).setCols(cols).setRows(rows)).build()
 
     fun replayDone(offset: Long = 0) = TermFrame.newBuilder().setReplayDone(ReplayDone.newBuilder().setOffset(offset)).build()
     fun exited(code: Int = 0, signal: Int = 0) = TermFrame.newBuilder().setExited(Exited.newBuilder().setExitCode(code).setSignal(signal)).build()

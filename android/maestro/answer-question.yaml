@@ -3,7 +3,6 @@
 appId: dev.agentmesh.android.debug
 ---
 - launchApp
-- tapOn: "Test host"
 - tapOn: "${AGENT} asked a question"
 - tapOn: "Your answer"
 - inputText: "${ANSWER}"

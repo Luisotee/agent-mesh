@@ -7,6 +7,13 @@ import dev.agentmesh.android.term.CloseCode
 import dev.agentmesh.android.term.TermClient
 import dev.agentmesh.android.term.TermScreen
 import dev.agentmesh.android.term.TermState
+import dev.agentmesh.android.term.pasteBytes
+import dev.agentmesh.android.term.glyphRange
+import dev.agentmesh.android.term.selectedText
+import dev.agentmesh.android.term.wordRange
+import dev.agentmesh.android.term.CellPos
+import dev.agentmesh.android.term.Selection
+import dev.agentmesh.android.term.absoluteRow
 import dev.agentmesh.gen.agentmesh.term.v1.AttachMode
 import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -108,6 +115,17 @@ class TermClientTest {
         s2.host(Frames.screen("fresh", epoch = 2, offset = 9)); s2.host(Frames.replayDone(9)); runCurrent()
         assertEquals(30, r.screen.cols); assertEquals("fresh", r.screen.visibleText())
         assertEquals(TermState.Live, r.client.state.value)
+    }
+
+    @Test fun `a Resized frame moves the screen to the new size and epoch in place, with no reattach`() = runTest {
+        val r = Rig(this); val s = r.socket()
+        r.client.start(); runCurrent(); first(s)
+        s.host(Frames.resized(epoch = 2, offset = 5, cols = 30, rows = 8))
+        s.host(Frames.output("x", 5, epoch = 2)); runCurrent()
+        assertEquals(30, r.screen.cols); assertEquals(8, r.screen.rows)
+        assertEquals(1, s.sent.size) // only the first Attach: no repaint was asked for
+        assertEquals(TermState.Live, r.client.state.value)
+        assertEquals("hellox", r.screen.visibleText())
     }
 
     @Test fun `when the host can't continue exactly it repaints, and the old screen is dropped`() = runTest {
@@ -276,5 +294,165 @@ class TermClientTest {
         ready = true; gate.complete(Unit); runCurrent()
         assertEquals(TermState.Attaching, client.state.value)
         assertEquals(1, api.tickets.size)
+    }
+
+    // ── Typing ──
+
+    private class TypingRig(scope: TestScope, input: Boolean = true) {
+        val api = RecordingApi()
+        val screen = TermScreen()
+        val client = TermClient(scope.backgroundScope, "a1", { api }, screen, baseMs = 500, maxMs = 10_000, input = input)
+        fun socket() = FakeSocket().also { api.sockets += it }
+    }
+
+    private fun granted(s: FakeSocket, input: Boolean = true) {
+        s.host(TermFrame.newBuilder().setAttached(Frames.attached(AttachMode.ATTACH_MODE_REPAINT, epoch = 1, offset = 5, cols = 40, rows = 10).attached.toBuilder().setInput(input)).build())
+        s.host(Frames.screen("hello", epoch = 1, offset = 5))
+    }
+
+    @Test fun `with the input right it asks for it, sends Ready after the replay, and only then types`() = runTest {
+        val r = TypingRig(this); val s = r.socket()
+        r.client.start(); runCurrent()
+        assertEquals(listOf(true), r.api.ticketInputs)
+        granted(s); runCurrent()
+        // Until the replay is done input is dropped by the host, so none is sent, and nothing says it is typing.
+        assertTrue(!r.client.type("a".toByteArray())); assertTrue(!r.client.typing.value)
+        s.host(Frames.replayDone(5)); runCurrent()
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH, TermFrame.FrameCase.READY), s.sent.map { it.frameCase })
+        assertTrue(r.client.typing.value)
+        assertTrue(r.client.type("ls\r".toByteArray()))
+        assertEquals("ls\r", s.sent.last().input.data.toStringUtf8())
+        assertTrue(!r.client.type(ByteArray(0)))
+    }
+
+    @Test fun `a phone that types never asks for a size, and never sends a resize`() = runTest {
+        val r = TypingRig(this); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        r.client.type("x".toByteArray()); runCurrent()
+        val attach = s.sent.first().attach
+        // Size 0 is "unknown": the host leaves out of its sizing a client that gave none, so the desktop's terminal stays as it is.
+        assertEquals(0, attach.cols); assertEquals(0, attach.rows)
+        assertTrue(s.sent.none { it.frameCase == TermFrame.FrameCase.RESIZE })
+        // Even when the host's own size changes (another epoch), nothing of a size is sent back.
+        s.host(Frames.output("y", 5, epoch = 2)); runCurrent()
+        assertTrue(s.sent.none { it.frameCase == TermFrame.FrameCase.RESIZE })
+    }
+
+    @Test fun `the emulator's replies to the program's queries are never sent, typing or not`() = runTest {
+        val r = TypingRig(this); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        // Device attributes (ESC [ c), a cursor position report (ESC [ 6 n) and a status report (ESC [ 5 n): the emulator would answer each.
+        s.host(Frames.output("\u001B[c\u001B[6n\u001B[5n", 5)); runCurrent()
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH, TermFrame.FrameCase.READY), s.sent.map { it.frameCase })
+        // What the user types still goes.
+        r.client.type("q".toByteArray())
+        assertEquals(TermFrame.FrameCase.INPUT, s.sent.last().frameCase)
+    }
+
+    @Test fun `a host that did not grant the input right gets no input, and Ready is not sent`() = runTest {
+        val r = TypingRig(this); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s, input = false); s.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(!r.client.typing.value); assertTrue(!r.client.type("a".toByteArray()))
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH), s.sent.map { it.frameCase })
+    }
+
+    @Test fun `without the keyboard it asks for no input right and sends nothing but the attach`() = runTest {
+        val r = TypingRig(this, input = false); val s = r.socket()
+        r.client.start(); runCurrent()
+        assertEquals(listOf(false), r.api.ticketInputs)
+        granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(!r.client.typing.value); assertTrue(!r.client.type("a".toByteArray()))
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH), s.sent.map { it.frameCase })
+    }
+
+    @Test fun `after a drop it is typing again only once the new stream's replay is done`() = runTest {
+        val r = TypingRig(this); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(r.client.typing.value)
+        val second = r.socket()
+        s.close(1006, "network"); runCurrent()
+        assertTrue(!r.client.typing.value)
+        advanceTimeBy(600); runCurrent()
+        granted(second); runCurrent()
+        assertTrue(!r.client.typing.value)
+        second.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(r.client.typing.value)
+        assertEquals(listOf(true, true), r.api.ticketInputs)
+    }
+
+    // ── The screen: paste and selection ──
+
+    @Test fun `a paste is the program's own bracketed or plain form, newlines as returns and escapes dropped`() {
+        val screen = TermScreen(); screen.reset(40, 5)
+        assertEquals("a\rb", screen.pasteBytes("a\nb\u001B").toString(Charsets.UTF_8))
+        screen.write("\u001B[?2004h".toByteArray())
+        assertEquals("\u001B[200~one\rtwo\u001B[201~", screen.pasteBytes("one\r\ntwo").toString(Charsets.UTF_8))
+        screen.write("\u001B[?2004l".toByteArray())
+        assertEquals("x", screen.pasteBytes("x").toString(Charsets.UTF_8))
+    }
+
+    @Test fun `a reply the emulator made to a query is not carried into the next paste`() {
+        val screen = TermScreen(); screen.reset(40, 5)
+        // A query answered while no paste is being encoded is dropped, and the next paste doesn't carry it.
+        screen.write("\u001B[c".toByteArray())
+        assertEquals("p", screen.pasteBytes("p").toString(Charsets.UTF_8))
+    }
+
+    @Test fun `the text of a selection, across rows, and kept to the same words while output scrolls`() {
+        val screen = TermScreen(); screen.reset(20, 3)
+        screen.write("alpha beta\r\ngamma delta\r\nepsilon".toByteArray())
+        val sel = Selection(CellPos(6, screen.absoluteRow(0)), CellPos(4, screen.absoluteRow(1)))
+        assertEquals("beta\ngamma", screen.selectedText(sel))
+        // New lines push the screen up: the same words stay selected (rows are counted from the start of the history).
+        screen.write("\r\nzeta\r\neta".toByteArray())
+        assertEquals("beta\ngamma", screen.selectedText(sel))
+        // A selection of just a word.
+        assertEquals("delta", screen.selectedText(Selection(CellPos(6, sel.end.row), CellPos(10, sel.end.row))))
+    }
+
+    @Test fun `a word is found by cells, so wide characters before it don't move the selection`() {
+        val screen = TermScreen(); screen.reset(30, 3)
+        // Two wide characters take four columns, then a blank, then two words; an emoji takes two columns and two chars of text.
+        screen.write("世界 abc def 😀x".toByteArray())
+        assertEquals(5..7, screen.wordRange(0, 6))
+        assertEquals(9..11, screen.wordRange(0, 9))
+        assertEquals(0..3, screen.wordRange(0, 2))
+        assertEquals(4..4, screen.wordRange(0, 4))
+        assertEquals(13..15, screen.wordRange(0, 14))
+        assertEquals(29..29, screen.wordRange(0, 29))
+        // Plain text is as it was.
+        val plain = TermScreen(); plain.reset(20, 2)
+        plain.write("git commit -m fix".toByteArray())
+        assertEquals(4..9, plain.wordRange(0, 6)); assertEquals(0..2, plain.wordRange(0, 0))
+    }
+
+    @Test fun `a selection made before the screen was made again is cut to the new screen, and the tab is told by a count`() {
+        val screen = TermScreen(); screen.reset(120, 5)
+        screen.write("x".repeat(110).toByteArray())
+        val sel = Selection(CellPos(100, screen.absoluteRow(0)), CellPos(108, screen.absoluteRow(0)))
+        val before = screen.resets
+        screen.reset(80, 5)
+        assertEquals(before + 1, screen.resets)
+        // Columns past the narrower screen are cut, not read: this used to throw out of the emulator.
+        assertEquals("", screen.selectedText(sel))
+        // A selection that spans onto the new screen's own rows stays within them.
+        screen.write("hello".toByteArray())
+        assertEquals("hello", screen.selectedText(Selection(CellPos(0, screen.absoluteRow(0)), CellPos(500, screen.absoluteRow(9)))))
+    }
+
+    @Test fun `an end that lands on either half of a wide character takes the whole of it, as the highlight does`() {
+        val screen = TermScreen(); screen.reset(20, 2)
+        // a at 0, 世 at 1-2, 界 at 3-4, b at 5.
+        screen.write("a世界b".toByteArray())
+        val r = screen.absoluteRow(0)
+        assertEquals(1..2, screen.glyphRange(0, 1)); assertEquals(1..2, screen.glyphRange(0, 2)); assertEquals(0..0, screen.glyphRange(0, 0))
+        // Forward, ending on the left half of 世: it is selected (this copied just "a").
+        assertEquals("a世", screen.selectedText(Selection(CellPos(0, r), CellPos(1, r))))
+        // Ending on the right half.
+        assertEquals("a世", screen.selectedText(Selection(CellPos(0, r), CellPos(2, r))))
+        // Backward, from b to the right half of 世: the whole of 世 (the highlight says so too).
+        assertEquals("世界b", screen.selectedText(Selection(CellPos(5, r), CellPos(2, r))))
+        // Starting on a left half takes it as well.
+        assertEquals("界b", screen.selectedText(Selection(CellPos(3, r), CellPos(5, r))))
     }
 }

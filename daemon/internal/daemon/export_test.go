@@ -189,3 +189,8 @@ func (d *Daemon) RunDirForTest(run string) string { return d.paths.RunDir(run) }
 func CopyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes int64) WorktreeInclude {
 	return copyWorktreeInclude(ctx, repo, worktree, maxBytes)
 }
+
+// LostIn is lostIn: the bytes, files and whether the count stopped early, under a path of a worktree that a restore would not give back.
+func LostIn(ctx context.Context, worktree, rel string, safe func(string) bool) (int64, int, bool) {
+	return lostIn(ctx, worktree, rel, safe)
+}

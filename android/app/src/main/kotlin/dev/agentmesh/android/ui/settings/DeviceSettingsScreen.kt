@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.theme.ThemeStore
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.LocalContainer
+import dev.agentmesh.android.notify.DEFAULT_EVENTS
 import dev.agentmesh.android.ui.SectionHeader
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
 import kotlinx.coroutines.launch
@@ -40,13 +41,27 @@ import kotlinx.coroutines.launch
 /** This device's own preferences. They aren't on a host: a theme chosen here overrides the host's `app.theme` on this phone only. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeviceSettingsScreen(onBack: () -> Unit) {
+fun DeviceSettingsScreen(onBack: () -> Unit, onHosts: () -> Unit = {}) {
     val themes = LocalContainer.current.themes
+    val hostCount by LocalContainer.current.hosts.hosts.collectAsStateWithLifecycleCompat()
     val choice by themes.choice.collectAsStateWithLifecycleCompat()
     Scaffold(topBar = {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize()) {
+            item { SectionHeader("Hosts") }
+            item {
+                Row(Modifier.fillMaxWidth().clickable(onClick = onHosts).padding(horizontal = 16.dp, vertical = 12.dp).testTag("settings-hosts"), verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+                        Text("Paired hosts")
+                        Text(
+                            if (hostCount.isEmpty()) "None yet: pair with a host to begin." else hostCount.joinToString(", ") { it.name },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             item { SectionHeader("Notifications") }
             item { NotificationSettings() }
             item { SectionHeader("Theme") }
@@ -101,6 +116,7 @@ private fun NotificationSettings() {
         androidx.compose.material3.Switch(background, { container.prefs.setBackground(it); if (it && container.hosts.hosts.value.isNotEmpty()) dev.agentmesh.android.notify.ConnectionService.start(context) })
     }
     PushSettings()
+    NotifyKindsSettings()
     if (!allowed) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Notifications are blocked for this app.", Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
@@ -113,6 +129,62 @@ private fun NotificationSettings() {
         }
     }
 }
+
+/** What each kind of notice is called on the settings screen, in the order of the host's `app.notify.events`. */
+val NOTICE_LABELS = listOf(
+    "input" to "An agent stopped at a prompt in its terminal",
+    "plan" to "A plan to approve",
+    "question" to "A question to answer",
+    "report" to "A report (an agent is done)",
+    "failed" to "A failure",
+    "error" to "An agent whose last turn ended in an error",
+    "limited" to "An agent at its usage limit",
+    "exited" to "Any agent's clean exit",
+)
+
+/**
+ * What this phone is told of, for notifications on the phone and for pushes: follow each host's own list (its
+ * `app.notify.events`), or choose here, one list for every host. The host's `app.notify.enabled` still silences everything.
+ */
+@Composable
+private fun NotifyKindsSettings() {
+    val container = LocalContainer.current
+    val chosen by container.prefs.notifyEvents.collectAsStateWithLifecycleCompat()
+    val follow = chosen == null
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+            Text("What to be told of")
+            Text(
+                if (follow) "Follows each host's own list (its app.notify.events)." else "One list for this phone, whatever a host's own says; it goes to every host for pushes.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        androidx.compose.material3.Switch(
+            !follow, { on -> container.prefs.setNotifyEvents(if (on) DEFAULT_CHOICE else null) },
+            modifier = Modifier.testTag("choose-events"),
+        )
+    }
+    if (!follow) {
+        val set = chosen.orEmpty()
+        Text(
+            "At least one kind stays on. To hear nothing, turn notifications off on the host (its app.notify.enabled setting).",
+            Modifier.padding(horizontal = 32.dp).testTag("events-note"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        NOTICE_LABELS.forEach { (key, label) ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                // At least one stays on: none at all is the host's own "notifications off" switch, not a list (said below).
+                androidx.compose.material3.Switch(
+                    key in set, { on -> container.prefs.setNotifyEvents(if (on) set + key else if (set.size > 1) set - key else set) },
+                    enabled = !(key in set && set.size == 1), modifier = Modifier.testTag("event-$key"),
+                )
+            }
+        }
+    }
+}
+
+/** What turning the choice on starts with: the default list (the daemon's `DefaultNotifyEvents`, which `DEFAULT_EVENTS` mirrors). */
+private val DEFAULT_CHOICE = DEFAULT_EVENTS.map { it.key }.toSet()
 
 /**
  * Notifications with the app closed, through UnifiedPush: a switch, what it runs through (or that a distributor

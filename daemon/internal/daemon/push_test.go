@@ -103,6 +103,17 @@ func (p *phone) register(t *testing.T, endpoint string) *v1.PushRegistration {
 	return res.Msg.Registration
 }
 
+// registerEvents registers like register, with the kinds this phone chose to be pushed.
+func (p *phone) registerEvents(t *testing.T, endpoint string, events ...string) (*v1.PushRegistration, error) {
+	t.Helper()
+	res, err := p.c.RegisterPush(context.Background(), connect.NewRequest(&v1.RegisterPushRequest{Meta: meta(""), Endpoint: endpoint, Events: events,
+		P256Dh: base64.RawURLEncoding.EncodeToString(p.key.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(p.auth)}))
+	if err != nil {
+		return nil, err
+	}
+	return res.Msg.Registration, nil
+}
+
 type payload struct {
 	V      int    `json:"v"`
 	Daemon string `json:"daemon"`
@@ -200,6 +211,74 @@ func TestPushCarriesTheNoticeEncryptedToEachPhone(t *testing.T) {
 	if len(devs.Msg.Devices) != 1 || devs.Msg.Devices[0].Push.GetLastOkAt() == nil {
 		t.Fatalf("devices %+v", devs.Msg.Devices)
 	}
+}
+
+// A phone that chose its own list is pushed by it, one that didn't by the host's app.notify.events, and a kind no
+// device knows is refused.
+func TestAPhonesOwnListOfKindsDecidesWhatIsPushedToIt(t *testing.T) {
+	h := startPush(t)
+	ctx := context.Background()
+	srvA, srvB := newFakePush(t), newFakePush(t)
+	mine := pairPhone(t, h, "mine", false)
+	hosts := pairPhone(t, h, "follows the host", false)
+	// Unknown kinds are refused, not silently pushing nothing.
+	if _, err := mine.registerEvents(t, srvA.URL+"/a?up=1", "plan", "nonsense"); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("unknown kind: %v", err)
+	}
+	reg, err := mine.registerEvents(t, srvA.URL+"/a?up=1", "report", "plan", "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(reg.Events, ","); got != "report,plan" {
+		t.Fatalf("stored list %q (repeats dropped, order kept)", got)
+	}
+	hosts.register(t, srvB.URL+"/b?up=1")
+	setPushSetting(t, h, "app.notify.events", []any{"question"})
+
+	run := startRun(t, h.device.Mesh, "")
+	h.seedAgent(run.Id, "p-root", "shop-lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	w := h.seedAgent(run.Id, "p-w1", "shop-fix", "p-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	send := func(typ v1.MessageType, body string) {
+		t.Helper()
+		readInbox(t, h.as(w))
+		if _, err := h.as(w).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: typ, Body: body})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kinds := func(srv *fakePush, ph *phone) []string {
+		srv.mu.Lock()
+		defer srv.mu.Unlock()
+		var out []string
+		for _, b := range srv.got {
+			out = append(out, ph.open(t, b).Kind)
+		}
+		return out
+	}
+	send(v1.MessageType_MESSAGE_TYPE_PLAN, "a plan")
+	send(v1.MessageType_MESSAGE_TYPE_QUESTION, "a question")
+	send(v1.MessageType_MESSAGE_TYPE_DONE, "a report")
+	waitFor(t, "each phone's pushes", func() bool { return srvA.delivered() == 2 && srvB.delivered() == 1 })
+	// The phone's own list pushes the plan and the report and not the question; the host's list, only the question.
+	if got := strings.Join(kinds(srvA, mine), ","); got != "plan,report" {
+		t.Fatalf("the phone with its own list got %q", got)
+	}
+	if got := strings.Join(kinds(srvB, hosts), ","); got != "question" {
+		t.Fatalf("the phone following the host got %q", got)
+	}
+	// Notifications off on the host pushes nothing to either, whatever a phone chose.
+	setPushSetting(t, h, "app.notify.enabled", false)
+	send(v1.MessageType_MESSAGE_TYPE_PLAN, "another plan")
+	time.Sleep(100 * time.Millisecond)
+	if srvA.delivered() != 2 {
+		t.Fatalf("a push went out with notifications off: %d", srvA.delivered())
+	}
+	// Registering again with no list follows the host's again.
+	if reg, err := mine.registerEvents(t, srvA.URL+"/a?up=1"); err != nil || len(reg.Events) != 0 {
+		t.Fatalf("re-registered with none: %+v %v", reg, err)
+	}
+	setPushSetting(t, h, "app.notify.enabled", true)
+	send(v1.MessageType_MESSAGE_TYPE_QUESTION, "a second question")
+	waitFor(t, "the question reaches the phone that follows the host", func() bool { return srvA.delivered() == 3 })
 }
 
 func setPushSetting(t *testing.T, h *harness, key string, v any) {
