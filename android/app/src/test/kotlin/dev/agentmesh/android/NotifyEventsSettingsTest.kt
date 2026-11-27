@@ -81,7 +81,7 @@ class NotifyEventsSettingsTest {
         container.prefs.setNotifyEvents(setOf("plan", "limited"))
         waitUntil { api.pushEvents.lastOrNull() == listOf("limited", "plan") }
         container.prefs.setNotifyEvents(null)
-        waitUntil { api.pushEvents.lastOrNull()?.isEmpty() == true && api.pushEvents.size > 2 && api.pushEvents.any { it.isNotEmpty() } }
+        waitUntil { api.pushEvents.lastOrNull()?.isEmpty() == true && api.pushEvents.size > 2 && api.pushEvents.snapshot().any { it.isNotEmpty() } }
         assertEquals(emptyList<String>(), api.pushEvents.last())
     }
 

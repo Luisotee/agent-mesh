@@ -795,9 +795,11 @@ func lookupSessionDB(db *sql.DB, cwd, repo string, notBefore time.Time) string {
 
 // SessionInfo summarizes the latest state of an OpenCode session since a turn boundary.
 type SessionInfo struct {
-	SessionID     string
-	Status        string // "", "working", "idle", "limited", "error"
-	MessageID     string
+	SessionID string
+	Status    string // "", "working", "idle", "limited", "error"
+	MessageID string
+	// LastRole is the newest message's role ("user" while the reply to it has no row yet).
+	LastRole      string
 	CreatedAt     time.Time
 	CompletedAt   time.Time
 	HasModelReply bool
@@ -892,6 +894,7 @@ func InspectSession(dbPath, sessionID, cwd, repo, model string, since, notBefore
 		return out, nil
 	}
 	out.MessageID = lastID
+	out.LastRole = lastMsg.Role
 	created := lastMsg.Time.Created
 	if created == 0 {
 		created = lastAt

@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
@@ -23,7 +24,7 @@ func flat(s string) string { return strings.Join(strings.Fields(ansi.ReplaceAllS
 // fakeShare is a share folder with a protocol and a Claude plugin manifest, under a short path of its own.
 func fakeShare(t *testing.T, plugin bool) string {
 	t.Helper()
-	share, err := os.MkdirTemp("", "share-")
+	share, err := shortdir.Make("share-")
 	if err != nil {
 		t.Fatal(err)
 	}
