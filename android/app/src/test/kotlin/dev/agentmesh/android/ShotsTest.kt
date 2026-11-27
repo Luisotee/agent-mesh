@@ -25,6 +25,8 @@ import dev.agentmesh.android.theme.MeshTheme
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.AgentScreen
+import dev.agentmesh.android.ui.ShellScreen
+import dev.agentmesh.gen.agentmesh.term.v1.AttachMode
 import dev.agentmesh.android.ui.HomeScreen
 import dev.agentmesh.android.ui.SidebarActions
 import dev.agentmesh.android.ui.SidebarContent
@@ -73,6 +75,11 @@ class ShotsTest {
     private fun api(): MeshApi = RecordingApi().apply {
         transcript = { _, _, _ -> transcript() }
         // Two prompts the lead's host holds: one for its turn, one for a draft left in its box.
+        // Two terminals of the project the drawer shows first.
+        shells = listOf(
+            dev.agentmesh.gen.agentmesh.v1.Shell.newBuilder().setId("sh1").setRepo("/home/u/agent-mesh").build(),
+            dev.agentmesh.gen.agentmesh.v1.Shell.newBuilder().setId("sh2").setRepo("/home/u/agent-mesh").build(),
+        )
         queued["lead"] = listOf(queuedPrompt("p1", "lead", "Then bump the changelog.", held = "working"), queuedPrompt("p2", "lead", "And tag the release once CI is green.", at = 2_000, held = "draft"))
     }
 
@@ -91,13 +98,15 @@ class ShotsTest {
     }
 
     private val started = mutableListOf<HostRuntime>()
+    private var phoneShell: HostRuntime? = null
 
     @After fun stopRuntimes() { started.forEach { it.stop() } }
 
-    private fun runtime(): HostRuntime {
+    private fun runtime(use: MeshApi? = null): HostRuntime {
         val repo = HostRepository(tmp.newFile("hosts.json").also { it.delete() }, Plain)
         val host = repo.add("wsl", listOf(Route.Direct("http://127.0.0.1:1")), "t")
-        val rt = HostRuntime(host.id, repo, { _, _ -> api() }, CoroutineScope(Dispatchers.Unconfined))
+        val the = use ?: api()
+        val rt = HostRuntime(host.id, repo, { _, _ -> the }, CoroutineScope(Dispatchers.Unconfined))
         // Started, so the runtime has built its client (the chat reads through it); its handshake never answers, so the state is the test's.
         rt.start()
         started += rt
@@ -172,6 +181,19 @@ class ShotsTest {
         rt.onFrame(userNotice(13, "input", agentId = "w1", tab = "terminal", title = "agent-mesh-sidebar needs you", body = "Bash", at = now - 120_000))
         rt.onFrame(userNotice(14, "ready", agentId = "lead", title = "PR #42 is ready to merge", body = "Desktop UI overhaul", at = now - 30_000))
         both("activity", { dev.agentmesh.android.ui.ActivityScreen({}, { _, _, _ -> }) }, c = c)
+    }
+
+    /** A project's shell as a screen: the host's output as the terminal draws it, the key row, and the keyboard's place under it. */
+    @Test fun shellScreen() {
+        val api = api() as RecordingApi
+        api.sockets += FakeSocket().apply {
+            host(Frames.attached(AttachMode.ATTACH_MODE_REPAINT, offset = 9, cols = 52, rows = 24).let { f -> dev.agentmesh.gen.agentmesh.term.v1.TermFrame.newBuilder().setAttached(f.attached.toBuilder().setInput(true)).build() })
+            host(Frames.screen("\u001B[32muser@host\u001B[0m:\u001B[34m~/agent-mesh\u001B[0m$ git status\r\nOn branch main\r\nnothing to commit, working tree clean\r\n\u001B[32muser@host\u001B[0m:\u001B[34m~/agent-mesh\u001B[0m$ ", offset = 9))
+            host(Frames.replayDone(9))
+        }
+        val rt = runtime(api)
+        phoneShell = rt
+        both("shell", { ShellScreen(rt, "sh1", {}) }, ready = { compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("key-row")).fetchSemanticsNodes().isNotEmpty() } })
     }
 
     @Test fun drawer() {

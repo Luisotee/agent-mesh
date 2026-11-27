@@ -23,11 +23,15 @@ import dev.agentmesh.android.term.Key
 sealed interface RowKey {
     data class Special(val key: Key) : RowKey
     data class Char(val text: String) : RowKey
+
+    /** Ctrl and a letter in one tap (`^C`): the interrupt a phone's keyboard has no Ctrl to make. */
+    data class Control(val letter: String) : RowKey
 }
 
 /** The keys the soft keyboard has none of (or hides): Esc, Tab, arrows, Home, End, paging and the characters a shell needs. */
 val KEY_ROW: List<Pair<String, RowKey>> = listOf(
     "Esc" to RowKey.Special(Key.Esc), "Tab" to RowKey.Special(Key.Tab), "⇤Tab" to RowKey.Special(Key.ShiftTab),
+    "^C" to RowKey.Control("c"), "^D" to RowKey.Control("d"), "^Z" to RowKey.Control("z"), "^L" to RowKey.Control("l"),
     "↑" to RowKey.Special(Key.Up), "↓" to RowKey.Special(Key.Down), "←" to RowKey.Special(Key.Left), "→" to RowKey.Special(Key.Right),
     "Home" to RowKey.Special(Key.Home), "End" to RowKey.Special(Key.End), "PgUp" to RowKey.Special(Key.PageUp), "PgDn" to RowKey.Special(Key.PageDown),
     "Del" to RowKey.Special(Key.Delete), "Enter" to RowKey.Special(Key.Enter),
@@ -47,6 +51,7 @@ fun TerminalKeyRow(
     enabled: Boolean,
     onKey: (Key) -> Unit,
     onChar: (String) -> Unit,
+    onControl: (String) -> Unit,
     onPaste: () -> Unit,
     onHide: () -> Unit,
     modifier: Modifier = Modifier,
@@ -60,7 +65,7 @@ fun TerminalKeyRow(
             FilterChip(selected = alt, onClick = { onAlt(!alt) }, label = { Text("Alt") }, modifier = Modifier.testTag("key-alt"))
             KEY_ROW.forEach { (label, k) ->
                 OutlinedButton(
-                    onClick = { when (k) { is RowKey.Special -> onKey(k.key); is RowKey.Char -> onChar(k.text) } },
+                    onClick = { when (k) { is RowKey.Special -> onKey(k.key); is RowKey.Char -> onChar(k.text); is RowKey.Control -> onControl(k.letter) } },
                     enabled = enabled, modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp).testTag("key-$label"),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp),
                 ) { Text(label) }

@@ -51,7 +51,11 @@ import dev.agentmesh.gen.agentmesh.v1.UnregisterPushRequest
 import dev.agentmesh.gen.agentmesh.v1.ApproveAgentRequest
 import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
 import dev.agentmesh.gen.agentmesh.v1.Cursor
+import dev.agentmesh.gen.agentmesh.v1.CloseShellRequest
+import dev.agentmesh.gen.agentmesh.v1.ListShellsRequest
+import dev.agentmesh.gen.agentmesh.v1.OpenShellRequest
 import dev.agentmesh.gen.agentmesh.v1.OpenTerminalRequest
+import dev.agentmesh.gen.agentmesh.v1.Shell
 import kotlinx.coroutines.channels.ReceiveChannel
 import dev.agentmesh.gen.agentmesh.v1.ListMessagesRequest
 import dev.agentmesh.gen.agentmesh.v1.ListMessagesResponse
@@ -97,7 +101,7 @@ val UI_ACTIONS = listOf(
     "registerPush", "unregisterPush", "testPush", "revokeSelf",
     "readTranscript", "promptAgent", "switchAgent", "checkModels", "listAgents", "listWaiting", "listPullRequests", "holdPullRequest", "getUsage", "getCost",
     "startRun", "spawnAgent", "listProjects", "stopAgent", "retireAgent", "renameRun", "stopRun",
-    "listPrompts", "withdrawPrompt", "sendPromptAnyway", "interruptAgent",
+    "listPrompts", "withdrawPrompt", "sendPromptAnyway", "interruptAgent", "openShell", "listShells", "closeShell",
 )
 
 /** What a terminal stream delivers: frames, then how it ended. */
@@ -138,6 +142,18 @@ interface MeshApi {
      * (the host grants it only to a device that may type, and says so in the attach answer); without, the stream only watches.
      */
     suspend fun openTerminal(agent: String, input: Boolean = false): String
+
+    /** [openTerminal] for a project shell (`ListShells`): a ticket for the shell's own stream, which a device with the input right may type into. */
+    suspend fun openShellTerminal(shell: String, input: Boolean = false): String
+
+    /** Starts a plain login shell in a project's folder on the host (a path it knows, or a folder name of its `repos.dir`); it outlives the app. */
+    suspend fun openShell(repo: String): Shell
+
+    /** The host's project shells, oldest first. */
+    suspend fun listShells(): List<Shell>
+
+    /** Ends a shell (SIGHUP, as closing a terminal window does); the host forgets it. */
+    suspend fun closeShell(id: String)
 
     /** The terminal stream at [path] (from [openTerminal]): a WebSocket of binary `TermFrame`s, both ways. */
     fun connectTerminal(path: String): TerminalSocket
@@ -294,6 +310,18 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
 
     override suspend fun openTerminal(agent: String, input: Boolean): String =
         service.openTerminal(OpenTerminalRequest.newBuilder().setAgent(agent).setInput(input).build()).ok().path
+
+    override suspend fun openShellTerminal(shell: String, input: Boolean): String =
+        service.openTerminal(OpenTerminalRequest.newBuilder().setShell(shell).setInput(input).build()).ok().path
+
+    override suspend fun openShell(repo: String): Shell =
+        service.openShell(OpenShellRequest.newBuilder().setMeta(newMeta()).setRepo(repo).build()).ok().shell
+
+    override suspend fun listShells(): List<Shell> = service.listShells(ListShellsRequest.getDefaultInstance()).ok().shellsList
+
+    override suspend fun closeShell(id: String) {
+        service.closeShell(CloseShellRequest.newBuilder().setMeta(newMeta()).setId(id).build()).ok()
+    }
 
     override fun connectTerminal(path: String): TerminalSocket = OkHttpTerminalSocket(connection, path)
 

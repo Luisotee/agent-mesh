@@ -56,8 +56,12 @@ object CloseCode {
  *  - a slow client (close 4001) reattaches by offset at once, any other drop after a growing wait, and each
  *    attach asks for a fresh one-time ticket;
  *  - it sends input only when [input] is on (the keyboard is up) and the host granted it: the user's typing and pastes,
- *    after `Ready`; never the emulator's replies to queries, and never a size (it stays 0, so a phone that types
- *    doesn't resize the terminal the desktop uses). With [input] off it sends nothing, so the host answers the queries.
+ *    after `Ready`, and for a terminal where it is the only one that types ([answerQueries]: a shell it opened) the
+ *    emulator's replies to the program's queries from then on (the host's own emulator is silent while a client that
+ *    types is attached; what the replay's queries asked is not answered, the host drops input before `Ready`); and a
+ *    size only for a terminal the phone sizes ([size]: a shell it opened), else
+ *    it stays 0, so a phone that types doesn't resize the terminal the desktop uses. With [input] off it sends nothing,
+ *    so the host answers the queries.
  */
 class TermClient(
     private val scope: CoroutineScope,
@@ -70,6 +74,21 @@ class TermClient(
     private val hostReady: () -> Boolean = { true },
     /** Ask the host for the input right: for a keyboard that is up, on a device that may type. */
     private val input: Boolean = false,
+    /** [agentId] is a project shell's id (`ListShells`), not an agent's: its stream is another ticket. */
+    private val shell: Boolean = false,
+    /**
+     * The size of this device's view in columns and rows, for a terminal the phone itself sized (a shell it opened), or null
+     * (an agent's terminal, or a shell of the desktop's): the attach then carries size 0 and never a resize, so the phone never
+     * shrinks a terminal somebody else is using. Read at each attach.
+     */
+    private val size: (() -> Pair<Int, Int>?)? = null,
+    /**
+     * Answer the program's terminal queries (device attributes, cursor position) from the replay's end on, for a terminal where this
+     * client is the only one that types (a shell the phone opened). While a client with the input right is attached the host's own
+     * emulator stays silent, and a desktop's emulator answers for itself: a second answer from here would reach the program as typed
+     * input, so an agent's terminal or a shell of the desktop's leaves it to them.
+     */
+    private val answerQueries: Boolean = false,
 ) {
     private val _state = MutableStateFlow<TermState>(TermState.Attaching)
     val state: StateFlow<TermState> get() = _state
@@ -86,8 +105,25 @@ class TermClient(
         return sock.send(TermFrame.newBuilder().setInput(Input.newBuilder().setData(com.google.protobuf.ByteString.copyFrom(data))).build())
     }
 
+    /**
+     * The view's size changed (the keyboard came up, a rotation, a pinch): tells a terminal this phone sizes. Only a client that
+     * types may resize, so it waits for that and is not sent otherwise; false when nothing was sent.
+     */
+    fun resize(cols: Int, rows: Int): Boolean {
+        if (size == null || !_typing.value || sizeSent == cols to rows) return false
+        val sock = socket ?: return false
+        val sent = sock.send(TermFrame.newBuilder().setResize(dev.agentmesh.gen.agentmesh.term.v1.Resize.newBuilder().setCols(cols).setRows(rows)).build())
+        if (sent) sizeSent = cols to rows
+        return sent
+    }
+
+    private val replier: (ByteArray) -> Unit = { bytes -> type(bytes) }
+
     private var job: Job? = null
     private var socket: TerminalSocket? = null
+
+    /** The size the host was last told: attached with, or resized to. */
+    private var sizeSent: Pair<Int, Int>? = null
 
     // Where the stream is: the host's epoch and the offset of the next byte we expect.
     private var epoch = 0L
@@ -111,6 +147,7 @@ class TermClient(
 
     fun stop() {
         _typing.value = false
+        if (screen.output.reply === replier) screen.output.reply = null
         job?.cancel()
         job = null
         socket?.close()
@@ -169,13 +206,15 @@ class TermClient(
         val client = api()
         if (_state.value == TermState.WaitingForHost) _state.value = TermState.Attaching
         _typing.value = false
-        val path = client.openTerminal(agentId, input)
+        val path = if (shell) client.openShellTerminal(agentId, input) else client.openTerminal(agentId, input)
         val sock = client.connectTerminal(path)
         socket = sock
         try {
             val attach = Attach.newBuilder()
                 .setMode(if (repaint || !haveScreen) AttachMode.ATTACH_MODE_REPAINT else AttachMode.ATTACH_MODE_EXACT)
-                .setEpoch(epoch).setOffset(offset) // size 0: ours to ask nothing of
+                .setEpoch(epoch).setOffset(offset) // size 0 unless the phone sizes this terminal (below): ours to ask nothing of
+            sizeSent = size?.invoke()
+            sizeSent?.let { (c, r) -> attach.setCols(c).setRows(r) }
             sock.send(TermFrame.newBuilder().setAttach(attach).build())
             for (ev in sock.events) {
                 when (ev) {
@@ -196,6 +235,7 @@ class TermClient(
             sock.close()
             if (socket === sock) socket = null
             _typing.value = false
+            if (screen.output.reply === replier) screen.output.reply = null
             granted = false
         }
     }
@@ -251,6 +291,7 @@ class TermClient(
                 if (granted) {
                     socket?.send(TermFrame.newBuilder().setReady(Ready.getDefaultInstance()).build())
                     _typing.value = true
+                    if (answerQueries) screen.output.reply = replier
                 }
                 onLive()
             }

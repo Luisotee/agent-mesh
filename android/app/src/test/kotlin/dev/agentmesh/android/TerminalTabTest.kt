@@ -212,20 +212,25 @@ class TerminalTabTest {
         compose.onNodeWithTag("key-row").assertIsDisplayed()
         // Keys go out as input frames, and the size is still not ours to set.
         compose.onNodeWithTag("key-Esc").performClick()
-        compose.onNodeWithTag("key-↑").performClick()
+        compose.onNodeWithTag("key-↑").performScrollTo().performClick()
         compose.waitUntil(5_000) { second.sent.count { it.hasInput() } >= 2 }
         val typed = second.sent.filter { it.hasInput() }.map { it.input.data.toStringUtf8() }
         assertEquals(listOf("\u001B", "\u001B[A"), typed)
         assertEquals(0, second.sent.first().attach.cols)
         assertTrue(second.sent.none { it.hasResize() })
+        // ^C is one tap, and does not need the sticky Ctrl.
+        compose.onNodeWithTag("key-^C").performScrollTo().performClick()
+        compose.waitUntil(5_000) { second.sent.count { it.hasInput() } >= 3 }
+        assertEquals("\u0003", second.sent.filter { it.hasInput() }[2].input.data.toStringUtf8())
         // Ctrl is sticky for one key: Ctrl then "/" is sent as itself (no control code), and the next key has no Ctrl.
-        compose.onNodeWithTag("key-ctrl").performClick()
+        compose.onNodeWithTag("key-ctrl").performScrollTo().performClick()
         compose.onNodeWithTag("key-→").performScrollTo().performClick()
         compose.onNodeWithTag("key-→").performScrollTo().performClick()
-        runCatching { compose.waitUntil(2_000) { second.sent.count { it.hasInput() } >= 4 } }.onFailure { throw AssertionError("inputs so far: ${second.sent.filter { f -> f.hasInput() }.map { f -> f.input.data.toStringUtf8().replace("\u001B", "ESC") }}") }
-        assertEquals(listOf("\u001B[1;5C", "\u001B[C"), second.sent.filter { it.hasInput() }.map { it.input.data.toStringUtf8() }.drop(2))
+        runCatching { compose.waitUntil(2_000) { second.sent.count { it.hasInput() } >= 5 } }.onFailure { throw AssertionError("inputs so far: ${second.sent.filter { f -> f.hasInput() }.map { f -> f.input.data.toStringUtf8().replace("\u001B", "ESC") }}") }
+        assertEquals(listOf("\u001B[1;5C", "\u001B[C"), second.sent.filter { it.hasInput() }.map { it.input.data.toStringUtf8() }.drop(3))
         // Hide puts the keyboard away: back to watching, with a ticket that asks for no input.
         compose.onNodeWithTag("key-hide").performScrollTo().performClick()
+        compose.waitForIdle()
         compose.waitUntil(5_000) { api.tickets.size >= 3 }
         assertEquals(listOf(false, true, false), api.ticketInputs)
     }

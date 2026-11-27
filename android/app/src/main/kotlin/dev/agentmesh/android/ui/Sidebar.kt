@@ -57,6 +57,7 @@ import dev.agentmesh.android.derive.LeadRow
 import dev.agentmesh.android.derive.ProjectRow
 import dev.agentmesh.android.derive.QuotaLine
 import dev.agentmesh.android.derive.QuotaTone
+import dev.agentmesh.android.derive.ShellRow
 import dev.agentmesh.android.derive.SidebarHost
 import dev.agentmesh.android.derive.Waiting
 import dev.agentmesh.android.derive.WaitingKind
@@ -67,6 +68,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import dev.agentmesh.android.derive.helpersLabel
 import dev.agentmesh.android.derive.hueOf
 import dev.agentmesh.android.derive.quotaLines
+import dev.agentmesh.android.derive.repoName
 import dev.agentmesh.android.derive.searchProjects
 import dev.agentmesh.android.derive.statusSentence
 import dev.agentmesh.android.derive.tone
@@ -131,7 +133,7 @@ fun rememberSidebar(): SidebarModel {
                 val w = waitingFor(s)
                 val name = rt.host?.name ?: rt.hostId
                 val up = s.conn is ConnState.Ready
-                side.add(SidebarHost(rt.hostId, name, up, !s.synced && s.conn !is ConnState.Stopped && s.conn !is ConnState.Reconnecting, s.runs, s.agents, w.mapTo(HashSet()) { it.agent.id }))
+                side.add(SidebarHost(rt.hostId, name, up, !s.synced && s.conn !is ConnState.Stopped && s.conn !is ConnState.Reconnecting, s.runs, s.agents, w.mapTo(HashSet()) { it.agent.id }, s.shells.orEmpty().map { ShellRow(it.id, it.repo, if (it.hasStartedAt()) it.startedAt.seconds * 1000 else 0L, it.exited) }))
                 status.add(HostStatus(rt.hostId, name, up, !s.synced && s.conn !is ConnState.Stopped && s.conn !is ConnState.Reconnecting, isReadOnlyDevice(s), noteOf(s.conn)))
                 w.forEach { waiting.add(WaitingItem(rt, it)) }
                 unread += s.activity.count { it.seq > (seen[rt.hostId] ?: 0L) }
@@ -155,6 +157,9 @@ class SidebarActions(
     val addProject: (hostId: String) -> Unit,
     /** The Activity list: what the hosts decided to tell the user. */
     val activity: () -> Unit = {},
+    /** A project's shell: open it, or start one in a folder (ending one is asked in a dialog, like stopping an agent). */
+    val openShell: (hostId: String, shellId: String) -> Unit = { _, _ -> },
+    val newShell: (hostId: String, repo: String) -> Unit = { _, _ -> },
 )
 
 private val stringSet = listSaver<Set<String>, String>(save = { it.toList() }, restore = { it.toSet() })
@@ -255,9 +260,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.projectItems(
     searching: Boolean, flipped: Set<String>, flip: (String) -> Unit,
 ) {
     // Open by default while something in it lives; a search shows what it found.
-    val open = searching || ((p.runs.isNotEmpty()) != (p.key in flipped))
+    val open = searching || ((p.runs.isNotEmpty() || p.shells.isNotEmpty()) != (p.key in flipped))
     item(key = "p:${p.key}", contentType = "project") { ProjectHeader(p, model, open, a) { flip(p.key) } }
     if (!open) return
+    p.shells.forEachIndexed { i, sh -> item(key = "s:${p.key}:${sh.id}", contentType = "shell") { ShellItem(p.hostId, sh, shellLabel(sh, p.shells.size > 1, i), current, a, canAct = model.hosts.none { it.hostId == p.hostId && it.readOnly }) } }
     p.runs.forEach { r -> leadItems(r, p, current, a, model) }
     if (p.also.isNotEmpty()) foldItems("Also working here", "also:${p.key}", p.also, p, current, a, model, searching, flipped, flip)
     if (p.earlier.isNotEmpty()) foldItems("Earlier", "earlier:${p.key}", p.earlier, p, current, a, model, searching, flipped, flip)
@@ -314,16 +320,22 @@ private fun ProjectHeader(p: ProjectRow, model: SidebarModel, open: Boolean, a: 
             Text(
                 buildString {
                     append(if (live == 0) "No live runs" else if (live == 1) "1 live run" else "$live live runs")
+                    if (p.shells.isNotEmpty()) append(if (p.shells.size == 1) ", 1 terminal" else ", ${p.shells.size} terminals")
                     if (p.needs > 0) append(", ${p.needs} need you")
                 },
                 style = MaterialTheme.typography.bodySmall, color = if (p.needs > 0) stateColors.needs else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
         Text(if (open) "▾" else "▸", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // A terminal in this folder: one tap, as the desktop's project row has.
+        if (!readOnly && p.repo.isNotEmpty() && p.up) IconButton(onClick = { a.newShell(p.hostId, p.repo) }, Modifier.testTag("new-shell-${p.name}")) {
+            Text(">_", fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleSmall)
+        }
         Box {
             IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu of ${p.name}") }
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text("New lead here") }, enabled = !readOnly && p.repo.isNotEmpty(), onClick = { menu = false; a.newLead(p.hostId, p.repo) })
+                DropdownMenuItem(text = { Text("New terminal here") }, enabled = !readOnly && p.repo.isNotEmpty() && p.up, onClick = { menu = false; a.newShell(p.hostId, p.repo) })
                 DropdownMenuItem(text = { Text(if (p.pinned) "Unpin" else "Pin to the top") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; if (p.pinned) container.prefs.unpin(p.hostId, p.repo) else container.prefs.pin(p.hostId, p.repo) })
                 DropdownMenuItem(text = { Text(if (p.key in hidden) "Show again" else "Hide") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; if (p.key in hidden) container.prefs.unhide(p.key) else container.prefs.hide(p.key) })
                 DropdownMenuItem(text = { Text("Copy the path") }, enabled = p.repo.isNotEmpty(), onClick = { menu = false; copy(context, p.repo) })
@@ -340,6 +352,37 @@ private fun Chip(text: String, color: Color = MaterialTheme.colorScheme.onSurfac
         Text(text, Modifier.padding(horizontal = 8.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
     }
 }
+
+/** A project's shell in the drawer: a terminal in its folder on the host, which keeps running when the app is closed. A long press offers to end it. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ShellItem(hostId: String, sh: ShellRow, label: String, current: Pair<String, String>?, a: SidebarActions, canAct: Boolean) {
+    var menu by remember { mutableStateOf(false) }
+    val act = LocalAgentAction.current
+    val selected = current == hostId to shellScreenId(sh.id)
+    Box {
+        Row(
+            Modifier.fillMaxWidth().background(if (selected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f) else Color.Transparent)
+                .combinedClickable(onClick = { a.openShell(hostId, sh.id) }, onLongClick = { if (canAct) menu = true })
+                .padding(start = 64.dp, end = 8.dp, top = 8.dp, bottom = 8.dp).testTag("shell-${sh.id}"),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(">_", fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+            if (canAct) IconButton(onClick = { menu = true }, Modifier.size(32.dp)) { Icon(Icons.Default.MoreVert, "Menu of the terminal", Modifier.size(18.dp)) }
+        }
+        DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem(text = { Text("End the terminal…") }, onClick = { menu = false; act(hostId, AgentAction.EndShell(sh.id, repoName(sh.repo))) }, modifier = Modifier.testTag("shell-end-${sh.id}"))
+        }
+    }
+}
+
+/** "Terminal", or with several in a project "Terminal · 14:02" (when it started, which does not change as others end). */
+private fun shellLabel(sh: ShellRow, several: Boolean, index: Int): String =
+    if (!several) "Terminal" else if (sh.startedMs > 0) "Terminal · " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(sh.startedMs)) else "Terminal ${index + 1}"
+
+/** What the drawer's `current` says for a shell's screen (an agent's id is the other kind). */
+fun shellScreenId(shellId: String) = "shell:$shellId"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

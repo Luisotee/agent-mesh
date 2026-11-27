@@ -24,6 +24,8 @@ data class SidebarHost(
     val agents: Map<String, Agent>,
     /** The agents that wait on the user. */
     val waiting: Set<String>,
+    /** The host's project shells (`ListShells`): each shows under the project whose folder it runs in. */
+    val shells: List<ShellRow> = emptyList(),
 )
 
 /** A worker of a run, with its read-only agents (reviewers, askers) folded into it and the workers it started under it. */
@@ -64,9 +66,14 @@ data class ProjectRow(
     val needs: Int,
     val last: Long,
     val pinned: Boolean,
+    /** Its running project shells, oldest first. */
+    val shells: List<ShellRow> = emptyList(),
 ) {
-    val empty: Boolean get() = runs.isEmpty() && earlier.isEmpty() && also.isEmpty()
+    val empty: Boolean get() = runs.isEmpty() && earlier.isEmpty() && also.isEmpty() && shells.isEmpty()
 }
+
+/** A plain shell the host holds in a project's folder. [startedMs] is by the host's clock. */
+data class ShellRow(val id: String, val repo: String, val startedMs: Long, val exited: Boolean)
 
 fun projectKey(hostId: String, repo: String) = "$hostId\n$repo"
 
@@ -141,6 +148,7 @@ fun buildProjects(hosts: List<SidebarHost>, pins: Map<String, List<String>>): Li
         val runs = ArrayList<LeadRow>()
         val earlier = ArrayList<LeadRow>()
         val also = ArrayList<LeadRow>()
+        val shells = ArrayList<ShellRow>()
         var needs = 0
         var last = 0L
     }
@@ -148,6 +156,8 @@ fun buildProjects(hosts: List<SidebarHost>, pins: Map<String, List<String>>): Li
     fun get(h: SidebarHost, repo: String) = by.getOrPut(projectKey(h.hostId, repo)) { Acc(h, repo, repo in pins[h.hostId].orEmpty()) }
     for (h in hosts) {
         for (repo in pins[h.hostId].orEmpty()) get(h, repo)
+        // A shell shows under its folder's project, which it makes appear when no run is there; an ended one is not offered again.
+        for (sh in h.shells) if (!sh.exited && sh.repo.isNotEmpty()) get(h, sh.repo).shells.add(sh)
         for (r in leadRows(h)) {
             val p = get(h, r.lead?.repo.orEmpty())
             if (r.earlier) p.earlier.add(r) else { p.runs.add(r); p.needs += r.needs }
@@ -162,7 +172,7 @@ fun buildProjects(hosts: List<SidebarHost>, pins: Map<String, List<String>>): Li
     }
     fun pinAt(p: Acc) = pins[p.h.hostId].orEmpty().indexOf(p.repo).let { if (it < 0) Int.MAX_VALUE else it }
     fun row(key: String, p: Acc) =
-        ProjectRow(key, p.h.hostId, p.h.hostName, p.h.up, p.repo, repoName(p.repo).ifEmpty { "No project" }, p.runs, p.earlier, p.also, p.needs, p.last, p.pinned)
+        ProjectRow(key, p.h.hostId, p.h.hostName, p.h.up, p.repo, repoName(p.repo).ifEmpty { "No project" }, p.runs, p.earlier, p.also, p.needs, p.last, p.pinned, p.shells.sortedBy { it.startedMs })
     return by.entries
         .sortedWith(
             compareByDescending<Map.Entry<String, Acc>> { it.value.pinned }
