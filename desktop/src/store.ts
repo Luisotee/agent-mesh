@@ -192,7 +192,7 @@ function applyEvent(s: HostState, e: Event): HostState {
       const cur = s.pullRequests[pr.agentId]
       const list = cur?.pullRequests ?? []
       const prs = list.some((x) => x.url === pr.url) ? list.map((x) => (x.url === pr.url ? pr : x)) : [...list, pr]
-      const merged: AgentPullRequests = { ...(cur ?? { $typeName: 'agentmesh.v1.AgentPullRequests', agentId: pr.agentId, agentName: '', reviewing: [], readFailed: false }), pullRequests: prs }
+      const merged: AgentPullRequests = { ...(cur ?? { $typeName: 'agentmesh.v1.AgentPullRequests', agentId: pr.agentId, agentName: '', reviewing: [], readFailed: false, reviews: '' }), pullRequests: prs }
       return { ...next, pullRequests: { ...s.pullRequests, [pr.agentId]: merged } }
     }
     // The chat's queue: a prompt joins it, and leaves it once typed or taken back.

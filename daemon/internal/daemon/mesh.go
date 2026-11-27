@@ -435,11 +435,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 	}
 	// A worker's done to its parent carries a footer on what its PR's reviews found; whether the worker has made
-	// commits is read here, outside the write (reviewFooter).
-	hasWork := true
+	// commits (and how far its PRs' heads are past the last reviewed ones) is read here, outside the write (reviewFooter).
+	facts := gitFacts{hasWork: true}
 	if IsAgent(actor.Class) && req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE {
 		if self, err := d.store.Read(ctx).GetAgent(actor.Id); err == nil {
-			hasWork = hasBranchWork(ctx, self)
+			facts.hasWork = hasBranchWork(ctx, self)
+			facts.after, facts.over = d.commitsAfterReview(ctx, self)
 		}
 	}
 	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {
@@ -704,7 +705,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		if IsAgent(actor.Class) && req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE && to.Id != "" {
 			// A worker's done to its parent carries what its PR's review rounds found (reviewFooter).
 			if self, err := t.Reader.GetAgent(actor.Id); err == nil && to.Id == self.ParentId {
-				msgBody += d.reviewFooter(t.Reader, self, req.Msg.Body, hasWork)
+				msgBody += d.reviewFooter(t.Reader, self, req.Msg.Body, facts)
 			}
 		}
 		if !waitFor.IsZero() {

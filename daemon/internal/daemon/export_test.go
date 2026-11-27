@@ -207,3 +207,6 @@ func (d *Daemon) PRFeedbackPass(ctx context.Context) { d.prFeedbackPass(ctx) }
 
 // PRLastRead is when an agent's PRs were last read in full (zero after a failed read).
 func (d *Daemon) PRLastRead(agentID string) time.Time { return d.prs.lastRead(agentID) }
+
+// FailingChecks exposes failingChecks.
+func FailingChecks(rollup []map[string]any) []string { return failingChecks(rollup) }
