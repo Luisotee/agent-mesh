@@ -302,9 +302,9 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 		}
 	}
 	// The PRs the done names that are the worker's own. A recorded PR whose head branch GitHub gave is decided by
-	// it (the worker's own is the one on its branch); one recorded with no head branch is the worker's; and when
-	// none is its own and the branch has commits (a new PR, a reused worker's older ones), the first link not
-	// already known to be another branch's.
+	// it (the worker's own is the one on its branch); one the branch lookup found is the worker's; a link a `done`
+	// once named, recorded with no head branch, proves nothing; and when none is its own and the branch has
+	// commits (a new PR, a reused worker's older ones), the first link not already known to be another branch's.
 	own := map[string]bool{}
 	decided := map[string]bool{}
 	if prs, err := r.AgentPRs(self.Id); err == nil {
@@ -319,8 +319,8 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 			case p.HeadRef != "":
 				decided[prKey(u)] = true
 				own[prKey(u)] = p.HeadRef == self.Branch
-			default:
-				own[prKey(u)] = true
+			case p.Source == "branch":
+				own[prKey(u)] = true // found by `gh pr list --head <its branch>`
 			}
 		}
 	}

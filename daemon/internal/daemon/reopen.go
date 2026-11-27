@@ -1576,7 +1576,7 @@ func (d *Daemon) adoptReopens(ctx context.Context, terminals []*termv1.Terminal,
 // reportTask is the task a report of agent a to its parent answers: its current task, which the daemon stamps on the
 // report (Message.re). A report that names a task (--re) must name that one: a late or retried report for an older
 // task is refused, and so is a second done or failed for a task already reported done or failed (a task or answer
-// since starts the work again). A report that names none is stamped and let through, as every report was before.
+// since starts the work again; a done after a failed goes through). A report that names none is stamped and let through, as every report was before.
 func reportTask(r store.Reader, a *v1.Agent, typ v1.MessageType, re string) (string, error) {
 	cur, _, err := currentTask(r, a)
 	if err != nil || cur == nil {
@@ -1597,7 +1597,8 @@ func reportTask(r store.Reader, a *v1.Agent, typ v1.MessageType, re string) (str
 		if err != nil {
 			return "", err
 		}
-		if last != nil && (last.Type == v1.MessageType_MESSAGE_TYPE_DONE || last.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
+		// A done is final; a failed may be followed by a done (the work was finished after all), not by another failed.
+		if last != nil && (last.Type == v1.MessageType_MESSAGE_TYPE_DONE || last.Type == typ && typ == v1.MessageType_MESSAGE_TYPE_FAILED) {
 			return "", failedPrecondition("task %s was already reported %s (%s): nothing was sent",
 				cur.Id, strings.ToLower(strings.TrimPrefix(last.Type.String(), "MESSAGE_TYPE_")), last.Id)
 		}

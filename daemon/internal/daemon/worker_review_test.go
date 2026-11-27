@@ -518,6 +518,12 @@ func TestTheFooterTellsTheWorkersOwnPRByItsHeadBranch(t *testing.T) {
 	if !strings.Contains(got, "PR #7: "+a.worker.Name+" asked no review round") || strings.Contains(got, "PR #9") {
 		t.Errorf("a foreign PR named first:\n%s", got)
 	}
+	// A link a done once named, recorded before GitHub gave its head branch, is not taken for the worker's own.
+	record(5, base+"5", "")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "also "+base+"5 and "+a.pr.url())
+	if got := a.doneBody(t); !strings.Contains(got, "PR #7: ") || strings.Contains(got, "PR #5") {
+		t.Errorf("an old link with no head branch:\n%s", got)
+	}
 	// Only another branch's PR named: no line, though the branch has commits and the link is the first.
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "see "+base+"9")
 	if got := a.doneBody(t); strings.Contains(got, "asked no review round") {

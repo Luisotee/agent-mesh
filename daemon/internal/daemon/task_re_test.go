@@ -104,6 +104,21 @@ func TestARepeatedDoneIsRefusedUntilAnAnswerOrTask(t *testing.T) {
 	}
 }
 
+// A done may follow a failed for the task (the work was finished after all); a failed may not follow a failed.
+func TestADoneMayFollowAFailedForTheSameTask(t *testing.T) {
+	a := newAcct(t)
+	task := a.taskID("do it")
+	if _, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_FAILED, "flaky step", task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_FAILED, "again", task); code(err) != connect.CodeFailedPrecondition {
+		t.Errorf("a second failed: %v", err)
+	}
+	if _, err := a.sendRe(a.workerTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE, "recovered", task); err != nil {
+		t.Errorf("a done after a failed: %v", err)
+	}
+}
+
 // A replay of a report by its mutation id returns the stored message, with its re.
 func TestAReplayedReportKeepsItsTask(t *testing.T) {
 	a := newAcct(t)
