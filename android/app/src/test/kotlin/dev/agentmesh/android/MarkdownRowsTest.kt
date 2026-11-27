@@ -136,6 +136,8 @@ class MarkdownRowsTest {
 
     @Test fun `a cell's length is what it shows, and a column's alignment is the separator's`() {
         assertEquals(5, shownLength(" **Hello** "))
+        assertEquals(26, shownLength("snake_case_identifier_here"))
+        assertEquals(2, shownLength("`ab`"))
         assertEquals(4, shownLength("[Link](https://example.com/a/very/long/address/indeed)"))
         assertEquals(listOf(androidx.compose.ui.text.style.TextAlign.Start, androidx.compose.ui.text.style.TextAlign.Center, androidx.compose.ui.text.style.TextAlign.End, androidx.compose.ui.text.style.TextAlign.Start), alignments("|---|:---:|---:|:---|"))
     }
@@ -197,5 +199,27 @@ class MarkdownRowsTest {
     @Test fun `the cut marker of a long answer shows under the eight lines, without Show all`() {
         chatWith((1..30).joinToString("\n") { "line $it" }, truncated = true)
         compose.onNodeWithText("… cut here", useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun `a right-aligned column puts a one-line cell at its right edge, a centred one in the middle`() {
+        val md = "| Left | Mid | Right |\n|:---|:---:|---:|\n| a | b | c |\n| long left cell | long mid cell | long right cell |"
+        compose.setContent { AgentMeshTheme(theme) { Column(Modifier.fillMaxWidth()) { MarkdownText(md) } } }
+        compose.waitForIdle()
+        fun box(t: String) = compose.onNode(androidx.compose.ui.test.SemanticsMatcher("shows $t") { (if (androidx.compose.ui.semantics.SemanticsProperties.Text in it.config) it.config[androidx.compose.ui.semantics.SemanticsProperties.Text].firstOrNull()?.text?.trim() else null) == t }, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        // The one-letter cells are in the columns the long ones set: the right one's text ends at that column's right edge less its padding.
+        val cLong = box("long right cell"); val c = box("c")
+        assertTrue("c is at ${c.right}, its column ends near ${cLong.right}", kotlin.math.abs(c.right - cLong.right) < 8f)
+        val bLong = box("long mid cell"); val b = box("b")
+        assertTrue("b is centred: ${(b.left + b.right) / 2} vs ${(bLong.left + bLong.right) / 2}", kotlin.math.abs((b.left + b.right) / 2 - (bLong.left + bLong.right) / 2) < 8f)
+        val aLong = box("long left cell"); val a = box("a")
+        assertTrue("a is at the left edge: ${a.left} vs ${aLong.left}", kotlin.math.abs(a.left - aLong.left) < 4f)
+    }
+
+    @Test fun `a text longer than the cache's bound is parsed for its row and does not push the others out`() {
+        MarkdownCache.parse("# kept")
+        val huge = "**x** " + "y".repeat(MarkdownCache.MAX_CHARS)
+        assertNotNull(MarkdownCache.parse(huge))
+        assertNull(MarkdownCache.get(huge))
+        assertNotNull(MarkdownCache.get("# kept"))
     }
 }

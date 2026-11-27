@@ -181,7 +181,8 @@ private fun MeshTable(content: String, node: ASTNode, style: TextStyle) {
                 Row(Modifier.background(background)) {
                     widths.forEachIndexed { c, w ->
                         val align = aligns.getOrNull(c) ?: TextAlign.Start
-                        Box(Modifier.width(w).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                        // The text is as wide as it is: the cell places it for a centred or right-aligned column.
+                        Box(Modifier.width(w).padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = when (align) { TextAlign.Center -> Alignment.TopCenter; TextAlign.End -> Alignment.TopEnd; else -> Alignment.TopStart }) {
                             cells.getOrNull(c)?.let {
                                 MarkdownTableBasicText(content, it, (if (bold) style.copy(fontWeight = FontWeight.SemiBold) else style).copy(textAlign = align), Int.MAX_VALUE, TextOverflow.Clip, annotator)
                             }
@@ -201,7 +202,10 @@ private fun MeshTable(content: String, node: ASTNode, style: TextStyle) {
 private val LINK = Regex("""\[([^\]]*)]\([^)]*\)""")
 
 /** How many characters a cell shows: its Markdown's marks (emphasis, code ticks, a link's address) are not part of it. */
-internal fun shownLength(source: String): Int = source.trim().replace(LINK, "$1").count { it != '*' && it != '_' && it != '`' && it != '~' }
+internal fun shownLength(source: String): Int = source.trim().replace(LINK, "$1").replace(PAIRED_MARKS, "").count { it != '`' }
+
+/** Strong, strikethrough and underscore pairs: a lone `*` or an `_` inside a name (`snake_case`) is the author's own character. */
+private val PAIRED_MARKS = Regex("""\*\*|__|~~""")
 
 /** The alignment each column asks for in the separator row (`|:---|:---:|---:|`). */
 internal fun alignments(separator: String): List<TextAlign> =

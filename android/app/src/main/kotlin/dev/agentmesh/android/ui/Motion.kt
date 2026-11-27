@@ -2,6 +2,7 @@ package dev.agentmesh.android.ui
 
 import android.provider.Settings
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.runtime.Composable
@@ -62,7 +63,7 @@ fun LazyItemScope.motionItem(glide: Boolean = true): Modifier =
  */
 @Composable
 fun Modifier.motionSize(animate: Boolean = true): Modifier =
-    if (LocalReducedMotion.current) this else this.animateContentSize(if (animate) spring() else androidx.compose.animation.core.snap())
+    if (LocalReducedMotion.current) this else this.animateContentSize(if (animate) spring() else snap())
 
 /** A spring for what answers a touch, or no animation at all under reduced motion. */
 fun <T> motionSpring(reduced: Boolean, stiffness: Float = 500f): FiniteAnimationSpec<T> =

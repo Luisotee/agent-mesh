@@ -34,6 +34,8 @@ object MarkdownCache {
     fun parse(text: String): State.Success? {
         get(text)?.let { return it }
         val made = (try { parseMarkdown(text) } catch (e: Exception) { null }) as? State.Success ?: return null
+        // A text that alone is over the bound would push out everything else: it is parsed for its row and not kept.
+        if (text.length > MAX_CHARS) return made
         synchronized(lock) {
             if (map.put(text, made) == null) chars += text.length
             val it = map.entries.iterator()
