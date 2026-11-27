@@ -63,4 +63,24 @@ public interface SendMessageResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getResumeErrorBytes();
+
+  /**
+   * <pre>
+   * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+   * </pre>
+   *
+   * <code>string held = 4 [json_name = "held"];</code>
+   * @return The held.
+   */
+  java.lang.String getHeld();
+  /**
+   * <pre>
+   * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+   * </pre>
+   *
+   * <code>string held = 4 [json_name = "held"];</code>
+   * @return The bytes for held.
+   */
+  com.google.protobuf.ByteString
+      getHeldBytes();
 }

@@ -16,6 +16,7 @@ public  final class SendMessageResponse extends
     SendMessageResponseOrBuilder {
   private SendMessageResponse() {
     resumeError_ = "";
+    held_ = "";
   }
   private int bitField0_;
   public static final int MESSAGE_FIELD_NUMBER = 1;
@@ -206,6 +207,73 @@ public  final class SendMessageResponse extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     resumeError_ = value.toStringUtf8();
+
+  }
+
+  public static final int HELD_FIELD_NUMBER = 4;
+  private java.lang.String held_;
+  /**
+   * <pre>
+   * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+   * </pre>
+   *
+   * <code>string held = 4 [json_name = "held"];</code>
+   * @return The held.
+   */
+  @java.lang.Override
+  public java.lang.String getHeld() {
+    return held_;
+  }
+  /**
+   * <pre>
+   * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+   * </pre>
+   *
+   * <code>string held = 4 [json_name = "held"];</code>
+   * @return The bytes for held.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHeldBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(held_);
+  }
+  /**
+   * <pre>
+   * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+   * </pre>
+   *
+   * <code>string held = 4 [json_name = "held"];</code>
+   * @param value The held to set.
+   */
+  private void setHeld(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    held_ = value;
+  }
+  /**
+   * <pre>
+   * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+   * </pre>
+   *
+   * <code>string held = 4 [json_name = "held"];</code>
+   */
+  private void clearHeld() {
+
+    held_ = getDefaultInstance().getHeld();
+  }
+  /**
+   * <pre>
+   * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+   * </pre>
+   *
+   * <code>string held = 4 [json_name = "held"];</code>
+   * @param value The bytes for held to set.
+   */
+  private void setHeldBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    held_ = value.toStringUtf8();
 
   }
 
@@ -503,6 +571,75 @@ public  final class SendMessageResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+     * </pre>
+     *
+     * <code>string held = 4 [json_name = "held"];</code>
+     * @return The held.
+     */
+    @java.lang.Override
+    public java.lang.String getHeld() {
+      return instance.getHeld();
+    }
+    /**
+     * <pre>
+     * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+     * </pre>
+     *
+     * <code>string held = 4 [json_name = "held"];</code>
+     * @return The bytes for held.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHeldBytes() {
+      return instance.getHeldBytes();
+    }
+    /**
+     * <pre>
+     * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+     * </pre>
+     *
+     * <code>string held = 4 [json_name = "held"];</code>
+     * @param value The held to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeld(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHeld(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+     * </pre>
+     *
+     * <code>string held = 4 [json_name = "held"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeld() {
+      copyOnWrite();
+      instance.clearHeld();
+      return this;
+    }
+    /**
+     * <pre>
+     * Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+     * </pre>
+     *
+     * <code>string held = 4 [json_name = "held"];</code>
+     * @param value The bytes for held to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeldBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHeldBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SendMessageResponse)
   }
   @java.lang.Override
@@ -523,10 +660,11 @@ public  final class SendMessageResponse extends
             "message_",
             "resumed_",
             "resumeError_",
+            "held_",
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u1009\u0001\u0003\u0208";
+              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u1009\u0001\u0003\u0208\u0004\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

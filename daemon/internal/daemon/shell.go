@@ -145,6 +145,9 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 		}
 		created = res.Msg.Terminal.Id
 		out.Shell = shellOf(res.Msg.Terminal)
+		// Told now, before the host's exit watch can tell its end (a shell that exits at once): a write that then fails
+		// ends the shell (below), which tells the apps it is gone.
+		d.bus.PublishShell(&v1.ShellChange{Shell: out.Shell})
 		return nil
 	})
 	if err != nil && created != "" {
@@ -225,7 +228,10 @@ func (d *Daemon) shellExited(ctx context.Context, id string) error {
 	d.rt.mu.Unlock()
 	_, err := d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: id}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
-		err = nil
+		return nil // forgotten already: (the host never answers not-found; kept for a host that does)
+	}
+	if err == nil {
+		d.bus.PublishShell(&v1.ShellChange{Shell: &v1.Shell{Id: id, Exited: true}, Closed: true})
 	}
 	return err
 }
