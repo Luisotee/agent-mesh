@@ -255,6 +255,53 @@ func TestARunWithAReviewerUnderAWorkerAndAnOpenQuestionFinishesWhenBothAreSettle
 	waitFor(t, "the run finished", func() bool { return finished() == 1 })
 }
 
+// A worker re-tasked after its `done` is not done until it reports again; a question left by a worker that exited
+// is not open (ListWaiting drops it), so it does not hold the finish back.
+func TestAReTaskedWorkerIsNotDoneAndAnExitedWorkersQuestionDoesNotHoldTheFinish(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	leadTok := h.seedAgent(run.Id, "h-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	wTok := h.seedAgent(run.Id, "h-w", "fix", "h-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	gone := h.seedAgent(run.Id, "h-gone", "gone", "h-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	finished := func() int {
+		n := 0
+		for _, x := range userNotices(t, h, run.Id) {
+			if x.Kind == "finished" {
+				n++
+			}
+		}
+		return n
+	}
+	send := func(tok string, to string, typ v1.MessageType) {
+		t.Helper()
+		if _, err := h.as(tok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: to, Type: typ, Body: "x"})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The gone worker asked, never got an answer and exited; the other one reported done and is idle.
+	send(gone, "parent", v1.MessageType_MESSAGE_TYPE_QUESTION)
+	setState(t, h, "h-gone", v1.AgentState_AGENT_STATE_EXITED)
+	send(wTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE)
+	setState(t, h, "h-w", v1.AgentState_AGENT_STATE_IDLE)
+	setState(t, h, "h-root", v1.AgentState_AGENT_STATE_WORKING)
+	readInbox(t, h.as(leadTok))
+	// The lead gives the worker a new task and ends its turn: the old `done` does not count.
+	send(leadTok, "h-w", v1.MessageType_MESSAGE_TYPE_TASK)
+	setState(t, h, "h-root", v1.AgentState_AGENT_STATE_IDLE)
+	time.Sleep(200 * time.Millisecond)
+	if finished() != 0 {
+		t.Fatal("finished with a worker re-tasked and not yet done")
+	}
+	// It reports again: the run is finished although the exited worker's question is still stored.
+	readInbox(t, h.as(wTok))
+	send(wTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE)
+	setState(t, h, "h-root", v1.AgentState_AGENT_STATE_WORKING)
+	readInbox(t, h.as(leadTok))
+	setState(t, h, "h-root", v1.AgentState_AGENT_STATE_IDLE)
+	waitFor(t, "the run finished", func() bool { return finished() == 1 })
+}
+
 // A plain agent (no parent) that ends a turn is "finished"; a worker's turn end is its lead's business.
 func TestAPlainAgentEndingATurnIsFinished(t *testing.T) {
 	h := start(t, "")

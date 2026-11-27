@@ -99,8 +99,8 @@ func inRepoList(list []string, repo string) bool {
 }
 
 // userApprovesPlans reports whether the user, not the root, approves the plans for repo in this run: the run's own
-// autonomy when it has one (and doesn't keep the repo lists), else `repos.user_approves_plans`. The same test the
-// root's brief states (autonomyBrief).
+// autonomy when it has one (and doesn't keep the repo lists), else `repos.user_approves_plans`. The rule the root's
+// brief states (autonomyBrief prints the same lists, line by line).
 func (d *Daemon) userApprovesPlans(r store.Reader, run *v1.Run, repo string) bool {
 	if run != nil && run.Autonomy != nil && !run.Autonomy.KeepRepoLists {
 		return run.Autonomy.UserApprovesPlans

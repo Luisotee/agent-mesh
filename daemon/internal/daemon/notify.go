@@ -214,8 +214,8 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 	if err != nil {
 		return nil
 	}
-	// An idle agent counts as done once it told its own parent so: the lead for a worker, the worker for the
-	// reviewer or asker it started.
+	// An idle agent counts as done once it told its own parent so after the last task it was given: the lead for a
+	// worker, the worker for the reviewer or asker it started.
 	reported := map[string]bool{}
 	for _, a := range agents {
 		if a.Id == lead.Id || a.State != v1.AgentState_AGENT_STATE_IDLE || a.ParentId == "" {
@@ -225,8 +225,19 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 		if err != nil {
 			return nil
 		}
+		mine, err := r.Inbox(a.Id, true)
+		if err != nil {
+			return nil
+		}
+		var lastTask time.Time
+		for _, m := range mine {
+			if m.Type == v1.MessageType_MESSAGE_TYPE_TASK && m.CreatedAt.AsTime().After(lastTask) {
+				lastTask = m.CreatedAt.AsTime()
+			}
+		}
 		for _, m := range inbox {
-			if m.GetFrom().GetId() == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_DONE || m.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
+			if m.GetFrom().GetId() == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_DONE || m.Type == v1.MessageType_MESSAGE_TYPE_FAILED) &&
+				m.CreatedAt.AsTime().After(lastTask) {
 				reported[a.Id] = true
 			}
 		}
@@ -255,8 +266,17 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 			}
 		}
 	}
-	if open, err := r.Waiting(lead.Id); err != nil || len(open) > 0 {
+	// A plan or question to the lead still open, as `ListWaiting` lists it: not one from an agent that has exited.
+	open, err := r.Waiting(lead.Id)
+	if err != nil {
 		return nil
+	}
+	for _, m := range open {
+		for _, a := range agents {
+			if a.Id == m.GetFrom().GetId() && a.State != v1.AgentState_AGENT_STATE_EXITED {
+				return nil
+			}
+		}
 	}
 	if und, err := r.Undelivered(lead.Id); err != nil || len(und) > 0 {
 		return nil
