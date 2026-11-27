@@ -1,11 +1,10 @@
-import type { SidebarGroup } from './model'
 import type { AgentTab } from './model'
 import { MAX_SIDE_PANES, tabKey, type PaneRef, type SplitDir, type TabRef } from './workspace'
 import type { Agent, AgentState } from './gen/agentmesh/v1/types_pb'
 
 /**
  * What the window restores after a restart: which agents were open as tabs, the view of each, the one that was open,
- * the panes beside it, and how the sidebar and dock were set. Device-local (it is the window, not the host), kept in
+ * the panes beside it, and how the sidebar and dock were set, the projects taken off the sidebar. Device-local (it is the window, not the host), kept in
  * the renderer's own storage under the app's user-data folder.
  */
 export interface Layout {
@@ -15,19 +14,21 @@ export interface Layout {
   active?: { hostId: string; agentId: string; tab: AgentTab }
   side: PaneRef[]
   splitDir: SplitDir
-  sidebarGroup: SidebarGroup
+  /** The sidebar folded to icons. Optional: a layout from before had none (and a grouping it no longer has, ignored). */
+  sidebarCollapsed?: boolean
   dockOpen: boolean
   panelOpen: boolean
+  /** Projects taken off the sidebar, by host id. */
+  hidden?: Record<string, string[]>
   /** Dock tiles the user dismissed, by tab key, with the agent state they were dismissed in. Optional: a layout from before had none. */
   dismissed?: Record<string, AgentState>
-  /** The projects the user pinned in the New workspace dialog, by host id (paths on that host). */
+  /** The projects the user pinned (sidebar and New workspace dialog), by host id (paths on that host). */
   pins?: Record<string, string[]>
 }
 
 export const LAYOUT_KEY = 'agent-mesh.layout.v1'
 
 const VIEWS: readonly string[] = ['overview', 'messages', 'chat', 'terminal']
-const GROUPS: readonly string[] = ['run', 'project', 'state']
 
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0
 const view = (v: unknown): AgentTab => (VIEWS.includes(v as string) ? (v as AgentTab) : 'overview')
@@ -64,11 +65,12 @@ export function parseLayout(text: string | null | undefined): Layout | undefined
     active,
     side,
     splitDir: raw.splitDir === 'column' ? 'column' : 'row',
-    sidebarGroup: GROUPS.includes(raw.sidebarGroup as string) ? (raw.sidebarGroup as SidebarGroup) : 'run',
+    sidebarCollapsed: raw.sidebarCollapsed === true,
     dockOpen: raw.dockOpen !== false,
     panelOpen: raw.panelOpen !== false,
     dismissed: dismissedOf(raw.dismissed),
     pins: pinsOf(raw.pins),
+    hidden: pinsOf(raw.hidden),
   }
 }
 
@@ -97,9 +99,10 @@ export interface LayoutSource {
   tab: AgentTab
   side: PaneRef[]
   splitDir: SplitDir
-  sidebarGroup: SidebarGroup
+  sidebarCollapsed?: boolean
   dockOpen: boolean
   panelOpen: boolean
+  hidden?: Record<string, string[]>
   dismissed?: Record<string, AgentState>
   pins?: Record<string, string[]>
 }
@@ -114,11 +117,12 @@ export function layoutOf(s: LayoutSource): Layout {
     active: s.hostId && s.agentId ? { hostId: s.hostId, agentId: s.agentId, tab: s.tab } : undefined,
     side: s.side,
     splitDir: s.splitDir,
-    sidebarGroup: s.sidebarGroup,
+    sidebarCollapsed: s.sidebarCollapsed ?? false,
     dockOpen: s.dockOpen,
     panelOpen: s.panelOpen,
     dismissed: s.dismissed ?? {},
     pins: s.pins ?? {},
+    hidden: s.hidden ?? {},
   }
 }
 
@@ -135,11 +139,12 @@ export function restoreOf(l: Layout, hostIds: ReadonlySet<string>): Partial<Layo
     tab: active?.tab ?? 'overview',
     side: l.side.filter(mine),
     splitDir: l.splitDir,
-    sidebarGroup: l.sidebarGroup,
+    sidebarCollapsed: l.sidebarCollapsed ?? false,
     dockOpen: l.dockOpen,
     panelOpen: l.panelOpen,
     dismissed: Object.fromEntries(Object.entries(l.dismissed ?? {}).filter(([k]) => hostIds.has(k.slice(0, k.indexOf('/'))))),
     pins: Object.fromEntries(Object.entries(l.pins ?? {}).filter(([h]) => hostIds.has(h))),
+    hidden: Object.fromEntries(Object.entries(l.hidden ?? {}).filter(([h]) => hostIds.has(h))),
   }
 }
 

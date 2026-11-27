@@ -40,9 +40,9 @@ async function agentId(name: string): Promise<string> {
 
 test('the live dock: a tile per agent, a new worker pops in without taking focus, a click opens it as a tab', async () => {
   const { page } = app
-  await page.getByRole('button', { name: 'Host local, ready' }).waitFor()
+  await page.getByRole('status', { name: 'Host local, ready' }).waitFor()
   const dock = page.getByRole('region', { name: 'Live dock' })
-  await dock.getByText('No live agents').waitFor()
+  await dock.getByText('No live leads').waitFor()
 
   const { run } = await host.client().startRun({ title: 'dock run' })
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
