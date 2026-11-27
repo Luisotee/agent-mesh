@@ -1196,6 +1196,17 @@ describe('SidebarFooter', () => {
     expect(model.store.getState().usageOpen).toBe(true)
   })
 
+  it('shows bars where the quota will be while the first reading is on its way, then the meters', async () => {
+    const { client, wrap } = fixture()
+    let land: (u: unknown) => void = () => {}
+    Object.assign(client, { getUsage: vi.fn(() => new Promise((r) => { land = r })) })
+    render(wrap(<SidebarFooter />))
+    expect(await screen.findByRole('status', { name: 'Reading the quota' })).toBeInTheDocument()
+    land(create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: '5h', used: 42 })] }) }))
+    expect((await screen.findAllByRole('meter')).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('status', { name: 'Reading the quota' })).toBeNull()
+  })
+
   it('keeps the way into Usage and cost when the host has no quota reading, and says an agy reset as it can be read', async () => {
     const { client, wrap, model } = fixture()
     Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90 })) })
@@ -1258,6 +1269,18 @@ describe('SidebarFooter', () => {
     await userEvent.type(await screen.findByRole('textbox'), 'nothing-like-it{Enter}')
     expect(await screen.findByRole('alert')).toHaveTextContent('matches "nothing-like-it"')
     expect(model.store.getState().pins).toEqual({})
+  })
+
+  it('shows rows where the host\'s projects will be while they are on their way', async () => {
+    const { wrap, client } = fixture()
+    let land: (r: unknown) => void = () => {}
+    client.listProjects.mockImplementation(() => new Promise((r) => { land = r }))
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
+    expect(await screen.findByRole('status', { name: "Loading the host's projects" })).toBeInTheDocument()
+    land(create(ListProjectsResponseSchema, { projects: [create(ProjectSchema, { path: '/p/apple', name: 'apple' })] }))
+    expect(await screen.findByText('/p/apple')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: "Loading the host's projects" })).toBeNull()
   })
 
   it('checks a path typed with the host and refuses one that is not a repository, saying why, instead of pinning it', async () => {

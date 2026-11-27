@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { readTranscript } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SkeletonLines } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
 import { bucketOf, BUCKET_LABEL, waitingIds } from '@/buckets'
 import { useApp, useAppState, useHostState } from '@/context'
@@ -135,6 +136,7 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
               {l.text}
             </li>
           ))}
+          {!tail.loaded && <li aria-label="Reading the conversation" role="status"><SkeletonLines lines={2} /></li>}
           {tail.loaded && tail.lines.length === 0 && !tail.error && <li className="text-muted-foreground">Nothing said yet.</li>}
           {tail.error && <li className="text-muted-foreground">{tail.error}</li>}
         </ul>
