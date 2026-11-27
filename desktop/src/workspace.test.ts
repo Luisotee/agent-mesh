@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_SIDE_PANES, activate, closeTab, cycleTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, openInBackground, pinSplit, pruneDismissed, setPaneTab, unsplit, type WorkspaceState } from './workspace'
+import { MAX_SIDE_PANES, activate, closeTab, cycleTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, openInBackground, pinSplit, projectTabs, pruneDismissed, setPaneTab, unsplit, type WorkspaceState } from './workspace'
 import type { AgentTab } from './model'
 import { AgentState, type Agent } from './gen/agentmesh/v1/types_pb'
 
@@ -155,5 +155,18 @@ describe('splits', () => {
   it('forgets the panes of a removed host', () => {
     const s = base({ tabs: [{ hostId: 'x', agentId: 'a' }], side: [{ hostId: 'x', agentId: 'a', tab: 'chat' }, { hostId: 'y', agentId: 'b', tab: 'chat' }] })
     expect(forgetHost(s, 'x').side).toEqual([{ hostId: 'y', agentId: 'b', tab: 'chat' }])
+  })
+})
+
+describe('projectTabs', () => {
+  const t = (agentId: string) => ({ hostId: 'h', agentId })
+  const of: Record<string, string> = { a: 'p1', b: 'p2', c: 'p1' }
+  const projectOf = (r: { agentId: string }) => of[r.agentId]
+  it('shows the open agent\'s project\'s tabs, all of them with none open or one not known yet', () => {
+    const tabs = [t('a'), t('b'), t('c'), t('x')]
+    expect(projectTabs(tabs, projectOf, t('a')).map((r) => r.agentId)).toEqual(['a', 'c'])
+    expect(projectTabs(tabs, projectOf, t('b')).map((r) => r.agentId)).toEqual(['b'])
+    expect(projectTabs(tabs, projectOf, undefined)).toHaveLength(4)
+    expect(projectTabs(tabs, projectOf, t('x'))).toHaveLength(4)
   })
 })

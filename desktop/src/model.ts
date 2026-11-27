@@ -16,8 +16,9 @@ import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
 import type { ViewRequest } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole } from './gen/agentmesh/v1/types_pb'
-import { activate, cycleTab, closeTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
+import { activate, cycleTab, closeTab, projectTabs, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
+import { agentProject } from './sidebar'
 import type { DockNewAgents } from './prefs'
 
 /** A host the app is connected to (or trying to be): its state, its client, its connection. */
@@ -509,4 +510,10 @@ export function createAppModel(api: DesktopApi): AppModel {
     },
   }
   return model
+}
+
+/** The tabs the tab bar shows now: the open agent's project's (`workspace.ts` `projectTabs`). */
+export function shownTabs(s: AppState): TabRef[] {
+  const agentsOf = (hostId: string) => s.hosts.find((h) => h.info.id === hostId)?.store.getState().agents
+  return projectTabs(s.tabs, (t) => agentProject(t.hostId, agentsOf(t.hostId), t.agentId), s.hostId && s.agentId ? { hostId: s.hostId, agentId: s.agentId } : undefined)
 }

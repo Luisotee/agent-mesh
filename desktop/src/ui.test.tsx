@@ -580,6 +580,24 @@ describe('WaitingList', () => {
 })
 
 describe('Dock and TabBar', () => {
+  it('shows the open project\'s tabs only, each project keeping its own, and starts a new lead in that project from the +', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({
+      runs: { ...s.runs, r2: create(RunSchema, { id: 'r2', title: 'web', status: RunStatus.OPEN }) },
+      agents: { ...s.agents, o1: agent('o1', { runId: 'r2', role: AgentRole.ROOT, repo: '/p/web', name: 'web-lead' }) },
+    }))
+    model.selectAgent('h1', 'o1')
+    model.selectAgent('h1', 'w1')
+    model.selectAgent('h1', 'lead')
+    render(wrap(<TabBar />))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-fix', 'app-lead'])
+    act(() => model.selectAgent('h1', 'o1'))
+    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['web-lead'])
+    await userEvent.click(screen.getByRole('button', { name: 'New lead' }))
+    expect(model.store.getState()).toMatchObject({ workspaceOpen: true, workspaceRepo: '/p/web', workspaceHost: 'h1' })
+  })
+
   it('shows the live leads with what they do until an agent is open, then that agent\'s tree; opens one as a tab and closes tabs', async () => {
     const { host, wrap, model } = fixture()
     host.store.setState((s) => ({ agents: { ...s.agents, lead: { ...s.agents.lead!, state: AgentState.WORKING, stateDetail: 'Edit' } } }))

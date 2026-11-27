@@ -3,7 +3,7 @@ import { canPair } from './components/pair-panel'
 import { stepSidebar } from './components/project-sidebar'
 import { joinWaiting, ROLE_LABEL, statusSentence, type Waiting } from './derive'
 import { AgentRole, AgentState, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
-import type { AgentTab, AppModel, HostRuntime } from './model'
+import { shownTabs, type AgentTab, type AppModel, type HostRuntime } from './model'
 import { DEFAULT_KEYS, appKeys, type KeyedCommand } from './prefs'
 import { MAX_SIDE_PANES, cycleTab as nextTab } from './workspace'
 
@@ -76,11 +76,11 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
       if (agentId && (tab === 'chat' ? hasOpenTerminal(app) : true)) app.setTab(tab === 'chat' ? 'terminal' : 'chat')
     },
     tab_next: () => {
-      const t = nextTab(st(), 1)
+      const t = nextTab(st(), 1, shownTabs(st()))
       if (t) app.selectAgent(t.hostId, t.agentId)
     },
     tab_prev: () => {
-      const t = nextTab(st(), -1)
+      const t = nextTab(st(), -1, shownTabs(st()))
       if (t) app.selectAgent(t.hostId, t.agentId)
     },
     tab_next_page: () => keyed.tab_next(),
@@ -103,7 +103,7 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     tab_6: () => goToTab(app, 5),
     tab_7: () => goToTab(app, 6),
     tab_8: () => goToTab(app, 7),
-    tab_last: () => goToTab(app, st().tabs.length - 1),
+    tab_last: () => goToTab(app, shownTabs(st()).length - 1),
     waiting_next: () => goToNextWaiting(app),
     search: () => app.openPalette(true),
     sidebar: () => app.setSidebarCollapsed(!st().sidebarCollapsed),
@@ -127,8 +127,9 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
 }
 
 /** Opens the open tab at a place in the strip (from 0), when there is one. */
+/** The tab at a place in the open project's tab bar (Mod+1…8, Mod+9 the last). */
 function goToTab(app: AppModel, at: number): void {
-  const t = app.store.getState().tabs[at]
+  const t = shownTabs(app.store.getState())[at]
   if (t) app.selectAgent(t.hostId, t.agentId)
 }
 
@@ -156,8 +157,8 @@ export function buildCommands(app: AppModel): Command[] {
   view('settings', s.settingsOpen ? 'Close the host settings' : 'Open the host settings', !!selected)
   view('dock', s.dockOpen ? 'Hide the live dock' : 'Show the live dock')
   view('chat_toggle', 'Switch the open agent between chat and terminal', !!s.agentId && (s.tab !== 'chat' || hasOpenTerminal(app)))
-  view('tab_next', 'Next tab', s.tabs.length > 1)
-  view('tab_prev', 'Previous tab', s.tabs.length > 1)
+  view('tab_next', 'Next tab', shownTabs(s).length > 1)
+  view('tab_prev', 'Previous tab', shownTabs(s).length > 1)
   view('tab_close', 'Close the open tab', !!s.agentId)
   view('tab_reopen', 'Open the last closed tab again', s.closedTabs.length > 0)
   view('tab_new', 'New lead in this project', !!selected)

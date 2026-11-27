@@ -94,11 +94,21 @@ export function closeTab(s: WorkspaceState & Selection, ref: TabRef): Partial<Wo
 }
 
 /** The tab `by` places after the active one (wrapping); with none active, the first (or last, going back). */
-export function cycleTab(s: WorkspaceState & Selection, by: 1 | -1): TabRef | undefined {
-  if (s.tabs.length === 0) return undefined
-  const at = s.tabs.findIndex((t) => t.hostId === s.hostId && t.agentId === s.agentId)
-  if (at < 0) return by === 1 ? s.tabs[0] : s.tabs[s.tabs.length - 1]
-  return s.tabs[(at + by + s.tabs.length) % s.tabs.length]
+export function cycleTab(s: WorkspaceState & Selection, by: 1 | -1, tabs: TabRef[] = s.tabs): TabRef | undefined {
+  if (tabs.length === 0) return undefined
+  const at = tabs.findIndex((t) => t.hostId === s.hostId && t.agentId === s.agentId)
+  if (at < 0) return by === 1 ? tabs[0] : tabs[tabs.length - 1]
+  return tabs[(at + by + tabs.length) % tabs.length]
+}
+
+/**
+ * The tabs one project's tab bar shows: those whose agent's project (`projectOf`, the host and the repo its run is
+ * led from) is the open agent's. With no agent open, or one whose project isn't known yet, every tab.
+ */
+export function projectTabs(tabs: TabRef[], projectOf: (t: TabRef) => string | undefined, open: TabRef | undefined): TabRef[] {
+  const here = open && projectOf(open)
+  if (!here) return tabs
+  return tabs.filter((t) => projectOf(t) === here || (t.hostId === open.hostId && t.agentId === open.agentId))
 }
 
 /** Drops what belongs to a host that was removed. */
