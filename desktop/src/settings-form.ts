@@ -131,7 +131,7 @@ export function matches(s: Listed, query: string): boolean {
 const natural = { numeric: true } as const
 /** A group's order: by label, the shortcuts by key (which keeps "tab 1 … tab 8" in order). */
 const inGroup = (group: string) => (a: Listed, b: Listed): number =>
-  group === 'Shortcuts' ? a.key.localeCompare(b.key, undefined, natural) : labelOf(a).localeCompare(labelOf(b), undefined, natural)
+  group === 'Shortcuts' ? a.key.localeCompare(b.key, undefined, natural) : labelOf(a).localeCompare(labelOf(b), undefined, natural) || a.key.localeCompare(b.key, undefined, natural)
 
 /** The per-repo lists: the screen shows them as one row of links to each project's settings, not as rows of their own. */
 export const PER_PROJECT = new Set(['repos.user_merges', 'repos.user_approves_plans', 'repos.no_free_models'])
