@@ -352,9 +352,10 @@ func (d *Daemon) saveCursor(ctx context.Context, a *v1.Agent, p *v1.PullRequest,
 					return err
 				}
 				ring = append(ring, live.Id)
+				toParent = "" // it was told itself
 			}
 		}
-		if toParent != "" {
+		if toParent != "" { // a worker retired since it was looked at is told through its parent
 			if live, err := tx.GetAgent(a.Id); err == nil {
 				if m, err := d.noteParentTx(tx, live, "pr-feedback", toParent); err != nil {
 					return err
@@ -383,18 +384,18 @@ func (d *Daemon) tellFeedback(ctx context.Context, a *v1.Agent, p *v1.PullReques
 	if err != nil {
 		return
 	}
-	if !stopped(live) {
-		d.saveCursor(ctx, a, p, newest, failedHead, 0, &body, "")
-		return
-	}
 	line := fmt.Sprintf("PR #%d has %d new review item(s) or failing checks; %s is retired: `mesh resume %s` to have it act on them.",
 		p.Number, n, a.Name, a.Name)
+	if !stopped(live) {
+		d.saveCursor(ctx, a, p, newest, failedHead, 0, &body, line) // the line only if it retires before the write
+		return
+	}
 	if mode == "resume" {
 		if p.FeedbackResumes >= feedbackResumeMax {
 			line = fmt.Sprintf("PR #%d has new feedback; %s was resumed for this PR %d times already: `mesh resume %s` yourself.",
 				p.Number, a.Name, feedbackResumeMax, a.Name)
 		} else {
-			mid := fmt.Sprintf("prfb:%s:%s:%s", a.Id, prKey(p.Url), newest.UTC().Format(time.RFC3339Nano))
+			mid := fmt.Sprintf("prfb:%s:%s:%s:%s", a.Id, prKey(p.Url), newest.UTC().Format(time.RFC3339Nano), failedHead)
 			res, err := d.SendMessage(auth.WithActor(ctx, meshActor), connect.NewRequest(&v1.SendMessageRequest{
 				Meta: &v1.RequestMeta{MutationId: mid}, To: a.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK,
 				Body: "Direct task (no plan)\n\n" + body}))
