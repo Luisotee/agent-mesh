@@ -335,6 +335,28 @@ func TestHooksJSONPreToolUseFailOpenForWritersAndFailClosedForDeny(t *testing.T)
 		}
 	}
 
+	// The one thing a writer's hook may print is its refusal of a kill by pattern; the agent's `mesh hook` output
+	// otherwise never reaches agy.
+	refusing := filepath.Join(dir, "refusing-mesh")
+	if err := os.WriteFile(refusing, []byte("#!/bin/sh\necho '{\"decision\":\"deny\",\"reason\":\"no pkill\"}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wb, err := HooksJSON("a1", []string{refusing, "hook", "agy"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wspec map[string]hooksSpec
+	if err := json.Unmarshal(wb, &wspec); err != nil {
+		t.Fatal(err)
+	}
+	for agent, want := range map[string]string{"a1": `{"decision":"deny","reason":"no pkill"}` + "\n", "someone-else": ""} {
+		c := exec.Command("sh", "-c", wspec["agent-mesh"].PreToolUse[0].Hooks[0].Command)
+		c.Env = []string{"PATH=/usr/bin:/bin", "AGENT_MESH_AGENT=" + agent}
+		if out, err := c.Output(); err != nil || string(out) != want {
+			t.Errorf("agent %q: err=%v out=%q, want %q", agent, err, out, want)
+		}
+	}
+
 	// With deny rules: PreToolUse keeps Matcher "*" so every tool fails closed on hook failure.
 	b, err := HooksJSON("a1", []string{bad, "hook", "agy"}, true, dir)
 	if err != nil {

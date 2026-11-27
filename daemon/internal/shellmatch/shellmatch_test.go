@@ -115,3 +115,36 @@ func TestMatchPublishCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchPatternKill(t *testing.T) {
+	for _, line := range []string{
+		`pkill -f "sleep 30"`, `pkill sleep`, `killall node`, `killall5 -9`, `/usr/bin/pkill -9 -f check.sh`,
+		`sudo pkill -f x`, `env FOO=1 pkill x`, `timeout 5 pkill x`, `bash -c "pkill -f x"`, `echo done; pkill x`,
+		`ls && killall x`, `(pkill x)`, `if true; then pkill x; fi`, `nohup pkill x &`,
+		`kill $(pgrep -f sleep)`, `kill -9 $(pgrep foo)`, "kill `pgrep foo`", `kill -9 "$(pidof node)"`,
+		`pgrep -f sleep | xargs kill`, `pidof node | xargs -r kill -9`, `ps aux | grep sleep | awk '{print $2}' | xargs kill`,
+		`kill $(ps aux | grep sleep | awk '{print $2}')`, `pgrep -f x | xargs -n1 kill -TERM`,
+		`kill $(pgrep -G 1000)`, `pgrep -G 1000 | xargs kill`, `pid=$(pgrep -f sleep); kill $pid`, `for p in $(pgrep node); do kill $p; done`,
+		`pgrep node | while read p; do kill $p; done`, `kill -9 $(/usr/bin/pgrep -f sleep)`, `kill $(command pgrep -f sleep)`,
+		`kill $(ps -eo pid,cmd | awk '/sleep/ {print $1}')`, `echo x | xargs pkill`, `! pkill x`, `FOO=1 pkill x`,
+	} {
+		if got := MatchPatternKill(line); got == "" {
+			t.Errorf("%q passed", line)
+		}
+	}
+}
+
+func TestMatchPatternKillLeavesAnAgentsOwnPidsAlone(t *testing.T) {
+	for _, line := range []string{
+		`kill 1234`, `kill -9 $!`, `kill "$pid"`, `kill $(cat pidfile)`, `kill -- -$pgid`, `kill $(pgrep -P $$)`,
+		`pgrep -P 1234 | xargs kill`, `pgrep -s $sid | xargs kill`, `kill $(pgrep -g $pgid)`, `pgrep -f sleep`,
+		`pgrep -f sleep; kill 123`, `kill $(pgrep -P1234)`, `kill $(pgrep --parent=1234)`, `kill -0 $(pgrep foo)`, `kill -l`,
+		`pgrep -P $$ | xargs kill; pgrep -f server`, `git commit -m "x"; kill 123`, `pid=$(cat pidfile); kill $pid`, `for p in $(pgrep -P $$); do kill $p; done`, `kill $(cat pidfile) && pgrep -f sleep`, `kill $(cat pidfile); pidof node`, `cat pidfile | xargs kill`, `ps -o pid= --ppid $$`, `ps aux | grep sleep`,
+		`grep pkill notes.md`, `echo "do not pkill"`, `git commit -m "no killall"`, `man pkill`, `which killall`,
+		`go test ./... 2>&1 | tail`, `ls`, ``,
+	} {
+		if got := MatchPatternKill(line); got != "" {
+			t.Errorf("%q refused as %q", line, got)
+		}
+	}
+}

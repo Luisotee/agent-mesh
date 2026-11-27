@@ -577,6 +577,25 @@ func EvaluatePreToolUse(raw []byte, denyPublish bool) (bool, string) {
 	return false, ""
 }
 
+// EvaluatePatternKill checks a Claude PreToolUse payload for a kill by pattern (`pkill`, `killall`, `kill $(pgrep …)`),
+// which every agent is refused, not only a read-only one: it fails open, so a payload it can't read passes.
+func EvaluatePatternKill(raw []byte) (bool, string) {
+	var p payload
+	if json.Unmarshal(raw, &p) != nil || p.ToolName != "Bash" {
+		return false, ""
+	}
+	var in struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(p.ToolInput, &in) != nil {
+		return false, ""
+	}
+	if what := shellmatch.MatchPatternKill(in.Command); what != "" {
+		return true, shellmatch.KillAdvice(what)
+	}
+	return false, ""
+}
+
 // DenyJSON is what a Claude PreToolUse hook prints to deny a tool call.
 func DenyJSON(reason string) []byte {
 	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse",
