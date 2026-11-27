@@ -5,6 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
@@ -414,6 +416,166 @@ class ParityScreensTest {
         compose.onAllNodesWithText("app.keys.palette").assertCountEquals0()
         compose.onNodeWithTag("hidden-shortcuts").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("2 keyboard shortcuts", substring = true).assertIsDisplayed()
+    }
+
+    // ── What the round-1 review found ──
+
+    @Test fun `a resync on a connection that stays up lists what waits again`() {
+        api = RecordingApi().apply { waitingList = emptyList() }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        waitUntilState(rt) { api.waitingListings >= 1 }
+        val before = api.waitingListings
+        // The stream resyncs (a snapshot again) with no state flow change in between: the refresher hears it straight from the frame.
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(worker)))
+        waitUntilState(rt) { api.waitingListings > before }
+        val again = api.waitingListings
+        rt.onFrame(dev.agentmesh.gen.agentmesh.v1.SubscribeEventsResponse.newBuilder().setResumed(dev.agentmesh.gen.agentmesh.v1.Resumed.getDefaultInstance()).build())
+        waitUntilState(rt) { api.waitingListings > again }
+    }
+
+    @Test fun `offline, the model sheet's Switch is off and nothing is kept to be sent later`() {
+        api = RecordingApi().apply { transcript = { _, _, _ -> page(emptyList()) } }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        show { AgentScreen(rt, "w1", {}) }
+        compose.onNodeWithTag("change-model").performClick()
+        compose.onNodeWithTag("tier-strong").performClick()
+        compose.onNodeWithTag("switch").assertIsEnabled()
+        rt.onState(ConnState.Reconnecting(1, System.currentTimeMillis() + 60_000, "gone"))
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("offline").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("switch").assertIsNotEnabled()
+        compose.onNodeWithTag("model-sheet").assertIsDisplayed()
+        // The call itself fails at once when it is made offline (no waiting for a later connection).
+        assertTrue(runCatching { rt.connectedApi() }.exceptionOrNull() is NotConnected)
+        assertEquals(emptyList<List<String>>(), api.switches.toList())
+    }
+
+    @Test fun `offline, a prompt keeps its text and Send waits`() {
+        api = RecordingApi().apply { transcript = { _, _, _ -> page(emptyList()) } }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        show { AgentScreen(rt, "w1", {}, Tab.Chat) }
+        waitForText("Nothing said yet.")
+        compose.onNodeWithTag("prompt").performTextInput("later")
+        compose.onNodeWithTag("send").assertIsEnabled()
+        rt.onState(ConnState.Reconnecting(1, System.currentTimeMillis() + 60_000, "gone"))
+        waitForTag("prompt-offline")
+        compose.onNodeWithTag("send").assertIsNotEnabled()
+        compose.onNodeWithText("later").assertIsDisplayed()
+        assertEquals(emptyList<Pair<String, String>>(), api.prompts.toList())
+    }
+
+    @Test fun `offline, a PR's Hold merge is off`() {
+        api = RecordingApi().apply {
+            transcript = { _, _, _ -> page(emptyList()) }
+            pullRequests = mapOf("r1" to listOf(agentPrs("w1", pr("w1", "https://github.com/o/r/pull/7", 7))))
+        }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        waitUntilState(rt) { "w1" in it.pullRequests }
+        show { AgentScreen(rt, "w1", {}) }
+        compose.onNodeWithTag("hold").assertIsEnabled()
+        rt.onState(ConnState.Reconnecting(1, System.currentTimeMillis() + 60_000, "gone"))
+        compose.waitUntil(5_000) { runCatching { compose.onNodeWithTag("hold").assertIsNotEnabled() }.isSuccess }
+        assertEquals(emptyList<Pair<String, Boolean>>(), api.holds.toList())
+    }
+
+    /** [n] entries of three lines each, tagged `prefix-001`… so one is told from another by substring. */
+    private fun longTail(n: Int, prefix: String) = (1..n).map { i ->
+        val tag = "$prefix-${"%03d".format(i)}"
+        entry("$prefix$i", TranscriptKind.TRANSCRIPT_KIND_ASSISTANT, "$tag\nsecond line of $tag\nthird line of $tag")
+    }
+
+    private fun waitForTextContaining(t: String) = compose.waitUntil(5_000) { compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().isNotEmpty() }
+    private fun textCount(t: String) = compose.onAllNodesWithText(t, substring = true).fetchSemanticsNodes().size
+
+    @Test fun `a long conversation opens at its end`() {
+        api = RecordingApi().apply { transcript = { _, _, back -> if (back) page(longTail(80, "msg")) else page(emptyList()) } }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        show { AgentScreen(rt, "w1", {}, Tab.Chat) }
+        waitForTextContaining("msg-080")
+        compose.onNodeWithText("msg-080", substring = true).assertIsDisplayed()
+        assertEquals(0, textCount("msg-001"))
+    }
+
+    @Test fun `Load earlier keeps the reader's place`() {
+        api = RecordingApi().apply {
+            transcript = { _, off, back ->
+                when {
+                    back && off != -1L -> page(longTail(60, "old"), atStart = true).toBuilder().setEndOffset(50).build()
+                    back -> page(longTail(60, "new"), atStart = false).toBuilder().setStartOffset(50).build()
+                    else -> page(emptyList())
+                }
+            }
+        }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        show { AgentScreen(rt, "w1", {}, Tab.Chat) }
+        waitForTextContaining("new-060")
+        // Read back to the top of what is held, then ask for earlier entries.
+        compose.onNodeWithTag("chat").performScrollToIndex(0)
+        compose.onNodeWithTag("load-earlier").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("load-earlier").fetchSemanticsNodes().isEmpty() }
+        // What the reader was looking at (the first held entry) is still on screen, and the earlier ones are above it.
+        assertTrue(textCount("new-001") > 0)
+        assertEquals(0, textCount("old-001"))
+    }
+
+    @Test fun `a long plan in the waiting list can be shown whole`() {
+        val body = (1..40).joinToString("\n") { "Step $it of the plan" }
+        val plan = message("p1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = body, at = 10_000)
+        api = RecordingApi().apply { waitingList = listOf(waiting(WaitingKind.WAITING_KIND_PLAN, "w1", message = plan)) }
+        NotificationsTest.api = api
+        val rt = host(agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead"), agent("w1", parent = "lead", name = "shop-fix"))
+        show { HostScreen(rt, {}, { _, _ -> }, {}, {}) }
+        waitForText("shop-fix sent a plan")
+        compose.onNodeWithText("shop-fix sent a plan").performClick()
+        compose.onNodeWithText("Show all").performScrollTo().performClick()
+        compose.onNodeWithText("Show less").assertExists()
+    }
+
+    @Test fun `a read-only device sees the plan that waits but has no form to answer it`() {
+        val plan = message("p1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "Change the typo", at = 10_000)
+        api = RecordingApi().apply { waitingList = listOf(waiting(WaitingKind.WAITING_KIND_PLAN, "w1", message = plan)); pages = mapOf("r1" to listOf(listOf(plan))) }
+        NotificationsTest.api = api
+        val rt = host(agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead"), worker, actor = ActorClass.ACTOR_CLASS_READ_ONLY_DEVICE)
+        show { AgentScreen(rt, "w1", {}, Tab.Messages) }
+        waitForText("waiting for you")
+        compose.onAllNodesWithText("Approve").assertCountEquals(0)
+    }
+
+    @Test fun `a forced quota read happens once per press, not again after a reconnect`() {
+        api = RecordingApi()
+        NotificationsTest.api = api
+        val rt = host(worker)
+        show { UsageScreen(rt, onBack = {}, quotaEveryMs = 60_000) }
+        waitForTag("refresh")
+        compose.waitUntil(5_000) { api.usageCalls.isNotEmpty() }
+        compose.onNodeWithTag("refresh").performClick()
+        compose.waitUntil(5_000) { true in api.usageCalls }
+        assertEquals(1, api.usageCalls.count { it })
+        val before = api.usageCalls.size
+        // The connection drops and returns: the quota is read again, without forcing the host's cache.
+        rt.onState(ConnState.Reconnecting(1, System.currentTimeMillis() + 60_000, "gone"))
+        compose.waitForIdle()
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        compose.waitUntil(5_000) { api.usageCalls.size > before }
+        assertEquals(1, api.usageCalls.count { it })
+    }
+
+    @Test fun `a spend error doesn't outlive the span it was for, and the per-agent table can be asked for`() {
+        api = RecordingApi().apply { failCost = ApiException(Code.UNAVAILABLE, "[unavailable] gh missing") }
+        NotificationsTest.api = api
+        val rt = host(worker)
+        show { UsageScreen(rt, onBack = {}) }
+        waitForTag("cost-error")
+        api.failCost = null
+        compose.onNodeWithTag("span-24h").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("cost-error").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("per-agent").performClick()
+        compose.waitUntil(5_000) { true in api.costAgents }
     }
 }
 

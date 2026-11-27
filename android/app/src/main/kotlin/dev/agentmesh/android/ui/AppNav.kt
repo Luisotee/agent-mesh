@@ -89,9 +89,9 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         composable(Routes.LOG) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { LogScreen(it) { nav.popBackStack() } } }
         composable(Routes.DOCK) { e ->
             val id = e.arguments!!.getString("id")!!
-            runtimes[id]?.let { DockScreen(it, { nav.popBackStack() }) { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) } }
+            runtimes[id]?.let { DockScreen(it, { nav.popBackStack() }, onLog = { nav.navigate(Routes.log(id)) }) { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) } }
         }
-        composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it, onBack = { nav.popBackStack() }) } }
+        composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it, onBack = { nav.popBackStack() }, onLog = { nav.navigate(Routes.log(e.arguments!!.getString("id")!!)) }) } }
         composable(Routes.HOST_SETTINGS) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { HostSettingsScreen(it) { nav.popBackStack() } } }
         composable(
             Routes.AGENT,

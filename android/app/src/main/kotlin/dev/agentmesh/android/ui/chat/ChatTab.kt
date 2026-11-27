@@ -120,9 +120,24 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
             if (scrolling || atEnd) stick = atEnd
         }
     }
+    // The end follows new entries (the last block changed, or its tool calls grew), not earlier ones coming in above: the
+    // header is item 0, so the last block is item `blocks.size`.
     val last = blocks.lastOrNull()
-    LaunchedEffect(blocks.size, last?.id, (last as? Block.Tools)?.calls?.size) {
-        if (stick && blocks.isNotEmpty()) list.scrollToItem(list.layoutInfo.totalItemsCount)
+    LaunchedEffect(last?.id, (last as? Block.Tools)?.calls?.size) {
+        if (stick && blocks.isNotEmpty()) list.scrollToItem(blocks.size)
+    }
+    // "Load earlier" keeps the place: the block that was first on screen stays where it was, whatever came in above it.
+    var anchor by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    LaunchedEffect(blocks.firstOrNull()?.id) {
+        val a = anchor ?: return@LaunchedEffect
+        val i = blocks.indexOfFirst { it.id == a.first }
+        if (i >= 0) list.scrollToItem(i + 1, a.second)
+        anchor = null
+    }
+    fun loadEarlier() {
+        anchor = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "head" }?.let { (it.key as String) to -it.offset }
+        stick = false
+        sync.loadEarlier()
     }
 
     Column(modifier.fillMaxSize().imePadding()) {
@@ -144,7 +159,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
                         }
                     }
                     if (chat.loaded && chat.transcript.supported && !chat.transcript.atStart) {
-                        TextButton(onClick = sync::loadEarlier, enabled = !chat.earlierBusy, modifier = Modifier.testTag("load-earlier")) { Text(if (chat.earlierBusy) "Loading…" else "Load earlier") }
+                        TextButton(onClick = ::loadEarlier, enabled = !chat.earlierBusy, modifier = Modifier.testTag("load-earlier")) { Text(if (chat.earlierBusy) "Loading…" else "Load earlier") }
                     }
                     if (chat.loaded && chat.transcript.supported && blocks.isEmpty()) {
                         Text("Nothing said yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
@@ -158,12 +173,12 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
             Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("chat-status"),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
-        PromptComposer(runtime, agent, isReadOnlyDevice(host), onSent = sync::afterSend, openTerminal = openTerminal)
+        PromptComposer(runtime, agent, isReadOnlyDevice(host), connected, onSent = sync::afterSend, openTerminal = openTerminal)
     }
 }
 
 @Composable
-private fun PromptComposer(runtime: HostRuntime, agent: Agent, readOnly: Boolean, onSent: () -> Unit, openTerminal: () -> Unit) {
+private fun PromptComposer(runtime: HostRuntime, agent: Agent, readOnly: Boolean, connected: Boolean, onSent: () -> Unit, openTerminal: () -> Unit) {
     var text by rememberSaveable(agent.id) { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -177,7 +192,7 @@ private fun PromptComposer(runtime: HostRuntime, agent: Agent, readOnly: Boolean
         error = ""
         scope.launch {
             try {
-                runtime.awaitApi().promptAgent(agent.id, body)
+                runtime.connectedApi().promptAgent(agent.id, body)
                 text = ""
                 onSent()
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -202,10 +217,12 @@ private fun PromptComposer(runtime: HostRuntime, agent: Agent, readOnly: Boolean
                 text, { text = it }, Modifier.weight(1f).testTag("prompt"), enabled = why.isEmpty() && !atPrompt,
                 placeholder = { Text(if (why.isEmpty()) "Write to the agent" else "") }, maxLines = 6,
             )
-            IconButton(onClick = ::send, enabled = why.isEmpty() && !atPrompt && !busy && text.isNotBlank(), modifier = Modifier.testTag("send")) {
+            IconButton(onClick = ::send, enabled = why.isEmpty() && !atPrompt && connected && !busy && text.isNotBlank(), modifier = Modifier.testTag("send")) {
                 Icon(Icons.AutoMirrored.Filled.Send, "Send")
             }
         }
+        // Offline the text stays and Send waits: nothing is held to be sent by a later connection.
+        if (why.isEmpty() && !connected) Text("Not connected to the host: reconnect to send.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("prompt-offline"))
         if (why.isNotEmpty()) Text(why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("prompt-why"))
         if (error.isNotEmpty()) Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("prompt-error"))
     }

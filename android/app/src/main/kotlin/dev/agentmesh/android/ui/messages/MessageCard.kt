@@ -48,7 +48,7 @@ fun preview(body: String): String {
 fun isLong(body: String) = body.length > PREVIEW_CHARS || body.count { it == '\n' } >= PREVIEW_LINES
 
 @Composable
-fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean, skewMs: Long) {
+fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean, skewMs: Long, canAnswer: Boolean = true) {
     val colors = stateColors
     val accent = when (m.type) {
         MessageType.MESSAGE_TYPE_PLAN -> MaterialTheme.colorScheme.primary
@@ -73,7 +73,7 @@ fun MessageCard(runtime: HostRuntime, m: Message, viewing: String, open: Boolean
             }
             MarkdownText(if (long && !expanded) preview(m.body) else m.body, large = long && expanded)
             if (long) TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Show less" else "Show all") }
-            if (open) AnswerForm(runtime, m)
+            if (open && canAnswer) AnswerForm(runtime, m)
         }
     }
 }
@@ -94,7 +94,7 @@ fun AnswerForm(runtime: HostRuntime, m: Message) {
         if (busy) return
         busy = true; error = null
         scope.launch {
-            try { block(); text = "" } catch (e: Exception) { error = e.message ?: e.javaClass.simpleName }
+            try { block(); text = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: e.javaClass.simpleName }
             busy = false
         }
     }
@@ -107,10 +107,10 @@ fun AnswerForm(runtime: HostRuntime, m: Message) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (isPlan) {
                 // Typed changes are not an approval: they go with Request changes.
-                Button(enabled = !busy && text.isBlank(), onClick = { run { runtime.approve(author) } }) { Text("Approve") }
-                OutlinedButton(enabled = !busy && text.isNotBlank(), onClick = { run { runtime.requestChanges(author, text) } }) { Text("Request changes") }
+                Button(enabled = !busy && text.isBlank(), onClick = { run { runtime.approve(author, m.id) } }) { Text("Approve") }
+                OutlinedButton(enabled = !busy && text.isNotBlank(), onClick = { run { runtime.requestChanges(author, text, m.id) } }) { Text("Request changes") }
             } else {
-                Button(enabled = !busy && text.isNotBlank(), onClick = { run { runtime.answer(author, text) } }) { Text("Send answer") }
+                Button(enabled = !busy && text.isNotBlank(), onClick = { run { runtime.answer(author, text, m.id) } }) { Text("Send answer") }
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }

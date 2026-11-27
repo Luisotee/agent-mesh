@@ -81,7 +81,7 @@ private fun ChangeModelSheet(runtime: HostRuntime, agent: Agent, onDismiss: () -
         error = ""
         scope.launch {
             try {
-                val api = runtime.awaitApi()
+                val api = runtime.connectedApi()
                 when (by) {
                     By.Tier -> api.switchAgent(agent.id, tier = tier)
                     By.Model -> api.switchAgent(agent.id, model = model.trim(), effort = effort)
@@ -98,7 +98,8 @@ private fun ChangeModelSheet(runtime: HostRuntime, agent: Agent, onDismiss: () -
             }
         }
     }
-    val ready = when (by) { By.Tier -> tier.isNotEmpty(); By.Model -> model.isNotBlank(); By.Effort -> effort.isNotEmpty() }
+    val connected = state.conn is dev.agentmesh.android.store.ConnState.Ready
+    val ready = connected && when (by) { By.Tier -> tier.isNotEmpty(); By.Model -> model.isNotBlank(); By.Effort -> effort.isNotEmpty() }
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp).navigationBarsPadding().testTag("model-sheet"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Change ${agent.name}'s model", style = MaterialTheme.typography.titleMedium)
@@ -124,6 +125,7 @@ private fun ChangeModelSheet(runtime: HostRuntime, agent: Agent, onDismiss: () -
                 }
             }
             if (error.isNotEmpty()) Text(error, Modifier.testTag("switch-error"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (!connected) Text("Not connected to the host: reconnect to switch.", Modifier.testTag("offline"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick = ::submit, enabled = ready && !busy, modifier = Modifier.fillMaxWidth().testTag("switch")) { Text("Switch") }
         }
     }

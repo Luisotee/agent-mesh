@@ -30,14 +30,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.derive.Tile
-import dev.agentmesh.android.derive.activityMillis
-import dev.agentmesh.android.derive.ago
+import dev.agentmesh.android.derive.activityAgo
+import dev.agentmesh.android.derive.sentAgo
 import dev.agentmesh.android.derive.dockTiles
 import dev.agentmesh.android.derive.repoName
 import dev.agentmesh.android.derive.sentLabel
 import dev.agentmesh.android.derive.statusSentence
 import dev.agentmesh.android.notify.Tab
-import dev.agentmesh.android.store.toMillis
 import dev.agentmesh.gen.agentmesh.v1.AgentState
 
 /**
@@ -47,7 +46,7 @@ import dev.agentmesh.gen.agentmesh.v1.AgentState
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DockScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) -> Unit) {
+fun DockScreen(runtime: HostRuntime, onBack: () -> Unit, onLog: () -> Unit = {}, onAgent: (String, Tab) -> Unit) {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val tiles = remember(state.runs, state.agents, state.messages) { dockTiles(state.runs, state.agents, state.messages) }
     val now = rememberNowMs(true)
@@ -58,7 +57,7 @@ fun DockScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
         )
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            ConnectionBanner(state, onRetry = runtime::nudge, onLog = {})
+            ConnectionBanner(state, onRetry = runtime::nudge, onLog = onLog)
             if (tiles.isEmpty()) {
                 Text(
                     if (state.synced) "No live agents. Agents of an open run show here while they work." else "Waiting for the host…",
@@ -90,7 +89,7 @@ private fun TileCard(t: Tile, skewMs: Long, now: Long, onClick: () -> Unit) {
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text(ago(activityMillis(a) - skewMs, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(activityAgo(a, skewMs, now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(
                 if (t.activity.isNotEmpty()) "Working: ${t.activity}" else statusSentence(a),
@@ -98,7 +97,7 @@ private fun TileCard(t: Tile, skewMs: Long, now: Long, onClick: () -> Unit) {
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             t.lastSent?.let { m ->
-                Text("${sentLabel(m)} · ${ago(if (m.hasCreatedAt()) m.createdAt.toMillis() - skewMs else 0, now)}", Modifier.testTag("tile-sent"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(listOf(sentLabel(m), sentAgo(m, skewMs, now)).filter { it.isNotEmpty() }.joinToString(" · "), Modifier.testTag("tile-sent"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

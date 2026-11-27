@@ -77,10 +77,10 @@ class HostRefresherTest {
         advanceTimeBy(60_100); runCurrent()
         assertEquals(2, api.prListings.size)
         assertEquals(setOf("w1"), rig.state.pullRequests.keys)
-        assertEquals(1, rig.logs.size)
+        assertEquals(1, rig.logs.count { "pull requests" in it })
         advanceTimeBy(60_000); runCurrent()
         // Said once, not every minute.
-        assertEquals(1, rig.logs.size)
+        assertEquals(1, rig.logs.count { "pull requests" in it })
         rig.refresher.stop()
     }
 
@@ -138,5 +138,60 @@ class HostRefresherTest {
         advanceTimeBy(95_000); runCurrent()
         assertEquals(1, rig.logs.count { "what waits" in it })
         rig.refresher.stop()
+    }
+
+    /** A host whose pull-request listing waits for the test, call by call. */
+    private class GatedPrs(val api: RecordingApi) : dev.agentmesh.android.net.MeshApi by api {
+        val gates = ArrayDeque<kotlinx.coroutines.CompletableDeferred<List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests>>>()
+        val asked = java.util.Collections.synchronizedList(mutableListOf<String>())
+        override suspend fun listPullRequests(runId: String): List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests> {
+            asked += runId
+            return gates.removeFirst().await()
+        }
+    }
+
+    @Test fun `after stop nothing is asked, not even the retry an event had scheduled`() = runTest {
+        val gated = GatedPrs(RecordingApi())
+        val first = kotlinx.coroutines.CompletableDeferred<List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests>>()
+        gated.gates.addLast(first)
+        val rig = Rig(gated, backgroundScope, agents = listOf(agent("w1")))
+        rig.refresher.synced(); runCurrent()
+        assertEquals(1, gated.asked.size)
+        // A PR event came while the read was out: its answer is dropped, and a retry is scheduled for a second later.
+        rig.refresher.event(prChanged(2, pr("w1", "u1")).event)
+        first.complete(emptyList()); runCurrent()
+        rig.refresher.stop()
+        advanceTimeBy(5_000); runCurrent()
+        assertEquals(1, gated.asked.size)
+        assertEquals(0, gated.api.waitingListings - 1)
+    }
+
+    @Test fun `a connection that syncs again is not held up by a read of the old one that hangs, and the old answer is dropped`() = runTest {
+        val gated = GatedPrs(RecordingApi())
+        val old = kotlinx.coroutines.CompletableDeferred<List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests>>()
+        val fresh = kotlinx.coroutines.CompletableDeferred<List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests>>()
+        gated.gates.addLast(old); gated.gates.addLast(fresh)
+        val rig = Rig(gated, backgroundScope, agents = listOf(agent("w1")))
+        rig.refresher.synced(); runCurrent()
+        assertEquals(1, gated.asked.size)
+        // The connection dropped and came back while that read hangs.
+        rig.refresher.synced(); runCurrent()
+        assertEquals(2, gated.asked.size)
+        fresh.complete(listOf(agentPrs("w1", pr("w1", "new")))); runCurrent()
+        old.complete(listOf(agentPrs("w1", pr("w1", "old")))); runCurrent()
+        assertEquals("new", rig.state.pullRequests.getValue("w1").getPullRequests(0).url)
+    }
+
+    @Test fun `a daemon that was replaced drops what the old one was asked`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val api = RecordingApi().apply { waitingList = listOf(waiting(WaitingKind.WAITING_KIND_PLAN, "w1")) }
+        val slow = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun listWaiting(): List<dev.agentmesh.gen.agentmesh.v1.Waiting> { gate.await(); return api.listWaiting() }
+        }
+        val rig = Rig(slow, backgroundScope, agents = listOf(agent("w1")))
+        rig.refresher.synced(); runCurrent()
+        rig.refresher.reset()
+        gate.complete(Unit); runCurrent()
+        assertNull(rig.state.waiting)
     }
 }

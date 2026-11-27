@@ -63,7 +63,7 @@ class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi
         if (busy) { again = true; return }
         val api = api() ?: return
         busy = true
-        val mine = gen
+        var mine = gen
         try {
             do {
                 again = false
@@ -79,6 +79,9 @@ class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi
                     // What is held now, not what was when the read began: "Load earlier" may have put entries above since.
                     when (val next = withLater(_state.value.transcript, res, from)) {
                         Followed.Reload -> {
+                            // A new conversation view: a "Load earlier" still out belongs to the old one.
+                            gen++
+                            mine = gen
                             _state.value = ChatState()
                             again = true
                         }
@@ -139,6 +142,7 @@ class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi
         gen++
         busy = false
         again = false
+        _state.update { it.copy(earlierBusy = false) }
         timers.forEach { it.cancel() }
         timers = emptyList()
     }

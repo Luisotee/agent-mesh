@@ -49,12 +49,12 @@ fun PullRequestsSection(runtime: HostRuntime, agentId: String, canAct: Boolean) 
     if (prs.pullRequestsCount == 0) return
     Column(Modifier.fillMaxWidth().testTag("pull-requests")) {
         SectionHeader("Pull requests")
-        prs.pullRequestsList.forEach { PrRow(runtime, it, canAct) }
+        prs.pullRequestsList.forEach { androidx.compose.runtime.key(it.url) { PrRow(runtime, it, canAct, connected = state.conn is dev.agentmesh.android.store.ConnState.Ready) } }
     }
 }
 
 @Composable
-private fun PrRow(runtime: HostRuntime, pr: PullRequest, canAct: Boolean) {
+private fun PrRow(runtime: HostRuntime, pr: PullRequest, canAct: Boolean, connected: Boolean) {
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -65,7 +65,7 @@ private fun PrRow(runtime: HostRuntime, pr: PullRequest, canAct: Boolean) {
         error = ""
         scope.launch {
             try {
-                runtime.awaitApi().holdPullRequest(pr.url, release = pr.held)
+                runtime.connectedApi().holdPullRequest(pr.url, release = pr.held)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -84,7 +84,7 @@ private fun PrRow(runtime: HostRuntime, pr: PullRequest, canAct: Boolean) {
             }
             if (pr.url.startsWith("https://")) TextButton(onClick = { uri.openUri(pr.url) }) { Text("Open") }
             if (canAct && pr.state == "open") {
-                OutlinedButton(onClick = ::toggle, enabled = !busy, modifier = Modifier.testTag("hold")) { Text(if (pr.held) "Release" else "Hold merge") }
+                OutlinedButton(onClick = ::toggle, enabled = connected && !busy, modifier = Modifier.testTag("hold")) { Text(if (pr.held) "Release" else "Hold merge") }
             }
         }
         if (error.isNotEmpty()) Text(error, Modifier.testTag("hold-error"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

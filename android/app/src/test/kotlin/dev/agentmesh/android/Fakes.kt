@@ -178,14 +178,15 @@ class RecordingApi : MeshApi {
         return agentList
     }
 
-    @Volatile var waitingList: List<dev.agentmesh.gen.agentmesh.v1.Waiting> = emptyList()
+    /** What `ListWaiting` answers; null is a host too old to have the action (the app derives what waits from the messages). */
+    @Volatile var waitingList: List<dev.agentmesh.gen.agentmesh.v1.Waiting>? = null
     var waitingListings = 0
     @Volatile var failWaiting: Exception? = null
 
     override suspend fun listWaiting(): List<dev.agentmesh.gen.agentmesh.v1.Waiting> {
         waitingListings++
         failWaiting?.let { throw it }
-        return waitingList
+        return waitingList ?: throw ApiException(com.connectrpc.Code.UNIMPLEMENTED, "unknown method")
     }
 
     /** Pull requests by run id. */
@@ -219,10 +220,13 @@ class RecordingApi : MeshApi {
     @Volatile var cost: dev.agentmesh.gen.agentmesh.v1.GetCostResponse = dev.agentmesh.gen.agentmesh.v1.GetCostResponse.getDefaultInstance()
     /** What GetCost asked: run id, since. */
     val costCalls = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    /** Whether each GetCost asked for the per-agent table. */
+    val costAgents = java.util.Collections.synchronizedList(mutableListOf<Boolean>())
     @Volatile var failCost: Exception? = null
 
     override suspend fun getCost(runId: String, since: String, agents: Boolean): dev.agentmesh.gen.agentmesh.v1.GetCostResponse {
         costCalls += runId to since
+        costAgents += agents
         failCost?.let { throw it }
         return cost
     }

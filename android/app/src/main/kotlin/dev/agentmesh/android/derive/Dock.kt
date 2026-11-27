@@ -26,6 +26,15 @@ private fun at(a: Agent) = if (a.hasLastActivity()) a.lastActivity.toMillis() el
 /** An agent's last activity as epoch milliseconds in the host's clock (0 when it has none). */
 fun activityMillis(a: Agent) = at(a)
 
+/** How long ago the agent did something, as the dock says it: nothing when it has done nothing (a clock difference must not make that a date long ago). */
+fun activityAgo(a: Agent, skewMs: Long, now: Long): String {
+    val last = at(a)
+    return if (last > 0) ago(last - skewMs, now) else ""
+}
+
+/** How long ago a message was sent, or nothing when it has no time. */
+fun sentAgo(m: Message, skewMs: Long, now: Long): String = if (m.hasCreatedAt()) ago(m.createdAt.toMillis() - skewMs, now) else ""
+
 /** A tile per live agent of the open runs: those that need the user first, then the rest by latest activity. */
 fun dockTiles(runs: Map<String, Run>, agents: Map<String, Agent>, messages: Map<String, Message>): List<Tile> {
     val lastSent = HashMap<String, Message>()

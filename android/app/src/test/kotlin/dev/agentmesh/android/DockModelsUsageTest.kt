@@ -1,7 +1,9 @@
 package dev.agentmesh.android
 
 import dev.agentmesh.android.derive.COST_WINDOWS
+import dev.agentmesh.android.derive.activityAgo
 import dev.agentmesh.android.derive.ago
+import dev.agentmesh.android.derive.sentAgo
 import dev.agentmesh.android.derive.costView
 import dev.agentmesh.android.derive.dockTiles
 import dev.agentmesh.android.derive.familiesOf
@@ -122,5 +124,16 @@ class DockModelsUsageTest {
         assertEquals("claude · 40 calls", row.name); assertEquals("3.8M", row.tokens); assertEquals("≈ $4.50", row.usd)
         assertEquals(listOf("Root resets: 2"), v.notes)
         assertEquals(listOf("24h", "7d", "30d"), COST_WINDOWS.map { it.first })
+    }
+
+    @Test fun `an agent that has done nothing has no age, whatever the clocks say`() {
+        val now = 1_000_000_000L
+        val idle = agent("w1")
+        // The host's clock is a second behind the phone's: nothing must turn into a date long ago.
+        assertEquals("", activityAgo(idle, skewMs = -1_000, now = now))
+        assertEquals("", activityAgo(idle, skewMs = 1_000, now = now))
+        val busy = idle.toBuilder().setLastActivity(ts(now - 12_000)).build()
+        assertEquals("12 s", activityAgo(busy, skewMs = 0, now = now))
+        assertEquals("", sentAgo(message("m1", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO).toBuilder().clearCreatedAt().build(), 0, now))
     }
 }

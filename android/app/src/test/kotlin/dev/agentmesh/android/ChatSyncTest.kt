@@ -143,4 +143,44 @@ class ChatSyncTest {
         sync.sync(); runCurrent()
         assertTrue(sync.state.value.loaded)
     }
+
+    @Test fun `a Load earlier still out when the record is rewritten is dropped, and stop clears its busy flag`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        var session = "s1"
+        val api = RecordingApi().apply {
+            transcript = { _, off, back -> if (back && off != -1L) page(listOf(e("z")), start = 0, end = 50, atStart = true) else page(listOf(e("x-$session")), session = session, start = 50, end = 100) }
+        }
+        val slow = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): ReadTranscriptResponse {
+                if (backward && offset != -1L) gate.await()
+                return api.readTranscript(agent, offset, backward)
+            }
+        }
+        val sync = ChatSync(backgroundScope, { slow }, "w1")
+        sync.sync(); runCurrent()
+        sync.loadEarlier(); runCurrent()
+        assertTrue(sync.state.value.earlierBusy)
+        // The record is another conversation now: the view starts over on its tail.
+        session = "s2"
+        sync.sync(); runCurrent()
+        assertEquals(listOf("x-s2"), sync.state.value.transcript.entries.map { it.id })
+        // The page of the old conversation arrives late and changes nothing.
+        gate.complete(Unit); runCurrent()
+        assertEquals(listOf("x-s2"), sync.state.value.transcript.entries.map { it.id })
+        assertFalse(sync.state.value.earlierBusy)
+
+        // And a stop while one is out doesn't leave the flag set.
+        val gate2 = CompletableDeferred<Unit>()
+        val slow2 = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): ReadTranscriptResponse {
+                if (backward && offset != -1L) gate2.await()
+                return api.readTranscript(agent, offset, backward)
+            }
+        }
+        val sync2 = ChatSync(backgroundScope, { slow2 }, "w2")
+        sync2.sync(); runCurrent()
+        sync2.loadEarlier(); runCurrent()
+        sync2.stop()
+        assertFalse(sync2.state.value.earlierBusy)
+    }
 }

@@ -64,7 +64,7 @@ private const val QUOTA_EVERY_MS = 60_000L
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit, quotaEveryMs: Long = QUOTA_EVERY_MS) {
+fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit, onLog: () -> Unit = {}, quotaEveryMs: Long = QUOTA_EVERY_MS) {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val connected = state.conn is ConnState.Ready
     var usage by remember { mutableStateOf<UsageView?>(null) }
@@ -74,15 +74,22 @@ fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit, quotaEveryMs: Long = Q
     // "24h", "7d", "30d", or "run:<id>".
     var scope by rememberSaveable { mutableStateOf("7d") }
     var refresh by remember { mutableIntStateOf(0) }
+    // The Refresh presses the quota read has taken up: a press forces the host's cache once, and a reconnect or a timed
+    // read after it doesn't (nor does a failed forced read keep forcing).
+    var forcedUpTo by remember { mutableIntStateOf(0) }
+    // Per agent: the spend's table by agent too (the desktop's "Per agent").
+    var perAgent by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(connected, refresh) {
         if (!connected) return@LaunchedEffect
         // Refresh asks the host to bypass its cache once; the timed reads after it take what the host has.
-        var forced = refresh > 0
+        var forced = refresh > forcedUpTo
+        forcedUpTo = refresh
         while (true) {
             try {
-                usage = usageView(runtime.awaitApi().getUsage(refresh = forced))
+                val wasForced = forced
                 forced = false
+                usage = usageView(runtime.awaitApi().getUsage(refresh = wasForced))
                 usageError = ""
             } catch (e: CancellationException) {
                 throw e
@@ -92,12 +99,13 @@ fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit, quotaEveryMs: Long = Q
             delay(quotaEveryMs)
         }
     }
-    LaunchedEffect(connected, scope, refresh) {
+    LaunchedEffect(connected, scope, refresh, perAgent) {
         if (!connected) return@LaunchedEffect
         cost = null
+        costError = ""
         try {
             val api = runtime.awaitApi()
-            cost = costView(if (scope.startsWith("run:")) api.getCost(runId = scope.removePrefix("run:")) else api.getCost(since = scope))
+            cost = costView(if (scope.startsWith("run:")) api.getCost(runId = scope.removePrefix("run:"), agents = perAgent) else api.getCost(since = scope, agents = perAgent))
             costError = ""
         } catch (e: CancellationException) {
             throw e
@@ -115,13 +123,13 @@ fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit, quotaEveryMs: Long = Q
         )
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())) {
-            ConnectionBanner(state, onRetry = runtime::nudge, onLog = {})
+            ConnectionBanner(state, onRetry = runtime::nudge, onLog = onLog)
             SectionHeader("Quota")
             usage?.let { QuotaSection(it, now) } ?: if (usageError.isEmpty()) Text("Reading the quotas…", Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) else Unit
             if (usageError.isNotEmpty()) Text("Couldn't read the quotas: $usageError", Modifier.padding(horizontal = 16.dp).testTag("usage-error"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
             SectionHeader("Spend")
-            SpendScope(scope, state.runs.values.sortedByDescending { it.createdAt.seconds }.map { it.id to it.title.ifEmpty { it.id } }) { scope = it }
+            SpendScope(scope, state.runs.values.sortedByDescending { it.createdAt.seconds }.map { it.id to it.title.ifEmpty { it.id } }, perAgent, { perAgent = it }) { scope = it }
             cost?.let { CostSection(it) } ?: if (costError.isEmpty()) Text("Reading the spend…", Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) else Unit
             if (costError.isNotEmpty()) Text("Couldn't read the spend: $costError", Modifier.padding(horizontal = 16.dp).testTag("cost-error"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
@@ -163,10 +171,11 @@ private fun Bar(b: QuotaBar, now: Long) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SpendScope(scope: String, runs: List<Pair<String, String>>, onChange: (String) -> Unit) {
+private fun SpendScope(scope: String, runs: List<Pair<String, String>>, perAgent: Boolean, onPerAgent: (Boolean) -> Unit, onChange: (String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         COST_WINDOWS.forEach { (since, label) -> FilterChip(selected = scope == since, onClick = { onChange(since) }, label = { Text(label) }, modifier = Modifier.testTag("span-$since")) }
+        FilterChip(selected = perAgent, onClick = { onPerAgent(!perAgent) }, label = { Text("Per agent") }, modifier = Modifier.testTag("per-agent"))
         Column {
             FilterChip(selected = scope.startsWith("run:"), onClick = { menu = true }, label = { Text(if (scope.startsWith("run:")) runs.firstOrNull { it.first == scope.removePrefix("run:") }?.second ?: "A run" else "One run") }, modifier = Modifier.testTag("span-run"))
             DropdownMenu(menu, { menu = false }) {
