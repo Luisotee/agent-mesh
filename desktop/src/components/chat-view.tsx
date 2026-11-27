@@ -36,6 +36,8 @@ const say = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\
 
 /** How often the chat reads on while the agent works (a reply fires no event of its own; a tool call or a state change does). */
 const POLL_MS = 2000
+/** How many blocks of a long conversation are drawn at first, and with each "Show earlier". */
+const WINDOW = 60
 /** How long after an event the chat reads on: a burst of events is one read. */
 const SETTLE_MS = 300
 
@@ -194,6 +196,25 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
     [blocks, messageLoad, mine, transcript.atStart, transcript.supported, shown],
   )
   const queued = useQueue(host, agentId, active)
+  // Only the newest of a long conversation is drawn at first (a page the host reads holds hundreds of blocks, and drawing
+  // them all is what a tab switch waited for); "Show earlier" draws more of what is held, and once all is drawn "Load earlier"
+  // asks the host for an earlier page (drawn whole).
+  const win = useRef<{ session: string; top?: string; index?: number; all: boolean }>({ session: '', all: false })
+  if (win.current.session !== (agent?.sessionId ?? '')) win.current = { session: agent?.sessionId ?? '', all: false }
+  let from = win.current.all ? 0 : win.current.top ? items.findIndex((i) => i.id === win.current.top) : -1
+  // The first block's item left (a card answered): the window stays where it was, never past the newest 60.
+  if (from < 0) from = Math.min(win.current.index ?? Infinity, Math.max(0, items.length - WINDOW))
+  // Only a transcript that has its blocks sets the window: before that the items are the run's cards alone.
+  const settled = loaded && blocks.length > 0
+  if (settled) {
+    win.current.top = items[from]?.id
+    win.current.index = from
+  } else from = 0
+  // A plan or question waiting on the user, or one an agent asked to show, is drawn above the window whatever its age: it is what the chat is for.
+  const above = settled ? items.slice(0, from).filter((i) => i.kind === 'message' && shown.has(i.message.id)) : []
+  const hidden = from - above.length
+  const revealed = useRef<{ height: number; top: number }>(undefined)
+  const [reveals, setReveals] = useState(0)
   // A dropped image is taken anywhere over the chat; the overlay says so while one is dragged over it.
   const dropper = useRef<Dropper>(null)
   const [dragging, setDragging] = useState(false)
@@ -250,7 +271,11 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
-    if (anchor.current) {
+    if (revealed.current) {
+      // Blocks drawn above the reader's place: the place stays.
+      el.scrollTop = revealed.current.top + (el.scrollHeight - revealed.current.height)
+      revealed.current = undefined
+    } else if (anchor.current) {
       // Used once the earlier page is in (the start of the window moved), not by another redraw while it is out.
       if (transcript.start !== anchor.current.start) {
         el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height)
@@ -261,7 +286,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
       seenLast.current = items[items.length - 1]?.id
       setAway(false)
     }
-  }, [transcript.entries, transcript.start, active, sending.length, queued.length, followTick, items.length])
+  }, [transcript.entries, transcript.start, active, sending.length, queued.length, followTick, items.length, reveals])
   const seenAt = seenLast.current ? items.findIndex((i) => i.id === seenLast.current) : -1
   // The entry last seen may be gone (a card answered, a reload): then there is no count to give.
   const unseen = away && seenAt >= 0 ? Math.max(0, items.length - 1 - seenAt) : 0
@@ -275,7 +300,17 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   startNow.current = transcript.start
   const earlier = async () => {
     const el = scroller.current
+    if (hidden > 0) {
+      // Held but not drawn: draw the next lot above, keeping the reader's place.
+      if (el) revealed.current = { height: el.scrollHeight, top: el.scrollTop }
+      win.current.top = items[Math.max(0, from - WINDOW)]?.id
+      stick.current = false
+      setReveals((n) => n + 1)
+      return
+    }
     if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop, start: transcript.start }
+    // An earlier page the host brings is drawn whole, as the reader asked for it.
+    win.current.all = true
     const asked = transcript.start
     await loadEarlier()
     // A read that failed or brought no page moved nothing: the anchor must not stay armed and stop the chat following the end.
@@ -348,9 +383,9 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
             <Button size="sm" variant="outline" onClick={() => void sync()}>Try again</Button>
           </div>
         )}
-        {loaded && transcript.supported && !transcript.atStart && (
+        {loaded && transcript.supported && (hidden > 0 || !transcript.atStart) && (
           <Button size="sm" variant="ghost" className="self-center" disabled={earlierBusy} onClick={() => void earlier()}>
-            {earlierBusy ? 'Loading…' : 'Load earlier'}
+            {earlierBusy ? 'Loading…' : hidden > 0 ? `Show earlier (${hidden} more)` : 'Load earlier'}
           </Button>
         )}
         {loaded && transcript.supported && items.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">Nothing said yet.</p>}
@@ -362,7 +397,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         )}
         {items.length > 0 && (
           <ol aria-label="Conversation" className="flex flex-col gap-3">
-            {items.map((b) => (
+            {[...above, ...items.slice(from)].map((b) => (
               <li key={b.id}>
                 {b.kind === 'message' ? (
                   <MessageCard host={host} message={b.message} open={open.has(b.message.id)} />
@@ -741,7 +776,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
         </p>
       )}
       {/* One box, as claude.ai and Gemini draw it: the field above, a toolbar under it inside the same border. */}
-      <div className="flex flex-col rounded-xl border border-input bg-surface focus-within:ring-2 focus-within:ring-identity">
+      {/* It lifts a little and takes a wash of the project's hue while it has the focus. */}
+      <div className="flex flex-col rounded-xl border border-input bg-surface transition-[translate,box-shadow] duration-150 focus-within:-translate-y-px focus-within:bg-linear-to-b focus-within:from-identity/8 focus-within:to-surface focus-within:shadow-md focus-within:ring-2 focus-within:ring-identity motion-reduce:transition-none motion-reduce:focus-within:translate-y-0">
         {images.length > 0 && (
           <ul aria-label="Images" className="flex flex-wrap gap-2 px-3 pt-3">
             {images.map((i) => (
@@ -756,6 +792,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
         )}
         <MarkdownField
           aria-label="Prompt"
+          data-composer=""
           className="flex-1 rounded-b-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none focus-visible:ring-0"
           value={text}
           disabled={!!why}
