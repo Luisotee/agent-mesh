@@ -1,25 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_THUMBS, MAX_THUMB_CHARS, imageName, imageProblem, imageRef, imagesUnsupported, keepThumb, rewindUnsupported, splitImages, thumbs } from './attachments'
+import { MAX_THUMBS, MAX_THUMB_CHARS, attachName, attachProblem, attachRef, fileRef, imageRef, imagesUnsupported, isImagePath, keepThumb, rewindUnsupported, splitImages, terminalAttachText, thumbs } from './attachments'
 
 describe('attachments', () => {
-  it('takes PNG, JPEG, GIF and WebP up to 10 MB', () => {
-    expect(imageProblem({ type: 'image/png', size: 10 })).toBe('')
-    expect(imageProblem({ type: 'image/webp', size: 10 << 20 })).toBe('')
-    expect(imageProblem({ type: 'image/svg+xml', size: 10 })).toMatch(/Only PNG/)
-    expect(imageProblem({ type: 'image/png', size: (10 << 20) + 1 })).toMatch(/10 MB/)
-    expect(imageProblem({ type: 'image/png', size: 0 })).toMatch(/empty/)
+  it('takes a file up to 10 MB, not an empty one', () => {
+    expect(attachProblem({ size: 10 })).toBe('')
+    expect(attachProblem({ size: 10 << 20 })).toBe('')
+    expect(attachProblem({ size: (10 << 20) + 1 })).toMatch(/10 MB/)
+    expect(attachProblem({ size: 0 })).toMatch(/empty/)
   })
 
-  it('names a file by its type, as the host checks it', () => {
-    expect(imageName({ name: 'Screenshot 2026.PNG', type: 'image/png' })).toBe('Screenshot 2026.png')
-    expect(imageName({ name: 'image', type: 'image/jpeg' })).toBe('image.jpg')
-    expect(imageName({ name: '.hidden', type: 'image/gif' })).toBe('image.gif')
+  it('names an image by its type, as the host checks it, and any other file as it is', () => {
+    expect(attachName({ name: 'Screenshot 2026.PNG', type: 'image/png' })).toBe('Screenshot 2026.png')
+    expect(attachName({ name: 'image', type: 'image/jpeg' })).toBe('image.jpg')
+    expect(attachName({ name: '.hidden', type: 'image/gif' })).toBe('image.gif')
+    expect(attachName({ name: 'report.pdf', type: 'application/pdf' })).toBe('report.pdf')
+    expect(attachName({ name: 'drawing.svg', type: 'image/svg+xml' })).toBe('drawing.svg')
+    expect(attachName({ name: '', type: '' })).toBe('file')
   })
 
-  it('reads the image paths back out of a prompt', () => {
-    const text = [imageRef('/r/a.png'), imageRef('/r/b c.jpg'), 'look at these', 'and [image: not alone] here'].join('\n')
-    expect(splitImages(text)).toEqual({ paths: ['/r/a.png', '/r/b c.jpg'], text: 'look at these\nand [image: not alone] here' })
-    expect(splitImages('plain')).toEqual({ paths: [], text: 'plain' })
+  it('names a stored path by what it is: an image or a file', () => {
+    expect(isImagePath('/r/a.PNG')).toBe(true)
+    expect(isImagePath('/r/a.jpeg')).toBe(true)
+    expect(isImagePath('/r/a.pdf')).toBe(false)
+    expect(isImagePath('/r/png')).toBe(false)
+    expect(attachRef('/r/a.png')).toBe('[image: /r/a.png]')
+    expect(attachRef('/r/a.pdf')).toBe('[file: /r/a.pdf]')
   })
 
   it('says which CLIs take images and rewind', () => {
