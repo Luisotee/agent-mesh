@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -111,7 +112,7 @@ fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onSt
 
     ModalBottomSheet(onDismissRequest = { if (!busy) onDismiss() }) {
         Column(
-            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp).navigationBarsPadding().testTag("spawn-sheet"),
+            Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp).testTag("spawn-sheet"),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(if (runId == null) "New lead" else "Add an agent", style = MaterialTheme.typography.titleMedium)

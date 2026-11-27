@@ -163,8 +163,10 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                 )
             },
     ) {
+        // The dependency first, before anything can return: the first frame comes before the host has answered, when there
+        // is no emulator yet, and a draw that read no state is never drawn again (the screen would stay blank).
+        screen.version
         val emu = screen.emulator ?: return@Canvas
-        screen.version // the dependency: a changed screen redraws (and only redraws)
         val pxPerSp = density * fontScale
         val sp = if (userSp > 0f) userSp else fitWidthSp(size.width, emu.mColumns, pxPerSp)
         drawn[0] = sp; drawn[1] = pxPerSp; drawn[2] = emu.mColumns.toFloat(); drawn[3] = size.width; drawn[4] = emu.mRows.toFloat(); drawn[5] = size.height
