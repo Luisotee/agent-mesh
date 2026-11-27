@@ -115,4 +115,32 @@ public interface SendMessageRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getReBytes();
+
+  /**
+   * <pre>
+   * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+   * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+   * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+   * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+   * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+   * </pre>
+   *
+   * <code>string after = 7 [json_name = "after"];</code>
+   * @return The after.
+   */
+  java.lang.String getAfter();
+  /**
+   * <pre>
+   * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+   * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+   * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+   * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+   * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+   * </pre>
+   *
+   * <code>string after = 7 [json_name = "after"];</code>
+   * @return The bytes for after.
+   */
+  com.google.protobuf.ByteString
+      getAfterBytes();
 }
