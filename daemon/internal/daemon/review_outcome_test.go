@@ -436,3 +436,29 @@ func TestARelayStepWithOnlyUsefulOtherFindingsIsNotDone(t *testing.T) {
 		t.Errorf("a relay with useful findings left: %s", got)
 	}
 }
+
+// A PR that merged or closed is over: a worker's later `done` that does not name it carries no line for it (a
+// round it asked on it once, and checks GitHub never ran, are no news); one that names it still does.
+func TestADoneLeavesOutTheWorkersMergedPRsItDoesNotName(t *testing.T) {
+	a := startAuthor(t, "")
+	a.answeredRound(t)
+	reviewer := filepath.Base(a.pr.repo) + "-review-7-claude"
+	if err := a.verdictFull(t, a.asWorker, reviewer, 1, 0, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"merged", "closed"} {
+		err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: a.worker.Id, Url: a.pr.url(), Number: 7, State: state, Checks: "failing", Source: "report", HeadRef: a.worker.Branch})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "the next task is done")
+		if got := a.doneBody(t); strings.Contains(got, "[mesh reviews]") {
+			t.Errorf("a %s PR the done does not name: %s", state, got)
+		}
+		if got := a.doneNaming7(t); !strings.Contains(got, "PR #7: NEEDS YOU: checks failing") {
+			t.Errorf("a %s PR the done names: %s", state, got)
+		}
+	}
+}

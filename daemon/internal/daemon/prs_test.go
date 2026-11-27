@@ -289,6 +289,10 @@ func TestAWorkerWithNoPRShowsItsWorkEvidence(t *testing.T) {
 }
 
 func TestChecksFoldToOneWord(t *testing.T) {
+	timed := func(conclusion, start, end string) map[string]any {
+		return map[string]any{"__typename": "CheckRun", "status": "COMPLETED", "conclusion": conclusion,
+			"startedAt": "2026-11-27T" + start, "completedAt": "2026-11-27T" + end}
+	}
 	status := func(state string) map[string]any {
 		return map[string]any{"__typename": "StatusContext", "state": state}
 	}
@@ -304,6 +308,12 @@ func TestChecksFoldToOneWord(t *testing.T) {
 		{"failing beats pending", []map[string]any{run("QUEUED", ""), run("COMPLETED", "TIMED_OUT")}, "failing"},
 		{"a failed status", []map[string]any{status("ERROR")}, "failing"},
 		{"cancelled fails", []map[string]any{run("COMPLETED", "CANCELLED")}, "failing"},
+		// GitHub refusing to start Actions (billing) fails a job in 2 s with nothing run: no result, not a failing PR.
+		{"a failure that ran nothing", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z")}, ""},
+		{"a failure that ran nothing beside a pass", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z"), run("COMPLETED", "SUCCESS")}, "pass"},
+		{"a failure that ran nothing beside a real one", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z"), timed("FAILURE", "09:17:19Z", "09:19:21Z")}, "failing"},
+		{"a failure after minutes", []map[string]any{timed("FAILURE", "09:17:19Z", "09:19:21Z")}, "failing"},
+		{"a failure with no times", []map[string]any{run("COMPLETED", "FAILURE")}, "failing"},
 	} {
 		if got := daemon.ChecksWord(c.rollup); got != c.want {
 			t.Errorf("%s: %q, want %q", c.name, got, c.want)

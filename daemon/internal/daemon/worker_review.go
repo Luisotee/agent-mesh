@@ -540,6 +540,9 @@ func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, fac
 		}
 	}
 	for _, k := range prOrder { // a PR it asked rounds on that its done doesn't name
+		if p := recorded[k]; p != nil && (p.State == "merged" || p.State == "closed") && !seen[k] {
+			continue // over and done: its checks are no news
+		}
 		line(k, prURL[k])
 	}
 	// A PR of its own the worker opened that is still open with no round of its own: not named in the done, but not
