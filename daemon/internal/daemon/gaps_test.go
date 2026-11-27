@@ -366,3 +366,75 @@ func TestOpenViewLooksForTheTargetInsideTheRunNamed(t *testing.T) {
 		t.Errorf("a run and a different run id: %v", err)
 	}
 }
+
+// The messages, plan and pr views: the daemon resolves the target, so the frame names ids; a plan or a pull request there is not
+// is refused, and a pull request is looked for in the run named only.
+func TestOpenViewNamesMessagesAPlanAndAPullRequest(t *testing.T) {
+	w := startPR(t)
+	ctx := context.Background()
+	app, err := w.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{Activity: true}))
+	if err != nil || !app.Receive() {
+		t.Fatalf("subscribe: %v", err)
+	}
+	open := func(c interface {
+		OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
+	}, view, target, run string) (*v1.ViewRequest, error) {
+		t.Helper()
+		if _, err := c.OpenView(ctx, connect.NewRequest(&v1.OpenViewRequest{Meta: meta(""), View: view, Target: target, RunId: run})); err != nil {
+			return nil, err
+		}
+		for app.Receive() { // the events of the messages sent meanwhile come first
+			if v := app.Msg().GetView(); v != nil {
+				return v, nil
+			}
+		}
+		t.Fatalf("the app got no view frame: %v", app.Err())
+		return nil, nil
+	}
+	// Messages: an agent by name, or a run (its lead).
+	if v, err := open(w.device.Mesh, "messages", "demo-fix", ""); err != nil || v.View != "messages" || v.Target != "a-w1" || v.RunId != w.run.Id {
+		t.Errorf("messages of an agent = %v, %v", v, err)
+	}
+	if v, err := open(w.device.Mesh, "messages", w.run.Id, ""); err != nil || v.Target != "a-root" {
+		t.Errorf("messages of a run = %v, %v", v, err)
+	}
+	if _, err := open(w.device.Mesh, "messages", "nobody", ""); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("messages of nobody: %v", err)
+	}
+	// A plan: refused until the agent has sent one, then the newest.
+	if _, err := open(w.device.Mesh, "plan", "demo-fix", ""); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("a plan nobody sent: %v", err)
+	}
+	send := func(body string) string {
+		res, err := w.as(w.workTok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "repo-lead", Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: body}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Message.Id
+	}
+	send("first plan")
+	second := send("second plan")
+	if v, err := open(w.device.Mesh, "plan", "demo-fix", ""); err != nil || v.View != "plan" || v.Target != "a-w1" || v.MessageId != second {
+		t.Errorf("the newest plan = %v, %v (want %s)", v, err, second)
+	}
+	// A pull request: by URL or number, with its owner named.
+	url := "https://github.com/acme/repo/pull/7"
+	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
+		return tx.PutAgentPR(&v1.PullRequest{AgentId: "a-w1", Url: url, Number: 7})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{url, "#7", "7"} {
+		if v, err := open(w.device.Mesh, "pr", target, ""); err != nil || v.Target != url || v.AgentId != "a-w1" || v.RunId != w.run.Id {
+			t.Errorf("pr %s = %v, %v", target, v, err)
+		}
+	}
+	if _, err := open(w.device.Mesh, "pr", "#8", ""); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("a pull request nobody has: %v", err)
+	}
+	// A number is looked for in the run named only.
+	other := startRun(t, w.device.Mesh, "")
+	if _, err := open(w.device.Mesh, "pr", "#7", other.Id); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Errorf("a pull request of another run: %v", err)
+	}
+}

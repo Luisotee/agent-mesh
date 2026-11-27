@@ -129,6 +129,7 @@ message TermFrame {
     ReplayDone replay_done = 13;
     Exited exited = 14;
     Closing closing = 15;
+    Resized resized = 16;
   }
 }
 
@@ -187,6 +188,18 @@ message Output {
   bytes data = 3;
   // Part of the replay that precedes ReplayDone.
   bool replay = 4;
+}
+
+// The terminal's size changed (a client with input rights resized, or attached or left): sent to every attached client,
+// between the output of the old epoch and that of the new, so a client learns the size and the new epoch without a
+// repaint. A client that doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
+message Resized {
+  // The epoch the output from `offset` on is in.
+  uint64 epoch = 1;
+  // The output offset where the new epoch starts.
+  uint64 offset = 2;
+  uint32 cols = 3;
+  uint32 rows = 4;
 }
 
 // A repaint: the mode preamble and the screen, as bytes a terminal renders.

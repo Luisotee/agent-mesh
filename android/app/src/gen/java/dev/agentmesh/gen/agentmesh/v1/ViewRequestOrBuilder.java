@@ -65,4 +65,44 @@ public interface ViewRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getFromBytes();
+
+  /**
+   * <pre>
+   * For "plan": the plan message to show (`target` is its author's id).
+   * </pre>
+   *
+   * <code>string message_id = 5 [json_name = "messageId"];</code>
+   * @return The messageId.
+   */
+  java.lang.String getMessageId();
+  /**
+   * <pre>
+   * For "plan": the plan message to show (`target` is its author's id).
+   * </pre>
+   *
+   * <code>string message_id = 5 [json_name = "messageId"];</code>
+   * @return The bytes for messageId.
+   */
+  com.google.protobuf.ByteString
+      getMessageIdBytes();
+
+  /**
+   * <pre>
+   * For "pr": the agent that owns the pull request (`target` is its URL).
+   * </pre>
+   *
+   * <code>string agent_id = 6 [json_name = "agentId"];</code>
+   * @return The agentId.
+   */
+  java.lang.String getAgentId();
+  /**
+   * <pre>
+   * For "pr": the agent that owns the pull request (`target` is its URL).
+   * </pre>
+   *
+   * <code>string agent_id = 6 [json_name = "agentId"];</code>
+   * @return The bytes for agentId.
+   */
+  com.google.protobuf.ByteString
+      getAgentIdBytes();
 }

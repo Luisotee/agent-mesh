@@ -274,6 +274,35 @@ describe('OpenView', () => {
   })
 })
 
+describe('OpenView: messages, a plan and a pull request', () => {
+  it("opens an agent's Messages tab, marks a plan's card, and selects the owner of a pull request with the side panel", () => {
+    const { model } = fixture()
+    const view = (v: string, target: string, more: { messageId?: string; agentId?: string } = {}) => showView(model, 'h1', create(ViewRequestSchema, { view: v, target, ...more }))
+    view('messages', 'w1')
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages' })
+    expect(model.store.getState().focusMessage).toBeUndefined()
+    view('plan', 'w1', { messageId: 'm9' })
+    expect(model.store.getState()).toMatchObject({ agentId: 'w1', tab: 'messages', focusMessage: { hostId: 'h1', id: 'm9' } })
+    model.clearFocusMessage()
+    model.setPanel(false)
+    view('pr', 'https://github.com/acme/repo/pull/7', { agentId: 'lead' })
+    expect(model.store.getState()).toMatchObject({ agentId: 'lead', panelOpen: true })
+    const before = model.store.getState()
+    view('plan', 'nobody', { messageId: 'm1' })
+    view('pr', 'https://github.com/acme/repo/pull/8', { agentId: 'nobody' })
+    expect(model.store.getState()).toBe(before)
+  })
+
+  it('names them in the toast', async () => {
+    const { model, wrap } = fixture()
+    render(wrap(<ViewToasts />))
+    offerView(model, 'h1', create(ViewRequestSchema, { view: 'plan', target: 'w1', from: 'lead' }), false)
+    expect(await screen.findByRole('status')).toHaveTextContent("lead wants to show you app-fix's plan.")
+    offerView(model, 'h1', create(ViewRequestSchema, { view: 'pr', target: 'https://github.com/acme/repo/pull/7', from: 'lead' }), false)
+    expect(await screen.findByText(/pull request #7/)).toBeInTheDocument()
+  })
+})
+
 describe('an agent asking to show a view', () => {
   const req = (view: string, target: string, from = 'agent-mesh-lead') => create(ViewRequestSchema, { view, target, from })
 

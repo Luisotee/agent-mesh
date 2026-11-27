@@ -70,6 +70,48 @@ func TestAgentChangesListsFilesUncommittedWorkAndUnpushedCommits(t *testing.T) {
 	}
 }
 
+// What archiving would delete that git ignores is listed on request: a folder whole (with its size), a stray file, largest first, none
+// that `.worktreeinclude` brings back, a cap with a count of the rest, and nothing unless asked (the side panel polls without it).
+func TestAgentChangesListsTheIgnoredFilesArchivingWouldDelete(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	writeFile(t, filepath.Join(a.Repo, ".worktreeinclude"), ".env\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, ".gitignore"), "node_modules/\n.env\n.env.local\n*.log\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, "node_modules", "a", "index.js"), strings.Repeat("x", 3000), 0o644)
+	writeFile(t, filepath.Join(a.Worktree, "node_modules", "b.js"), strings.Repeat("y", 2000), 0o644)
+	writeFile(t, filepath.Join(a.Worktree, ".env"), "KEY=1\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, ".env.local"), "NOTES=mine\n", 0o644)
+	writeFile(t, filepath.Join(a.Worktree, "src", "kept.txt"), "not ignored\n", 0o644)
+	ask := func(with bool) *v1.GetAgentChangesResponse {
+		res, err := w.device.Mesh.GetAgentChanges(ctx, connect.NewRequest(&v1.GetAgentChangesRequest{Agent: a.Id, WithIgnored: with}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg
+	}
+	if got := ask(false); len(got.Ignored) != 0 || got.IgnoredMore != 0 {
+		t.Errorf("listed without being asked: %v", got.Ignored)
+	}
+	got := ask(true)
+	var seen []string
+	for _, e := range got.Ignored {
+		seen = append(seen, fmt.Sprintf("%s=%d", e.Path, e.Bytes))
+	}
+	if want := "node_modules/=5000 .env.local=11"; strings.Join(seen, " ") != want {
+		t.Errorf("ignored = %q, want %q (.env is brought back by .worktreeinclude, src/kept.txt is not ignored)", strings.Join(seen, " "), want)
+	}
+	for i := 0; i < 22; i++ {
+		writeFile(t, filepath.Join(a.Worktree, fmt.Sprintf("run-%02d.log", i)), "log\n", 0o644)
+	}
+	got = ask(true)
+	if len(got.Ignored) != 20 || got.IgnoredMore != 4 || got.Ignored[0].Path != "node_modules/" {
+		t.Errorf("past the cap: %d listed, %d more", len(got.Ignored), got.IgnoredMore)
+	}
+}
+
 // A tracked file a commit added and the working tree lost is uncommitted and deleted, not untracked; and when git can't count the
 // commits the answer is unavailable, not "nothing".
 func TestAgentChangesNamesADeletedTrackedFileAndAnUnreadableBranch(t *testing.T) {

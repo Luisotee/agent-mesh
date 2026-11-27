@@ -86,6 +86,8 @@ func frameOf(f any) *termv1.TermFrame {
 		return &termv1.TermFrame{Frame: &termv1.TermFrame_ReplayDone{ReplayDone: v}}
 	case *termv1.Exited:
 		return &termv1.TermFrame{Frame: &termv1.TermFrame_Exited{Exited: v}}
+	case *termv1.Resized:
+		return &termv1.TermFrame{Frame: &termv1.TermFrame_Resized{Resized: v}}
 	}
 	panic("unknown frame")
 }
@@ -97,7 +99,7 @@ func (t *Terminal) attach(c *client, a *termv1.Attach) {
 	defer t.mu.Unlock()
 	c.cols, c.rows = clampSize(a.Cols, a.Rows)
 	t.clients[c] = struct{}{}
-	t.resizeLocked()
+	t.resizeLocked(c) // the new client learns the size from its Attached, which is queued below
 
 	mode := a.Mode
 	if mode == termv1.AttachMode_ATTACH_MODE_UNSPECIFIED {
@@ -143,7 +145,7 @@ func (t *Terminal) detach(c *client) {
 	defer t.mu.Unlock()
 	t.dropLocked(c, "detached")
 	if len(t.clients) > 0 {
-		t.resizeLocked()
+		t.resizeLocked(nil)
 	}
 }
 
@@ -182,7 +184,7 @@ func (t *Terminal) resize(c *client, cols, rows uint32) {
 		return
 	}
 	c.cols, c.rows = clampSize(cols, rows)
-	t.resizeLocked()
+	t.resizeLocked(nil)
 }
 
 func (t *Terminal) canType(c *client) bool {

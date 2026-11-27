@@ -14,6 +14,12 @@ import { activeTheme, monoStack, onThemeChange } from '@/theme'
 
 const encoder = new TextEncoder()
 
+/** What the host's terminal size says when another client made it smaller than this window's: "" when they agree or it is larger. */
+export function sharedSize(host: { cols: number; rows: number } | undefined, local: { cols: number; rows: number }): string {
+  if (!host || (host.cols >= local.cols && host.rows >= local.rows)) return ''
+  return `${host.cols}×${host.rows}, as another client has it`
+}
+
 export function termStatus(s: TermState): string {
   switch (s.kind) {
     case 'connecting':
@@ -41,6 +47,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
   const search = useRef<SearchAddon>(null)
   const fit = useRef<FitAddon>(null)
   const [state, setState] = useState<TermState>({ kind: 'connecting' })
+  const [shared, setShared] = useState('')
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
 
@@ -64,6 +71,8 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     term.current = t
     search.current = s
     fit.current = f
+    let hostSize: { cols: number; rows: number } | undefined
+    const noteSize = () => setShared(sharedSize(hostSize, { cols: t.cols, rows: t.rows }))
     const session = new TerminalSession({
       ticket: async () => {
         const r = await openTerminal(host.client, agentId, true)
@@ -76,10 +85,17 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
         size: () => ({ cols: t.cols, rows: t.rows }),
       },
       onState: setState,
+      onHostSize: (cols, rows) => {
+        hostSize = { cols, rows }
+        noteSize()
+      },
     })
     t.onData((d) => session.input(encoder.encode(d)))
     t.onBinary((d) => session.input(Uint8Array.from(d, (ch) => ch.charCodeAt(0))))
-    t.onResize(({ cols, rows }) => session.resize(cols, rows))
+    t.onResize(({ cols, rows }) => {
+      session.resize(cols, rows)
+      noteSize()
+    })
     const refit = () => {
       // A box that is hidden or not laid out yet has no size to fit to.
       if (el.clientWidth > 0 && el.clientHeight > 0) f.fit()
@@ -119,7 +135,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
   return (
     <div id={panelId} role="tabpanel" aria-labelledby={tabId} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div className="flex items-center gap-2 text-xs">
-        <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}</span>
+        <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}{shared && state.kind === 'live' ? ` (${shared})` : ''}</span>
         <span className="flex-1" />
         {searching ? (
           <form

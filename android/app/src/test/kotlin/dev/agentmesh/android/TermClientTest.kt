@@ -110,6 +110,17 @@ class TermClientTest {
         assertEquals(TermState.Live, r.client.state.value)
     }
 
+    @Test fun `a Resized frame moves the screen to the new size and epoch in place, with no reattach`() = runTest {
+        val r = Rig(this); val s = r.socket()
+        r.client.start(); runCurrent(); first(s)
+        s.host(Frames.resized(epoch = 2, offset = 5, cols = 30, rows = 8))
+        s.host(Frames.output("x", 5, epoch = 2)); runCurrent()
+        assertEquals(30, r.screen.cols); assertEquals(8, r.screen.rows)
+        assertEquals(1, s.sent.size) // only the first Attach: no repaint was asked for
+        assertEquals(TermState.Live, r.client.state.value)
+        assertEquals("hellox", r.screen.visibleText())
+    }
+
     @Test fun `when the host can't continue exactly it repaints, and the old screen is dropped`() = runTest {
         val r = Rig(this); val s = r.socket()
         r.client.start(); runCurrent(); first(s)

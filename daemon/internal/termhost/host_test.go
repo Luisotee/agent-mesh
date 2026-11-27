@@ -435,6 +435,44 @@ func TestResizeFollowsTheSmallestClientAndMovesTheEpoch(t *testing.T) {
 	}
 }
 
+// A client already attached is told the new size and epoch in a Resized frame, whoever caused the change; the client that
+// attached and made the change learns it from its Attached, which is its first frame.
+func TestAResizeIsToldToTheAttachedClientsWithoutARepaint(t *testing.T) {
+	f := startHost(t)
+	term := f.spawn("echo")
+	a := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
+	var ca collector
+	first := ca.next(t, a).GetAttached()
+	resized := func(want func(*termv1.Resized) bool) *termv1.Resized {
+		t.Helper()
+		for {
+			if r := ca.next(t, a).GetResized(); r != nil && want(r) {
+				return r
+			}
+		}
+	}
+	b := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 40})
+	var cb collector
+	second := cb.next(t, b).GetAttached()
+	if second == nil {
+		t.Fatalf("the new client's first frame is %v, not its Attached", cb.frames[0])
+	}
+	r := resized(func(*termv1.Resized) bool { return true })
+	if r.Cols != 60 || r.Rows != 30 || r.Epoch != second.Epoch || r.Epoch <= first.Epoch {
+		t.Errorf("Resized %v, want 60x30 in epoch %d (was %d)", r, second.Epoch, first.Epoch)
+	}
+	for _, fr := range cb.frames {
+		if fr.GetResized() != nil {
+			t.Errorf("the client that caused the change was sent a Resized: %v", fr)
+		}
+	}
+	b.Close()
+	back := resized(func(r *termv1.Resized) bool { return r.Cols == 100 })
+	if back.Rows != 30 || back.Epoch <= r.Epoch {
+		t.Errorf("when the small client left: %v after %v", back, r)
+	}
+}
+
 func TestSizesAreClampedAndOnlyATyperMayResize(t *testing.T) {
 	f := startHost(t)
 	term := f.spawn("echo")

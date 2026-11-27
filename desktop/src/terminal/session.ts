@@ -39,6 +39,8 @@ export interface SessionOptions {
   socket(path: string, onEvent: (e: SocketEvent) => void): SocketHandle
   sink: TermSink
   onState(s: TermState): void
+  /** The size the host's terminal has (at attach, and when it changes): the smallest of the attached clients'. */
+  onHostSize?(cols: number, rows: number): void
   timers?: Pick<Timers, 'setTimeout' | 'clearTimeout' | 'random'>
   backoffBaseMs?: number
   backoffMaxMs?: number
@@ -174,6 +176,7 @@ export class TerminalSession {
     switch (frame.case) {
       case 'attached':
         this.attached = frame.value
+        this.o.onHostSize?.(frame.value.cols, frame.value.rows)
         this.o.onState({ kind: 'replaying' })
         return
       case 'output': {
@@ -195,6 +198,11 @@ export class TerminalSession {
         this.o.sink.write(chunk)
         return
       }
+      case 'resized':
+        // Another client (or this one) changed the size: the output from here on is in the new epoch, and a reattach asks for it.
+        this.epoch = frame.value.epoch
+        this.o.onHostSize?.(frame.value.cols, frame.value.rows)
+        return
       case 'screen': {
         // A repaint replaces what we show; an exact replay doesn't send one.
         if (this.attached?.mode === AttachMode.REPAINT) this.o.sink.reset()

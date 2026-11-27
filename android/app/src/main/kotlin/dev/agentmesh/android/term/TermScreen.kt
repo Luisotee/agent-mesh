@@ -63,6 +63,17 @@ class TermScreen {
         version++
     }
 
+    /** The host's terminal changed size: this screen follows in place, keeping what it shows, with no repaint to ask for. */
+    fun resize(cols: Int, rows: Int) {
+        val emu = emulator ?: return
+        val c = cols.coerceAtLeast(2)
+        val r = rows.coerceAtLeast(1)
+        if (emu.mColumns == c && emu.mRows == r) return
+        emu.resize(c, r, 1, 1)
+        scrollBack = scrollBack.coerceIn(0, emu.screen.activeTranscriptRows)
+        version++
+    }
+
     /** Output bytes. While the user reads older lines, the view stays on them as new ones push the screen up. */
     fun write(data: ByteArray) {
         val emu = emulator ?: return

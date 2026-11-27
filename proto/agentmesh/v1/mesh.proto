@@ -1104,10 +1104,12 @@ message RenameRunResponse {
 
 message OpenViewRequest {
   RequestMeta meta = 1;
-  // "agent" (its chat), "terminal" (its terminal), "settings" or "run" (the run's lead).
+  // "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
+  // the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
+  // owns the pull request, with its side panel).
   string view = 2;
-  // The agent's name or id for "agent" and "terminal"; the run's id for "run"; a settings section for "settings"
-  // (may be empty).
+  // The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
+  // "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
   string target = 3;
   // The run the target is in, when `target` is an agent's name.
   string run_id = 4;
@@ -1127,6 +1129,10 @@ message ViewRequest {
   string run_id = 3;
   // Who asked, for the app to say ("agent-mesh-lead opened…").
   string from = 4;
+  // For "plan": the plan message to show (`target` is its author's id).
+  string message_id = 5;
+  // For "pr": the agent that owns the pull request (`target` is its URL).
+  string agent_id = 6;
 }
 
 message StartRunResponse {
@@ -1237,6 +1243,18 @@ message ChangedFile {
 message GetAgentChangesRequest {
   // Agent id or name.
   string agent = 1;
+  // Also list the git-ignored files the worktree holds that archiving would delete (`ignored`): a walk of the worktree,
+  // so only when asked.
+  bool with_ignored = 2;
+}
+
+// A git-ignored file of a worktree, or a whole git-ignored folder (`node_modules/`), with what it holds.
+message IgnoredEntry {
+  string path = 1;
+  // Bytes in it (files only), counted up to a limit.
+  int64 bytes = 2;
+  // The count stopped at the limit: there is more.
+  bool partial = 3;
 }
 
 message GetAgentChangesResponse {
@@ -1252,6 +1270,10 @@ message GetAgentChangesResponse {
   bool available = 6;
   // Why it could not be read (no worktree, archived, git failed).
   string reason = 7;
+  // With `with_ignored`: the git-ignored entries of the worktree that `.worktreeinclude` does not bring back, largest first,
+  // at most 20, and how many more there are.
+  repeated IgnoredEntry ignored = 8;
+  int32 ignored_more = 9;
 }
 
 message PlanItem {

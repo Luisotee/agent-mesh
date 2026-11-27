@@ -1,10 +1,10 @@
 import { CheckCircle2, ChevronDown, ChevronUp, ClipboardList, FileText, MessageCircleQuestion, XCircle } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { answer } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/input'
-import { useHostState } from '@/context'
+import { useApp, useAppState, useHostState } from '@/context'
 import { MESSAGE_LABEL, messagesOf } from '@/derive'
 import { MessageType, type Message } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
@@ -67,11 +67,21 @@ const ICON: Partial<Record<MessageType, React.ReactNode>> = {
 }
 
 function MessageCard({ host, message: m, open }: { host: HostRuntime; message: Message; open: boolean }) {
+  const app = useApp()
+  const focused = useAppState((s) => s.focusMessage?.hostId === host.info.id && s.focusMessage.id === m.id)
+  const ref = useRef<HTMLElement>(null)
   const long = m.body.length > LONG
-  const [expanded, setExpanded] = useState(open)
+  const [expanded, setExpanded] = useState(open || focused)
   const collapsed = long && !expanded && !open
+  // An `OpenView` plan: the card comes into view, marked for a moment (the mark is the app's, not kept anywhere).
+  useEffect(() => {
+    if (!focused) return
+    ref.current?.scrollIntoView?.({ block: 'center' })
+    const t = setTimeout(() => app.clearFocusMessage(), 3000)
+    return () => clearTimeout(t)
+  }, [focused, app])
   return (
-    <article aria-label={`${MESSAGE_LABEL[m.type]} from ${fromName(m)}`} className={`flex flex-col gap-2 rounded-lg border bg-card p-3 ${open ? 'border-state-needs' : ''}`}>
+    <article ref={ref} aria-label={`${MESSAGE_LABEL[m.type]} from ${fromName(m)}`} aria-current={focused || undefined} className={`flex flex-col gap-2 rounded-lg border bg-card p-3 ${open ? 'border-state-needs' : ''} ${focused ? 'ring-2 ring-primary' : ''}`}>
       <header className="flex items-center gap-2 text-xs">
         {ICON[m.type] ?? <FileText className="size-4 text-muted-foreground" />}
         <Badge>{MESSAGE_LABEL[m.type]}</Badge>

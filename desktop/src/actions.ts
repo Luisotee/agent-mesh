@@ -33,7 +33,7 @@ export const startRun = (c: MeshClient, title: string, autonomy?: Pick<RunAutono
 export const renameRun = (c: MeshClient, runId: string, title: string) => c.renameRun({ meta: meta(), runId, title })
 
 /** Asks the user's apps to show a view (`agent`, `terminal`, `settings` or `run`): the same call an agent's CLI makes. */
-export const openView = (c: MeshClient, view: 'agent' | 'terminal' | 'settings' | 'run', target = '', runId = '') => c.openView({ meta: meta(), view, target, runId })
+export const openView = (c: MeshClient, view: 'agent' | 'terminal' | 'settings' | 'run' | 'messages' | 'plan' | 'pr', target = '', runId = '') => c.openView({ meta: meta(), view, target, runId })
 
 /** The permission prompts held for agents' parents now (the host keeps them in memory only). */
 export const listPermissions = (c: MeshClient) => c.listPermissions({})
@@ -110,7 +110,8 @@ export const answer = (c: MeshClient, to: string, body: string) => sendMessage(c
 
 /** What waits on the user across the host's open runs: plans and questions nobody answered, agents at a prompt. */
 /** What an agent's worktree holds that no remote has: the files changed since its branch started, uncommitted work, commits not pushed. */
-export const getAgentChanges = (c: MeshClient, agent: string) => c.getAgentChanges({ agent })
+/** `withIgnored` also lists the git-ignored files archiving would delete (a walk of the worktree: for the Archive dialog, not the side panel's poll). */
+export const getAgentChanges = (c: MeshClient, agent: string, withIgnored = false) => c.getAgentChanges({ agent, withIgnored })
 
 /** An agent's plan (its todo list) and how much context its conversation holds, from its CLI's record (Claude Code only). */
 export const getAgentProgress = (c: MeshClient, agent: string) => c.getAgentProgress({ agent })

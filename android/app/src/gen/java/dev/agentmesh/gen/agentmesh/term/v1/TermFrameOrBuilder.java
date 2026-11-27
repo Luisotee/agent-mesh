@@ -136,5 +136,16 @@ public interface TermFrameOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.term.v1.Closing getClosing();
 
+  /**
+   * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+   * @return Whether the resized field is set.
+   */
+  boolean hasResized();
+  /**
+   * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+   * @return The resized.
+   */
+  dev.agentmesh.gen.agentmesh.term.v1.Resized getResized();
+
   public dev.agentmesh.gen.agentmesh.term.v1.TermFrame.FrameCase getFrameCase();
 }

@@ -1029,6 +1029,7 @@ type TermFrame struct {
 	//	*TermFrame_ReplayDone
 	//	*TermFrame_Exited
 	//	*TermFrame_Closing
+	//	*TermFrame_Resized
 	Frame         isTermFrame_Frame `protobuf_oneof:"frame"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1161,6 +1162,15 @@ func (x *TermFrame) GetClosing() *Closing {
 	return nil
 }
 
+func (x *TermFrame) GetResized() *Resized {
+	if x != nil {
+		if x, ok := x.Frame.(*TermFrame_Resized); ok {
+			return x.Resized
+		}
+	}
+	return nil
+}
+
 type isTermFrame_Frame interface {
 	isTermFrame_Frame()
 }
@@ -1207,6 +1217,10 @@ type TermFrame_Closing struct {
 	Closing *Closing `protobuf:"bytes,15,opt,name=closing,proto3,oneof"`
 }
 
+type TermFrame_Resized struct {
+	Resized *Resized `protobuf:"bytes,16,opt,name=resized,proto3,oneof"`
+}
+
 func (*TermFrame_Attach) isTermFrame_Frame() {}
 
 func (*TermFrame_Input) isTermFrame_Frame() {}
@@ -1226,6 +1240,8 @@ func (*TermFrame_ReplayDone) isTermFrame_Frame() {}
 func (*TermFrame_Exited) isTermFrame_Frame() {}
 
 func (*TermFrame_Closing) isTermFrame_Frame() {}
+
+func (*TermFrame_Resized) isTermFrame_Frame() {}
 
 // The first frame a client sends.
 type Attach struct {
@@ -1619,6 +1635,79 @@ func (x *Output) GetReplay() bool {
 	return false
 }
 
+// The terminal's size changed (a client with input rights resized, or attached or left): sent to every attached client,
+// between the output of the old epoch and that of the new, so a client learns the size and the new epoch without a
+// repaint. A client that doesn't know the frame ignores it and finds out as before, by an epoch it doesn't know.
+type Resized struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The epoch the output from `offset` on is in.
+	Epoch uint64 `protobuf:"varint,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	// The output offset where the new epoch starts.
+	Offset        uint64 `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
+	Cols          uint32 `protobuf:"varint,3,opt,name=cols,proto3" json:"cols,omitempty"`
+	Rows          uint32 `protobuf:"varint,4,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Resized) Reset() {
+	*x = Resized{}
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Resized) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Resized) ProtoMessage() {}
+
+func (x *Resized) ProtoReflect() protoreflect.Message {
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Resized.ProtoReflect.Descriptor instead.
+func (*Resized) Descriptor() ([]byte, []int) {
+	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *Resized) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *Resized) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *Resized) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+func (x *Resized) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
 // A repaint: the mode preamble and the screen, as bytes a terminal renders.
 type Screen struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1632,7 +1721,7 @@ type Screen struct {
 
 func (x *Screen) Reset() {
 	*x = Screen{}
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[23]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1644,7 +1733,7 @@ func (x *Screen) String() string {
 func (*Screen) ProtoMessage() {}
 
 func (x *Screen) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[23]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1657,7 +1746,7 @@ func (x *Screen) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Screen.ProtoReflect.Descriptor instead.
 func (*Screen) Descriptor() ([]byte, []int) {
-	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{23}
+	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *Screen) GetEpoch() uint64 {
@@ -1690,7 +1779,7 @@ type ReplayDone struct {
 
 func (x *ReplayDone) Reset() {
 	*x = ReplayDone{}
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[24]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1702,7 +1791,7 @@ func (x *ReplayDone) String() string {
 func (*ReplayDone) ProtoMessage() {}
 
 func (x *ReplayDone) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[24]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1715,7 +1804,7 @@ func (x *ReplayDone) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReplayDone.ProtoReflect.Descriptor instead.
 func (*ReplayDone) Descriptor() ([]byte, []int) {
-	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{24}
+	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ReplayDone) GetOffset() uint64 {
@@ -1735,7 +1824,7 @@ type Exited struct {
 
 func (x *Exited) Reset() {
 	*x = Exited{}
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[25]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1747,7 +1836,7 @@ func (x *Exited) String() string {
 func (*Exited) ProtoMessage() {}
 
 func (x *Exited) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[25]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1760,7 +1849,7 @@ func (x *Exited) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Exited.ProtoReflect.Descriptor instead.
 func (*Exited) Descriptor() ([]byte, []int) {
-	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{25}
+	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Exited) GetExitCode() int32 {
@@ -1787,7 +1876,7 @@ type Closing struct {
 
 func (x *Closing) Reset() {
 	*x = Closing{}
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[26]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1799,7 +1888,7 @@ func (x *Closing) String() string {
 func (*Closing) ProtoMessage() {}
 
 func (x *Closing) ProtoReflect() protoreflect.Message {
-	mi := &file_agentmesh_term_v1_term_proto_msgTypes[26]
+	mi := &file_agentmesh_term_v1_term_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1812,7 +1901,7 @@ func (x *Closing) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Closing.ProtoReflect.Descriptor instead.
 func (*Closing) Descriptor() ([]byte, []int) {
-	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{26}
+	return file_agentmesh_term_v1_term_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *Closing) GetReason() string {
@@ -1898,7 +1987,7 @@ const file_agentmesh_term_v1_term_proto_rawDesc = "" +
 	"OutputMark\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12.\n" +
-	"\x04time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\"\xb6\x04\n" +
+	"\x04time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\"\xee\x04\n" +
 	"\tTermFrame\x123\n" +
 	"\x06attach\x18\x01 \x01(\v2\x19.agentmesh.term.v1.AttachH\x00R\x06attach\x120\n" +
 	"\x05input\x18\x02 \x01(\v2\x18.agentmesh.term.v1.InputH\x00R\x05input\x123\n" +
@@ -1911,7 +2000,8 @@ const file_agentmesh_term_v1_term_proto_rawDesc = "" +
 	"\vreplay_done\x18\r \x01(\v2\x1d.agentmesh.term.v1.ReplayDoneH\x00R\n" +
 	"replayDone\x123\n" +
 	"\x06exited\x18\x0e \x01(\v2\x19.agentmesh.term.v1.ExitedH\x00R\x06exited\x126\n" +
-	"\aclosing\x18\x0f \x01(\v2\x1a.agentmesh.term.v1.ClosingH\x00R\aclosingB\a\n" +
+	"\aclosing\x18\x0f \x01(\v2\x1a.agentmesh.term.v1.ClosingH\x00R\aclosing\x126\n" +
+	"\aresized\x18\x10 \x01(\v2\x1a.agentmesh.term.v1.ResizedH\x00R\aresizedB\a\n" +
 	"\x05frame\"\xa9\x01\n" +
 	"\x06Attach\x121\n" +
 	"\x04mode\x18\x01 \x01(\x0e2\x1d.agentmesh.term.v1.AttachModeR\x04mode\x12\x14\n" +
@@ -1942,7 +2032,12 @@ const file_agentmesh_term_v1_term_proto_rawDesc = "" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x12\n" +
 	"\x04data\x18\x03 \x01(\fR\x04data\x12\x16\n" +
-	"\x06replay\x18\x04 \x01(\bR\x06replay\"J\n" +
+	"\x06replay\x18\x04 \x01(\bR\x06replay\"_\n" +
+	"\aResized\x12\x14\n" +
+	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12\x16\n" +
+	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x12\n" +
+	"\x04cols\x18\x03 \x01(\rR\x04cols\x12\x12\n" +
+	"\x04rows\x18\x04 \x01(\rR\x04rows\"J\n" +
 	"\x06Screen\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\x04R\x05epoch\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x12\n" +
@@ -1984,7 +2079,7 @@ func file_agentmesh_term_v1_term_proto_rawDescGZIP() []byte {
 }
 
 var file_agentmesh_term_v1_term_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agentmesh_term_v1_term_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_agentmesh_term_v1_term_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_agentmesh_term_v1_term_proto_goTypes = []any{
 	(AttachMode)(0),                // 0: agentmesh.term.v1.AttachMode
 	(*HelloRequest)(nil),           // 1: agentmesh.term.v1.HelloRequest
@@ -2010,60 +2105,62 @@ var file_agentmesh_term_v1_term_proto_goTypes = []any{
 	(*Resize)(nil),                 // 21: agentmesh.term.v1.Resize
 	(*Ready)(nil),                  // 22: agentmesh.term.v1.Ready
 	(*Output)(nil),                 // 23: agentmesh.term.v1.Output
-	(*Screen)(nil),                 // 24: agentmesh.term.v1.Screen
-	(*ReplayDone)(nil),             // 25: agentmesh.term.v1.ReplayDone
-	(*Exited)(nil),                 // 26: agentmesh.term.v1.Exited
-	(*Closing)(nil),                // 27: agentmesh.term.v1.Closing
-	nil,                            // 28: agentmesh.term.v1.Terminal.LabelsEntry
-	nil,                            // 29: agentmesh.term.v1.CreateTerminalRequest.EnvEntry
-	nil,                            // 30: agentmesh.term.v1.CreateTerminalRequest.LabelsEntry
-	(*timestamppb.Timestamp)(nil),  // 31: google.protobuf.Timestamp
+	(*Resized)(nil),                // 24: agentmesh.term.v1.Resized
+	(*Screen)(nil),                 // 25: agentmesh.term.v1.Screen
+	(*ReplayDone)(nil),             // 26: agentmesh.term.v1.ReplayDone
+	(*Exited)(nil),                 // 27: agentmesh.term.v1.Exited
+	(*Closing)(nil),                // 28: agentmesh.term.v1.Closing
+	nil,                            // 29: agentmesh.term.v1.Terminal.LabelsEntry
+	nil,                            // 30: agentmesh.term.v1.CreateTerminalRequest.EnvEntry
+	nil,                            // 31: agentmesh.term.v1.CreateTerminalRequest.LabelsEntry
+	(*timestamppb.Timestamp)(nil),  // 32: google.protobuf.Timestamp
 }
 var file_agentmesh_term_v1_term_proto_depIdxs = []int32{
-	31, // 0: agentmesh.term.v1.HelloResponse.started_at:type_name -> google.protobuf.Timestamp
-	31, // 1: agentmesh.term.v1.Terminal.started_at:type_name -> google.protobuf.Timestamp
-	31, // 2: agentmesh.term.v1.Terminal.exited_at:type_name -> google.protobuf.Timestamp
-	31, // 3: agentmesh.term.v1.Terminal.last_output:type_name -> google.protobuf.Timestamp
-	28, // 4: agentmesh.term.v1.Terminal.labels:type_name -> agentmesh.term.v1.Terminal.LabelsEntry
-	31, // 5: agentmesh.term.v1.Terminal.last_client_input:type_name -> google.protobuf.Timestamp
-	29, // 6: agentmesh.term.v1.CreateTerminalRequest.env:type_name -> agentmesh.term.v1.CreateTerminalRequest.EnvEntry
-	30, // 7: agentmesh.term.v1.CreateTerminalRequest.labels:type_name -> agentmesh.term.v1.CreateTerminalRequest.LabelsEntry
+	32, // 0: agentmesh.term.v1.HelloResponse.started_at:type_name -> google.protobuf.Timestamp
+	32, // 1: agentmesh.term.v1.Terminal.started_at:type_name -> google.protobuf.Timestamp
+	32, // 2: agentmesh.term.v1.Terminal.exited_at:type_name -> google.protobuf.Timestamp
+	32, // 3: agentmesh.term.v1.Terminal.last_output:type_name -> google.protobuf.Timestamp
+	29, // 4: agentmesh.term.v1.Terminal.labels:type_name -> agentmesh.term.v1.Terminal.LabelsEntry
+	32, // 5: agentmesh.term.v1.Terminal.last_client_input:type_name -> google.protobuf.Timestamp
+	30, // 6: agentmesh.term.v1.CreateTerminalRequest.env:type_name -> agentmesh.term.v1.CreateTerminalRequest.EnvEntry
+	31, // 7: agentmesh.term.v1.CreateTerminalRequest.labels:type_name -> agentmesh.term.v1.CreateTerminalRequest.LabelsEntry
 	3,  // 8: agentmesh.term.v1.CreateTerminalResponse.terminal:type_name -> agentmesh.term.v1.Terminal
 	3,  // 9: agentmesh.term.v1.ListTerminalsResponse.terminals:type_name -> agentmesh.term.v1.Terminal
 	3,  // 10: agentmesh.term.v1.WatchTerminalsResponse.exited:type_name -> agentmesh.term.v1.Terminal
 	16, // 11: agentmesh.term.v1.WatchTerminalsResponse.output:type_name -> agentmesh.term.v1.OutputMark
-	31, // 12: agentmesh.term.v1.OutputMark.time:type_name -> google.protobuf.Timestamp
+	32, // 12: agentmesh.term.v1.OutputMark.time:type_name -> google.protobuf.Timestamp
 	18, // 13: agentmesh.term.v1.TermFrame.attach:type_name -> agentmesh.term.v1.Attach
 	20, // 14: agentmesh.term.v1.TermFrame.input:type_name -> agentmesh.term.v1.Input
 	21, // 15: agentmesh.term.v1.TermFrame.resize:type_name -> agentmesh.term.v1.Resize
 	22, // 16: agentmesh.term.v1.TermFrame.ready:type_name -> agentmesh.term.v1.Ready
 	19, // 17: agentmesh.term.v1.TermFrame.attached:type_name -> agentmesh.term.v1.Attached
 	23, // 18: agentmesh.term.v1.TermFrame.output:type_name -> agentmesh.term.v1.Output
-	24, // 19: agentmesh.term.v1.TermFrame.screen:type_name -> agentmesh.term.v1.Screen
-	25, // 20: agentmesh.term.v1.TermFrame.replay_done:type_name -> agentmesh.term.v1.ReplayDone
-	26, // 21: agentmesh.term.v1.TermFrame.exited:type_name -> agentmesh.term.v1.Exited
-	27, // 22: agentmesh.term.v1.TermFrame.closing:type_name -> agentmesh.term.v1.Closing
-	0,  // 23: agentmesh.term.v1.Attach.mode:type_name -> agentmesh.term.v1.AttachMode
-	0,  // 24: agentmesh.term.v1.Attached.mode:type_name -> agentmesh.term.v1.AttachMode
-	1,  // 25: agentmesh.term.v1.TermHostService.Hello:input_type -> agentmesh.term.v1.HelloRequest
-	4,  // 26: agentmesh.term.v1.TermHostService.CreateTerminal:input_type -> agentmesh.term.v1.CreateTerminalRequest
-	6,  // 27: agentmesh.term.v1.TermHostService.ListTerminals:input_type -> agentmesh.term.v1.ListTerminalsRequest
-	8,  // 28: agentmesh.term.v1.TermHostService.KillTerminal:input_type -> agentmesh.term.v1.KillTerminalRequest
-	10, // 29: agentmesh.term.v1.TermHostService.WriteTerminal:input_type -> agentmesh.term.v1.WriteTerminalRequest
-	12, // 30: agentmesh.term.v1.TermHostService.AckExit:input_type -> agentmesh.term.v1.AckExitRequest
-	14, // 31: agentmesh.term.v1.TermHostService.WatchTerminals:input_type -> agentmesh.term.v1.WatchTerminalsRequest
-	2,  // 32: agentmesh.term.v1.TermHostService.Hello:output_type -> agentmesh.term.v1.HelloResponse
-	5,  // 33: agentmesh.term.v1.TermHostService.CreateTerminal:output_type -> agentmesh.term.v1.CreateTerminalResponse
-	7,  // 34: agentmesh.term.v1.TermHostService.ListTerminals:output_type -> agentmesh.term.v1.ListTerminalsResponse
-	9,  // 35: agentmesh.term.v1.TermHostService.KillTerminal:output_type -> agentmesh.term.v1.KillTerminalResponse
-	11, // 36: agentmesh.term.v1.TermHostService.WriteTerminal:output_type -> agentmesh.term.v1.WriteTerminalResponse
-	13, // 37: agentmesh.term.v1.TermHostService.AckExit:output_type -> agentmesh.term.v1.AckExitResponse
-	15, // 38: agentmesh.term.v1.TermHostService.WatchTerminals:output_type -> agentmesh.term.v1.WatchTerminalsResponse
-	32, // [32:39] is the sub-list for method output_type
-	25, // [25:32] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	25, // 19: agentmesh.term.v1.TermFrame.screen:type_name -> agentmesh.term.v1.Screen
+	26, // 20: agentmesh.term.v1.TermFrame.replay_done:type_name -> agentmesh.term.v1.ReplayDone
+	27, // 21: agentmesh.term.v1.TermFrame.exited:type_name -> agentmesh.term.v1.Exited
+	28, // 22: agentmesh.term.v1.TermFrame.closing:type_name -> agentmesh.term.v1.Closing
+	24, // 23: agentmesh.term.v1.TermFrame.resized:type_name -> agentmesh.term.v1.Resized
+	0,  // 24: agentmesh.term.v1.Attach.mode:type_name -> agentmesh.term.v1.AttachMode
+	0,  // 25: agentmesh.term.v1.Attached.mode:type_name -> agentmesh.term.v1.AttachMode
+	1,  // 26: agentmesh.term.v1.TermHostService.Hello:input_type -> agentmesh.term.v1.HelloRequest
+	4,  // 27: agentmesh.term.v1.TermHostService.CreateTerminal:input_type -> agentmesh.term.v1.CreateTerminalRequest
+	6,  // 28: agentmesh.term.v1.TermHostService.ListTerminals:input_type -> agentmesh.term.v1.ListTerminalsRequest
+	8,  // 29: agentmesh.term.v1.TermHostService.KillTerminal:input_type -> agentmesh.term.v1.KillTerminalRequest
+	10, // 30: agentmesh.term.v1.TermHostService.WriteTerminal:input_type -> agentmesh.term.v1.WriteTerminalRequest
+	12, // 31: agentmesh.term.v1.TermHostService.AckExit:input_type -> agentmesh.term.v1.AckExitRequest
+	14, // 32: agentmesh.term.v1.TermHostService.WatchTerminals:input_type -> agentmesh.term.v1.WatchTerminalsRequest
+	2,  // 33: agentmesh.term.v1.TermHostService.Hello:output_type -> agentmesh.term.v1.HelloResponse
+	5,  // 34: agentmesh.term.v1.TermHostService.CreateTerminal:output_type -> agentmesh.term.v1.CreateTerminalResponse
+	7,  // 35: agentmesh.term.v1.TermHostService.ListTerminals:output_type -> agentmesh.term.v1.ListTerminalsResponse
+	9,  // 36: agentmesh.term.v1.TermHostService.KillTerminal:output_type -> agentmesh.term.v1.KillTerminalResponse
+	11, // 37: agentmesh.term.v1.TermHostService.WriteTerminal:output_type -> agentmesh.term.v1.WriteTerminalResponse
+	13, // 38: agentmesh.term.v1.TermHostService.AckExit:output_type -> agentmesh.term.v1.AckExitResponse
+	15, // 39: agentmesh.term.v1.TermHostService.WatchTerminals:output_type -> agentmesh.term.v1.WatchTerminalsResponse
+	33, // [33:40] is the sub-list for method output_type
+	26, // [26:33] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_term_v1_term_proto_init() }
@@ -2086,6 +2183,7 @@ func file_agentmesh_term_v1_term_proto_init() {
 		(*TermFrame_ReplayDone)(nil),
 		(*TermFrame_Exited)(nil),
 		(*TermFrame_Closing)(nil),
+		(*TermFrame_Resized)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2093,7 +2191,7 @@ func file_agentmesh_term_v1_term_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentmesh_term_v1_term_proto_rawDesc), len(file_agentmesh_term_v1_term_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   30,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
