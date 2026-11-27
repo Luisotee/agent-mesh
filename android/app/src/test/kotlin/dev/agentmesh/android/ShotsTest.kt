@@ -21,7 +21,10 @@ import dev.agentmesh.android.theme.MeshTheme
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.AgentScreen
-import dev.agentmesh.android.ui.HostScreen
+import dev.agentmesh.android.ui.HomeScreen
+import dev.agentmesh.android.ui.SidebarActions
+import dev.agentmesh.android.ui.SidebarContent
+import dev.agentmesh.android.ui.rememberSidebar
 import dev.agentmesh.android.ui.HostsScreen
 import dev.agentmesh.android.ui.LocalContainer
 import dev.agentmesh.gen.agentmesh.v1.AgentRole
@@ -89,6 +92,12 @@ class ShotsTest {
         // Started, so the runtime has built its client (the chat reads through it); its handshake never answers, so the state is the test's.
         rt.start()
         started += rt
+        seed(rt)
+        return rt
+    }
+
+    /** Two runs, workers, reviewers and an asker, a plan and a task: what the screens show. */
+    private fun seed(rt: HostRuntime) {
         rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         fun a(id: String, name: String, state: AgentState, parent: String = "", role: AgentRole = AgentRole.AGENT_ROLE_WORKER, runId: String = "r1", repo: String = "/home/u/agent-mesh", kind: String = "claude", model: String = "claude-opus-5-5", needs: Int = 0, detail: String = "") =
             agent(id, runId = runId, role = role, parent = parent, state = state, name = name, at = 2_000, needsInput = needs, detail = detail).toBuilder().setRepo(repo).setKind(kind).setModel(model).build()
@@ -105,7 +114,20 @@ class ShotsTest {
         rt.onFrame(snapshot(listOf(run("r1", "Desktop UI overhaul"), run("r2", "Billing retries")), agents))
         rt.onFrame(messageSent(1, message("m1", from = "w2", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "# Plan\n\n1. Port the sidebar\n2. **Tests** first", at = 3_000)))
         rt.onFrame(messageSent(2, message("m2", from = "lead", to = "w2", type = MessageType.MESSAGE_TYPE_TASK, body = "Build the chat view. See `plans/chat.md`.", at = 2_500)))
-        return rt
+    }
+
+    /** The app with the seeded host paired, as the drawer and home read it. */
+    private fun seeded(): AppContainer {
+        val ctx = ApplicationProvider.getApplicationContext<Application>()
+        File(ctx.filesDir, "hosts.json").delete()
+        val c = AppContainer(ctx, Plain, newApi = { _, _ -> api() })
+        val h = c.hosts.add("wsl", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        val deadline = System.currentTimeMillis() + 5_000
+        while (c.runtimes.value[h.id] == null && System.currentTimeMillis() < deadline) Thread.sleep(20)
+        val rt = c.runtimes.value.getValue(h.id)
+        started += rt
+        seed(rt)
+        return rt.let { c }
     }
 
     private fun container() = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> api() })
@@ -117,10 +139,9 @@ class ShotsTest {
         File(out, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun both(name: String, content: @androidx.compose.runtime.Composable () -> Unit, ready: () -> Unit = {}) {
+    private fun both(name: String, content: @androidx.compose.runtime.Composable () -> Unit, ready: () -> Unit = {}, c: AppContainer = container()) {
         // The same screen in each theme: one composition, the theme swapped, so a state is built once.
         var t by mutableStateOf(dark)
-        val c = container()
         compose.setContent { CompositionLocalProvider(LocalContainer provides c) { AgentMeshTheme(t) { content() } } }
         ready()
         shot("$name-dark")
@@ -128,7 +149,14 @@ class ShotsTest {
         shot("$name-light")
     }
 
-    @Test fun host() { val rt = runtime(); both("host", { HostScreen(rt, {}, { _, _ -> }, {}, {}) }) }
+    private val noActions = SidebarActions({ _, _, _ -> }, {}, {}, {}, {}, { _, _ -> }, { _, _ -> }, {})
+
+    @Test fun home() { val c = seeded(); both("home", { HomeScreen(rememberSidebar(), {}, { _, _, _ -> }, {}, {}, {}, {}) }, c = c) }
+
+    @Test fun drawer() {
+        val c = seeded()
+        both("drawer", { androidx.compose.material3.Surface { SidebarContent(rememberSidebar(), "x" to "w2", noActions) } }, c = c)
+    }
 
     @Test fun agentOverview() { val rt = runtime(); both("agent-overview", { AgentScreen(rt, "w2", {}) }) }
 
