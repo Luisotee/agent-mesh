@@ -25,6 +25,7 @@ public  final class PullRequest extends
     checks_ = "";
     source_ = "";
     headRef_ = "";
+    failingHead_ = "";
   }
   private int bitField0_;
   public static final int AGENT_ID_FIELD_NUMBER = 1;
@@ -607,6 +608,183 @@ public  final class PullRequest extends
     checkByteStringIsUtf8(value);
     headRef_ = value.toStringUtf8();
 
+  }
+
+  public static final int FEEDBACK_CURSOR_FIELD_NUMBER = 12;
+  private com.google.protobuf.Timestamp feedbackCursor_;
+  /**
+   * <pre>
+   * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+   * worker. Unset until the PR was first watched.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+   */
+  @java.lang.Override
+  public boolean hasFeedbackCursor() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+   * worker. Unset until the PR was first watched.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getFeedbackCursor() {
+    return feedbackCursor_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : feedbackCursor_;
+  }
+  /**
+   * <pre>
+   * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+   * worker. Unset until the PR was first watched.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+   */
+  private void setFeedbackCursor(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    feedbackCursor_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+   * worker. Unset until the PR was first watched.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeFeedbackCursor(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    if (feedbackCursor_ != null &&
+        feedbackCursor_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+      feedbackCursor_ =
+        com.google.protobuf.Timestamp.newBuilder(feedbackCursor_).mergeFrom(value).buildPartial();
+    } else {
+      feedbackCursor_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+   * worker. Unset until the PR was first watched.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+   */
+  private void clearFeedbackCursor() {
+    feedbackCursor_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
+  public static final int FAILING_HEAD_FIELD_NUMBER = 13;
+  private java.lang.String failingHead_;
+  /**
+   * <pre>
+   * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+   * </pre>
+   *
+   * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+   * @return The failingHead.
+   */
+  @java.lang.Override
+  public java.lang.String getFailingHead() {
+    return failingHead_;
+  }
+  /**
+   * <pre>
+   * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+   * </pre>
+   *
+   * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+   * @return The bytes for failingHead.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFailingHeadBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(failingHead_);
+  }
+  /**
+   * <pre>
+   * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+   * </pre>
+   *
+   * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+   * @param value The failingHead to set.
+   */
+  private void setFailingHead(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    failingHead_ = value;
+  }
+  /**
+   * <pre>
+   * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+   * </pre>
+   *
+   * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+   */
+  private void clearFailingHead() {
+
+    failingHead_ = getDefaultInstance().getFailingHead();
+  }
+  /**
+   * <pre>
+   * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+   * </pre>
+   *
+   * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+   * @param value The bytes for failingHead to set.
+   */
+  private void setFailingHeadBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    failingHead_ = value.toStringUtf8();
+
+  }
+
+  public static final int FEEDBACK_RESUMES_FIELD_NUMBER = 14;
+  private int feedbackResumes_;
+  /**
+   * <pre>
+   * How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+   * </pre>
+   *
+   * <code>int32 feedback_resumes = 14 [json_name = "feedbackResumes"];</code>
+   * @return The feedbackResumes.
+   */
+  @java.lang.Override
+  public int getFeedbackResumes() {
+    return feedbackResumes_;
+  }
+  /**
+   * <pre>
+   * How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+   * </pre>
+   *
+   * <code>int32 feedback_resumes = 14 [json_name = "feedbackResumes"];</code>
+   * @param value The feedbackResumes to set.
+   */
+  private void setFeedbackResumes(int value) {
+    
+    feedbackResumes_ = value;
+  }
+  /**
+   * <pre>
+   * How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+   * </pre>
+   *
+   * <code>int32 feedback_resumes = 14 [json_name = "feedbackResumes"];</code>
+   */
+  private void clearFeedbackResumes() {
+
+    feedbackResumes_ = 0;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.PullRequest parseFrom(
@@ -1316,6 +1494,192 @@ public  final class PullRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+     * worker. Unset until the PR was first watched.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+     */
+    @java.lang.Override
+    public boolean hasFeedbackCursor() {
+      return instance.hasFeedbackCursor();
+    }
+    /**
+     * <pre>
+     * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+     * worker. Unset until the PR was first watched.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.Timestamp getFeedbackCursor() {
+      return instance.getFeedbackCursor();
+    }
+    /**
+     * <pre>
+     * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+     * worker. Unset until the PR was first watched.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+     */
+    public Builder setFeedbackCursor(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.setFeedbackCursor(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+     * worker. Unset until the PR was first watched.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+     */
+    public Builder setFeedbackCursor(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      copyOnWrite();
+      instance.setFeedbackCursor(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+     * worker. Unset until the PR was first watched.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+     */
+    public Builder mergeFeedbackCursor(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.mergeFeedbackCursor(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+     * worker. Unset until the PR was first watched.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+     */
+    public Builder clearFeedbackCursor() {  copyOnWrite();
+      instance.clearFeedbackCursor();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+     * </pre>
+     *
+     * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+     * @return The failingHead.
+     */
+    @java.lang.Override
+    public java.lang.String getFailingHead() {
+      return instance.getFailingHead();
+    }
+    /**
+     * <pre>
+     * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+     * </pre>
+     *
+     * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+     * @return The bytes for failingHead.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getFailingHeadBytes() {
+      return instance.getFailingHeadBytes();
+    }
+    /**
+     * <pre>
+     * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+     * </pre>
+     *
+     * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+     * @param value The failingHead to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFailingHead(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setFailingHead(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+     * </pre>
+     *
+     * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFailingHead() {
+      copyOnWrite();
+      instance.clearFailingHead();
+      return this;
+    }
+    /**
+     * <pre>
+     * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+     * </pre>
+     *
+     * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+     * @param value The bytes for failingHead to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFailingHeadBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setFailingHeadBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+     * </pre>
+     *
+     * <code>int32 feedback_resumes = 14 [json_name = "feedbackResumes"];</code>
+     * @return The feedbackResumes.
+     */
+    @java.lang.Override
+    public int getFeedbackResumes() {
+      return instance.getFeedbackResumes();
+    }
+    /**
+     * <pre>
+     * How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+     * </pre>
+     *
+     * <code>int32 feedback_resumes = 14 [json_name = "feedbackResumes"];</code>
+     * @param value The feedbackResumes to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFeedbackResumes(int value) {
+      copyOnWrite();
+      instance.setFeedbackResumes(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+     * </pre>
+     *
+     * <code>int32 feedback_resumes = 14 [json_name = "feedbackResumes"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFeedbackResumes() {
+      copyOnWrite();
+      instance.clearFeedbackResumes();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.PullRequest)
   }
   @java.lang.Override
@@ -1344,11 +1708,14 @@ public  final class PullRequest extends
             "stale_",
             "held_",
             "headRef_",
+            "feedbackCursor_",
+            "failingHead_",
+            "feedbackResumes_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u000e\u0000\u0001\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0004\u0004\u0208\u0005\u0007\u0006\u0208\u0007\u0208\b\u1009\u0000\t\u0007" +
-              "\n\u0007\u000b\u0208";
+              "\n\u0007\u000b\u0208\f\u1009\u0001\r\u0208\u000e\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -174,4 +174,55 @@ public interface PullRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getHeadRefBytes();
+
+  /**
+   * <pre>
+   * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+   * worker. Unset until the PR was first watched.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+   * @return Whether the feedbackCursor field is set.
+   */
+  boolean hasFeedbackCursor();
+  /**
+   * <pre>
+   * The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+   * worker. Unset until the PR was first watched.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp feedback_cursor = 12 [json_name = "feedbackCursor"];</code>
+   * @return The feedbackCursor.
+   */
+  com.google.protobuf.Timestamp getFeedbackCursor();
+
+  /**
+   * <pre>
+   * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+   * </pre>
+   *
+   * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+   * @return The failingHead.
+   */
+  java.lang.String getFailingHead();
+  /**
+   * <pre>
+   * The head commit whose failing checks were last announced to the worker, so one failure is told once.
+   * </pre>
+   *
+   * <code>string failing_head = 13 [json_name = "failingHead"];</code>
+   * @return The bytes for failingHead.
+   */
+  com.google.protobuf.ByteString
+      getFailingHeadBytes();
+
+  /**
+   * <pre>
+   * How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+   * </pre>
+   *
+   * <code>int32 feedback_resumes = 14 [json_name = "feedbackResumes"];</code>
+   * @return The feedbackResumes.
+   */
+  int getFeedbackResumes();
 }
