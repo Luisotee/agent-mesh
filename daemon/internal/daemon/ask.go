@@ -926,8 +926,10 @@ var roomPoll = 2 * time.Second
 // floor, not the quota: a quota doesn't free in minutes), for at most `review.wait_room`, looking every roomPoll;
 // the caller's request stays open meanwhile, so nothing is stored and nothing survives a restart. A round whose
 // every slot has a running reviewer to reuse needs no new process and never waits. It returns a note for the
-// caller when it did wait; when the time is up, or the caller gave up, the round goes on to refuse as it always did
-// (the members that can't start say why). `running` is by slot, as collectRound takes it.
+// caller when it did wait; when the time is up the round goes on to refuse as it always did (the members that can't
+// start say why); a caller that gave up (Canceled) or a daemon that is stopping (Unavailable) ends it. The check
+// reserves nothing: two rounds waiting for the same place can both see it free, and the one that loses is refused
+// as before, so the wait is best effort. `running` is by slot, as collectRound takes it.
 func (d *Daemon) waitForRoom(ctx context.Context, running []string, what string) (string, error) {
 	need := false
 	var shared []string
@@ -974,9 +976,9 @@ func (d *Daemon) waitForRoom(ctx context.Context, running []string, what string)
 		select {
 		case <-time.After(roomPoll):
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", connect.NewError(connect.CodeCanceled, fmt.Errorf("the round was given up while it waited for room: %w", ctx.Err()))
 		case <-d.stopping:
-			return "", nil
+			return "", connect.NewError(connect.CodeUnavailable, errors.New("meshd is stopping: the round was not started"))
 		}
 	}
 }

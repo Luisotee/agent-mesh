@@ -483,7 +483,7 @@ func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nud
 	// A Claude agent whose background command still runs is waiting on it, for a while; after that it is nudged
 	// once about the command (background.go).
 	// Only for the first nudge: once an agent ignored it, the alert follows as for any silent agent.
-	bg := d.backgroundWork(ctx, a)
+	bg := hold.visible() // memoized: the terminal is read here, before the write, once
 	if (verdict == owesNudge || verdict == owesWaitNudge) && bg && d.withinBackgroundGrace(a, waitMax) {
 		return nil
 	}
@@ -589,8 +589,8 @@ func unreadInstructions(r store.Reader, a *v1.Agent) error {
 // waitNudge is the nudge of an agent whose declared wait (no deadline of its own) ran out with nothing that
 // could have woken it: a job it started with `nohup … &` or `setsid` sends no notification when it ends.
 func waitNudge(name string) string {
-	return nudgeTag + " Your declared wait has run its course, and nothing you started under this terminal could have woken you " +
-		"(only the Bash tool's `run_in_background` and a Monitor send a notification when they end; a job started with `nohup … &` or `setsid` does not). " +
+	return nudgeTag + " Your declared wait has run its course with no deadline of its own, and the daemon sees nothing under this terminal that would have woken you " +
+		"(a job ending wakes you only when the CLI notifies you of it: Claude Code's Bash `run_in_background` and Monitor do, a job started with `nohup … &` or `setsid` does not, and the other CLIs have no such notification). " +
 		"If your job ended, run `mesh inbox`, then report: `mesh send parent --type done --body @$(mesh dir)/reports/" + name + ".md` (or `plan`, `question`, `failed`). " +
 		"If it still runs, check its log, then declare a fresh wait with a deadline: `mesh send parent --type wait --until <duration> --body \"<what>\"`."
 }

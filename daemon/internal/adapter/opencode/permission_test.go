@@ -313,16 +313,19 @@ func TestAReadOnlyOpenCodeAgentIgnoresTheProjectsConfig(t *testing.T) {
 		{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, false, ""},
 		{agentmeshv1.AgentRole_AGENT_ROLE_ROOT, false, ""},
 	} {
-		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
-			AgentId: "a", Role: c.role, DenyEdits: c.deny, Cwd: t.TempDir(), Binary: "/opt/opencode"}))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := res.Msg.Env["OPENCODE_DISABLE_PROJECT_CONFIG"]; got != c.want {
-			t.Errorf("%v deny=%v: OPENCODE_DISABLE_PROJECT_CONFIG = %q, want %q", c.role, c.deny, got, c.want)
-		}
-		if !strings.Contains(res.Msg.Env["OPENCODE_CONFIG_CONTENT"], `"external_directory"`) {
-			t.Errorf("%v: the mesh's own config is gone: %s", c.role, res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
+		// A fresh launch and a resumed one (a re-review reopens the reviewer's own conversation).
+		for _, resume := range []string{"", "ses_1"} {
+			res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+				AgentId: "a", Role: c.role, DenyEdits: c.deny, Cwd: t.TempDir(), Binary: "/opt/opencode", ResumeSessionId: resume}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := res.Msg.Env["OPENCODE_DISABLE_PROJECT_CONFIG"]; got != c.want {
+				t.Errorf("%v deny=%v resume=%q: OPENCODE_DISABLE_PROJECT_CONFIG = %q, want %q", c.role, c.deny, resume, got, c.want)
+			}
+			if !strings.Contains(res.Msg.Env["OPENCODE_CONFIG_CONTENT"], `"external_directory"`) {
+				t.Errorf("%v: the mesh's own config is gone: %s", c.role, res.Msg.Env["OPENCODE_CONFIG_CONTENT"])
+			}
 		}
 	}
 }
