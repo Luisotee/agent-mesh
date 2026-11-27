@@ -154,8 +154,6 @@ export interface AppState extends WorkspaceState {
   messageTo?: { hostId: string; agentId: string }
   /** The Rewind dialog, for this agent (its chat shows it: the prompts are the chat's). */
   rewindFor?: { hostId: string; agentId: string }
-  /** Set to show the open agent's model control (the panel opens and unfolds its Details); cleared once its Details unfolded, so a later mount of the panel opens folded. */
-  modelShown: boolean
   /** The New workspace dialog is open. */
   workspaceOpen: boolean
   /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */
@@ -251,14 +249,10 @@ export interface AppModel {
   /** Opens the last tab closed in this session again. */
   reopenTab(): void
   setPanel(open: boolean): void
-  /** Opens the side panel on the open agent's model control. */
-  showModel(): void
   /** Opens (or, undefined, closes) the Send a message dialog to an agent. */
   openMessage(to: { hostId: string; agentId: string } | undefined): void
   /** Opens (or, undefined, closes) the Rewind dialog of an agent. */
   openRewind(of: { hostId: string; agentId: string } | undefined): void
-  /** The Details unfolded for `showModel`: done. */
-  modelRevealed(): void
   /** Opens the New workspace dialog: on a run (to add an agent to it) or a project (to start a lead there), on a host. */
   openWorkspace(open: boolean, runId?: string, at?: { hostId: string; repo: string }): void
   openPairing(open: boolean): void
@@ -367,7 +361,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], notices: [], shells: {}, shellsError: {}, ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], notices: [], shells: {}, shellsError: {}, ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -544,8 +538,6 @@ export function createAppModel(api: DesktopApi): AppModel {
       else model.reopenTab()
     },
     setPanel: (panelOpen) => set({ panelOpen }),
-    showModel: () => set({ panelOpen: true, modelShown: true }),
-    modelRevealed: () => set({ modelShown: false }),
     openMessage: (messageTo) => set({ messageTo }),
     openRewind: (rewindFor) => set({ rewindFor }),
     openWorkspace: (workspaceOpen, runId, at) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, workspaceHost: workspaceOpen ? at?.hostId : undefined }),

@@ -68,6 +68,11 @@ func DenyRules() []string {
 	return rules
 }
 
+// KillRules are the `--deny-tool` rules every agent runs under: no kill by pattern (`pkill`, `killall`), which on a
+// shared host signals other sessions' processes too. Copilot fires no hooks, so a prefix rule is all it has: it
+// misses `kill $(pgrep …)`, which the protocol's rule covers (whether it matches `sudo pkill` or `/usr/bin/pkill` is not live-checked).
+func KillRules() []string { return []string{"shell(pkill:*)", "shell(killall:*)", "shell(killall5:*)"} }
+
 // Adapter is the Copilot CLI adapter.
 type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
@@ -144,6 +149,9 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 		sid = a.NewSessionID()
 	}
 	argv := []string{bin}
+	for _, rule := range KillRules() {
+		argv = append(argv, "--deny-tool="+rule)
+	}
 	if adapter.ReadOnly(m.Role) || m.DenyEdits {
 		for _, rule := range DenyRules() {
 			argv = append(argv, "--deny-tool="+rule)
