@@ -19,6 +19,9 @@ import { AgentRole } from './gen/agentmesh/v1/types_pb'
 import { activate, cycleTab, closeTab, projectTabs, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
 import { agentProject } from './sidebar'
+import { isShellTab, shellIdOf, shellProject, shellTabId } from './shells'
+import { closeShell as callCloseShell, listShells, openShell } from './actions'
+import type { Shell } from './gen/agentmesh/v1/mesh_pb'
 import type { DockNewAgents } from './prefs'
 
 /** A host the app is connected to (or trying to be): its state, its client, its connection. */
@@ -170,6 +173,12 @@ export interface AppState extends WorkspaceState {
   pins: Record<string, string[]>
   /** A message an `OpenView` plan names: its card scrolls into view and is marked for a moment, then the card clears this. */
   focusMessage?: { hostId: string; id: string }
+  /** The project shells of each host, once listed (absent: not read yet, so a restored shell tab is not judged gone). */
+  shells: Record<string, Shell[]>
+  /** Why a host's shells could not be read (its tabs are then not judged, and say so). */
+  shellsError: Record<string, string>
+  /** A shell tab being closed: the user is asked whether to end the shell or keep it running. */
+  closingShell?: TabRef
 }
 
 export type AgentTab = 'chat' | 'terminal'
@@ -188,7 +197,15 @@ export interface AppModel {
   selectAgent(hostId: string, agentId: string | undefined, tab?: AgentTab): void
   setTab(tab: AgentTab): void
   /** Closes an agent's tab; when it was the open one, the next to its right shows. */
-  closeTab(ref: TabRef): void
+  closeTab(ref: TabRef, force?: boolean): void
+  /** Reads a host's project shells (on connect, and when the + menu opens). */
+  loadShells(hostId: string): Promise<void>
+  /** Starts a shell in a project's folder and opens its tab. */
+  newShell(hostId: string, repo: string): Promise<void>
+  /** Ends a shell (the host stops it) and closes its tab. */
+  endShell(hostId: string, shellId: string): Promise<void>
+  /** Answers the close question: `keep` closes the tab and leaves the shell running; else the question goes away. */
+  closeShellTab(ref: TabRef, keep: boolean): void
   /** Moves a tab to where another is in the strip (a tab dragged onto another). */
   moveTab(ref: TabRef, to: TabRef): void
   /** The tab after (1) or before (-1) the open one, in its project's tab bar. */
@@ -327,7 +344,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], shells: {}, shellsError: {}, ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -378,6 +395,7 @@ export function createAppModel(api: DesktopApi): AppModel {
         if (s.synced && !prev.synced) {
           const patch = pruneHost(store.getState(), rt.info.id, s.agents)
           if (patch) set(patch)
+          void model.loadShells(rt.info.id)
         }
         if (s.waiting !== prev.waiting || s.permissions !== prev.permissions || s.agents !== prev.agents || s.runs !== prev.runs) recount()
         if (s.agents !== prev.agents) {
@@ -463,7 +481,9 @@ export function createAppModel(api: DesktopApi): AppModel {
         const hosts = s.hosts.filter((h) => h.info.id !== id)
         const { [id]: _pins, ...pins } = s.pins
         const { [id]: _hidden, ...hidden } = s.hidden
-        return { ...forgetHost(s, id), pins, hidden, closedTabs: s.closedTabs.filter((t) => t.hostId !== id), viewRequests: s.viewRequests.filter((r) => r.hostId !== id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
+        const { [id]: _shells, ...shells } = s.shells
+        const { [id]: _shellsError, ...shellsError } = s.shellsError
+        return { ...forgetHost(s, id), shells, shellsError, pins, hidden, closedTabs: s.closedTabs.filter((t) => t.hostId !== id), viewRequests: s.viewRequests.filter((r) => r.hostId !== id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
       })
       recount()
       configure()
@@ -491,7 +511,8 @@ export function createAppModel(api: DesktopApi): AppModel {
       if (!last) return
       set({ closedTabs: s.closedTabs.slice(0, -1) })
       const h = s.hosts.find((x) => x.info.id === last.hostId)
-      if (h?.store.getState().agents[last.agentId]) model.selectAgent(last.hostId, last.agentId)
+      const shellBack = isShellTab(last.agentId) && s.shells[last.hostId]?.some((x) => shellTabId(x.id) === last.agentId && !x.exited)
+      if (shellBack || h?.store.getState().agents[last.agentId]) model.selectAgent(last.hostId, last.agentId)
       else model.reopenTab()
     },
     setPanel: (panelOpen) => set({ panelOpen }),
@@ -504,7 +525,56 @@ export function createAppModel(api: DesktopApi): AppModel {
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
     openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false, watchOpen: false }),
     setTab: (tab) => set({ tab }),
-    closeTab: (ref) => set((s) => ({ ...closeTab(s, ref, projectOfTab(s)), closedTabs: s.tabs.some((t) => tabKey(t) === tabKey(ref)) ? [...s.closedTabs.filter((t) => tabKey(t) !== tabKey(ref)), ref].slice(-20) : s.closedTabs })),
+    loadShells: async (hostId) => {
+      const h = store.getState().hosts.find((x) => x.info.id === hostId)
+      if (!h) return
+      try {
+        const res = await listShells(h.client)
+        set((s) => {
+          const shells = { ...s.shells, [hostId]: res.shells }
+          const { [hostId]: _was, ...shellsError } = s.shellsError
+          // A restored shell tab whose shell the host no longer has goes, as an agent's does.
+          const patch = pruneHost({ ...s, shells }, hostId, h.store.getState().agents)
+          return { shells, shellsError, ...patch }
+        })
+      } catch (e) {
+        // Not listed now (a host without the call, a failed request): the tabs stay as they were, and say why.
+        set((s) => ({ shellsError: { ...s.shellsError, [hostId]: e instanceof ConnectError ? e.rawMessage : String(e) } }))
+      }
+    },
+    newShell: async (hostId, repo) => {
+      const h = store.getState().hosts.find((x) => x.info.id === hostId)
+      if (!h) return
+      const res = await openShell(h.client, repo)
+      const shell = res.shell
+      if (!shell) return
+      set((s) => ({ shells: { ...s.shells, [hostId]: [...(s.shells[hostId] ?? []).filter((x) => x.id !== shell.id), shell] } }))
+      model.selectAgent(hostId, shellTabId(shell.id))
+    },
+    endShell: async (hostId, shellId) => {
+      const h = store.getState().hosts.find((x) => x.info.id === hostId)
+      if (!h) return
+      try {
+        await callCloseShell(h.client, shellId)
+      } catch (e) {
+        // A shell that ended on its own is already forgotten by the host: ending it is done.
+        if (!(e instanceof ConnectError && e.code === Code.NotFound)) throw e
+      }
+      set((s) => ({ shells: { ...s.shells, [hostId]: (s.shells[hostId] ?? []).filter((x) => x.id !== shellId) } }))
+      model.closeTab({ hostId, agentId: shellTabId(shellId) }, true)
+    },
+    closeShellTab: (ref, keep) => {
+      set({ closingShell: undefined })
+      if (keep) model.closeTab(ref, true)
+    },
+    closeTab: (ref, force) => {
+      // A shell tab asks first: end the shell, or keep it running (the + menu opens it again).
+      if (!force && isShellTab(ref.agentId) && store.getState().tabs.some((t) => tabKey(t) === tabKey(ref))) {
+        set({ closingShell: ref })
+        return
+      }
+      set((s) => ({ ...closeTab(s, ref, projectOfTab(s)), closedTabs: s.tabs.some((t) => tabKey(t) === tabKey(ref)) ? [...s.closedTabs.filter((t) => tabKey(t) !== tabKey(ref)), ref].slice(-20) : s.closedTabs }))
+    },
     moveTab: (ref, to) =>
       set((s) => {
         const from = s.tabs.findIndex((t) => tabKey(t) === tabKey(ref))
@@ -563,7 +633,11 @@ export function createAppModel(api: DesktopApi): AppModel {
 /** A tab's project (`sidebar.ts` `agentProject`), from the hosts' agents now. */
 function projectOfTab(s: AppState): (t: TabRef) => string | undefined {
   const agentsOf = (hostId: string) => s.hosts.find((h) => h.info.id === hostId)?.store.getState().agents
-  return (t) => agentProject(t.hostId, agentsOf(t.hostId), t.agentId)
+  return (t) => {
+    if (!isShellTab(t.agentId)) return agentProject(t.hostId, agentsOf(t.hostId), t.agentId)
+    const shell = s.shells[t.hostId]?.find((x) => x.id === shellIdOf(t.agentId))
+    return shell ? shellProject(t.hostId, shell) : undefined
+  }
 }
 
 /** The tabs the tab bar shows now: the open agent's project's (`workspace.ts` `projectTabs`). */

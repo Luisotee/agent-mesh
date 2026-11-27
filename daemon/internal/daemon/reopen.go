@@ -1657,7 +1657,7 @@ func reportTask(r store.Reader, a *v1.Agent, typ v1.MessageType, re string) (str
 	return cur.Id, nil
 }
 
-// reportsSinceWork is the types of the reports an agent sent to its parent since its last task or answer.
+// reportsSinceWork is the types of the reports an agent sent to its parent since its last task, answer or PR feedback.
 func reportsSinceWork(r store.Reader, a *v1.Agent) (map[v1.MessageType]bool, error) {
 	msgs, err := r.RunMessages(a.RunId, "", -1) // -1: no limit
 	if err != nil {
@@ -1668,6 +1668,8 @@ func reportsSinceWork(r store.Reader, a *v1.Agent) (map[v1.MessageType]bool, err
 		switch {
 		case m.ToId == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_TASK || m.Type == v1.MessageType_MESSAGE_TYPE_ANSWER):
 			clear(sent)
+		case m.ToId == a.Id && m.From.GetId() == meshActor.Id && strings.HasPrefix(m.Body, "[mesh pr-feedback"):
+			clear(sent) // feedback on its PR asks for a new report on the same task (prfeedback.go)
 		case m.From.GetId() == a.Id && m.ToId == a.ParentId && isReport(m.Type):
 			sent[m.Type] = true
 		}

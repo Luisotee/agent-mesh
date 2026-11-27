@@ -119,3 +119,48 @@ func anyContains(msgs []*v1.Message, s string) bool {
 	}
 	return false
 }
+
+// A declared wait on a background command the daemon can see (a Claude agent's `run_in_background` command or
+// Monitor: its end wakes the agent) holds for wait_max, not wait_unseen; once the command has ended with nothing
+// reported, the wait is over and the agent is nudged, with the text for a wait.
+func TestAWaitOnAVisibleBackgroundCommandHoldsPastWaitUnseen(t *testing.T) {
+	// The grace a running command is let run without a wait is shorter than the test: a wait holds past it.
+	old := daemon.SetBackgroundGrace(2 * time.Second)
+	t.Cleanup(func() { daemon.SetBackgroundGrace(old) })
+	stop := filepath.Join(t.TempDir(), "stop")
+	w := startReviews(t, func(c *daemon.AgentConfig) {
+		c.Env["FAKECLAUDE_BG_STOP"] = stop
+		c.Sys.ProcTable = proc.Table
+	})
+	t.Cleanup(func() { _ = os.WriteFile(stop, nil, 0o600) })
+	w.set(t, "accountability.nudge_after", 2)
+	w.set(t, "accountability.wait_unseen", 3)
+	wk := w.worker(t, "wk")
+	if _, err := w.asRoot.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: wk.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task (no plan): check it"})); err != nil {
+		t.Fatal(err)
+	}
+	w.quiet(t, wk.Id)
+	asWorker := w.as(w.token(t, wk.Id))
+	readInbox(t, asWorker)
+	w.typeInto(w.agent(wk.Id), "/bg\r")
+	waitFor(t, "the command started", func() bool { return strings.Contains(w.screen(t, wk), "background command started") })
+	w.waitState(wk.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if _, err := asWorker.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "parent",
+		Type: v1.MessageType_MESSAGE_TYPE_WAIT, Body: "the gate"})); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(8 * time.Second) // well past wait_unseen and nudge_after, the command still runs
+	if n := w.nudges(t, wk); n != 0 {
+		t.Fatalf("a wait on a running background command was nudged %d times", n)
+	}
+	if err := os.WriteFile(stop, nil, 0o600); err != nil { // the command ends: nobody woke the fake, as in the root's case
+		t.Fatal(err)
+	}
+	waitFor(t, "the nudge once the command is over", func() bool { return w.nudges(t, wk) == 1 })
+	in, _ := w.d.Store().Read(context.Background()).Inbox(wk.Id, true)
+	if !anyContains(in, "Your declared wait has run its course") {
+		t.Errorf("the nudge is not the one for a wait: %v", in)
+	}
+}

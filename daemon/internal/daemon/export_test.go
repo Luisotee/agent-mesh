@@ -190,7 +190,20 @@ func CopyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes in
 	return copyWorktreeInclude(ctx, repo, worktree, maxBytes)
 }
 
+// SetRoomPoll sets how often a review round waits for room looks again; it returns the old one.
+func SetRoomPoll(d time.Duration) time.Duration {
+	old := roomPoll
+	roomPoll = d
+	return old
+}
+
 // LostIn is lostIn: the bytes, files and whether the count stopped early, under a path of a worktree that a restore would not give back.
 func LostIn(ctx context.Context, worktree, rel string, safe func(string) bool) (int64, int, bool) {
 	return lostIn(ctx, worktree, rel, safe)
 }
+
+// PRFeedbackPass runs the feedback watch once (it runs every `prs.watch_every` in a daemon).
+func (d *Daemon) PRFeedbackPass(ctx context.Context) { d.prFeedbackPass(ctx) }
+
+// PRLastRead is when an agent's PRs were last read in full (zero after a failed read).
+func (d *Daemon) PRLastRead(agentID string) time.Time { return d.prs.lastRead(agentID) }

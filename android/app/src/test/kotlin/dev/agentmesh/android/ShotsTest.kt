@@ -13,6 +13,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import dev.agentmesh.android.hosts.HostRepository
 import dev.agentmesh.android.net.MeshApi
@@ -68,7 +70,11 @@ class ShotsTest {
     private val light = theme("catppuccin-latte")
 
     /** A host that answers the chat's transcript and nothing else. */
-    private fun api(): MeshApi = RecordingApi().apply { transcript = { _, _, _ -> transcript() } }
+    private fun api(): MeshApi = RecordingApi().apply {
+        transcript = { _, _, _ -> transcript() }
+        // Two prompts the lead's host holds: one for its turn, one for a draft left in its box.
+        queued["lead"] = listOf(queuedPrompt("p1", "lead", "Then bump the changelog.", held = "working"), queuedPrompt("p2", "lead", "And tag the release once CI is green.", at = 2_000, held = "draft"))
+    }
 
     private fun transcript(): ReadTranscriptResponse {
         fun e(id: String, kind: TranscriptKind, text: String, tool: String = "", input: String = "") =
@@ -102,7 +108,7 @@ class ShotsTest {
     private fun seed(rt: HostRuntime) {
         rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         fun a(id: String, name: String, state: AgentState, parent: String = "", role: AgentRole = AgentRole.AGENT_ROLE_WORKER, runId: String = "r1", repo: String = "/home/u/agent-mesh", kind: String = "claude", model: String = "claude-opus-5-5", needs: Int = 0, detail: String = "") =
-            agent(id, runId = runId, role = role, parent = parent, state = state, name = name, at = 2_000, needsInput = needs, detail = detail).toBuilder().setRepo(repo).setKind(kind).setModel(model).build()
+            agent(id, runId = runId, role = role, parent = parent, state = state, name = name, at = 2_000, needsInput = needs, detail = detail).toBuilder().setRepo(repo).setKind(kind).setModel(model).setTerminalId("t-$id").build()
         val agents = listOf(
             a("lead", "agent-mesh-lead", AgentState.AGENT_STATE_WORKING, role = AgentRole.AGENT_ROLE_ROOT),
             a("w1", "agent-mesh-sidebar", AgentState.AGENT_STATE_NEEDS_INPUT, parent = "lead", needs = 1, detail = "Bash"),
@@ -170,6 +176,21 @@ class ShotsTest {
     @Test fun agentLeadChat() {
         val rt = runtime()
         both("agent-lead-chat", { AgentScreen(rt, "lead", {}, Tab.Chat) }, ready = { compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().isNotEmpty() } })
+    }
+
+    /** The composer while it is used: a list being typed, the formatting row above the keyboard, the queue and Stop (the lead works). */
+    @Test fun agentComposer() {
+        val rt = runtime()
+        both("agent-composer", { AgentScreen(rt, "lead", {}, Tab.Chat) }, ready = {
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().isNotEmpty() }
+            // The Markdown above grows after the list was placed: the end is looked at again once it has.
+            compose.onNodeWithTag("chat").performScrollToIndex(7)
+            compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("queued-p1")).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("prompt").performClick()
+            compose.onNodeWithTag("prompt").performTextInput("Also:\n- the retry docs")
+            compose.onNodeWithTag("prompt").performTextInput("\n")
+            compose.waitForIdle()
+        })
     }
 
     /** The details sheet (it is a window of its own: the picture shows the screen behind it when the capture can't reach it). */

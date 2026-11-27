@@ -144,6 +144,7 @@ var opencodeInheritedEnv = []string{"OPENAI_API_KEY", "OPENROUTER_API_KEY", "OPE
 
 type ticket struct {
 	agentID    string
+	shellID    string // a project shell's terminal (agentID is empty)
 	terminalID string
 	actorID    string
 	input      bool
@@ -321,6 +322,17 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		}
 	}
 	for _, t := range res.Msg.Terminals {
+		if !claimed[t.Id] && t.Labels["kind"] == shellKind {
+			// A project shell: the host holds it, nothing is stored. A live one is simply still there; a dead one is forgotten.
+			claimed[t.Id] = true
+			if t.Exited {
+				if err := d.shellExited(ctx, t.Id); err != nil {
+					return err
+				}
+			} else {
+				d.log.Info("adopted shell", "terminal", t.Id, "pid", t.Pid, "repo", t.Labels["repo"])
+			}
+		}
 		if !claimed[t.Id] {
 			d.log.Warn("terminal no agent claims; left running", "terminal", t.Id, "pid", t.Pid, "labels", t.Labels)
 		}
@@ -458,7 +470,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	d.goBG(func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired, limited, accounted, reserved, contextTick, sampled time.Time
+		var pruned, retired, limited, accounted, reserved, contextTick, sampled, prChecked, prWatched time.Time
 		accountEvery := d.rt.cfg.AccountEvery
 		if accountEvery == 0 {
 			accountEvery = accountEveryDefault
@@ -467,8 +479,9 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		if reserveEvery == 0 {
 			reserveEvery = reserveAlertEvery
 		}
-		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot, sampling atomic.Bool
+		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot, sampling, watchingPRs atomic.Bool
 		sampled = d.now() // the first capacity pass is one interval after start, not at once
+		prWatched = sampled
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -531,6 +544,17 @@ func (d *Daemon) runBackground(ctx context.Context) {
 					d.sampleCapacity(ctx)
 				})
 			}
+			if now := d.now(); now.Sub(prChecked) >= prWatchCheckEvery {
+				prChecked = now
+				if every := d.prWatchEvery(ctx); every > 0 && now.Sub(prWatched) >= every && watchingPRs.CompareAndSwap(false, true) {
+					prWatched = now
+					// Off this loop: it runs `gh`, which waits for the network.
+					d.goBG(func() {
+						defer watchingPRs.Store(false)
+						d.prFeedbackPass(ctx)
+					})
+				}
+			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now
 				d.pruneMutations(ctx)
@@ -583,6 +607,12 @@ func (d *Daemon) watchTerminals(ctx context.Context) {
 				backoff = 100 * time.Millisecond
 				switch f := stream.Msg().Frame.(type) {
 				case *termv1.WatchTerminalsResponse_Exited:
+					if f.Exited.Labels["kind"] == shellKind {
+						if err := d.shellExited(ctx, f.Exited.Id); err != nil && ctx.Err() == nil {
+							d.log.Error("forgetting a shell", "terminal", f.Exited.Id, "err", err)
+						}
+						continue
+					}
 					if err := d.recordExit(ctx, f.Exited.Id, f.Exited.Labels["agent"], f.Exited.Labels["reopen"], f.Exited.ExitCode, f.Exited.Signal, ""); err != nil && ctx.Err() == nil {
 						d.log.Error("recording an exit", "terminal", f.Exited.Id, "err", err)
 					}
@@ -1346,6 +1376,9 @@ const TicketTTL = 30 * time.Second
 // OpenTerminal hands out a one-time ticket for an agent's terminal stream.
 func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenTerminalRequest]) (*connect.Response[v1.OpenTerminalResponse], error) {
 	actor := auth.ActorFrom(ctx)
+	if req.Msg.Shell != "" {
+		return d.openShellTerminal(ctx, req.Msg)
+	}
 	a, err := d.FindAgent(d.store.Read(ctx), actor, req.Msg.Agent)
 	if err != nil {
 		return nil, err
@@ -1361,28 +1394,44 @@ func (d *Daemon) OpenTerminal(ctx context.Context, req *connect.Request[v1.OpenT
 }
 
 func (d *Daemon) issueTerminalTicket(actor *v1.Actor, a *v1.Agent, askInput bool) (path, tk string, input bool, exp time.Time) {
-	input = askInput && d.reg.Has("terminal.input", actor.Class)
-	tk = ids.Secret("tkt_")
-	exp = d.now().Add(TicketTTL)
+	return d.issueTicket(actor, ticket{agentID: a.Id, terminalID: a.TerminalId}, askInput, "/v1/term/"+a.Id)
+}
+
+// issueTicket hands out a one-time ticket for a terminal's stream at path; input only to an actor with the right.
+func (d *Daemon) issueTicket(actor *v1.Actor, t ticket, askInput bool, path string) (string, string, bool, time.Time) {
+	input := askInput && d.reg.Has("terminal.input", actor.Class)
+	tk := ids.Secret("tkt_")
+	exp := d.now().Add(TicketTTL)
+	t.actorID, t.input, t.expires = actor.Id, input, exp
 	d.rt.mu.Lock()
-	for k, t := range d.rt.tickets {
-		if d.now().After(t.expires) {
+	for k, old := range d.rt.tickets {
+		if d.now().After(old.expires) {
 			delete(d.rt.tickets, k)
 		}
 	}
-	d.rt.tickets[tk] = ticket{agentID: a.Id, terminalID: a.TerminalId, actorID: actor.Id, input: input, expires: exp}
+	d.rt.tickets[tk] = t
 	d.rt.mu.Unlock()
-	return "/v1/term/" + a.Id + "?ticket=" + url.QueryEscape(tk), tk, input, exp
+	return path + "?ticket=" + url.QueryEscape(tk), tk, input, exp
 }
 
-// serveTerminal checks a ticket and splices the client's WebSocket to the host's stream for that terminal.
+// serveTerminal checks a ticket and splices the client's WebSocket to the host's stream for that agent's terminal.
 func (d *Daemon) serveTerminal(w http.ResponseWriter, r *http.Request) {
+	d.spliceTerminal(w, r, func(t ticket) bool { return t.shellID == "" && t.agentID == r.PathValue("agent") })
+}
+
+// serveShell is the same for a project shell, at /v1/shell/{id}: a ticket for an agent's terminal does not open a shell, nor
+// the other way round.
+func (d *Daemon) serveShell(w http.ResponseWriter, r *http.Request) {
+	d.spliceTerminal(w, r, func(t ticket) bool { return t.shellID != "" && t.shellID == r.PathValue("id") })
+}
+
+func (d *Daemon) spliceTerminal(w http.ResponseWriter, r *http.Request, mine func(ticket) bool) {
 	tk := r.URL.Query().Get("ticket")
 	d.rt.mu.Lock()
 	t, ok := d.rt.tickets[tk]
 	delete(d.rt.tickets, tk)
 	d.rt.mu.Unlock()
-	if !ok || d.now().After(t.expires) || t.agentID != r.PathValue("agent") || d.rt.term == nil {
+	if !ok || d.now().After(t.expires) || !mine(t) || d.rt.term == nil {
 		http.Error(w, "bad or expired ticket", http.StatusUnauthorized)
 		return
 	}

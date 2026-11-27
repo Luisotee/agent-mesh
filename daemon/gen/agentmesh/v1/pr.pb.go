@@ -44,9 +44,16 @@ type PullRequest struct {
 	Held bool `protobuf:"varint,10,opt,name=held,proto3" json:"held,omitempty"`
 	// The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
 	// head is its branch.
-	HeadRef       string `protobuf:"bytes,11,opt,name=head_ref,json=headRef,proto3" json:"head_ref,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	HeadRef string `protobuf:"bytes,11,opt,name=head_ref,json=headRef,proto3" json:"head_ref,omitempty"`
+	// The newest review or comment on the PR the daemon has seen (`prs.feedback`): later ones are feedback for its
+	// worker. Unset until the PR was first watched.
+	FeedbackCursor *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=feedback_cursor,json=feedbackCursor,proto3" json:"feedback_cursor,omitempty"`
+	// The head commit whose failing checks were last announced to the worker, so one failure is told once.
+	FailingHead string `protobuf:"bytes,13,opt,name=failing_head,json=failingHead,proto3" json:"failing_head,omitempty"`
+	// How many times feedback on this PR resumed its stopped worker (`prs.feedback` = resume); capped.
+	FeedbackResumes int32 `protobuf:"varint,14,opt,name=feedback_resumes,json=feedbackResumes,proto3" json:"feedback_resumes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PullRequest) Reset() {
@@ -154,6 +161,27 @@ func (x *PullRequest) GetHeadRef() string {
 		return x.HeadRef
 	}
 	return ""
+}
+
+func (x *PullRequest) GetFeedbackCursor() *timestamppb.Timestamp {
+	if x != nil {
+		return x.FeedbackCursor
+	}
+	return nil
+}
+
+func (x *PullRequest) GetFailingHead() string {
+	if x != nil {
+		return x.FailingHead
+	}
+	return ""
+}
+
+func (x *PullRequest) GetFeedbackResumes() int32 {
+	if x != nil {
+		return x.FeedbackResumes
+	}
+	return 0
 }
 
 // WorkEvidence is what a worker's branch and worktree show of its work, for a worker with no PR.
@@ -515,7 +543,7 @@ var File_agentmesh_v1_pr_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\n" +
-	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xae\x02\n" +
+	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc1\x03\n" +
 	"\vPullRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x16\n" +
@@ -529,7 +557,10 @@ const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\x05stale\x18\t \x01(\bR\x05stale\x12\x12\n" +
 	"\x04held\x18\n" +
 	" \x01(\bR\x04held\x12\x19\n" +
-	"\bhead_ref\x18\v \x01(\tR\aheadRef\"\xb3\x01\n" +
+	"\bhead_ref\x18\v \x01(\tR\aheadRef\x12C\n" +
+	"\x0ffeedback_cursor\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\x0efeedbackCursor\x12!\n" +
+	"\ffailing_head\x18\r \x01(\tR\vfailingHead\x12)\n" +
+	"\x10feedback_resumes\x18\x0e \x01(\x05R\x0ffeedbackResumes\"\xb3\x01\n" +
 	"\fWorkEvidence\x12\x18\n" +
 	"\acommits\x18\x01 \x01(\x05R\acommits\x12\x1f\n" +
 	"\vhas_commits\x18\x02 \x01(\bR\n" +
@@ -587,15 +618,16 @@ var file_agentmesh_v1_pr_proto_goTypes = []any{
 }
 var file_agentmesh_v1_pr_proto_depIdxs = []int32{
 	6, // 0: agentmesh.v1.PullRequest.checked_at:type_name -> google.protobuf.Timestamp
-	0, // 1: agentmesh.v1.AgentPullRequests.pull_requests:type_name -> agentmesh.v1.PullRequest
-	1, // 2: agentmesh.v1.AgentPullRequests.evidence:type_name -> agentmesh.v1.WorkEvidence
-	2, // 3: agentmesh.v1.ListPullRequestsResponse.agents:type_name -> agentmesh.v1.AgentPullRequests
-	0, // 4: agentmesh.v1.PullRequestChanged.pull_request:type_name -> agentmesh.v1.PullRequest
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	6, // 1: agentmesh.v1.PullRequest.feedback_cursor:type_name -> google.protobuf.Timestamp
+	0, // 2: agentmesh.v1.AgentPullRequests.pull_requests:type_name -> agentmesh.v1.PullRequest
+	1, // 3: agentmesh.v1.AgentPullRequests.evidence:type_name -> agentmesh.v1.WorkEvidence
+	2, // 4: agentmesh.v1.ListPullRequestsResponse.agents:type_name -> agentmesh.v1.AgentPullRequests
+	0, // 5: agentmesh.v1.PullRequestChanged.pull_request:type_name -> agentmesh.v1.PullRequest
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_v1_pr_proto_init() }

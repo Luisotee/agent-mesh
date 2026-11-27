@@ -267,7 +267,7 @@ func (d *Daemon) openCodeAvailable(r store.Reader, tier, top, freeOff string) (b
 }
 
 // prAuthorKind is the CLI kind of the agent that wrote the PR: the newest worker of this repo whose branch is
-// the PR's head ref, else the newest whose worktree has it checked out (it opened its PR from a branch it moved to).
+// the PR's head ref, else the newest whose series it is (`<slug>-N`) or whose worktree has it checked out (it opened its PR from a branch it moved to).
 // A reviewer of another CLI is worth more, so it goes last in a slot's choices.
 func prAuthorKind(ctx context.Context, r store.Reader, top, headRef string) string {
 	if headRef == "" {
@@ -283,7 +283,7 @@ func prAuthorKind(ctx context.Context, r store.Reader, top, headRef string) stri
 		}
 	}
 	for i := len(agents) - 1; i >= 0; i-- {
-		if a := agents[i]; sameDir(a.Repo, top) && a.Role == v1.AgentRole_AGENT_ROLE_WORKER && worktreeBranch(ctx, a) == headRef {
+		if a := agents[i]; sameDir(a.Repo, top) && a.Role == v1.AgentRole_AGENT_ROLE_WORKER && (inSeriesOf(a.Branch, headRef) || worktreeBranch(ctx, a) == headRef) {
 			return a.Kind
 		}
 	}

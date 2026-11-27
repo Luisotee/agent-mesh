@@ -11,11 +11,19 @@ public interface OpenTerminalRequestOrBuilder extends
     com.google.protobuf.MessageLiteOrBuilder {
 
   /**
+   * <pre>
+   * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+   * </pre>
+   *
    * <code>string agent = 1 [json_name = "agent"];</code>
    * @return The agent.
    */
   java.lang.String getAgent();
   /**
+   * <pre>
+   * The agent whose terminal to open. Exactly one of `agent` and `shell`.
+   * </pre>
+   *
    * <code>string agent = 1 [json_name = "agent"];</code>
    * @return The bytes for agent.
    */
@@ -31,4 +39,24 @@ public interface OpenTerminalRequestOrBuilder extends
    * @return The input.
    */
   boolean getInput();
+
+  /**
+   * <pre>
+   * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+   * </pre>
+   *
+   * <code>string shell = 3 [json_name = "shell"];</code>
+   * @return The shell.
+   */
+  java.lang.String getShell();
+  /**
+   * <pre>
+   * A project shell's id (`ListShells`): a ticket for `/v1/shell/&lt;id&gt;`. Devices only.
+   * </pre>
+   *
+   * <code>string shell = 3 [json_name = "shell"];</code>
+   * @return The bytes for shell.
+   */
+  com.google.protobuf.ByteString
+      getShellBytes();
 }

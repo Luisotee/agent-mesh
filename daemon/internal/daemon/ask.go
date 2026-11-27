@@ -429,6 +429,36 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 	if err != nil {
 		return nil, err
 	}
+	// The same commit asked again is a new round of fresh reviewers; the earlier ones are reused only for a new head.
+	reuseFrom := last
+	if last != nil && last.Head == pr.Head && relay == nil {
+		reuseFrom = nil
+	}
+	// Reviewers of the earlier round already running are part of this one whichever slot comes first: they share
+	// its place in the cap from the start, so the order of the kinds never decides who the cap refuses.
+	runningNow := func() []string {
+		r := d.store.Read(ctx)
+		running := make([]string, len(kinds)) // by slot: "" for one with no running reviewer to reuse
+		for i, k := range kinds {
+			if a, _, _ := reusableReviewer(r, actor, reuseFrom, k); a != nil && hasProcess(a) {
+				running[i] = a.Id
+			}
+		}
+		return running
+	}
+	running := runningNow()
+	// A host with no room for the first reviewer: wait for a place (review.wait_room) instead of refusing the round,
+	// before the ask is built (its deadline and answers file count from after the wait), and not for a retry of a
+	// round already stored (it replays, whatever room there is). The reviewers that run are looked at again after it.
+	var waitNote string
+	if _, err := d.store.Read(ctx).GetAsk(askIDFor(actor, m.Meta)); errors.Is(err, store.ErrNotFound) {
+		if waitNote, err = d.waitForRoom(ctx, running, "a review round"); err != nil {
+			return nil, err
+		}
+		if waitNote != "" {
+			running = runningNow()
+		}
+	}
 	now := d.now()
 	ask := &v1.Ask{Id: askIDFor(actor, m.Meta), RunId: actor.RunId, CallerId: actor.Id, CallerName: actor.Name,
 		Kind: v1.AskKind_ASK_KIND_REVIEW, Status: v1.AskStatus_ASK_STATUS_OPEN, Pr: pr.URL, PrNumber: pr.Number, Repo: top,
@@ -442,20 +472,10 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 		}
 	}
 	out := &v1.AskResponse{Ask: ask, Notes: notes}
+	if waitNote != "" {
+		out.Notes = append(out.Notes, waitNote)
+	}
 	narrow := narrowSince(ctx, top, since, pr.Head)
-	// The same commit asked again is a new round of fresh reviewers; the earlier ones are reused only for a new head.
-	reuseFrom := last
-	if last != nil && last.Head == pr.Head && relay == nil {
-		reuseFrom = nil
-	}
-	// Reviewers of the earlier round already running are part of this one whichever slot comes first: they share
-	// its place in the cap from the start, so the order of the kinds never decides who the cap refuses.
-	running := make([]string, len(kinds)) // by slot: "" for one with no running reviewer to reuse
-	for i, k := range kinds {
-		if a, _, _ := reusableReviewer(r, actor, reuseFrom, k); a != nil && hasProcess(a) {
-			running[i] = a.Id
-		}
-	}
 	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, true, running, func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
 		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
@@ -911,4 +931,68 @@ func (d *Daemon) ListAsks(ctx context.Context, req *connect.Request[v1.ListAsksR
 		out.Asks = append(out.Asks, a)
 	}
 	return connect.NewResponse(out), nil
+}
+
+// roomPoll is how often a round that waits for room looks again. A variable for tests.
+var roomPoll = 2 * time.Second
+
+// waitForRoom holds a review round while the host has no room for its first reviewer (the agent cap or the memory
+// floor, not the quota: a quota doesn't free in minutes), for at most `review.wait_room`, looking every roomPoll;
+// the caller's request stays open meanwhile, so nothing is stored and nothing survives a restart. A round whose
+// every slot has a running reviewer to reuse needs no new process and never waits. It returns a note for the
+// caller when it did wait; when the time is up the round goes on to refuse as it always did (the members that can't
+// start say why); a caller that gave up (Canceled) or a daemon that is stopping (Unavailable) ends it. The check
+// reserves nothing: two rounds waiting for the same place can both see it free, and the one that loses is refused
+// as before, so the wait is best effort. `running` is by slot, as collectRound takes it.
+func (d *Daemon) waitForRoom(ctx context.Context, running []string, what string) (string, error) {
+	need := false
+	var shared []string
+	for _, id := range running {
+		if id == "" {
+			need = true
+		} else {
+			shared = append(shared, id)
+		}
+	}
+	if !need {
+		return "", nil
+	}
+	maxWait, err := d.secondsSetting(ctx, "review.wait_room")
+	if err != nil || maxWait <= 0 {
+		return "", err
+	}
+	start := d.now()
+	hasRoom := func() (bool, error) {
+		r := d.store.Read(ctx)
+		err := d.capGuard(r, what, "", shared...)
+		if err == nil {
+			err = d.checkMemoryGuard(r, what)
+		}
+		var ce *connect.Error
+		if errors.As(err, &ce) && ce.Code() == connect.CodeResourceExhausted {
+			return false, nil
+		}
+		return true, nil // room, or a failure that isn't room (the start reports it)
+	}
+	for {
+		if ok, err := hasRoom(); err != nil {
+			return "", err
+		} else if ok {
+			if waited := d.now().Sub(start); waited >= roomPoll/2 {
+				return fmt.Sprintf("waited %s for room for a reviewer (caps.agents or the memory floor; review.wait_room is %s)",
+					waited.Round(time.Second), maxWait), nil
+			}
+			return "", nil
+		}
+		if d.now().Sub(start) >= maxWait {
+			return "", nil
+		}
+		select {
+		case <-time.After(roomPoll):
+		case <-ctx.Done():
+			return "", connect.NewError(connect.CodeCanceled, fmt.Errorf("the round was given up while it waited for room: %w", ctx.Err()))
+		case <-d.stopping:
+			return "", connect.NewError(connect.CodeUnavailable, errors.New("meshd is stopping: the round was not started"))
+		}
+	}
 }

@@ -633,3 +633,86 @@ func TestAWaitDeclaredAfterANudgeAnswersIt(t *testing.T) {
 		t.Fatalf("with no fresh wait: alerts %d, nudges %d, want 1 and 3", alerts(), nudges())
 	}
 }
+
+// ageWait moves a declared wait, and the agent's last activity (the turn end that declared it), into the past, so
+// no wall-clock margin matters.
+func (a *acct) ageWait(msg *v1.Message, by time.Duration) {
+	a.t.Helper()
+	err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		msg.CreatedAt = timestamppb.New(msg.CreatedAt.AsTime().Add(-by))
+		return tx.PutMessage(msg)
+	})
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now().Add(-by))
+}
+
+// A wait with no deadline of its own, on a job nothing the daemon sees would wake the agent from (a job started
+// with `nohup … &` sends no notification), holds the nudge for `accountability.wait_unseen`, not wait_max: root-and-cli
+// slept 2 h 51 min on its finished gates. It is nudged once, with a text that says why.
+func TestAWaitNothingCanWakeFromIsNudgedAfterWaitUnseenNotWaitMax(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		until string
+		unset bool // wait_unseen 0
+		want  int
+	}{
+		{"no deadline", "", false, 1},
+		{"a deadline of its own holds", "2h", false, 0},
+		{"wait_unseen off", "", true, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a := newAcct(t)
+			a.setting("accountability.nudge_after", 1.0)
+			a.setting("accountability.wait_unseen", 600.0)
+			if c.unset {
+				a.setting("accountability.wait_unseen", 0.0)
+			}
+			a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+			a.taskRead()
+			waitMsg, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, c.until)
+			if err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(1200 * time.Millisecond) // past nudge_after
+			a.pass()
+			if n := a.mailOf("a-w1", "[mesh nudge]"); n != 0 {
+				t.Fatalf("nudged at once: %d", n)
+			}
+			a.ageWait(waitMsg, 11*time.Minute) // past wait_unseen (10 min), far short of wait_max (4 h)
+			a.pass()
+			a.pass()
+			if n := a.mailOf("a-w1", "[mesh nudge]"); n != c.want {
+				t.Fatalf("nudges %d, want %d", n, c.want)
+			}
+			if c.want == 1 && a.mailOf("a-w1", "[mesh nudge] Your declared wait has run its course") != 1 {
+				t.Errorf("the nudge does not say why")
+			}
+		})
+	}
+}
+
+// Only a nudge that comes of the wait_unseen hold says nothing could have woken the agent: one for an agent that was
+// woken (activity after its wait) and ended a turn with no report gets the ordinary text.
+func TestAWokenAgentsNudgeIsTheOrdinaryOne(t *testing.T) {
+	a := newAcct(t)
+	a.setting("accountability.nudge_after", 1.0)
+	a.setting("accountability.wait_unseen", 600.0)
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
+	a.taskRead()
+	if _, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, ""); err != nil {
+		t.Fatal(err)
+	}
+	a.pass()                                                             // the wait's baseline
+	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now().Add(time.Second)) // woken, and idle again with no report
+	time.Sleep(2200 * time.Millisecond)
+	a.pass()
+	a.pass()
+	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
+		t.Fatalf("nudges %d, want 1", n)
+	}
+	if n := a.mailOf("a-w1", "[mesh nudge] Your declared wait has run its course"); n != 0 {
+		t.Errorf("a woken agent got the text for an unwoken wait")
+	}
+}
