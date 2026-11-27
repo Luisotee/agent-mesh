@@ -338,9 +338,10 @@ func (d *Daemon) watchAgentPRs(ctx context.Context, a *v1.Agent, mode string) {
 	if err != nil {
 		return
 	}
+	moved := movedBranch(a) // "" while it is on the branch it was spawned on
 	for _, p := range rows {
 		// Its own PRs only: one a `done` merely names (a dependency, a sibling's) is no one's to fix here.
-		if p.State == "open" && (p.Source == "branch" || p.HeadRef == a.Branch || p.HeadRef == movedBranch(a)) && prRepoRE.MatchString(p.Url) {
+		if p.State == "open" && (p.Source == "branch" || p.HeadRef == a.Branch || moved != "" && p.HeadRef == moved) && prRepoRE.MatchString(p.Url) {
 			d.watchPR(ctx, a, p, mode)
 		}
 	}
