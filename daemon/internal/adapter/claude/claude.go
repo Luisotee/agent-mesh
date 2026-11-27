@@ -73,6 +73,8 @@ type Adapter struct {
 
 	cmdMu sync.Mutex
 	cmds  map[string]*cmdEntry
+	// probeSlots bounds the command list's probes running at once.
+	probeSlots chan struct{}
 }
 
 // New returns the adapter.

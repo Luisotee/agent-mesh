@@ -55,6 +55,10 @@ export function usePromptSuggestion(host: HostRuntime, agentId: string, state: A
   const [found, setFound] = useState<{ agentId: string; text: string }>()
   const [dismissed, setDismissed] = useState('')
   const idle = state === AgentState.IDLE
+  // A suggestion dropped with Esc stays dropped for the idle it was shown in: the next one, even the same words, shows.
+  useEffect(() => {
+    if (!idle) setDismissed('')
+  }, [idle])
   useEffect(() => {
     if (!enabled || !idle || !boxEmpty) return
     let cancelled = false

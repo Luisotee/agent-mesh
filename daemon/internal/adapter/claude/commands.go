@@ -151,6 +151,12 @@ func (a *Adapter) probedCommands(ctx context.Context, m *adapterv1.ListCommandsR
 		e := a.cmds[key]
 		switch {
 		case e == nil || (e.ready == nil && time.Since(e.at) > ttl):
+			// Worktrees that went away leave their entries: dropped when they are long stale.
+			for k, old := range a.cmds {
+				if old.ready == nil && time.Since(old.at) > 10*time.Minute {
+					delete(a.cmds, k)
+				}
+			}
 			e = &cmdEntry{ready: make(chan struct{})}
 			a.cmds[key] = e
 			a.cmdMu.Unlock()
@@ -224,6 +230,14 @@ func (a *Adapter) runCommandsProbe(ctx context.Context, m *adapterv1.ListCommand
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
+	// Two probes at most at once (each is a whole Claude process): the others wait, or give up with their caller.
+	slots := a.slots()
+	select {
+	case slots <- struct{}{}:
+		defer func() { <-slots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	out, err := probe.Run(ctx, probe.Spec{Bin: argv[0], Args: argv[1:], Cwd: m.Cwd, Stdin: []byte(initializeRequest),
 		Env: env, Dir: a.ProbeDir, Timeout: timeout})
 	cmds := parseInitialize(out)
@@ -231,6 +245,16 @@ func (a *Adapter) runCommandsProbe(ctx context.Context, m *adapterv1.ListCommand
 		err = os.ErrNotExist
 	}
 	return cmds, err
+}
+
+// slots is the probes' semaphore, made on first use (an Adapter built as a literal has none).
+func (a *Adapter) slots() chan struct{} {
+	a.cmdMu.Lock()
+	defer a.cmdMu.Unlock()
+	if a.probeSlots == nil {
+		a.probeSlots = make(chan struct{}, 2)
+	}
+	return a.probeSlots
 }
 
 func dropVar(env []string, k string) []string {

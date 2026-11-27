@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
@@ -51,7 +51,7 @@ function chat(o: { kind?: string; suggestion?: string; commands?: typeof COMMAND
       <ChatView host={host} agentId="w1" active onTerminal={onTerminal} />
     </AppContext.Provider>
   )
-  return { ui, client, promptAgent, onTerminal }
+  return { ui, client, promptAgent, onTerminal, store }
 }
 
 const field = () => screen.getByRole('textbox', { name: 'Prompt' }) as HTMLTextAreaElement
@@ -183,6 +183,18 @@ describe('the composer\'s suggested prompt', () => {
     await userEvent.click(field())
     await userEvent.keyboard('{Escape}')
     expect(field().getAttribute('placeholder')).not.toBe('run it')
+  })
+
+  it('shows the same words again once the agent has worked and is idle again', async () => {
+    const { ui, store } = chat({ suggestion: 'run it' })
+    render(ui)
+    await waitFor(() => expect(field()).toHaveAttribute('placeholder', 'run it'))
+    await userEvent.click(field())
+    await userEvent.keyboard('{Escape}')
+    expect(field().getAttribute('placeholder')).not.toBe('run it')
+    act(() => store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } as never } })))
+    act(() => store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } as never } })))
+    await waitFor(() => expect(field()).toHaveAttribute('placeholder', 'run it'))
   })
 
   it('is asked of Claude only, and only while the agent is at its prompt', async () => {

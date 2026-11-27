@@ -250,3 +250,34 @@ func TestTheTerminalTableHasNoDuplicatesAndNoCommandTheProbeOwns(t *testing.T) {
 		t.Error("Commands drops entries")
 	}
 }
+
+func TestNoMoreThanTwoProbesRunAtOnce(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "live")
+	// Each fake probe records how many are alive when it starts (the others' lock files), then lives 300 ms.
+	script := "#!/bin/sh\nmkdir -p '" + dir + "/up'\ntouch \"" + dir + "/up/$$\"\nls '" + dir + "/up' | wc -l >> '" + log + "'\ncat >/dev/null\nsleep 0.3\nrm -f \"" + dir + "/up/$$\"\ncat <<'EOF'\n" + initAnswer + "EOF\n"
+	bin := filepath.Join(dir, "claude")
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &Adapter{} // a literal: the semaphore is made on first use
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			list(t, a, &adapterv1.ListCommandsRequest{Cwd: t.TempDir(), Binary: bin, Env: map[string]string{"PATH": os.Getenv("PATH")}})
+		}()
+	}
+	wg.Wait()
+	b, _ := os.ReadFile(log)
+	lines := strings.Fields(string(b))
+	if len(lines) != 6 {
+		t.Fatalf("%d probes ran, want 6: %q", len(lines), b)
+	}
+	for _, l := range lines {
+		if l != "1" && l != "2" {
+			t.Errorf("%s probes alive at once, want at most 2", l)
+		}
+	}
+}
