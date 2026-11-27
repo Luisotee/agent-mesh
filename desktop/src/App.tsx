@@ -15,6 +15,7 @@ import { SidePanel } from '@/components/side-panel'
 import { WatchAll } from '@/components/watch-all'
 import { TabBar } from '@/components/tab-bar'
 import { ViewToasts } from '@/components/view-toasts'
+import { Notices } from '@/components/notices'
 import { AddHostDialog, AddHostForm } from '@/components/host-dialogs'
 import { LocalSetup } from '@/components/local-setup'
 import { EmptyPane } from '@/components/empty-pane'
@@ -94,6 +95,7 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
           <PanelSlot host={host} />
           <CommandPalette />
           <ViewToasts />
+          <Notices />
           <WorkspaceSlot host={host} />
           <ProjectSettingsDialog />
           <ShellCloseDialog />

@@ -171,6 +171,9 @@ message Agent {
   // Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
   // recreates the worktree from the branch and clears this.
   bool archived = 42;
+  // A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+  // with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+  bool plain = 43;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -286,6 +289,7 @@ message Event {
     RunRenamed run_renamed = 39;
     PermissionChanged permission_changed = 40;
     AgentArchived agent_archived = 41;
+    UserNotice user_notice = 42;
   }
 }
 
@@ -301,6 +305,10 @@ message QueuedPrompt {
   // human's draft is in the agent's box), "typing" (someone types in its terminal), "no_box" (its screen shows no
   // input box), or empty when it is due. Set by ListPrompts; the queue's order is the order they are typed in.
   string held = 6;
+  // With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed; empty when it is too long to show whole,
+  // 2000 characters: then `SendPromptAnyway` is not offered), for the app to show before it offers `SendPromptAnyway`. Set by
+  // ListPrompts and by the answer that queued the prompt; never in the event log.
+  string held_text = 7;
 }
 
 // A prompt was queued for an agent (`PromptAgent` while it couldn't take one).
@@ -348,6 +356,25 @@ message PermissionChanged {
   // "asked" (held for the parent), "allowed" or "denied" (the parent or a device answered), "ended" (answered at the
   // agent's terminal, ran out, or the agent went on).
   string state = 3;
+}
+
+// What the daemon decided is worth telling the user, once, by the rules in `internal/daemon/notify.go`: the apps' notifications,
+// the phones' pushes and the apps' Activity list all follow this one event. `for_user` says the user has something to
+// do or to know; a notice without it is only for the Activity list (a worker's plan to a root that decides it).
+message UserNotice {
+  // One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
+  string kind = 1;
+  string title = 2;
+  // Plain text, at most 200 characters.
+  string body = 3;
+  // The agent it is about; the app opens its chat (or terminal when `tab` says so).
+  string agent_id = 4;
+  // "chat" or "terminal": the view that answers it.
+  string tab = 5;
+  // The user has something to do or to know. False: Activity only, never pushed or shown as a notification.
+  bool for_user = 6;
+  // A later notice with the same tag replaces the earlier on a screen: one per agent, or one per run.
+  string tag = 7;
 }
 
 // An agent was archived: its worktree removed, its branch kept (`ArchiveAgent`).

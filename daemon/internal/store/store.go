@@ -572,7 +572,9 @@ func (t *Tx) PutMessage(m *v1.Message) error {
 
 // trackWaiting keeps the `waiting` table in step with a newly stored message: a plan or question waits on its
 // recipient until an answer to its author comes after it; an answer clears what its recipient had waiting
-// before it. (Order is the store's: time to the nanosecond, then id.)
+// before it, when it came from the user (a device) or an unclassed caller, and only what the agent that answered
+// was asked when it came from an agent: a worker's answer to the lead does not close what the lead asked the user.
+// (Order is the store's: time to the nanosecond, then id.)
 func (t *Tx) trackWaiting(m *v1.Message) error {
 	created := m.CreatedAt.AsTime().UnixNano()
 	switch m.Type {
@@ -581,8 +583,12 @@ func (t *Tx) trackWaiting(m *v1.Message) error {
 			VALUES (?, ?, ?, ?)`, m.Id, m.ToId, m.From.GetId(), created)
 		return err
 	case v1.MessageType_MESSAGE_TYPE_ANSWER:
-		_, err := t.tx.ExecContext(t.ctx, `DELETE FROM waiting WHERE from_id = ? AND (created_at, message_id) < (?, ?)`,
-			m.ToId, created, m.Id)
+		q, args := `DELETE FROM waiting WHERE from_id = ? AND (created_at, message_id) < (?, ?)`, []any{m.ToId, created, m.Id}
+		switch m.From.GetClass() {
+		case v1.ActorClass_ACTOR_CLASS_ROOT, v1.ActorClass_ACTOR_CLASS_WORKER, v1.ActorClass_ACTOR_CLASS_ASKER, v1.ActorClass_ACTOR_CLASS_REVIEWER:
+			q, args = q+` AND to_id = ?`, append(args, m.From.GetId())
+		}
+		_, err := t.tx.ExecContext(t.ctx, q, args...)
 		return err
 	}
 	return nil

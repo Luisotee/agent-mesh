@@ -139,16 +139,16 @@ func (d *Daemon) PromptAgent(ctx context.Context, req *connect.Request[v1.Prompt
 	// would go to the process they replace or the context they clear.
 	now := len(queued) == 0 && takesDoorbell(a.State) && d.ringOf(a.Id) == nil && !d.promptInFlight(a) &&
 		a.PendingReopen == nil && a.PendingCompaction == nil && a.PendingReset == nil
-	hold := ""
+	hold, heldText := "", ""
 	if now {
 		h, err := d.whyNotToType(ctx, a)
 		if err != nil {
 			return nil, err
 		}
-		hold, now = h.code, h.code == ""
+		hold, heldText, now = h.code, h.text, h.code == ""
 	}
 	if !now {
-		return d.queuePrompt(ctx, actor, req.Msg.Meta, a, text, hold)
+		return d.queuePrompt(ctx, actor, req.Msg.Meta, a, text, hold, heldText)
 	}
 	at := d.now()
 	if err := d.typePrompt(ctx, a, text); err != nil {
@@ -195,25 +195,30 @@ func (d *Daemon) typePrompt(ctx context.Context, a *v1.Agent, text string) error
 		// retry and every doorbell. Ctrl-U clears the line the cursor is on, which for a paste of several lines is
 		// the last: read the box after each and go on until it is empty. A box that can't be read, or that still
 		// holds text after a few tries, is said in the error: the user clears it.
-		cleared := false
-		for try := 0; try < 8 && !cleared; try++ {
-			d.rt.term.API.WriteTerminal(context.WithoutCancel(ctx), connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
-				Data: []byte("\x15")}))
-			time.Sleep(d.rt.cfg.DeliveryDelay)
-			switch d.readInputBox(context.WithoutCancel(ctx), a, "").GetBox() {
-			case adapterv1.InputBox_INPUT_BOX_EMPTY:
-				cleared = true
-			case adapterv1.InputBox_INPUT_BOX_TYPED:
-				continue
-			default:
-				try = 8 // no box to read: more Ctrl-U would tell nothing
-			}
-		}
-		if !cleared {
+		if !d.clearInputBox(ctx, a) {
 			err = fmt.Errorf("%w (part of the prompt may remain in its input box: clear it before sending again)", err)
 		}
 	}
 	return err
+}
+
+// clearInputBox empties an agent's input box with Ctrl-U (which clears the line the cursor is on: a draft of several
+// lines takes several) and reads the box after each, up to a few times. false: it still holds text, or has none to read.
+func (d *Daemon) clearInputBox(ctx context.Context, a *v1.Agent) bool {
+	for try := 0; try < 8; try++ {
+		d.rt.term.API.WriteTerminal(context.WithoutCancel(ctx), connect.NewRequest(&termv1.WriteTerminalRequest{Id: a.TerminalId,
+			Data: []byte("\x15")}))
+		time.Sleep(d.rt.cfg.DeliveryDelay)
+		switch d.readInputBox(context.WithoutCancel(ctx), a, "").GetBox() {
+		case adapterv1.InputBox_INPUT_BOX_EMPTY:
+			return true
+		case adapterv1.InputBox_INPUT_BOX_TYPED:
+			continue
+		default:
+			return false // no box to read: more Ctrl-U would tell nothing
+		}
+	}
+	return false
 }
 
 // CleanPrompt makes a prompt safe to type: line endings are \n, and every other control character (an Escape
@@ -230,7 +235,26 @@ func CleanPrompt(s string) string {
 
 // typeHold is why a prompt may not be typed into an agent's terminal now: a code a queued prompt carries as its
 // `held` ("typing", "draft", "no_box"), and the sentence for a person. An empty code: it may be typed.
-type typeHold struct{ code, why string }
+type typeHold struct {
+	code, why string
+	// text is the draft read in the box (code "draft"), squeezed and cut: what the app shows before it offers to send anyway.
+	text string
+}
+
+// maxDraftShown is the longest draft the daemon tells the app, whole: a longer one is not told, so no one confirms to
+// discard text they were not shown.
+const maxDraftShown = 2000
+
+// squeezed is a draft with its whitespace squeezed, as the box reader gives it.
+func squeezed(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// shownDraft is a draft as the app is told it: whole, or empty when it is too long to show (then there is no "send anyway").
+func shownDraft(s string) string {
+	if s = squeezed(s); len([]rune(s)) <= maxDraftShown {
+		return s
+	}
+	return ""
+}
 
 // whyNotToType says why a prompt may not be typed into an agent's terminal now: only into a box that reads empty (a
 // draft would be typed after, a dialog or a picker would take the Enter as its choice, a CLI still starting may drop
@@ -241,13 +265,14 @@ func (d *Daemon) whyNotToType(ctx context.Context, a *v1.Agent) (typeHold, error
 		return typeHold{}, err
 	}
 	if typing {
-		return typeHold{"typing", fmt.Sprintf("someone is typing in %s's terminal", a.Name)}, nil
+		return typeHold{code: "typing", why: fmt.Sprintf("someone is typing in %s's terminal", a.Name)}, nil
 	}
-	switch d.readInputBox(ctx, a, "").GetBox() {
+	box := d.readInputBox(ctx, a, "")
+	switch box.GetBox() {
 	case adapterv1.InputBox_INPUT_BOX_EMPTY:
 		return typeHold{}, nil
 	case adapterv1.InputBox_INPUT_BOX_TYPED:
-		return typeHold{"draft", fmt.Sprintf("%s's input box holds a draft", a.Name)}, nil
+		return typeHold{code: "draft", why: fmt.Sprintf("%s's input box holds a draft", a.Name), text: shownDraft(box.GetText())}, nil
 	}
-	return typeHold{"no_box", fmt.Sprintf("%s's screen shows no empty input box (a dialog or a picker may be open, or it is still starting)", a.Name)}, nil
+	return typeHold{code: "no_box", why: fmt.Sprintf("%s's screen shows no empty input box (a dialog or a picker may be open, or it is still starting)", a.Name)}, nil
 }

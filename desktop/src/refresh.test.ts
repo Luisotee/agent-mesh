@@ -7,7 +7,7 @@ import { hostRefresher } from './refresh'
 import { createHostStore } from './store'
 
 const agent = (id: string, state: AgentState) => create(AgentSchema, { id, name: id, runId: 'r1', state })
-const row = (agentId: string) => create(WaitingSchema, { kind: WaitingKind.INPUT, runId: 'r1', agentId })
+const row = (agentId: string) => create(WaitingSchema, { kind: WaitingKind.INPUT, runId: 'r1', agentId, forUser: true })
 const sent = (type: MessageType): Event => create(EventSchema, { payload: { case: 'messageSent', value: { $typeName: 'agentmesh.v1.MessageSent', message: create(MessageSchema, { type }) } } })
 const stateChanged = (): Event => create(EventSchema, { agentId: 'a', payload: { case: 'agentStateChanged', value: { $typeName: 'agentmesh.v1.AgentStateChanged', from: AgentState.WORKING, to: AgentState.IDLE, detail: '', needsInput: 0 } } })
 
@@ -31,6 +31,16 @@ beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
 describe('what waits on the user', () => {
+  it('counts only what is the user\'s, and keeps the rest for the author\'s chat (the lead decides it, the user may step in)', async () => {
+    const { store, client, r } = setup()
+    const leads = create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w', forUser: false })
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema, { waiting: [row('a'), leads] }))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().waiting.map((w) => w.agentId)).toEqual(['a'])
+    expect(store.getState().waitingAll.map((w) => w.agentId)).toEqual(['a', 'w'])
+  })
+
   it('is listed at once on a snapshot, and after a pause for the events that can change it (a burst is one call)', async () => {
     const { store, client, r } = setup()
     client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema, { waiting: [row('a')] }))

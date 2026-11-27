@@ -19,8 +19,9 @@ import { AgentRole } from './gen/agentmesh/v1/types_pb'
 import { activate, cycleTab, closeTab, projectTabs, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
 import { agentProject } from './sidebar'
+import { repoName } from './derive'
 import { isShellTab, shellIdOf, shellProject, shellTabId } from './shells'
-import { closeShell as callCloseShell, listShells, openShell } from './actions'
+import { closeShell as callCloseShell, listShells, openShell, spawnAgent, startRun, stopRun } from './actions'
 import type { Shell } from './gen/agentmesh/v1/mesh_pb'
 import type { DockNewAgents } from './prefs'
 
@@ -74,7 +75,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
           hooks?.spawned(info.id, p.value.agent, prefs.dockNewAgents)
         }
         // The host's own preferences say whether and what to notify about its events.
-        const n = prefs.notifyEnabled ? noticeFor(f.value, before.agents, Date.now(), before.clockSkewMs) : undefined
+        const n = prefs.notifyEnabled ? noticeFor(f.value, Date.now(), before.clockSkewMs) : undefined
         if (n && prefs.notifyEvents.has(n.kind)) {
           api.shell.notify({ tag: `${info.id}:${n.tag}`, title: n.title, body: n.body, sound: prefs.notifySound, hostId: info.id, agentId: n.agentId, tab: n.tab })
         }
@@ -169,6 +170,8 @@ export interface AppState extends WorkspaceState {
   dragTab?: TabRef
   /** Views an agent or the CLI asked the app to show, waiting for the user to open or dismiss them (the toasts). */
   viewRequests: ViewRequestRow[]
+  /** What the app says about something that failed or finished (a toast, gone after a few seconds). Not kept. */
+  notices: Notice[]
   /** The projects the user pinned (the sidebar and the New workspace dialog list them first), by host id (device-local, with the layout). */
   pins: Record<string, string[]>
   /** A message an `OpenView` plan names: its card scrolls into view and is marked for a moment, then the card clears this. */
@@ -202,6 +205,11 @@ export interface AppModel {
   loadShells(hostId: string): Promise<void>
   /** Starts a shell in a project's folder and opens its tab. */
   newShell(hostId: string, repo: string): Promise<void>
+  /**
+   * Starts a plain agent in a project: the CLI as the user's own conversation, like running it in a terminal (a run of its
+   * own, a root with no task, in a worktree on a branch of its own), and opens its chat. The host says why it can't.
+   */
+  newAgent(hostId: string, repo: string, kind: string): Promise<void>
   /** Ends a shell (the host stops it) and closes its tab. */
   endShell(hostId: string, shellId: string): Promise<void>
   /** Answers the close question: `keep` closes the tab and leaves the shell running; else the question goes away. */
@@ -261,6 +269,10 @@ export interface AppModel {
   focusOnMessage(focus: { hostId: string; id: string }): void
   /** The card for the focused message is showing: its own timer takes over from the 10 s fallback. */
   claimFocusMessage(): void
+  /** Shows a toast: `error` stays longer. */
+  notify(text: string, tone?: 'info' | 'error'): void
+  /** Takes a notice away. */
+  dismissNotice(id: number): void
   /** Takes a toast away. */
   dismissViewRequest(id: number): void
   /** Pins a project of a host (or unpins it): pinned projects come first in the New workspace dialog. */
@@ -274,7 +286,15 @@ export interface ViewRequestRow {
   request: ViewRequest
 }
 
+/** A toast of the app's own: what failed or finished, gone after a few seconds. */
+export interface Notice {
+  id: number
+  text: string
+  tone: 'info' | 'error'
+}
+
 let viewSeq = 0
+let noticeSeq = 0
 
 /**
  * An agent or the CLI asked the app to show a view. It never switches the user's view by itself: it is a toast they open or
@@ -344,7 +364,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], shells: {}, shellsError: {}, ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], notices: [], shells: {}, shellsError: {}, ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -551,6 +571,27 @@ export function createAppModel(api: DesktopApi): AppModel {
       set((s) => ({ shells: { ...s.shells, [hostId]: [...(s.shells[hostId] ?? []).filter((x) => x.id !== shell.id), shell] } }))
       model.selectAgent(hostId, shellTabId(shell.id))
     },
+    newAgent: async (hostId, repo, kind) => {
+      const h = store.getState().hosts.find((x) => x.info.id === hostId)
+      if (!h) throw new Error('That host is gone')
+      const run = await startRun(h.client, `${kind} in ${repoName(repo)}`)
+      if (!run.run) throw new Error('the host started no run')
+      try {
+        const res = await spawnAgent(h.client, { runId: run.run.id, repo, slug: kind, role: AgentRole.ROOT, kind, tier: '', model: '', effort: '', task: '', plain: true })
+        if (!res.agent) throw new Error('the host started no agent')
+        model.selectAgent(hostId, res.agent.id, 'chat')
+      } catch (e) {
+        // A run with no agent is nothing to keep: a refused spawn (a cap, a missing terminal host) must not leave one behind per click.
+        await stopRun(h.client, run.run.id).catch(() => {})
+        throw e
+      }
+    },
+    notify: (text, tone = 'info') => {
+      const id = ++noticeSeq
+      set((s) => ({ notices: [...s.notices, { id, text, tone }].slice(-4) }))
+      setTimeout(() => model.dismissNotice(id), tone === 'error' ? 8000 : 4000)
+    },
+    dismissNotice: (id) => set((s) => ({ notices: s.notices.some((n) => n.id === id) ? s.notices.filter((n) => n.id !== id) : s.notices })),
     endShell: async (hostId, shellId) => {
       const h = store.getState().hosts.find((x) => x.info.id === hostId)
       if (!h) return

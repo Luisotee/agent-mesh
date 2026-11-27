@@ -104,6 +104,22 @@ message WithdrawPromptResponse {
   QueuedPrompt prompt = 1;
 }
 
+message SendPromptAnywayRequest {
+  RequestMeta meta = 1;
+  // Agent id or name.
+  string agent = 2;
+  // The queued prompt to type now.
+  string prompt_id = 3;
+  // The draft the caller was shown (`QueuedPrompt.held_text`) and confirmed to discard. The daemon types only if the box still
+  // holds exactly this text (whitespace aside).
+  string draft = 4;
+}
+
+message SendPromptAnywayResponse {
+  // The draft that was cleared out of the box, as it read just before. Not kept: a retry's answer has it empty.
+  string discarded = 1;
+}
+
 message InterruptAgentRequest {
   RequestMeta meta = 1;
   // Agent id or name.

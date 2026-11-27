@@ -21,6 +21,7 @@ import dev.agentmesh.gen.agentmesh.v1.RetireAgentRequest
 import dev.agentmesh.gen.agentmesh.v1.Run
 import dev.agentmesh.gen.agentmesh.v1.StopAgentRequest
 import dev.agentmesh.gen.agentmesh.v1.StopRunRequest
+import dev.agentmesh.gen.agentmesh.v1.SendPromptAnywayRequest
 import dev.agentmesh.gen.agentmesh.v1.WithdrawPromptRequest
 import dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest
 import dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse
@@ -96,7 +97,7 @@ val UI_ACTIONS = listOf(
     "registerPush", "unregisterPush", "testPush", "revokeSelf",
     "readTranscript", "promptAgent", "switchAgent", "checkModels", "listAgents", "listWaiting", "listPullRequests", "holdPullRequest", "getUsage", "getCost",
     "startRun", "spawnAgent", "listProjects", "stopAgent", "retireAgent", "renameRun", "stopRun",
-    "listPrompts", "withdrawPrompt", "interruptAgent",
+    "listPrompts", "withdrawPrompt", "sendPromptAnyway", "interruptAgent",
 )
 
 /** What a terminal stream delivers: frames, then how it ended. */
@@ -174,6 +175,13 @@ interface MeshApi {
 
     /** Takes back a queued prompt before it is typed (the newest when [promptId] is empty); null when there was none. */
     suspend fun withdrawPrompt(agent: String, promptId: String = ""): QueuedPrompt?
+
+    /**
+     * Types a held prompt now over the draft in the agent's input box: [draft] is the text the user was shown (`heldText`) and
+     * confirmed. The host refuses when the box holds anything else by now, when someone types in the terminal, or when the agent
+     * is not at its prompt. Returns the draft that was cleared.
+     */
+    suspend fun sendPromptAnyway(agent: String, promptId: String, draft: String): String
 
     /** Interrupts the agent's turn, as Esc does in its terminal; true once it was seen back at its prompt. */
     suspend fun interruptAgent(agent: String): Boolean
@@ -326,6 +334,9 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
         val res = service.withdrawPrompt(WithdrawPromptRequest.newBuilder().setMeta(newMeta()).setAgent(agent).setPromptId(promptId).build()).ok()
         return if (res.hasPrompt()) res.prompt else null
     }
+
+    override suspend fun sendPromptAnyway(agent: String, promptId: String, draft: String): String =
+        service.sendPromptAnyway(SendPromptAnywayRequest.newBuilder().setMeta(newMeta()).setAgent(agent).setPromptId(promptId).setDraft(draft).build()).ok().discarded
 
     override suspend fun interruptAgent(agent: String): Boolean =
         service.interruptAgent(InterruptAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).build()).ok().stopped

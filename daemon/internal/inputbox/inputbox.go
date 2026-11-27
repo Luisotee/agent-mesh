@@ -90,12 +90,17 @@ type Profile struct {
 	StatusBlock bool
 	// Placeholder is an empty box's hint, read as empty whatever colour it is drawn in.
 	Placeholder *regexp.Regexp
+	// GhostCursor: when its terminal has the focus the CLI paints its cursor on the ghost text by inverting the text's first
+	// character (Claude's `\x1b[7m` + first char + `\x1b[27m`, then the rest dim). That character is ghost too.
+	GhostCursor bool
 }
 
 // The profiles of the CLIs with an adapter.
 var (
 	// Claude: the rules box; its `Try …` placeholder is dim (a coloured slash command isn't, so it counts as typed).
-	Claude = Profile{Ghost: GhostDim}
+	// With the terminal focused, Claude Code 2.1.332 inverts the first character of the placeholder or of the suggested
+	// prompt (its `Cr()`: `invert(p[0]) + dim(p.slice(1))`): the cursor, drawn on the ghost text.
+	Claude = Profile{Ghost: GhostDim, GhostCursor: true}
 	// Agy: the rules box; its empty box shows "Auto mode: edits & safe commands …" in colour 8, not dim.
 	Agy = Profile{Ghost: GhostDim | GhostGrey}
 	// OpenCode: a gutter box whose foot is the agent and model, one row or several in a narrow pane with blank ones
@@ -255,8 +260,8 @@ func squeeze(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // A cell is one visible character with how it was drawn.
 type cell struct {
-	ch                  rune
-	dim, grey8, rgbGrey bool
+	ch                           rune
+	dim, grey8, rgbGrey, reverse bool
 }
 
 type row struct{ cells []cell }
@@ -278,8 +283,22 @@ func (p Profile) ghost(c cell) bool {
 // typed is a row's cells as text, ghost text as spaces.
 func (r row) typed(cells []cell, p Profile) string {
 	var b strings.Builder
-	for _, c := range cells {
-		if p.ghost(c) {
+	cursor := -1 // the cell of a placeholder's cursor, if this row has one
+	if p.GhostCursor {
+		for i, c := range cells {
+			if c.ch == ' ' || c.ch == '\u00a0' {
+				continue
+			}
+			// The first character that shows: inverted, and followed by ghost text (a draft has none after its first
+			// character: the CLI draws a placeholder only in an empty box).
+			if c.reverse && !p.ghost(c) && i+1 < len(cells) && p.ghost(cells[i+1]) {
+				cursor = i
+			}
+			break
+		}
+	}
+	for i, c := range cells {
+		if i == cursor || p.ghost(c) {
 			b.WriteByte(' ')
 		} else {
 			b.WriteRune(c.ch)
@@ -294,12 +313,12 @@ func (r row) typed(cells []cell, p Profile) string {
 func parse(raw []byte) []row {
 	var rows []row
 	cur := 0 // the row characters go to
-	var dim, grey8, rgbGrey bool
+	var dim, grey8, rgbGrey, reverse bool
 	put := func(ch rune) {
 		for len(rows) <= cur {
 			rows = append(rows, row{})
 		}
-		rows[cur].cells = append(rows[cur].cells, cell{ch: ch, dim: dim, grey8: grey8, rgbGrey: rgbGrey})
+		rows[cur].cells = append(rows[cur].cells, cell{ch: ch, dim: dim, grey8: grey8, rgbGrey: rgbGrey, reverse: reverse})
 	}
 	s := string(raw)
 	for i := 0; i < len(s); {
@@ -317,7 +336,7 @@ func parse(raw []byte) []row {
 			params, final := s[i+2:j], s[j]
 			switch final {
 			case 'm':
-				sgr(params, &dim, &grey8, &rgbGrey)
+				sgr(params, &dim, &grey8, &rgbGrey, &reverse)
 			case 'H', 'f':
 				if r, _, _ := strings.Cut(params, ";"); r != "" {
 					if n, err := strconv.Atoi(r); err == nil && n >= 1 {
@@ -359,7 +378,7 @@ func parse(raw []byte) []row {
 }
 
 // sgr applies one SGR sequence's parameters to the three styles that matter (bin/mesh's `visible_chars`).
-func sgr(params string, dim, grey8, rgbGrey *bool) {
+func sgr(params string, dim, grey8, rgbGrey, reverse *bool) {
 	parts := strings.Split(params, ";")
 	p := make([]int, len(parts))
 	for i, s := range parts {
@@ -404,7 +423,13 @@ func sgr(params string, dim, grey8, rgbGrey *bool) {
 				i++
 			}
 		case n == 0:
-			*dim, *grey8, *rgbGrey = false, false, false
+			*dim, *grey8, *rgbGrey, *reverse = false, false, false, false
+			i++
+		case n == 7:
+			*reverse = true
+			i++
+		case n == 27:
+			*reverse = false
 			i++
 		case n == 22:
 			*dim = false
