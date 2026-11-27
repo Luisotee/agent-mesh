@@ -270,10 +270,9 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   await new Promise((r) => setTimeout(r, 1000))
   expect(notices()).toHaveLength(before)
 
-  // Take plans off the list of what notifies (through the host's settings): the next plan is silent, the tray still counts.
+  // Take plans and questions off the list of what notifies (through the host's settings): the next one is silent, the tray still counts.
   await host.client().setSetting({ key: 'app.notify.events', value: { kind: { case: 'listValue', value: { values: [{ kind: { case: 'stringValue', value: 'input' } }] } } } })
-  await asNoisy.readInbox({})
-  await asNoisy.sendMessage({ to: 'parent', type: MessageType.QUESTION, body: 'Which branch?' })
+  await asLead.sendMessage({ to: 'user', type: MessageType.QUESTION, body: 'Which branch?' }) // the lead asks the user
   await expect.poll(() => log().filter((l) => l.type === 'waiting').at(-1)?.count, { timeout: 20_000 }).toBe(2)
   expect(notices()).toHaveLength(before)
   await host.client().resetSetting({ key: 'app.notify.events' })
