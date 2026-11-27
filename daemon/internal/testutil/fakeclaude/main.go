@@ -17,6 +17,12 @@
 //	/hold         UserPromptSubmit and PreToolUse, then waits for a line (a long turn); then PostToolUse and
 //	              Stop. With $FAKECLAUDE_ESC set, a lone Esc instead ends the turn with no Stop hook, as
 //	              interrupting the real one does
+//	/perm <Tool> <command or path>
+//	              UserPromptSubmit, then a PermissionRequest hook the daemon answers (`permission: allow`, `deny <why>`,
+//	              or `pane` when nobody does), PostToolUse on an allow, and Stop
+//	/question     like /perm for an AskUserQuestion of two questions with the tool's real input and tool_use_id: the
+//	              answer prints as `answered: {...}` (the hook's updated input), a denial as `permission: deny <why>`
+//	/exitplan     like /question for an ExitPlanMode (`plan approved: mode=<mode> input=...`)
 //	/exit         SessionEnd, then exits 0
 //	/crash        exits 7 without any hook
 //	/limit <text> UserPromptSubmit, then StopFailure (rate_limit, <text> as the message): a usage limit
@@ -443,6 +449,69 @@ func run(line string, next func() string) {
 		hook("Stop", map[string]any{"stop_hook_active": false})
 		prompt()
 		return
+	case line == "/question" || line == "/exitplan":
+		// `/question`: an AskUserQuestion (two questions, as Claude Code 2.1.332 sends them); `/exitplan`: an ExitPlanMode. The
+		// PermissionRequest hook answers with an updated input (the user's `answers`, the plan echoed with a mode) or a
+		// denial, or leaves it to the person at the terminal (`permission: pane`).
+		hook("UserPromptSubmit", map[string]any{"prompt": line})
+		tool, id := "AskUserQuestion", "toolu_fake_ask"
+		input := map[string]any{"questions": []any{
+			map[string]any{"question": "Which color do you want?", "header": "Color", "multiSelect": false, "options": []any{
+				map[string]any{"label": "Red", "description": "Select Red.", "preview": "RED swatch"},
+				map[string]any{"label": "Blue", "description": "Select Blue.", "preview": "BLUE swatch"}}},
+			map[string]any{"question": "Which toppings do you want?", "header": "Toppings", "multiSelect": true, "options": []any{
+				map[string]any{"label": "Cheese", "description": "Add cheese."},
+				map[string]any{"label": "Ham", "description": "Add ham."}}}}}
+		if line == "/exitplan" {
+			tool, id = "ExitPlanMode", "toolu_fake_plan"
+			input = map[string]any{"plan": "# Plan\n\n1. Create hello.txt\n", "planFilePath": "/tmp/plan.md"}
+		}
+		recordTool("call", line, tool, id, input, "")
+		out := hook("PermissionRequest", map[string]any{"tool_name": tool, "tool_input": input, "tool_use_id": id})
+		var d struct {
+			H struct {
+				Decision struct {
+					Behavior     string          `json:"behavior"`
+					Message      string          `json:"message"`
+					UpdatedInput json.RawMessage `json:"updatedInput"`
+					Permissions  []struct {
+						Mode string `json:"mode"`
+					} `json:"updatedPermissions"`
+				} `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		switch _ = json.Unmarshal(out, &d); d.H.Decision.Behavior {
+		case "allow":
+			if tool == "AskUserQuestion" {
+				var in struct {
+					Answers map[string]string `json:"answers"`
+				}
+				_ = json.Unmarshal(d.H.Decision.UpdatedInput, &in)
+				b, _ := json.Marshal(in.Answers)
+				say("answered: %s\r\n", b)
+				var pairs []string
+				for _, q := range input["questions"].([]any) {
+					text := q.(map[string]any)["question"].(string)
+					pairs = append(pairs, fmt.Sprintf("%q=%q", text, in.Answers[text]))
+				}
+				recordTool("result", "", tool, id, nil, "The user answered: "+strings.Join(pairs, ", ")+". Read the answers carefully.")
+			} else {
+				mode := ""
+				if len(d.H.Decision.Permissions) > 0 {
+					mode = d.H.Decision.Permissions[0].Mode
+				}
+				say("plan approved: mode=%s input=%s\r\n", mode, d.H.Decision.UpdatedInput)
+			}
+			hook("PostToolUse", map[string]any{"tool_name": tool, "tool_input": input, "tool_use_id": id})
+		case "deny":
+			say("permission: deny %s\r\n", d.H.Decision.Message)
+			recordTool("result", "", tool, id, nil, d.H.Decision.Message)
+		default:
+			say("permission: pane\r\n")
+		}
+		hook("Stop", map[string]any{"stop_hook_active": false})
+		prompt()
+		return
 	case strings.HasPrefix(line, "/bash "):
 		hook("UserPromptSubmit", map[string]any{"prompt": line})
 		out := hook("PreToolUse", map[string]any{"tool_name": "Bash",
@@ -806,6 +875,37 @@ func recordTurn(prompt string) {
 		{"type": "tool_use", "id": "toolu_" + id, "name": "Bash", "input": map[string]any{"command": "echo " + prompt, "description": "say it"}}})
 	line("user", id+"-r", []map[string]any{{"type": "tool_result", "tool_use_id": "toolu_" + id, "content": prompt}})
 	line("assistant", id+"-a2", []map[string]any{{"type": "text", "text": "Done: " + prompt}})
+}
+
+// recordTool appends lines to the session's transcript for a tool call a prompt raised: `call` the assistant's tool_use
+// (before the dialog, as Claude Code writes it), `result` the tool_result after the answer. Off without $FAKECLAUDE_TRANSCRIPT.
+func recordTool(kind, prompt, tool, id string, input map[string]any, result string) {
+	home := os.Getenv("HOME")
+	if os.Getenv("FAKECLAUDE_TRANSCRIPT") == "" || home == "" || session == "" {
+		return
+	}
+	dir := filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"))
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, session+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	recorded++
+	uuid := fmt.Sprintf("%s-%d", session, recorded)
+	line := func(typ string, content any) {
+		b, _ := json.Marshal(map[string]any{"type": typ, "uuid": uuid + "-" + typ, "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "sessionId": session,
+			"isSidechain": false, "message": map[string]any{"role": typ, "content": content}})
+		f.Write(append(b, '\n'))
+	}
+	if kind == "call" {
+		line("user", prompt)
+		line("assistant", []map[string]any{{"type": "tool_use", "id": id, "name": tool, "input": input}})
+		return
+	}
+	line("user", []map[string]any{{"type": "tool_result", "tool_use_id": id, "content": result}})
 }
 
 // readLines sends each line typed, as the terminal's line discipline hands them over (canonical mode). A bracketed

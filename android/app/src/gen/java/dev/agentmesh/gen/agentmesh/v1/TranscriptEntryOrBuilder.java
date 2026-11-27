@@ -149,4 +149,33 @@ public interface TranscriptEntryOrBuilder extends
    * @return The offset.
    */
   long getOffset();
+
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> 
+      getQuestionsList();
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptQuestion getQuestions(int index);
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  int getQuestionsCount();
 }

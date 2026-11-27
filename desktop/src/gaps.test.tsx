@@ -15,7 +15,7 @@ import { WaitingList } from './components/waiting-list'
 import { WatchAll } from './components/watch-all'
 import { AppContext } from './context'
 import { ReadTranscriptResponseSchema } from './gen/agentmesh/v1/chat_pb'
-import { GetAgentResponseSchema, GetCostResponseSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ModelSwapSchema, PendingPermissionSchema, ProjectSchema, ViewRequestSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { GetAgentResponseSchema, GetCostResponseSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ModelSwapSchema, PendingPermissionSchema, PermissionKind, ProjectSchema, ViewRequestSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus, SettingSchema$ as SettingDescriptor, SettingSchemaSchema } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, offerView, showView, type HostRuntime } from './model'
 import { ViewToasts } from './components/view-toasts'
@@ -75,6 +75,22 @@ describe('permission prompts under "Waiting on you"', () => {
     expect(list).toHaveTextContent('held for app-lead')
     expect(list).not.toHaveTextContent('needs you in its terminal')
     expect(within(list).getByText('1')).toBeInTheDocument()
+  })
+
+  it('lists a question or a plan as something to answer in the agent\'s chat, with no Allow to press', async () => {
+    const { host, wrap } = fixture()
+    host.store.setState({
+      permissions: [
+        create(PendingPermissionSchema, { id: 'p7', runId: 'r1', agentId: 'lead', agentName: 'app-lead', forUser: true, kind: PermissionKind.QUESTION, tool: 'AskUserQuestion' }),
+        create(PendingPermissionSchema, { id: 'p8', runId: 'r1', agentId: 'w1', agentName: 'app-fix', forUser: true, kind: PermissionKind.PLAN, tool: 'ExitPlanMode' }),
+      ],
+    })
+    render(wrap(<WaitingList host={host} />))
+    const list = screen.getByRole('region', { name: 'Waiting on you' })
+    expect(list).toHaveTextContent('app-lead asks you a question')
+    expect(list).toHaveTextContent('app-fix has a plan for you')
+    expect(list).toHaveTextContent('answer it in its chat')
+    expect(screen.queryByRole('button', { name: 'Allow' })).toBeNull()
   })
 
   it('allows it, and drops the row', async () => {

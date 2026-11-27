@@ -80,4 +80,52 @@ public interface DecidePermissionRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getWhyBytes();
+
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptAnswer> 
+      getAnswersList();
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptAnswer getAnswers(int index);
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  int getAnswersCount();
+
+  /**
+   * <pre>
+   * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+   * Empty is `default`.
+   * </pre>
+   *
+   * <code>string mode = 6 [json_name = "mode"];</code>
+   * @return The mode.
+   */
+  java.lang.String getMode();
+  /**
+   * <pre>
+   * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+   * Empty is `default`.
+   * </pre>
+   *
+   * <code>string mode = 6 [json_name = "mode"];</code>
+   * @return The bytes for mode.
+   */
+  com.google.protobuf.ByteString
+      getModeBytes();
 }

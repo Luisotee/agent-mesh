@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useApp, useHostState } from '@/context'
 import { joinWaiting, waitingCount, type Waiting } from '@/derive'
-import type { PendingPermission } from '@/gen/agentmesh/v1/mesh_pb'
+import { PermissionKind, type PendingPermission } from '@/gen/agentmesh/v1/mesh_pb'
 import type { HostRuntime } from '@/model'
 
 const LABEL: Record<Waiting['kind'], string> = {
@@ -103,14 +103,30 @@ function PermissionRow({ host, permission: p }: { host: HostRuntime; permission:
       setBusy(false)
     }
   }
+  // A question or a plan is a form: it is answered in the agent's chat, where its card is, not with a button here.
+  const form = p.kind === PermissionKind.QUESTION || p.kind === PermissionKind.PLAN
+  if (form) {
+    return (
+      <div aria-label={`${p.agentName} ${p.kind === PermissionKind.PLAN ? 'has a plan for you' : 'asks you a question'}`} className="flex flex-col gap-1.5 rounded-md px-2 py-1.5">
+        <button type="button" onClick={() => app.selectAgent(host.info.id, p.agentId, 'chat')} className="flex items-start gap-2 text-left hover:underline">
+          <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-state-needs" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate"><span className="font-medium">{p.agentName}</span> {p.kind === PermissionKind.PLAN ? 'has a plan for you' : 'asks you a question'}</span>
+            <span className="block truncate text-xs text-muted-foreground">answer it in its chat</span>
+          </span>
+        </button>
+      </div>
+    )
+  }
   return (
     <div aria-label={`${p.agentName} asks to use ${p.tool}`} className="flex flex-col gap-1.5 rounded-md px-2 py-1.5">
-      <button type="button" onClick={() => app.selectAgent(host.info.id, p.agentId, 'terminal')} className="flex items-start gap-2 text-left hover:underline">
+      <button type="button" onClick={() => app.selectAgent(host.info.id, p.agentId, p.forUser ? 'chat' : 'terminal')} className="flex items-start gap-2 text-left hover:underline">
         <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-state-needs" />
         <span className="min-w-0 flex-1">
           <span className="block truncate"><span className="font-medium">{p.agentName}</span> asks to use <code className="rounded bg-muted px-1">{p.tool}</code></span>
           {p.summary && <code className="block truncate text-xs text-muted-foreground" title={p.summary}>{p.summary}</code>}
           {parent && <span className="block truncate text-xs text-muted-foreground">held for {parent}</span>}
+          {p.forUser && <span className="block truncate text-xs text-muted-foreground">yours to answer</span>}
         </span>
       </button>
       {gone ? null : denying ? (

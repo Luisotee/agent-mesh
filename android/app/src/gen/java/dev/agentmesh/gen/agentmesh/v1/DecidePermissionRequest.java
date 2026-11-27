@@ -18,6 +18,8 @@ public  final class DecidePermissionRequest extends
     id_ = "";
     decision_ = "";
     why_ = "";
+    answers_ = emptyProtobufList();
+    mode_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -265,6 +267,216 @@ public  final class DecidePermissionRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     why_ = value.toStringUtf8();
+
+  }
+
+  public static final int ANSWERS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PromptAnswer> answers_;
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptAnswer> getAnswersList() {
+    return answers_;
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.PromptAnswerOrBuilder> 
+      getAnswersOrBuilderList() {
+    return answers_;
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  @java.lang.Override
+  public int getAnswersCount() {
+    return answers_.size();
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PromptAnswer getAnswers(int index) {
+    return answers_.get(index);
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.PromptAnswerOrBuilder getAnswersOrBuilder(
+      int index) {
+    return answers_.get(index);
+  }
+  private void ensureAnswersIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PromptAnswer> tmp = answers_;
+    if (!tmp.isModifiable()) {
+      answers_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  private void setAnswers(
+      int index, dev.agentmesh.gen.agentmesh.v1.PromptAnswer value) {
+    java.util.Objects.requireNonNull(value);
+    ensureAnswersIsMutable();
+    answers_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  private void addAnswers(dev.agentmesh.gen.agentmesh.v1.PromptAnswer value) {
+    java.util.Objects.requireNonNull(value);
+    ensureAnswersIsMutable();
+    answers_.add(value);
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  private void addAnswers(
+      int index, dev.agentmesh.gen.agentmesh.v1.PromptAnswer value) {
+    java.util.Objects.requireNonNull(value);
+    ensureAnswersIsMutable();
+    answers_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  private void addAllAnswers(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PromptAnswer> values) {
+    ensureAnswersIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, answers_);
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  private void clearAnswers() {
+    answers_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+   */
+  private void removeAnswers(int index) {
+    ensureAnswersIsMutable();
+    answers_.remove(index);
+  }
+
+  public static final int MODE_FIELD_NUMBER = 6;
+  private java.lang.String mode_;
+  /**
+   * <pre>
+   * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+   * Empty is `default`.
+   * </pre>
+   *
+   * <code>string mode = 6 [json_name = "mode"];</code>
+   * @return The mode.
+   */
+  @java.lang.Override
+  public java.lang.String getMode() {
+    return mode_;
+  }
+  /**
+   * <pre>
+   * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+   * Empty is `default`.
+   * </pre>
+   *
+   * <code>string mode = 6 [json_name = "mode"];</code>
+   * @return The bytes for mode.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getModeBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(mode_);
+  }
+  /**
+   * <pre>
+   * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+   * Empty is `default`.
+   * </pre>
+   *
+   * <code>string mode = 6 [json_name = "mode"];</code>
+   * @param value The mode to set.
+   */
+  private void setMode(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    mode_ = value;
+  }
+  /**
+   * <pre>
+   * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+   * Empty is `default`.
+   * </pre>
+   *
+   * <code>string mode = 6 [json_name = "mode"];</code>
+   */
+  private void clearMode() {
+
+    mode_ = getDefaultInstance().getMode();
+  }
+  /**
+   * <pre>
+   * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+   * Empty is `default`.
+   * </pre>
+   *
+   * <code>string mode = 6 [json_name = "mode"];</code>
+   * @param value The bytes for mode to set.
+   */
+  private void setModeBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    mode_ = value.toStringUtf8();
 
   }
 
@@ -619,6 +831,230 @@ public  final class DecidePermissionRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptAnswer> getAnswersList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getAnswersList());
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    @java.lang.Override
+    public int getAnswersCount() {
+      return instance.getAnswersCount();
+    }/**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PromptAnswer getAnswers(int index) {
+      return instance.getAnswers(index);
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder setAnswers(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptAnswer value) {
+      copyOnWrite();
+      instance.setAnswers(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder setAnswers(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptAnswer.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAnswers(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder addAnswers(dev.agentmesh.gen.agentmesh.v1.PromptAnswer value) {
+      copyOnWrite();
+      instance.addAnswers(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder addAnswers(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptAnswer value) {
+      copyOnWrite();
+      instance.addAnswers(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder addAnswers(
+        dev.agentmesh.gen.agentmesh.v1.PromptAnswer.Builder builderForValue) {
+      copyOnWrite();
+      instance.addAnswers(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder addAnswers(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptAnswer.Builder builderForValue) {
+      copyOnWrite();
+      instance.addAnswers(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder addAllAnswers(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PromptAnswer> values) {
+      copyOnWrite();
+      instance.addAllAnswers(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder clearAnswers() {
+      copyOnWrite();
+      instance.clearAnswers();
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptAnswer answers = 5 [json_name = "answers"];</code>
+     */
+    public Builder removeAnswers(int index) {
+      copyOnWrite();
+      instance.removeAnswers(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+     * Empty is `default`.
+     * </pre>
+     *
+     * <code>string mode = 6 [json_name = "mode"];</code>
+     * @return The mode.
+     */
+    @java.lang.Override
+    public java.lang.String getMode() {
+      return instance.getMode();
+    }
+    /**
+     * <pre>
+     * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+     * Empty is `default`.
+     * </pre>
+     *
+     * <code>string mode = 6 [json_name = "mode"];</code>
+     * @return The bytes for mode.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getModeBytes() {
+      return instance.getModeBytes();
+    }
+    /**
+     * <pre>
+     * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+     * Empty is `default`.
+     * </pre>
+     *
+     * <code>string mode = 6 [json_name = "mode"];</code>
+     * @param value The mode to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMode(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setMode(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+     * Empty is `default`.
+     * </pre>
+     *
+     * <code>string mode = 6 [json_name = "mode"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMode() {
+      copyOnWrite();
+      instance.clearMode();
+      return this;
+    }
+    /**
+     * <pre>
+     * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+     * Empty is `default`.
+     * </pre>
+     *
+     * <code>string mode = 6 [json_name = "mode"];</code>
+     * @param value The bytes for mode to set.
+     * @return This builder for chaining.
+     */
+    public Builder setModeBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setModeBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.DecidePermissionRequest)
   }
   @java.lang.Override
@@ -640,10 +1076,13 @@ public  final class DecidePermissionRequest extends
             "id_",
             "decision_",
             "why_",
+            "answers_",
+            dev.agentmesh.gen.agentmesh.v1.PromptAnswer.class,
+            "mode_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\u0208\u0004\u0208";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\u0208\u0004\u0208\u0005\u001b\u0006\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

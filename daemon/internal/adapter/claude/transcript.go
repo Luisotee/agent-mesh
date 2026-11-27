@@ -130,7 +130,11 @@ func TranscriptEntries(line []byte, offset int64) []*agentmeshv1.TranscriptEntry
 				add(i, &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_ASSISTANT, Text: b.Text})
 			}
 		case l.Type == "assistant" && b.Type == "tool_use":
-			add(i, &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_TOOL_CALL, Tool: b.Name, ToolInput: transcript.Summarize(b.Input), ToolUseId: b.ID})
+			e := &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_TOOL_CALL, Tool: b.Name, ToolInput: transcript.Summarize(b.Input), ToolUseId: b.ID}
+			if b.Name == ToolAskUserQuestion {
+				e.Questions = ParseQuestions(b.Input)
+			}
+			add(i, e)
 		}
 	}
 	return out
@@ -201,4 +205,39 @@ func resultText(raw json.RawMessage) string {
 // ReadTranscript reads a page of the record at path (transcript.ReadJSONL with Claude's lines).
 func ReadTranscript(path string, offset int64, backward bool, maxBytes int64) (entries []*agentmeshv1.TranscriptEntry, start, end int64, atStart bool, err error) {
 	return transcript.ReadJSONL(path, TranscriptEntries, offset, backward, maxBytes)
+}
+
+// ParseQuestions reads the input of an AskUserQuestion call (the same JSON as the hook's `tool_input`) into its
+// questions, or nil when it isn't one the user can answer: no questions, a question with no text or no options, or
+// the same text twice (the answers are keyed by it).
+func ParseQuestions(input []byte) []*agentmeshv1.PromptQuestion {
+	var in struct {
+		Questions []struct {
+			Question    string `json:"question"`
+			Header      string `json:"header"`
+			MultiSelect bool   `json:"multiSelect"`
+			Options     []struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+				Preview     string `json:"preview"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	if json.Unmarshal(input, &in) != nil || len(in.Questions) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []*agentmeshv1.PromptQuestion
+	for _, q := range in.Questions {
+		if strings.TrimSpace(q.Question) == "" || seen[q.Question] || len(q.Options) == 0 {
+			return nil
+		}
+		seen[q.Question] = true
+		pq := &agentmeshv1.PromptQuestion{Question: q.Question, Header: q.Header, MultiSelect: q.MultiSelect}
+		for _, o := range q.Options {
+			pq.Options = append(pq.Options, &agentmeshv1.PromptOption{Label: o.Label, Description: o.Description, Preview: o.Preview})
+		}
+		out = append(out, pq)
+	}
+	return out
 }

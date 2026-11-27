@@ -470,14 +470,15 @@ func Log(stateDir string, format string, args ...any) {
 }
 
 // requestPermission asks the daemon for the answer to a Claude permission prompt and prints it. It prints nothing
-// (the prompt stays on the screen for the person there) when nobody answers in time, the daemon can't be reached,
-// or the tool is one the parent may not decide: a plan to approve, a question for the user.
+// (the prompt stays on the screen for the person there) when nobody answers in time or the daemon can't be reached.
+// A question for the user and a plan to approve are sent whole (the tool's input), and answered with it echoed back.
 func requestPermission(o Options, p statedir.Paths, payload []byte) error {
 	var in struct {
-		Tool  string          `json:"tool_name"`
-		Input json.RawMessage `json:"tool_input"`
+		Tool      string          `json:"tool_name"`
+		Input     json.RawMessage `json:"tool_input"`
+		ToolUseID string          `json:"tool_use_id"`
 	}
-	if err := json.Unmarshal(payload, &in); err != nil || in.Tool == "" || in.Tool == "ExitPlanMode" || in.Tool == "AskUserQuestion" {
+	if err := json.Unmarshal(payload, &in); err != nil || in.Tool == "" {
 		return nil
 	}
 	tok, err := fsutil.ReadSecret(p.AgentToken(o.AgentID))
@@ -494,12 +495,16 @@ func requestPermission(o Options, p statedir.Paths, payload []byte) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	res, err := conn.Mesh.RequestPermission(ctx, connect.NewRequest(&v1.RequestPermissionRequest{
-		Tool: in.Tool, Summary: claude.PermissionSummary(in.Input)}))
+	req := &v1.RequestPermissionRequest{Tool: in.Tool, Summary: claude.PermissionSummary(in.Input), ToolUseId: in.ToolUseID}
+	if in.Tool == claude.ToolAskUserQuestion || in.Tool == claude.ToolExitPlanMode {
+		req.Input = string(in.Input)
+	}
+	res, err := conn.Mesh.RequestPermission(ctx, connect.NewRequest(req))
 	if err != nil {
 		return fmt.Errorf("asking for a permission decision: %w", err)
 	}
-	if out := claude.PermissionJSON(res.Msg.Decision, res.Msg.Reason); out != nil && o.Stdout != nil {
+	answer := claude.PermissionAnswer{Decision: res.Msg.Decision, Reason: res.Msg.Reason, Answers: res.Msg.Answers, Mode: res.Msg.Mode}
+	if out := answer.JSON(in.Tool, in.Input); out != nil && o.Stdout != nil {
 		o.Stdout.Write(out)
 	}
 	return nil

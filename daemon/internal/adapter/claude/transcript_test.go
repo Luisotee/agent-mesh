@@ -354,3 +354,27 @@ func TestEveryBackwardPageMovesBackPastALineOfSeveralMB(t *testing.T) {
 		}
 	}
 }
+
+// A question to the user is a tool call that carries its questions, so the chat can show what was asked after it is
+// answered; a call whose questions can't be read has only the summary.
+func TestAnAskUserQuestionCallCarriesItsQuestions(t *testing.T) {
+	ask := `{"type":"assistant","uuid":"q1","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_q","name":"AskUserQuestion","input":{"questions":[` +
+		`{"question":"Which color?","header":"Color","multiSelect":false,"options":[{"label":"Red","description":"r","preview":"RED"},{"label":"Blue","description":"b"}]},` +
+		`{"question":"Toppings?","header":"Top","multiSelect":true,"options":[{"label":"Cheese","description":"c"}]}]}}]}}`
+	es := entries(t, ask)
+	if len(es) != 1 || es[0].Kind != kCall || es[0].Tool != "AskUserQuestion" || es[0].ToolUseId != "toolu_q" || len(es[0].Questions) != 2 {
+		t.Fatalf("entries = %v", es)
+	}
+	q := es[0].Questions
+	if q[0].Question != "Which color?" || q[0].Header != "Color" || q[0].MultiSelect || !q[1].MultiSelect || q[0].Options[0].Preview != "RED" || q[0].Options[1].Label != "Blue" {
+		t.Errorf("questions = %v", q)
+	}
+	bad := `{"type":"assistant","uuid":"q2","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_r","name":"AskUserQuestion","input":{"questions":[{"question":"","options":[]}]}}]}}`
+	if es := entries(t, bad); len(es) != 1 || len(es[0].Questions) != 0 {
+		t.Errorf("an unreadable question: %v", es)
+	}
+	// Another tool's input never becomes questions.
+	if es := entries(t, lCall); len(es[len(es)-1].Questions) != 0 {
+		t.Errorf("a Bash call has questions: %v", es)
+	}
+}
