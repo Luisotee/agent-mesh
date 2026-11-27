@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPairing, listDevices, revokeDevice } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SkeletonLines } from '@/components/ui/skeleton'
 import { Input, Select } from '@/components/ui/input'
 import { Field } from '@/components/ui/label'
 import { useHostState } from '@/context'
@@ -196,7 +197,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
 
       <div className="flex max-w-2xl flex-col gap-2">
         <h2 className="text-sm font-semibold">Paired devices</h2>
-        {!loaded && !error && <p className="text-xs text-muted-foreground">Loading…</p>}
+        {!loaded && !error && <SkeletonLines label="Loading the paired devices" lines={2} />}
         {loaded && devices.length === 0 && <p className="text-xs text-muted-foreground">No device is paired yet.</p>}
         {devices.length > 0 && (
           <ul aria-label="Paired devices" className="divide-y rounded-lg border bg-card">

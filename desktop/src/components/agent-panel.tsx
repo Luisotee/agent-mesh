@@ -76,7 +76,7 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
             className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] capitalize ${shown === t ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
           >
             {t}
-            {t === 'messages' && open > 0 && <span className="rounded-full bg-state-needs px-1.5 text-[10px] leading-4 font-bold text-primary-foreground">{open}</span>}
+            {t === 'messages' && open > 0 && <span className="rounded-full bg-state-needs px-1.5 text-xs leading-4 font-bold text-primary-foreground">{open}</span>}
           </button>
         ))}
       </div>
@@ -160,7 +160,7 @@ function SendForm({ host, agent }: { host: HostRuntime; agent: Agent }) {
   }
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 rounded-lg border bg-card p-3" aria-label="Send a message">
-      <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Message {agent.name}</h2>
+      <h2 className="text-[13px] font-semibold">Message {agent.name}</h2>
       <div className="flex gap-2">
         <Select aria-label="Message type" className="w-28" value={type} onChange={(e) => setType(Number(e.target.value))}>
           {SEND_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}

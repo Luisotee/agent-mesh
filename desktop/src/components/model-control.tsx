@@ -34,7 +34,7 @@ function ChangeModel({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const [open, setOpen] = useState(false)
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button size="sm" variant="ghost" className="h-5 px-1.5 text-[11px]" aria-label={`Change the model of ${agent.name}`} />}>Change</DialogTrigger>
+      <DialogTrigger render={<Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" aria-label={`Change the model of ${agent.name}`} />}>Change</DialogTrigger>
       <DialogContent title={`Change ${agent.name}'s model`} description="The host reopens the same conversation on the new model: nothing is briefed again.">
         <ChangeForm host={host} agent={agent} onDone={() => setOpen(false)} />
       </DialogContent>

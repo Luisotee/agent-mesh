@@ -40,9 +40,9 @@ export function WaitingList({ host }: { host: HostRuntime }) {
   if (count === 0) return null
   return (
     <section aria-label="Waiting on you" className="border-b px-2 pb-2">
-      <h2 className="flex items-center gap-2 px-1 py-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      <h2 className="flex items-center gap-2 px-1 py-2 text-[13px] font-semibold">
         Waiting on you
-        <span className="rounded-full bg-state-needs px-1.5 text-[10px] leading-4 font-bold text-primary-foreground">{count}</span>
+        <span className="rounded-full bg-state-needs px-1.5 text-xs leading-4 font-bold text-primary-foreground">{count}</span>
       </h2>
       <ul>
         {prompts.map((p) => (
@@ -62,7 +62,7 @@ export function WaitingList({ host }: { host: HostRuntime }) {
                 <span className="block truncate">
                   <span className="font-medium">{w.agent.name}</span> {LABEL[w.kind]}
                 </span>
-                {w.run && <span className="block truncate text-[11px] text-muted-foreground">{w.run.title || w.run.id}</span>}
+                {w.run && <span className="block truncate text-xs text-muted-foreground">{w.run.title || w.run.id}</span>}
               </span>
             </button>
           </li>
@@ -109,8 +109,8 @@ function PermissionRow({ host, permission: p }: { host: HostRuntime; permission:
         <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-state-needs" />
         <span className="min-w-0 flex-1">
           <span className="block truncate"><span className="font-medium">{p.agentName}</span> asks to use <code className="rounded bg-muted px-1">{p.tool}</code></span>
-          {p.summary && <code className="block truncate text-[11px] text-muted-foreground" title={p.summary}>{p.summary}</code>}
-          {parent && <span className="block truncate text-[11px] text-muted-foreground">held for {parent}</span>}
+          {p.summary && <code className="block truncate text-xs text-muted-foreground" title={p.summary}>{p.summary}</code>}
+          {parent && <span className="block truncate text-xs text-muted-foreground">held for {parent}</span>}
         </span>
       </button>
       {gone ? null : denying ? (
@@ -131,7 +131,7 @@ function PermissionRow({ host, permission: p }: { host: HostRuntime; permission:
           <Button size="sm" variant="outline" disabled={busy} onClick={() => setDenying(true)}>Deny…</Button>
         </div>
       )}
-      {error && <p role="alert" className="pl-6 text-[11px] text-destructive">{error}</p>}
+      {error && <p role="alert" className="pl-6 text-xs text-destructive">{error}</p>}
     </div>
   )
 }
