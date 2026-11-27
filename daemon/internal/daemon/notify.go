@@ -214,11 +214,20 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 	if err != nil {
 		return nil
 	}
+	// An idle agent counts as done once it told its own parent so: the lead for a worker, the worker for the
+	// reviewer or asker it started.
 	reported := map[string]bool{}
-	if inbox, err := r.Inbox(lead.Id, true); err == nil {
+	for _, a := range agents {
+		if a.Id == lead.Id || a.State != v1.AgentState_AGENT_STATE_IDLE || a.ParentId == "" {
+			continue
+		}
+		inbox, err := r.Inbox(a.ParentId, true)
+		if err != nil {
+			return nil
+		}
 		for _, m := range inbox {
-			if m.Type == v1.MessageType_MESSAGE_TYPE_DONE || m.Type == v1.MessageType_MESSAGE_TYPE_FAILED {
-				reported[m.GetFrom().GetId()] = true
+			if m.GetFrom().GetId() == a.Id && (m.Type == v1.MessageType_MESSAGE_TYPE_DONE || m.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
+				reported[a.Id] = true
 			}
 		}
 	}
@@ -234,6 +243,16 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 			}
 		default:
 			return nil
+		}
+	}
+	// What the lead put to the user and nobody answered is still open.
+	if asked, err := r.Waiting(userRecipient); err != nil {
+		return nil
+	} else {
+		for _, m := range asked {
+			if m.RunId == lead.RunId {
+				return nil
+			}
 		}
 	}
 	if open, err := r.Waiting(lead.Id); err != nil || len(open) > 0 {

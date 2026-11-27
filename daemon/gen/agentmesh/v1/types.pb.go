@@ -2409,12 +2409,12 @@ func (x *PermissionChanged) GetState() string {
 	return ""
 }
 
-// What the daemon decided is worth telling the user, once, by the rules in `internal/notice`: the apps' notifications,
+// What the daemon decided is worth telling the user, once, by the rules in `internal/daemon/notify.go`: the apps' notifications,
 // the phones' pushes and the apps' Activity list all follow this one event. `for_user` says the user has something to
 // do or to know; a notice without it is only for the Activity list (a worker's plan to a root that decides it).
 type UserNotice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+	// One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
 	Kind  string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
 	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
 	// Plain text, at most 200 characters.

@@ -351,11 +351,11 @@ message PermissionChanged {
   string state = 3;
 }
 
-// What the daemon decided is worth telling the user, once, by the rules in `internal/notice`: the apps' notifications,
+// What the daemon decided is worth telling the user, once, by the rules in `internal/daemon/notify.go`: the apps' notifications,
 // the phones' pushes and the apps' Activity list all follow this one event. `for_user` says the user has something to
 // do or to know; a notice without it is only for the Activity list (a worker's plan to a root that decides it).
 message UserNotice {
-  // One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+  // One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
   string kind = 1;
   string title = 2;
   // Plain text, at most 200 characters.

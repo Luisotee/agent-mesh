@@ -62,6 +62,14 @@ func (d *Daemon) ListWaiting(ctx context.Context, req *connect.Request[v1.ListWa
 	}
 	var items []item
 	var prompts []*v1.Waiting
+	asked, err := r.Waiting(userRecipient)
+	if err != nil {
+		return nil, err
+	}
+	askedOf := map[string][]*v1.Message{}
+	for _, m := range asked {
+		askedOf[m.RunId] = append(askedOf[m.RunId], m)
+	}
 	for _, run := range runs {
 		if runID != "" && run.Id != runID {
 			continue
@@ -87,12 +95,8 @@ func (d *Daemon) ListWaiting(ctx context.Context, req *connect.Request[v1.ListWa
 				return nil, err
 			}
 			// What the lead put to the user (`mesh send user`) waits on the user alone.
-			asked, err := r.Waiting(userRecipient)
-			if err != nil {
-				return nil, err
-			}
-			for _, m := range asked {
-				if m.RunId == run.Id && byID[m.From.GetId()] != nil {
+			for _, m := range askedOf[run.Id] {
+				if a := byID[m.From.GetId()]; a != nil && a.State != v1.AgentState_AGENT_STATE_EXITED {
 					items = append(items, item{&v1.Waiting{Kind: waitingKind(m), RunId: run.Id, AgentId: m.From.GetId(), Message: m, ForUser: true}, m})
 				}
 			}

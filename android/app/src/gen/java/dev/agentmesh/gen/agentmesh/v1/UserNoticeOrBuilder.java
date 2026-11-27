@@ -12,7 +12,7 @@ public interface UserNoticeOrBuilder extends
 
   /**
    * <pre>
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    * </pre>
    *
    * <code>string kind = 1 [json_name = "kind"];</code>
@@ -21,7 +21,7 @@ public interface UserNoticeOrBuilder extends
   java.lang.String getKind();
   /**
    * <pre>
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    * </pre>
    *
    * <code>string kind = 1 [json_name = "kind"];</code>

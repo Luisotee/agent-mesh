@@ -33,7 +33,7 @@ func runAutonomyBrief(a *v1.RunAutonomy, ask []string) []string {
 	var out []string
 	switch {
 	case a.UserApprovesPlans:
-		out = append(out, "this run: the user approves its plans and merges its PRs: don't `mesh approve` a plan (put it to the user: `mesh send user --type question --body \"…\"`, note it in your notes, then wait for their answer), and never merge a PR")
+		out = append(out, "this run: the user approves its plans and merges its PRs: don't `mesh approve` a plan (the user sees each worker's plan in their app and approves it there: leave it waiting, don't relay it; for a decision of your own put it to them with `mesh send user --type question --body \"…\"`, then wait for their answer), and never merge a PR")
 	case a.UserMerges:
 		out = append(out, "this run: the user merges its PRs: never merge one; tell the user when it is ready")
 	default:
@@ -69,7 +69,7 @@ func (d *Daemon) autonomyBrief(r store.Reader, run *v1.Run) []string {
 	listed := map[string]bool{}
 	for _, repo := range approves {
 		listed[filepath.Clean(repo)] = true
-		out = append(out, fmt.Sprintf("repo %s: the user approves its plans and merges its PRs: don't `mesh approve` a plan there (put it to the user: `mesh send user --type question --body \"…\"`, note it in your notes, then wait for their answer), and never merge its PRs", repo))
+		out = append(out, fmt.Sprintf("repo %s: the user approves its plans and merges its PRs: don't `mesh approve` a plan there (the user sees each worker's plan in their app and approves it there: leave it waiting, don't relay it; for a decision of your own put it to them with `mesh send user --type question --body \"…\"`, then wait for their answer), and never merge its PRs", repo))
 	}
 	for _, repo := range merges {
 		if !listed[filepath.Clean(repo)] {

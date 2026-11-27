@@ -7,7 +7,7 @@ package dev.agentmesh.gen.agentmesh.v1;
 
 /**
  * <pre>
- * What the daemon decided is worth telling the user, once, by the rules in `internal/notice`: the apps' notifications,
+ * What the daemon decided is worth telling the user, once, by the rules in `internal/daemon/notify.go`: the apps' notifications,
  * the phones' pushes and the apps' Activity list all follow this one event. `for_user` says the user has something to
  * do or to know; a notice without it is only for the Activity list (a worker's plan to a root that decides it).
  * </pre>
@@ -32,7 +32,7 @@ public  final class UserNotice extends
   private java.lang.String kind_;
   /**
    * <pre>
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    * </pre>
    *
    * <code>string kind = 1 [json_name = "kind"];</code>
@@ -44,7 +44,7 @@ public  final class UserNotice extends
   }
   /**
    * <pre>
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    * </pre>
    *
    * <code>string kind = 1 [json_name = "kind"];</code>
@@ -57,7 +57,7 @@ public  final class UserNotice extends
   }
   /**
    * <pre>
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    * </pre>
    *
    * <code>string kind = 1 [json_name = "kind"];</code>
@@ -71,7 +71,7 @@ public  final class UserNotice extends
   }
   /**
    * <pre>
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    * </pre>
    *
    * <code>string kind = 1 [json_name = "kind"];</code>
@@ -82,7 +82,7 @@ public  final class UserNotice extends
   }
   /**
    * <pre>
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    * </pre>
    *
    * <code>string kind = 1 [json_name = "kind"];</code>
@@ -533,7 +533,7 @@ public  final class UserNotice extends
 
   /**
    * <pre>
-   * What the daemon decided is worth telling the user, once, by the rules in `internal/notice`: the apps' notifications,
+   * What the daemon decided is worth telling the user, once, by the rules in `internal/daemon/notify.go`: the apps' notifications,
    * the phones' pushes and the apps' Activity list all follow this one event. `for_user` says the user has something to
    * do or to know; a notice without it is only for the Activity list (a worker's plan to a root that decides it).
    * </pre>
@@ -553,7 +553,7 @@ public  final class UserNotice extends
 
     /**
      * <pre>
-     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
      * </pre>
      *
      * <code>string kind = 1 [json_name = "kind"];</code>
@@ -565,7 +565,7 @@ public  final class UserNotice extends
     }
     /**
      * <pre>
-     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
      * </pre>
      *
      * <code>string kind = 1 [json_name = "kind"];</code>
@@ -578,7 +578,7 @@ public  final class UserNotice extends
     }
     /**
      * <pre>
-     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
      * </pre>
      *
      * <code>string kind = 1 [json_name = "kind"];</code>
@@ -593,7 +593,7 @@ public  final class UserNotice extends
     }
     /**
      * <pre>
-     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
      * </pre>
      *
      * <code>string kind = 1 [json_name = "kind"];</code>
@@ -606,7 +606,7 @@ public  final class UserNotice extends
     }
     /**
      * <pre>
-     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+     * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
      * </pre>
      *
      * <code>string kind = 1 [json_name = "kind"];</code>

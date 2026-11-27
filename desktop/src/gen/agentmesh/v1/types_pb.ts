@@ -1117,7 +1117,7 @@ export const PermissionChangedSchema: GenMessage<PermissionChanged> = /*@__PURE_
   messageDesc(file_agentmesh_v1_types, 15);
 
 /**
- * What the daemon decided is worth telling the user, once, by the rules in `internal/notice`: the apps' notifications,
+ * What the daemon decided is worth telling the user, once, by the rules in `internal/daemon/notify.go`: the apps' notifications,
  * the phones' pushes and the apps' Activity list all follow this one event. `for_user` says the user has something to
  * do or to know; a notice without it is only for the Activity list (a worker's plan to a root that decides it).
  *
@@ -1125,7 +1125,7 @@ export const PermissionChangedSchema: GenMessage<PermissionChanged> = /*@__PURE_
  */
 export type UserNotice = Message$1<"agentmesh.v1.UserNotice"> & {
   /**
-   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.
+   * One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.
    *
    * @generated from field: string kind = 1;
    */

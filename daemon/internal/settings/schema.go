@@ -618,7 +618,7 @@ func AppLeaves() []Leaf {
 		{Key: "app.notify.sound", Label: "Notification sound", Group: GroupNotifications, Type: Bool, Default: true,
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Label: "Notify me about", Group: GroupNotifications, Type: Kinds, Default: events, Choices: NotifyEvents,
-			Summary: "Which events notify: an agent stopped at a prompt, a plan or question that is yours to answer, a failure, an agent in error or at its usage limit, a finished run or agent, a pull request ready to merge where you merge, a report or a clean exit. A worker's plan, report or failure to a lead that decides it is only in Activity. A phone follows this unless it chose its own list."},
+			Summary: "Which events notify: an agent stopped at a prompt, a plan or question that is yours to answer, a failure, an agent in error or at its usage limit, a finished run or agent, a pull request ready to merge (open, checks passing) where you merge, a report or a clean exit. A worker's plan, report or failure to a lead that decides it is only in Activity. A phone follows this unless it chose its own list."},
 		{Key: "app.theme", Label: "Theme", Group: GroupAppearance, Type: String, Default: "Dracula",
 			Summary: "The colours the apps draw with. An app without that theme uses Dracula, and the Android app's own choice overrides it on that phone."},
 		{Key: "app.dock.new_agents", Label: "New agents in the live dock", Group: GroupAppearance, Type: String, Default: "dock", Choices: DockNewAgents,

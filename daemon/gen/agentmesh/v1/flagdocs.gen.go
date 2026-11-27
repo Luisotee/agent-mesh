@@ -482,7 +482,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.UserNotice.agent_id":                      "The agent it is about; the app opens its chat (or terminal when `tab` says so).",
 	"agentmesh.v1.UserNotice.body":                          "Plain text, at most 200 characters.",
 	"agentmesh.v1.UserNotice.for_user":                      "The user has something to do or to know. False: Activity only, never pushed or shown as a notification.",
-	"agentmesh.v1.UserNotice.kind":                          "One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished.",
+	"agentmesh.v1.UserNotice.kind":                          "One of the `app.notify.events` kinds: input, plan, question, report, failed, exited, limited, error, finished, ready.",
 	"agentmesh.v1.UserNotice.tab":                           "\"chat\" or \"terminal\": the view that answers it.",
 	"agentmesh.v1.UserNotice.tag":                           "A later notice with the same tag replaces the earlier on a screen: one per agent, or one per run.",
 	"agentmesh.v1.Verdict.blocking":                         "Of the findings agreed with or otherwise useful, how many were blocking.",

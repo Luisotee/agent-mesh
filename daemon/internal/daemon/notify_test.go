@@ -206,6 +206,55 @@ func TestARunFinishedIsToldOnceAndAgainAfterNewWork(t *testing.T) {
 	waitFor(t, "the second finish", func() bool { return finished() == 2 })
 }
 
+// A reviewer a worker started reports to that worker, so it counts as done once it told it; and a question the lead
+// put to the user keeps the run from being finished until the user answers.
+func TestARunWithAReviewerUnderAWorkerAndAnOpenQuestionFinishesWhenBothAreSettled(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	run := startRun(t, h.device.Mesh, "")
+	leadTok := h.seedAgent(run.Id, "g-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	wTok := h.seedAgent(run.Id, "g-w", "fix", "g-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	rvTok := h.seedAgent(run.Id, "g-rv", "review", "g-w", v1.AgentRole_AGENT_ROLE_REVIEWER)
+	finished := func() int {
+		n := 0
+		for _, x := range userNotices(t, h, run.Id) {
+			if x.Kind == "finished" {
+				n++
+			}
+		}
+		return n
+	}
+	send := func(tok string, to string, typ v1.MessageType) {
+		t.Helper()
+		if _, err := h.as(tok).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: to, Type: typ, Body: "x"})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(rvTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE)
+	setState(t, h, "g-rv", v1.AgentState_AGENT_STATE_IDLE)
+	send(wTok, "parent", v1.MessageType_MESSAGE_TYPE_DONE)
+	setState(t, h, "g-w", v1.AgentState_AGENT_STATE_IDLE)
+	setState(t, h, "g-root", v1.AgentState_AGENT_STATE_WORKING)
+	readInbox(t, h.as(leadTok))
+	readInbox(t, h.as(wTok))
+	// The lead asks the user, and ends its turn to wait: not finished.
+	lead := h.as(leadTok)
+	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "merge it?")
+	setState(t, h, "g-root", v1.AgentState_AGENT_STATE_IDLE)
+	time.Sleep(200 * time.Millisecond)
+	if finished() != 0 {
+		t.Fatal("finished while the user owes an answer")
+	}
+	// The user answers; the lead acts on it and ends its turn: finished, with the reviewer idle under its worker.
+	if _, err := h.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "g-root", Type: v1.MessageType_MESSAGE_TYPE_ANSWER, Body: "yes"})); err != nil {
+		t.Fatal(err)
+	}
+	setState(t, h, "g-root", v1.AgentState_AGENT_STATE_WORKING)
+	readInbox(t, h.as(leadTok))
+	setState(t, h, "g-root", v1.AgentState_AGENT_STATE_IDLE)
+	waitFor(t, "the run finished", func() bool { return finished() == 1 })
+}
+
 // A plain agent (no parent) that ends a turn is "finished"; a worker's turn end is its lead's business.
 func TestAPlainAgentEndingATurnIsFinished(t *testing.T) {
 	h := start(t, "")
