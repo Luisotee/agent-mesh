@@ -14,6 +14,17 @@ import { activeTheme, monoStack, onThemeChange } from '@/theme'
 
 const encoder = new TextEncoder()
 
+/** What the host's terminal size says when another client made it smaller than the size this window asked for: "" when they agree or it is larger. */
+/** The sizes the terminal host accepts (daemon/internal/termhost/ws.go): it clamps what a client asks for. */
+export function clampSize(cols: number, rows: number): { cols: number; rows: number } {
+  return { cols: Math.min(Math.max(cols, 20), 500), rows: Math.min(Math.max(rows, 5), 300) }
+}
+
+export function sharedSize(host: { cols: number; rows: number } | undefined, local: { cols: number; rows: number }): string {
+  if (!host || (host.cols >= local.cols && host.rows >= local.rows)) return ''
+  return `${host.cols}×${host.rows}, as another client has it`
+}
+
 export function termStatus(s: TermState): string {
   switch (s.kind) {
     case 'connecting':
@@ -42,6 +53,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
   // Fits the terminal to its box and, the first time it has one, attaches it.
   const refitRef = useRef<() => void>(undefined)
   const [state, setState] = useState<TermState>({ kind: 'connecting' })
+  const [shared, setShared] = useState('')
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
 
@@ -64,6 +76,11 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
     t.open(el)
     term.current = t
     search.current = s
+    // The size the host was told for this window (it clamps what it is told, and takes a resize only from a client with input rights),
+    // so another client is blamed only when the host's size is below that.
+    let sent = { cols: 0, rows: 0 }
+    let canType = false
+    const tell = (cols: number, rows: number) => (sent = clampSize(cols, rows))
     const session = new TerminalSession({
       ticket: async () => {
         const r = await openTerminal(host.client, agentId, true)
@@ -73,13 +90,24 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
       sink: {
         write: (d) => t.write(d),
         reset: () => t.reset(),
-        size: () => ({ cols: t.cols, rows: t.rows }),
+        size: () => {
+          tell(t.cols, t.rows)
+          return { cols: t.cols, rows: t.rows }
+        },
       },
-      onState: setState,
+      onState: (s) => {
+        canType = s.kind === 'live' && s.input
+        setState(s)
+      },
+      // Looked at when the host says its size, not when this window changes: until the host answers a resize it still has the old size.
+      onHostSize: (cols, rows) => setShared(sharedSize({ cols, rows }, sent)),
     })
     t.onData((d) => session.input(encoder.encode(d)))
     t.onBinary((d) => session.input(Uint8Array.from(d, (ch) => ch.charCodeAt(0))))
-    t.onResize(({ cols, rows }) => session.resize(cols, rows))
+    t.onResize(({ cols, rows }) => {
+      session.resize(cols, rows)
+      if (canType) tell(cols, rows)
+    })
     let started = false
     const refit = () => {
       // A box that is hidden or not laid out yet has no size to fit to.
@@ -130,7 +158,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
   return (
     <div id={panelId} role="tabpanel" aria-labelledby={tabId} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div className="flex items-center gap-2 text-xs">
-        <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}</span>
+        <span role="status" data-testid="terminal-status" className="text-muted-foreground">{termStatus(state)}{shared && state.kind === 'live' ? ` (${shared})` : ''}</span>
         <span className="flex-1" />
         {searching ? (
           <form

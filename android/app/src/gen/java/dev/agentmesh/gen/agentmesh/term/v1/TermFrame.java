@@ -34,6 +34,7 @@ public  final class TermFrame extends
     REPLAY_DONE(13),
     EXITED(14),
     CLOSING(15),
+    RESIZED(16),
     FRAME_NOT_SET(0);
     private final int value;
     private FrameCase(int value) {
@@ -59,6 +60,7 @@ public  final class TermFrame extends
         case 13: return REPLAY_DONE;
         case 14: return EXITED;
         case 15: return CLOSING;
+        case 16: return RESIZED;
         case 0: return FRAME_NOT_SET;
         default: return null;
       }
@@ -615,6 +617,56 @@ public  final class TermFrame extends
    */
   private void clearClosing() {
     if (frameCase_ == 15) {
+      frameCase_ = 0;
+      frame_ = null;
+    }
+  }
+
+  public static final int RESIZED_FIELD_NUMBER = 16;
+  /**
+   * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+   */
+  @java.lang.Override
+  public boolean hasResized() {
+    return frameCase_ == 16;
+  }
+  /**
+   * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.term.v1.Resized getResized() {
+    if (frameCase_ == 16) {
+       return (dev.agentmesh.gen.agentmesh.term.v1.Resized) frame_;
+    }
+    return dev.agentmesh.gen.agentmesh.term.v1.Resized.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+   */
+  private void setResized(dev.agentmesh.gen.agentmesh.term.v1.Resized value) {
+    java.util.Objects.requireNonNull(value);
+    frame_ = value;
+    frameCase_ = 16;
+  }
+  /**
+   * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+   */
+  private void mergeResized(dev.agentmesh.gen.agentmesh.term.v1.Resized value) {
+    java.util.Objects.requireNonNull(value);
+    if (frameCase_ == 16 &&
+        frame_ != dev.agentmesh.gen.agentmesh.term.v1.Resized.getDefaultInstance()) {
+      frame_ = dev.agentmesh.gen.agentmesh.term.v1.Resized.newBuilder((dev.agentmesh.gen.agentmesh.term.v1.Resized) frame_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      frame_ = value;
+    }
+    frameCase_ = 16;
+  }
+  /**
+   * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+   */
+  private void clearResized() {
+    if (frameCase_ == 16) {
       frameCase_ = 0;
       frame_ = null;
     }
@@ -1261,6 +1313,54 @@ public  final class TermFrame extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+     */
+    @java.lang.Override
+    public boolean hasResized() {
+      return instance.hasResized();
+    }
+    /**
+     * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.term.v1.Resized getResized() {
+      return instance.getResized();
+    }
+    /**
+     * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+     */
+    public Builder setResized(dev.agentmesh.gen.agentmesh.term.v1.Resized value) {
+      copyOnWrite();
+      instance.setResized(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+     */
+    public Builder setResized(
+        dev.agentmesh.gen.agentmesh.term.v1.Resized.Builder builderForValue) {
+      copyOnWrite();
+      instance.setResized(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+     */
+    public Builder mergeResized(dev.agentmesh.gen.agentmesh.term.v1.Resized value) {
+      copyOnWrite();
+      instance.mergeResized(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.term.v1.Resized resized = 16 [json_name = "resized"];</code>
+     */
+    public Builder clearResized() {
+      copyOnWrite();
+      instance.clearResized();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.term.v1.TermFrame)
   }
   @java.lang.Override
@@ -1289,11 +1389,12 @@ public  final class TermFrame extends
             dev.agentmesh.gen.agentmesh.term.v1.ReplayDone.class,
             dev.agentmesh.gen.agentmesh.term.v1.Exited.class,
             dev.agentmesh.gen.agentmesh.term.v1.Closing.class,
+            dev.agentmesh.gen.agentmesh.term.v1.Resized.class,
           };
           java.lang.String info =
-              "\u0000\n\u0001\u0000\u0001\u000f\n\u0000\u0000\u0000\u0001<\u0000\u0002<\u0000\u0003" +
-              "<\u0000\u0004<\u0000\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<" +
-              "\u0000";
+              "\u0000\u000b\u0001\u0000\u0001\u0010\u000b\u0000\u0000\u0000\u0001<\u0000\u0002<" +
+              "\u0000\u0003<\u0000\u0004<\u0000\n<\u0000\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000" +
+              "\u000f<\u0000\u0010<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -222,6 +222,13 @@ class TermClient(
                 epoch = s.epoch
                 offset = s.offset
             }
+            TermFrame.FrameCase.RESIZED -> {
+                // Somebody resized: the output from here on is in the new epoch and size, which the screen takes in place. (A host
+                // that doesn't send this frame is found out by the epoch of its next output, below.)
+                val r = f.resized
+                epoch = r.epoch
+                screen.resize(r.cols.toInt(), r.rows.toInt())
+            }
             TermFrame.FrameCase.OUTPUT -> {
                 val o = f.output
                 if (o.epoch != epoch) { repaint = true; return Outcome.Now } // somebody resized

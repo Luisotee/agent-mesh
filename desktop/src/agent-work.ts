@@ -1,4 +1,4 @@
-import type { GetAgentChangesResponse, PlanItem } from './gen/agentmesh/v1/mesh_pb'
+import type { GetAgentChangesResponse, IgnoredEntry, PlanItem } from './gen/agentmesh/v1/mesh_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
 import { AgentRole } from './gen/agentmesh/v1/types_pb'
 
@@ -31,6 +31,17 @@ export function changeSummary(c: GetAgentChangesResponse): string {
   if (c.unpushed > 0) parts.push(`${plural(c.unpushed, 'commit')} not pushed`)
   if (parts.length === 0) parts.push(c.commits > 0 || c.files.length > 0 ? 'everything is committed and pushed' : 'no changes yet')
   return parts.join(' · ')
+}
+
+const size = (n: bigint | number, partial: boolean): string => {
+  const b = Number(n)
+  const text = b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : b >= 1 << 20 ? `${(b / (1 << 20)).toFixed(1)} MB` : b >= 1 << 10 ? `${Math.round(b / (1 << 10))} KB` : `${b} B`
+  return partial ? `at least ${text}` : text
+}
+
+/** The git-ignored files archiving would delete, one line each ("node_modules/ (212.4 MB)") and how many more the host did not list. */
+export function ignoredLines(c: GetAgentChangesResponse): { lines: { path: string; size: string }[]; more: number } {
+  return { lines: c.ignored.map((e: IgnoredEntry) => ({ path: e.path, size: size(e.bytes, e.partial) })), more: c.ignoredMore }
 }
 
 export const STATUS_MARK: Record<string, string> = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R', untracked: '?' }
