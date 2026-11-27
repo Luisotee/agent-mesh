@@ -202,14 +202,17 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const win = useRef<{ session: string; top?: string; index?: number; all: boolean }>({ session: '', all: false })
   if (win.current.session !== (agent?.sessionId ?? '')) win.current = { session: agent?.sessionId ?? '', all: false }
   let from = win.current.all ? 0 : win.current.top ? items.findIndex((i) => i.id === win.current.top) : -1
-  // The first block's item left (a card answered): the window stays where it was, not back to the newest 60.
-  if (from < 0) from = Math.min(win.current.index ?? Math.max(0, items.length - WINDOW), items.length)
-  // A plan or question waiting on the user, or one an agent asked to show, is always drawn: it is what the chat is for.
-  const pinned = items.findIndex((i) => i.kind === 'message' && shown.has(i.message.id))
-  if (pinned >= 0 && pinned < from) from = pinned
-  win.current.top = items[from]?.id
-  if (items.length > 0) win.current.index = from
-  const hidden = from
+  // The first block's item left (a card answered): the window stays where it was, never past the newest 60.
+  if (from < 0) from = Math.min(win.current.index ?? Infinity, Math.max(0, items.length - WINDOW))
+  // Only a transcript that has its blocks sets the window: before that the items are the run's cards alone.
+  const settled = loaded && blocks.length > 0
+  if (settled) {
+    win.current.top = items[from]?.id
+    win.current.index = from
+  } else from = 0
+  // A plan or question waiting on the user, or one an agent asked to show, is drawn above the window whatever its age: it is what the chat is for.
+  const above = settled ? items.slice(0, from).filter((i) => i.kind === 'message' && shown.has(i.message.id)) : []
+  const hidden = from - above.length
   const revealed = useRef<{ height: number; top: number }>(undefined)
   const [reveals, setReveals] = useState(0)
   // A dropped image is taken anywhere over the chat; the overlay says so while one is dragged over it.
@@ -300,7 +303,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
     if (hidden > 0) {
       // Held but not drawn: draw the next lot above, keeping the reader's place.
       if (el) revealed.current = { height: el.scrollHeight, top: el.scrollTop }
-      win.current.top = items[Math.max(0, hidden - WINDOW)]?.id
+      win.current.top = items[Math.max(0, from - WINDOW)]?.id
       stick.current = false
       setReveals((n) => n + 1)
       return
@@ -394,7 +397,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
         )}
         {items.length > 0 && (
           <ol aria-label="Conversation" className="flex flex-col gap-3">
-            {items.slice(hidden).map((b) => (
+            {[...above, ...items.slice(from)].map((b) => (
               <li key={b.id}>
                 {b.kind === 'message' ? (
                   <MessageCard host={host} message={b.message} open={open.has(b.message.id)} />

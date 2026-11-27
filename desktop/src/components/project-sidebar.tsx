@@ -1,5 +1,5 @@
 import { Bot, ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server, SquareTerminal } from 'lucide-react'
-import { AnimatePresence, m } from 'motion/react'
+import { AnimatePresence, m, useReducedMotion } from 'motion/react'
 import { memo, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
 import { Button } from '@/components/ui/button'
@@ -425,12 +425,14 @@ const WorkerItem = memo(WorkerItemView, (a, b) => a.hostId === b.hostId && sameW
 
 function WorkerItemView({ hostId, row }: { hostId: string; row: WorkerRow }) {
   const app = useApp()
+  // Opacity is not covered by `MotionConfig`'s reduced motion (only transforms are).
+  const still = !!useReducedMotion()
   const host = useAppState((s) => s.hosts.find((h) => h.info.id === hostId))
   const [dialog, setDialog] = useState<RowDialog>()
   const a = row.agent
   const entries: MenuEntry[] = [...agentEntries(app, hostId, a, setDialog), ...archiveEntry(a, setDialog)]
   return (
-    <m.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }} style={row.elsewhere ? hueStyle(a.repo) : undefined}>
+    <m.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: still ? 0 : 0.14 }} style={row.elsewhere ? hueStyle(a.repo) : undefined}>
       <RowContextMenu entries={entries}>
         <div data-row className="group flex items-start gap-0.5 pr-1">
           <AgentButton hostId={hostId} agent={a} helpers={row.helpers} tag={row.elsewhere ? repoName(a.repo) : undefined} onKeyDown={menuKey} />

@@ -1813,13 +1813,33 @@ describe('ChatView', () => {
     putMessages(host, plan)
     waitOn(host, plan)
     render(ui)
-    // The plan is older than all 150 blocks: it is drawn, and so is what is between it and the end.
+    // The plan is older than all 150 blocks: it is drawn above the newest 60, not by drawing everything between.
     expect(await screen.findByRole('article', { name: 'Plan from w1' })).toBeInTheDocument()
+    await screen.findByText('question number 149')
+    expect(screen.queryByText('question number 0')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Show earlier (90 more)' })).toBeInTheDocument()
+    // The reader draws it all, then the plan is answered and goes: what was drawn stays.
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (90 more)' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (30 more)' }))
     expect(screen.getByText('question number 0')).toBeInTheDocument()
-    // It is answered and goes: the reader's drawn blocks stay.
     act(() => waitOn(host))
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Plan from w1' })).toBeNull())
     expect(screen.getByText('question number 0')).toBeInTheDocument()
+  })
+
+  it('draws the newest blocks when the same session\'s record comes back shorter than the window was', async () => {
+    const long = Array.from({ length: 150 }, (_, n) => entry(`q${n}`, TranscriptKind.USER, { text: `question number ${n}` }))
+    const short = Array.from({ length: 40 }, (_, n) => entry(`s${n}`, TranscriptKind.USER, { text: `short ${n}` }))
+    let page = res(long, { atStart: true, endOffset: 150n })
+    const { ui, host } = chat({ read: vi.fn(async () => page) })
+    render(ui)
+    await screen.findByText('question number 149')
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (90 more)' }))
+    // The record was rewritten shorter (a reload, not a read on): the whole of it is drawn, not nothing.
+    page = res(short, { atStart: true, endOffset: 40n })
+    act(() => host.store.setState((st) => ({ agents: { ...st.agents, w1: { ...st.agents.w1!, stateDetail: 'x' } } })))
+    expect(await screen.findByText('short 39', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByText('short 0')).toBeInTheDocument()
   })
 
   it('does not send the composer\'s draft when "Other model…" is confirmed from inside it', async () => {
