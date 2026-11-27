@@ -36,6 +36,9 @@ const (
 	JSON      Type = "json"
 	// Shortcut is a key chord such as "Mod+Shift+P", or "" for none (ParseShortcut).
 	Shortcut Type = "shortcut"
+	// ChatKey is a key the chat's composer acts on while it has focus: a named key alone ("Escape", "ArrowUp"), a
+	// chord as for Shortcut, or "" for none (ValidChatKey).
+	ChatKey Type = "chat_key"
 )
 
 // Efforts are the levels an effort takes, lowest first.
@@ -134,6 +137,8 @@ func (l Leaf) rule() string {
 		return `"auto" or a whole number, 0 or more`
 	case JSON:
 		return "any JSON value"
+	case ChatKey:
+		return `a named key alone (` + strings.Join(namedKeys(), ", ") + `), a key chord such as Mod+Shift+P, or "" for none`
 	case Shortcut:
 		return `a key chord such as Mod+Shift+P (modifiers ` + strings.Join(shortcutModifiers, ", ") + `, then one key; at least one modifier besides Shift unless it is a function key), or "" for none`
 	}
@@ -241,6 +246,10 @@ func Check(l Leaf, v any) (any, error) {
 	case JSON:
 	case Shortcut:
 		if s, ok := v.(string); !ok || (s != "" && !ValidShortcut(s)) {
+			return bad()
+		}
+	case ChatKey:
+		if s, ok := v.(string); !ok || (s != "" && !ValidChatKey(s)) {
 			return bad()
 		}
 	default:
@@ -377,6 +386,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds an agent idle after a task, with no report to its parent, waits before it is nudged once (and, if it ends another turn the same way, its parent told); 0 turns nudges off"},
 		Leaf{Key: "accountability.wait_max", Type: Seconds, Default: 14400.0,
 			Summary: "seconds a declared wait (a `wait` message to the parent) holds off the nudge, at most"},
+		Leaf{Key: "opencode.stall_after", Type: Seconds, Default: 900.0,
+			Summary: "seconds an OpenCode agent's open reply may go with no new part or token (a stalled stream, or one long tool call) before its parent is told once; 0 never tells"},
 		Leaf{Key: "accountability.input_after", Type: Seconds, Default: 120.0,
 			Summary: "seconds an agent waits at a permission prompt or question with no answer before its parent is told (once per prompt); 0 never tells"},
 		Leaf{Key: "permission.wait", Type: Seconds, Default: 300.0,
@@ -389,6 +400,10 @@ func DefaultLeaves() []Leaf {
 			Summary: "doorbells (written to an inbox socket or typed) rung for one set of messages before giving up with a DoorbellFailed event; nothing more is typed until the agent's activity moves"},
 		Leaf{Key: "delivery.draft_hold_alert", Type: Seconds, Default: 600.0,
 			Summary: "seconds a doorbell waits for a human's draft in the agent's input box before a DoorbellHeld event says so (it is never typed into the draft); 0 never says"},
+		Leaf{Key: "worktree.include_max_mb", Type: Int, Default: 50.0,
+			Summary: "the most, in megabytes, a new worktree gets copied in from the repo's .worktreeinclude list (git-ignored files such as a .env); 0 copies nothing"},
+		Leaf{Key: "editor.command", Type: String, Default: "code",
+			Summary: "the program that opens a path in an editor on this host (the app's open-in-editor button): run without a shell, with the path as its one argument, found on the login shell's PATH"},
 		Leaf{Key: "compact.claude", Type: Int, Default: 300000.0,
 			Summary: "tokens a stopped Claude conversation has at resume above which it is compacted first (a read-only task's threshold is double, except a peer's); 0 turns it off"},
 		Leaf{Key: "compact.claude_cold", Type: Int, Default: 200000.0,
@@ -481,6 +496,25 @@ var shortcutNamedKeys = map[string]bool{
 	"ArrowLeft": true, "ArrowRight": true, "Plus": true,
 }
 
+// ValidChatKey reports whether s is a key the chat's composer may act on: one of bareChatKeys alone (it fires only
+// while the composer has focus, where a bare Escape or ArrowUp is what Claude Code uses), or a chord ValidShortcut
+// accepts.
+func ValidChatKey(s string) bool {
+	return bareChatKeys[s] || ValidShortcut(s)
+}
+
+// bareChatKeys are the keys a chat key may be alone: none of them types or edits text, or sends (Enter).
+var bareChatKeys = map[string]bool{"Escape": true, "ArrowUp": true, "ArrowDown": true, "PageUp": true, "PageDown": true}
+
+func namedKeys() []string {
+	out := make([]string, 0, len(bareChatKeys))
+	for k := range bareChatKeys {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ValidShortcut reports whether s is a key chord: modifiers (Mod, Ctrl, Alt, Shift, Meta, none twice) joined
 // by "+" and then one key, a single printable character other than "+" (letters in any case), a named key
 // (Enter, Tab, Space, Escape, Backspace, Delete, Insert, Home, End, PageUp, PageDown, an arrow, Plus) or F1 to
@@ -540,6 +574,12 @@ func AppLeaves() []Leaf {
 			Summary: "the theme the apps draw with: Dracula, Alucard, Catppuccin Mocha, Catppuccin Latte, Tokyo Night or Nord (an app that has no theme of that name uses Dracula; the Android app's own choice overrides it on that phone)"},
 		{Key: "app.dock.new_agents", Type: String, Default: "dock", Choices: DockNewAgents,
 			Summary: "what a worker that starts while the app is open does: pop into the live dock marked new (dock), only count on the dock's toggle (badge), open as a tab in the background (tab), or nothing (none). It never takes focus"},
+		{Key: "app.chat_keys.interrupt", Type: ChatKey, Default: "Escape",
+			Summary: "key in the chat's composer: interrupt the agent's turn while it works (Claude Code's Esc)"},
+		{Key: "app.chat_keys.recall", Type: ChatKey, Default: "ArrowUp",
+			Summary: "key in the chat's composer, when it is empty: take back the newest prompt still waiting to be typed, to edit or drop it (Claude Code's Up arrow)"},
+		{Key: "app.open_views", Type: Bool, Default: false,
+			Summary: "let an agent or the CLI switch the app to a view it asked for (an agent's chat or terminal, the settings, a run) by itself, never while you type (off: the app shows a toast you open or dismiss); only you can change it, an agent can't"},
 		{Key: "app.keys.palette", Type: Shortcut, Default: "Mod+Shift+P", Summary: "shortcut: open the command palette"},
 		{Key: "app.keys.settings", Type: Shortcut, Default: "Mod+,", Summary: "shortcut: open or close the host's settings"},
 		{Key: "app.keys.chat_toggle", Type: Shortcut, Default: "Mod+Shift+J", Summary: "shortcut: switch the open agent between its chat and its terminal"},

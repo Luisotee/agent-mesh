@@ -1,7 +1,7 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { DesktopApi, HostInfo, NewHost, SocketEvent, SocketHandle } from '../shared/api'
-import { joinWaiting } from './derive'
+import { waitingCount } from './derive'
 import { createMeshClient, type MeshClient } from './actions'
 import { HostConnection } from './connection'
 import { messageLoader } from './messages'
@@ -14,7 +14,9 @@ import type { Frame } from './connection'
 import { hostTransport } from './transport'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import type { Agent } from './gen/agentmesh/v1/types_pb'
-import { activate, cycleTab, closeTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, tabKey, unsplit, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
+import type { ViewRequest } from './gen/agentmesh/v1/mesh_pb'
+import { AgentRole } from './gen/agentmesh/v1/types_pb'
+import { activate, cycleTab, closeTab, emptyWorkspace, focusPane, forgetHost, noteSpawned, pinSplit, pruneDismissed, setPaneTab, splitAtEdge, tabKey, unsplit, type Edge, type SplitDir, type TabRef, type WorkspaceState } from './workspace'
 import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layout'
 import type { DockNewAgents } from './prefs'
 
@@ -36,6 +38,8 @@ export interface HostRuntime {
 export interface HostHooks {
   /** A worker started while the app was open (not one the user started, not history replayed): what the host's `app.dock.new_agents` says to do. */
   spawned(hostId: string, agent: Agent, mode: DockNewAgents): void
+  /** An agent or the CLI asked the app to show a view (`OpenView`), on a host whose `app.open_views` is `openViews`. */
+  view(hostId: string, request: ViewRequest, openViews: boolean): void
 }
 
 export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'shell'>, info: HostInfo, hooks?: HostHooks): HostRuntime {
@@ -55,6 +59,7 @@ export function connectHost(api: Pick<DesktopApi, 'request' | 'openSocket' | 'sh
       const before = store.getState()
       sink.onFrame(f)
       if (f.case === 'event' && f.value.payload.case === 'settingChanged') pendingSettings.push(f)
+      if (f.case === 'view') hooks?.view(info.id, f.value, appPrefs(before.settings).openViews)
       if (f.case === 'event') refresher.event(f.value)
       else if (f.case === 'snapshot' || f.case === 'resumed') refresher.synced()
       if (f.case === 'event') {
@@ -129,10 +134,20 @@ export interface AppState extends WorkspaceState {
   panelOpen: boolean
   /** The New workspace dialog is open. */
   workspaceOpen: boolean
+  /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */
+  workspaceRun?: string
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
+  /** A queued prompt taken back to edit, for its agent's composer to take (and clear). */
+  composerFill?: { agentId: string; text: string }
   /** The main pane shows the host's quota usage and spend. */
   usageOpen: boolean
+  /** The tab being dragged (not kept: it only shows the edges a tab can be dropped on). */
+  dragTab?: TabRef
+  /** Views an agent or the CLI asked the app to show, waiting for the user to open or dismiss them (the toasts). */
+  viewRequests: ViewRequestRow[]
+  /** The projects the user pinned in the New workspace dialog, by host id (device-local, with the layout). */
+  pins: Record<string, string[]>
 }
 
 /** How the sidebar groups the agents: by run (each as a tree from its lead), by repo, or by status bucket. */
@@ -161,6 +176,10 @@ export interface AppModel {
   setDock(open: boolean): void
   /** Shows an agent in a pane beside the main one (the dock's "pin as a split", the tab's split button). */
   pinSplit(hostId: string, agentId: string): void
+  /** A tab is being dragged (or the drag ended: `undefined`). */
+  setDragTab(ref: TabRef | undefined): void
+  /** A tab dropped on an edge of the main pane: it opens as a split there. */
+  splitAtEdge(ref: TabRef, edge: Edge): void
   /** Takes a pane away from beside the main one; its tab stays open. */
   unsplit(ref: TabRef): void
   /** Changes the view a pane beside the main one is on. */
@@ -174,11 +193,66 @@ export interface AppModel {
   openPalette(open: boolean): void
   setSidebarGroup(g: SidebarGroup): void
   setPanel(open: boolean): void
-  openWorkspace(open: boolean): void
+  openWorkspace(open: boolean, runId?: string): void
   openPairing(open: boolean): void
   /** Shows or hides the grid of every live agent. */
   openWatch(open: boolean): void
   openUsage(open: boolean): void
+  /** Shows what a toast names and takes the toast away. */
+  openViewRequest(id: number): void
+  /** Takes a toast away. */
+  dismissViewRequest(id: number): void
+  /** Pins a project of a host (or unpins it): pinned projects come first in the New workspace dialog. */
+  togglePin(hostId: string, path: string): void
+}
+
+export interface ViewRequestRow {
+  id: number
+  hostId: string
+  request: ViewRequest
+}
+
+let viewSeq = 0
+
+/**
+ * An agent or the CLI asked the app to show a view. It never switches the user's view by itself: it is a toast they open or
+ * dismiss. Only when the user turned `app.open_views` on does it switch at once, and even then never while they are typing (a
+ * terminal, a text field): a switch there would send their keystrokes somewhere else.
+ */
+export function offerView(app: AppModel, hostId: string, v: ViewRequest, openViews: boolean): void {
+  if (openViews && !typingNow()) return showView(app, hostId, v)
+  app.store.setState((s) => ({
+    viewRequests: [...s.viewRequests.filter((r) => !(r.hostId === hostId && r.request.view === v.view && r.request.target === v.target)), { id: ++viewSeq, hostId, request: v }].slice(-3),
+  }))
+}
+
+/** Whether the user is typing now: a text field or a terminal has the focus, so a view switched under them would take their keystrokes. */
+export function typingNow(): boolean {
+  if (typeof document === 'undefined') return false
+  const el = document.activeElement as HTMLElement | null
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)
+}
+
+/** Shows what an `OpenView` request names: an agent's chat or terminal, the host's settings, or a run (its lead). Does nothing for an agent or run the host doesn't have. */
+export function showView(app: AppModel, hostId: string, v: ViewRequest): void {
+  const host = app.store.getState().hosts.find((h) => h.info.id === hostId)
+  if (!host) return
+  const s = host.store.getState()
+  switch (v.view) {
+    case 'agent':
+    case 'terminal':
+      if (s.agents[v.target]) app.selectAgent(hostId, v.target, v.view === 'agent' ? 'chat' : 'terminal')
+      return
+    case 'run': {
+      const lead = Object.values(s.agents).find((a) => a.runId === v.target && a.role === AgentRole.ROOT)
+      if (lead) app.selectAgent(hostId, lead.id)
+      else if (s.runs[v.target]) app.selectHost(hostId)
+      return
+    }
+    case 'settings':
+      app.selectHost(hostId)
+      app.openSettings(true, v.target)
+  }
 }
 
 /** What went wrong opening the setup agent, in words the user can act on. */
@@ -190,13 +264,13 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, firstRun: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, firstRun: false, sidebarGroup: 'run', panelOpen: true, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
   let waiting = -1
   const recount = () => {
-    const n = store.getState().hosts.reduce((sum, h) => sum + joinWaiting(h.store.getState().waiting, h.store.getState().runs, h.store.getState().agents).length, 0)
+    const n = store.getState().hosts.reduce((sum, h) => sum + waitingCount(h.store.getState().waiting, h.store.getState().permissions, h.store.getState().runs, h.store.getState().agents), 0)
     if (n !== waiting) {
       waiting = n
       api.shell.setWaiting(n)
@@ -208,6 +282,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   }
   const hooks: HostHooks = {
     spawned: (hostId, agent, mode) => set((s) => noteSpawned(s, { hostId, agentId: agent.id }, mode, Date.now())),
+    view: (hostId, v, openViews) => offerView(model, hostId, v, openViews),
   }
   // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
   let saved = ''
@@ -228,7 +303,7 @@ export function createAppModel(api: DesktopApi): AppModel {
   }
   let restored = false
   store.subscribe((s, prev) => {
-    if (restored && (s.tabs !== prev.tabs || s.views !== prev.views || s.hostId !== prev.hostId || s.agentId !== prev.agentId || s.tab !== prev.tab || s.side !== prev.side || s.splitDir !== prev.splitDir || s.sidebarGroup !== prev.sidebarGroup || s.panelOpen !== prev.panelOpen || s.dockOpen !== prev.dockOpen)) save()
+    if (restored && (s.tabs !== prev.tabs || s.views !== prev.views || s.hostId !== prev.hostId || s.agentId !== prev.agentId || s.tab !== prev.tab || s.side !== prev.side || s.splitDir !== prev.splitDir || s.sidebarGroup !== prev.sidebarGroup || s.panelOpen !== prev.panelOpen || s.dockOpen !== prev.dockOpen || s.dismissed !== prev.dismissed || s.pins !== prev.pins)) save()
   })
   const unwatch = new Map<string, () => void>()
   const watch = (rt: HostRuntime) =>
@@ -240,7 +315,7 @@ export function createAppModel(api: DesktopApi): AppModel {
           const patch = pruneHost(store.getState(), rt.info.id, s.agents)
           if (patch) set(patch)
         }
-        if (s.waiting !== prev.waiting || s.agents !== prev.agents || s.runs !== prev.runs) recount()
+        if (s.waiting !== prev.waiting || s.permissions !== prev.permissions || s.agents !== prev.agents || s.runs !== prev.runs) recount()
         if (s.agents !== prev.agents) {
           // A dismissed tile that came back when its agent's state changed stays back.
           const held = store.getState().dismissed
@@ -322,7 +397,8 @@ export function createAppModel(api: DesktopApi): AppModel {
       unwatch.delete(id)
       set((s) => {
         const hosts = s.hosts.filter((h) => h.info.id !== id)
-        return { ...forgetHost(s, id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
+        const { [id]: _pins, ...pins } = s.pins
+        return { ...forgetHost(s, id), pins, viewRequests: s.viewRequests.filter((r) => r.hostId !== id), hosts, hostId: s.hostId === id ? hosts[0]?.info.id : s.hostId, agentId: s.hostId === id ? undefined : s.agentId }
       })
       recount()
       configure()
@@ -335,7 +411,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     openPalette: (open) => set({ paletteOpen: open }),
     setSidebarGroup: (sidebarGroup) => set({ sidebarGroup }),
     setPanel: (panelOpen) => set({ panelOpen }),
-    openWorkspace: (workspaceOpen) => set({ workspaceOpen }),
+    openWorkspace: (workspaceOpen, runId) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
     openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false, watchOpen: false }),
@@ -348,9 +424,24 @@ export function createAppModel(api: DesktopApi): AppModel {
     setDock: (open) => set(open ? { dockOpen: true, dockBadge: 0 } : { dockOpen: false }),
     pinSplit: (hostId, agentId) => set((s) => pinSplit(s, { hostId, agentId })),
     unsplit: (ref) => set((s) => unsplit(s, ref)),
+    setDragTab: (dragTab) => set({ dragTab }),
+    splitAtEdge: (ref, edge) => set((s) => ({ ...splitAtEdge(s, ref, edge), dragTab: undefined })),
     setPaneTab: (ref, tab) => set((s) => setPaneTab(s, ref, tab)),
     focusPane: (ref) => set((s) => focusPane(s, ref)),
     setSplitDir: (splitDir) => set({ splitDir }),
+    openViewRequest: (id) => {
+      const r = store.getState().viewRequests.find((x) => x.id === id)
+      set((s) => ({ viewRequests: s.viewRequests.filter((x) => x.id !== id) }))
+      if (r) showView(model, r.hostId, r.request)
+    },
+    dismissViewRequest: (id) => set((s) => ({ viewRequests: s.viewRequests.filter((x) => x.id !== id) })),
+    togglePin: (hostId, path) =>
+      set((s) => {
+        const cur = s.pins[hostId] ?? []
+        const next = cur.includes(path) ? cur.filter((p) => p !== path) : [...cur, path]
+        const { [hostId]: _old, ...rest } = s.pins
+        return { pins: next.length > 0 ? { ...rest, [hostId]: next } : rest }
+      }),
     dismissTile: (hostId, agentId) => {
       const state = store.getState().hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.state
       if (state !== undefined) set((s) => ({ dismissed: { ...s.dismissed, [tabKey({ hostId, agentId })]: state } }))

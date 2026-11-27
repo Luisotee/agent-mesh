@@ -1,7 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import type { Agent, Cursor, Device, Event, Message, Run, Setting } from './gen/agentmesh/v1/types_pb'
+import type { Agent, Cursor, Device, Event, Message, QueuedPrompt, Run, Setting } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
 import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
+import type { PendingPermission } from './gen/agentmesh/v1/mesh_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
 import type { ConnState, Frame } from './connection'
 
@@ -31,10 +32,22 @@ export interface HostState {
   waiting: WaitingRow[]
   /** Each change worker's pull requests (ListPullRequests), by agent id: read at connect and every minute by `refresh.ts`, and kept by PullRequestChanged events; empty until the host first answers. */
   pullRequests: Record<string, AgentPullRequests>
+  /** Why GitHub can't be read on the host (`no_gh`, `not_logged_in`), from the last ListPullRequests; empty when it can. */
+  githubProblem: string
+  /** The permission prompts held for agents' parents (ListPermissions), listed again by `refresh.ts` when a `PermissionChanged` event comes. */
+  permissions: PendingPermission[]
   /** The devices paired with the host (ListDevices, then DevicePaired and DeviceRevoked events), once it was asked. */
   devices: Device[]
   /** The pairing each device came through (a `DevicePaired` event's `pairingId`), by device id; a device with no entry is one whose event we didn't see, or from a host before the field. */
   pairedVia: Record<string, string>
+  /** The prompts sent to an agent's chat that wait to be typed, by agent id, oldest first: read with ListPrompts when its chat is shown, then kept by the Prompt* events. */
+  prompts: Record<string, QueuedPrompt[]>
+  /** Ids of prompts the host said were typed or taken back: a listing or an answer older than that event never brings one back. */
+  promptsDone: Record<string, true>
+  /** How often an agent's queue changed here (an event, a send, a take-back): a listing asked before a change is not applied. */
+  promptTouch: Record<string, number>
+  /** Counts the snapshots: a resync (a reconnect, a daemon restart) may have changed what isn't in the events we saw, so views read again. */
+  snapshots: number
   cursor?: Cursor
   log: LogLine[]
 }
@@ -45,7 +58,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, devices: [], pairedVia: {}, clockSkewMs: 0, log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, log: [] }
 }
 
 const MAX_LOG = 200
@@ -64,7 +77,9 @@ export function applyFrame(s: HostState, frame: Frame): HostState {
       // Messages of runs the host no longer lists go; those of the others stay (and are topped up by the loader).
       const messages = Object.fromEntries(Object.entries(s.messages).filter(([, m]) => m.runId in runs))
       const messageLoad = Object.fromEntries(Object.entries(s.messageLoad).filter(([id]) => id in runs))
-      return { ...s, synced: true, runs, agents, messages, messageLoad, cursor: frame.value.cursor }
+      // The queues of agents the host no longer has go; the others are listed again by the views that show them.
+      const prompts = Object.fromEntries(Object.entries(s.prompts).filter(([id]) => id in agents))
+      return { ...s, synced: true, runs, agents, messages, messageLoad, prompts, snapshots: s.snapshots + 1, cursor: frame.value.cursor }
     }
     case 'resumed':
       return { ...s, synced: true }
@@ -141,9 +156,12 @@ function applyEvent(s: HostState, e: Event): HostState {
       return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: p.value.reopen }))
     case 'agentReopenDropped':
       return withAgent(next, e.agentId, (a) => ({ ...a, pendingReopen: undefined }))
+    case 'agentArchived':
+      return withAgent(next, e.agentId, (a) => ({ ...a, archived: true }))
     case 'agentReopened':
       return withAgent(next, e.agentId, (a) => ({
         ...a,
+        archived: false,
         pendingReopen: undefined,
         terminalId: p.value.terminalId,
         sessionId: p.value.sessionId,
@@ -159,6 +177,10 @@ function applyEvent(s: HostState, e: Event): HostState {
     // Stopped on purpose (daemon/internal/daemon/retire.go): the process is gone, a message brings it back.
     case 'agentRetired':
       return withAgent(next, e.agentId, (a) => ({ ...a, state: AgentState.RETIRED, needsInput: 0, stateDetail: '', pendingReopen: undefined, lastActivity: e.time ?? a.lastActivity }))
+    case 'runRenamed': {
+      const r = s.runs[e.runId]
+      return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, title: p.value.title } } } : next
+    }
     case 'runStopped': {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next
@@ -173,6 +195,19 @@ function applyEvent(s: HostState, e: Event): HostState {
       const merged: AgentPullRequests = { ...(cur ?? { $typeName: 'agentmesh.v1.AgentPullRequests', agentId: pr.agentId, agentName: '', reviewing: [], readFailed: false }), pullRequests: prs }
       return { ...next, pullRequests: { ...s.pullRequests, [pr.agentId]: merged } }
     }
+    // The chat's queue: a prompt joins it, and leaves it once typed or taken back.
+    case 'promptQueued': {
+      const q = p.value.prompt
+      if (!q) return next
+      // A requeue (its typing never reached the terminal) is queued again, so it is no longer done.
+      const { [q.id]: _again, ...promptsDone } = s.promptsDone
+      const list = (s.prompts[q.agentId] ?? []).filter((x) => x.id !== q.id)
+      const sorted = [...list, q].sort((a, b) => Number((a.createdAt?.seconds ?? 0n) - (b.createdAt?.seconds ?? 0n)) || (a.createdAt?.nanos ?? 0) - (b.createdAt?.nanos ?? 0))
+      return { ...next, promptsDone, prompts: { ...s.prompts, [q.agentId]: sorted }, promptTouch: touch(s, q.agentId) }
+    }
+    case 'promptTyped':
+    case 'promptWithdrawn':
+      return { ...withoutPrompt(next, e.agentId, p.value.promptId), promptsDone: { ...s.promptsDone, [p.value.promptId]: true }, promptTouch: touch(s, e.agentId) }
     case 'devicePaired': {
       const d = p.value.device
       if (!d) return next
@@ -185,6 +220,37 @@ function applyEvent(s: HostState, e: Event): HostState {
     }
     default:
       return next
+  }
+}
+
+const touch = (s: HostState, agentId: string) => ({ ...s.promptTouch, [agentId]: (s.promptTouch[agentId] ?? 0) + 1 })
+
+function withoutPrompt(s: HostState, agentId: string, id: string): HostState {
+  const list = s.prompts[agentId]
+  return list?.some((x) => x.id === id) ? { ...s, prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : s
+}
+
+/**
+ * An agent's queue as the host listed it, which replaces what we hold for it, unless the queue changed here since the
+ * listing was asked for (`touchedAt`, the agent's `promptTouch` then): what we hold is newer than the answer.
+ */
+export function setPrompts(agentId: string, list: QueuedPrompt[], touchedAt: number): (s: HostState) => Partial<HostState> {
+  return (s) => ((s.promptTouch[agentId] ?? 0) !== touchedAt ? {} : { prompts: { ...s.prompts, [agentId]: list.filter((q) => !s.promptsDone[q.id]) } })
+}
+
+/** A prompt the host answered as queued, added before its event arrives (the event replaces it). */
+export function addPrompt(q: QueuedPrompt): (s: HostState) => Partial<HostState> {
+  return (s) => {
+    const list = s.prompts[q.agentId] ?? []
+    return list.some((x) => x.id === q.id) || s.promptsDone[q.id] ? {} : { prompts: { ...s.prompts, [q.agentId]: [...list, q] }, promptTouch: touch(s, q.agentId) }
+  }
+}
+
+/** A prompt taken back, removed at once and for good (its event follows; an older listing doesn't bring it back). */
+export function dropPrompt(agentId: string, id: string): (s: HostState) => Partial<HostState> {
+  return (s) => {
+    const list = s.prompts[agentId]
+    return { promptsDone: { ...s.promptsDone, [id]: true }, promptTouch: touch(s, agentId), ...(list?.some((x) => x.id === id) ? { prompts: { ...s.prompts, [agentId]: list.filter((x) => x.id !== id) } } : {}) }
   }
 }
 
@@ -222,6 +288,16 @@ export function setWaiting(waiting: WaitingRow[]): Partial<HostState> {
 /** The host's answer to ListPullRequests, which replaces the last one. */
 export function setPullRequests(list: AgentPullRequests[]): Partial<HostState> {
   return { pullRequests: Object.fromEntries(list.map((x) => [x.agentId, x])) }
+}
+
+/** Why GitHub can't be read on the host, from the last ListPullRequests. */
+export function setGithubProblem(githubProblem: string): Partial<HostState> {
+  return { githubProblem }
+}
+
+/** The host's list of held permission prompts, which replaces the last one. */
+export function setPermissions(permissions: PendingPermission[]): Partial<HostState> {
+  return { permissions }
 }
 
 /** A fresh listing of settings replaces what we have (the schema can differ after a daemon update). */

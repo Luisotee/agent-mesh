@@ -16,6 +16,7 @@ public  final class ListPullRequestsResponse extends
     ListPullRequestsResponseOrBuilder {
   private ListPullRequestsResponse() {
     agents_ = emptyProtobufList();
+    githubProblem_ = "";
   }
   public static final int AGENTS_FIELD_NUMBER = 1;
   private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests> agents_;
@@ -109,6 +110,78 @@ public  final class ListPullRequestsResponse extends
   private void removeAgents(int index) {
     ensureAgentsIsMutable();
     agents_.remove(index);
+  }
+
+  public static final int GITHUB_PROBLEM_FIELD_NUMBER = 2;
+  private java.lang.String githubProblem_;
+  /**
+   * <pre>
+   * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+   * (`gh auth status` fails). Empty when `gh` works.
+   * </pre>
+   *
+   * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+   * @return The githubProblem.
+   */
+  @java.lang.Override
+  public java.lang.String getGithubProblem() {
+    return githubProblem_;
+  }
+  /**
+   * <pre>
+   * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+   * (`gh auth status` fails). Empty when `gh` works.
+   * </pre>
+   *
+   * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+   * @return The bytes for githubProblem.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getGithubProblemBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(githubProblem_);
+  }
+  /**
+   * <pre>
+   * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+   * (`gh auth status` fails). Empty when `gh` works.
+   * </pre>
+   *
+   * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+   * @param value The githubProblem to set.
+   */
+  private void setGithubProblem(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    githubProblem_ = value;
+  }
+  /**
+   * <pre>
+   * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+   * (`gh auth status` fails). Empty when `gh` works.
+   * </pre>
+   *
+   * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+   */
+  private void clearGithubProblem() {
+
+    githubProblem_ = getDefaultInstance().getGithubProblem();
+  }
+  /**
+   * <pre>
+   * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+   * (`gh auth status` fails). Empty when `gh` works.
+   * </pre>
+   *
+   * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+   * @param value The bytes for githubProblem to set.
+   */
+  private void setGithubProblemBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    githubProblem_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.ListPullRequestsResponse parseFrom(
@@ -310,6 +383,80 @@ public  final class ListPullRequestsResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+     * (`gh auth status` fails). Empty when `gh` works.
+     * </pre>
+     *
+     * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+     * @return The githubProblem.
+     */
+    @java.lang.Override
+    public java.lang.String getGithubProblem() {
+      return instance.getGithubProblem();
+    }
+    /**
+     * <pre>
+     * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+     * (`gh auth status` fails). Empty when `gh` works.
+     * </pre>
+     *
+     * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+     * @return The bytes for githubProblem.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getGithubProblemBytes() {
+      return instance.getGithubProblemBytes();
+    }
+    /**
+     * <pre>
+     * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+     * (`gh auth status` fails). Empty when `gh` works.
+     * </pre>
+     *
+     * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+     * @param value The githubProblem to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGithubProblem(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setGithubProblem(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+     * (`gh auth status` fails). Empty when `gh` works.
+     * </pre>
+     *
+     * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearGithubProblem() {
+      copyOnWrite();
+      instance.clearGithubProblem();
+      return this;
+    }
+    /**
+     * <pre>
+     * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+     * (`gh auth status` fails). Empty when `gh` works.
+     * </pre>
+     *
+     * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+     * @param value The bytes for githubProblem to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGithubProblemBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setGithubProblemBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ListPullRequestsResponse)
   }
   @java.lang.Override
@@ -328,9 +475,11 @@ public  final class ListPullRequestsResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "agents_",
             dev.agentmesh.gen.agentmesh.v1.AgentPullRequests.class,
+            "githubProblem_",
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0000\u0001\u0001\u0001\u0000\u0001\u0000\u0001\u001b";
+              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u001b\u0002\u0208" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

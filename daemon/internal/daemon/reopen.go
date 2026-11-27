@@ -1416,6 +1416,7 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 		}
 		// The state is what the new process's hooks made it: it was set STARTING before the launch.
 		a.TerminalId, a.Model, a.Effort, a.DenyEdits = tid, r.Model, r.Effort, r.DenyEdits
+		a.Archived = false // its worktree was made again before the launch
 		if plan != nil && plan.SessionId != "" {
 			a.SessionId = plan.SessionId
 		}

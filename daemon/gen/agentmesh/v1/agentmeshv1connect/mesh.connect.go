@@ -56,6 +56,10 @@ const (
 	MeshServiceResumeAgentProcedure = "/agentmesh.v1.MeshService/ResumeAgent"
 	// MeshServiceRetireAgentProcedure is the fully-qualified name of the MeshService's RetireAgent RPC.
 	MeshServiceRetireAgentProcedure = "/agentmesh.v1.MeshService/RetireAgent"
+	// MeshServiceRenameRunProcedure is the fully-qualified name of the MeshService's RenameRun RPC.
+	MeshServiceRenameRunProcedure = "/agentmesh.v1.MeshService/RenameRun"
+	// MeshServiceOpenViewProcedure is the fully-qualified name of the MeshService's OpenView RPC.
+	MeshServiceOpenViewProcedure = "/agentmesh.v1.MeshService/OpenView"
 	// MeshServiceStopRunProcedure is the fully-qualified name of the MeshService's StopRun RPC.
 	MeshServiceStopRunProcedure = "/agentmesh.v1.MeshService/StopRun"
 	// MeshServiceSendMessageProcedure is the fully-qualified name of the MeshService's SendMessage RPC.
@@ -109,6 +113,14 @@ const (
 	MeshServiceReadTranscriptProcedure = "/agentmesh.v1.MeshService/ReadTranscript"
 	// MeshServicePromptAgentProcedure is the fully-qualified name of the MeshService's PromptAgent RPC.
 	MeshServicePromptAgentProcedure = "/agentmesh.v1.MeshService/PromptAgent"
+	// MeshServiceListPromptsProcedure is the fully-qualified name of the MeshService's ListPrompts RPC.
+	MeshServiceListPromptsProcedure = "/agentmesh.v1.MeshService/ListPrompts"
+	// MeshServiceWithdrawPromptProcedure is the fully-qualified name of the MeshService's
+	// WithdrawPrompt RPC.
+	MeshServiceWithdrawPromptProcedure = "/agentmesh.v1.MeshService/WithdrawPrompt"
+	// MeshServiceInterruptAgentProcedure is the fully-qualified name of the MeshService's
+	// InterruptAgent RPC.
+	MeshServiceInterruptAgentProcedure = "/agentmesh.v1.MeshService/InterruptAgent"
 	// MeshServiceCreatePairingProcedure is the fully-qualified name of the MeshService's CreatePairing
 	// RPC.
 	MeshServiceCreatePairingProcedure = "/agentmesh.v1.MeshService/CreatePairing"
@@ -184,6 +196,20 @@ const (
 	MeshServiceCreateWorktreeProcedure = "/agentmesh.v1.MeshService/CreateWorktree"
 	// MeshServiceStreamLogProcedure is the fully-qualified name of the MeshService's StreamLog RPC.
 	MeshServiceStreamLogProcedure = "/agentmesh.v1.MeshService/StreamLog"
+	// MeshServiceGetAgentChangesProcedure is the fully-qualified name of the MeshService's
+	// GetAgentChanges RPC.
+	MeshServiceGetAgentChangesProcedure = "/agentmesh.v1.MeshService/GetAgentChanges"
+	// MeshServiceGetAgentProgressProcedure is the fully-qualified name of the MeshService's
+	// GetAgentProgress RPC.
+	MeshServiceGetAgentProgressProcedure = "/agentmesh.v1.MeshService/GetAgentProgress"
+	// MeshServiceArchiveAgentProcedure is the fully-qualified name of the MeshService's ArchiveAgent
+	// RPC.
+	MeshServiceArchiveAgentProcedure = "/agentmesh.v1.MeshService/ArchiveAgent"
+	// MeshServiceOpenInEditorProcedure is the fully-qualified name of the MeshService's OpenInEditor
+	// RPC.
+	MeshServiceOpenInEditorProcedure = "/agentmesh.v1.MeshService/OpenInEditor"
+	// MeshServiceSetTailnetProcedure is the fully-qualified name of the MeshService's SetTailnet RPC.
+	MeshServiceSetTailnetProcedure = "/agentmesh.v1.MeshService/SetTailnet"
 	// MeshServiceRingAgentProcedure is the fully-qualified name of the MeshService's RingAgent RPC.
 	MeshServiceRingAgentProcedure = "/agentmesh.v1.MeshService/RingAgent"
 	// MeshServiceOpenAgentProcedure is the fully-qualified name of the MeshService's OpenAgent RPC.
@@ -215,6 +241,12 @@ type MeshServiceClient interface {
 	// Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
 	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
+	// Change a run's title. A root may rename its own run; a device any.
+	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
+	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+	// which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
+	// An agent may ask once in 10 seconds.
+	OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
@@ -281,8 +313,18 @@ type MeshServiceClient interface {
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
-	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+	// with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
+	// queued (the answer's `queued`) and typed at its next idle. Refused only for an agent with no terminal.
 	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
+	// The prompts the user sent an agent that wait to be typed: sent while it worked, started, waited at a prompt or had
+	// a draft in its box (`PromptAgent` queues them), typed one at a time at its next idle, oldest first.
+	ListPrompts(context.Context, *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error)
+	// Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
+	// once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
+	WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error)
+	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
+	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
+	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -362,6 +404,22 @@ type MeshServiceClient interface {
 	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
 	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
 	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest]) (*connect.ServerStreamForClient[v1.StreamLogResponse], error)
+	// What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+	// uncommitted work, and commits no remote branch has.
+	GetAgentChanges(context.Context, *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error)
+	// An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+	// its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
+	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+	// ResumeAgent brings it back: the worktree is made again from the branch.
+	ArchiveAgent(context.Context, *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error)
+	// Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+	// path as one argument). The host's own device only: it runs a program on the host's machine.
+	OpenInEditor(context.Context, *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error)
+	// Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+	// manager it restarts itself. The host's own device only.
+	SetTailnet(context.Context, *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error)
 	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
 	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
 	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
@@ -445,6 +503,18 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceRetireAgentProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("RetireAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		renameRun: connect.NewClient[v1.RenameRunRequest, v1.RenameRunResponse](
+			httpClient,
+			baseURL+MeshServiceRenameRunProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RenameRun")),
+			connect.WithClientOptions(opts...),
+		),
+		openView: connect.NewClient[v1.OpenViewRequest, v1.OpenViewResponse](
+			httpClient,
+			baseURL+MeshServiceOpenViewProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("OpenView")),
 			connect.WithClientOptions(opts...),
 		),
 		stopRun: connect.NewClient[v1.StopRunRequest, v1.StopRunResponse](
@@ -571,6 +641,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServicePromptAgentProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("PromptAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		listPrompts: connect.NewClient[v1.ListPromptsRequest, v1.ListPromptsResponse](
+			httpClient,
+			baseURL+MeshServiceListPromptsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListPrompts")),
+			connect.WithClientOptions(opts...),
+		),
+		withdrawPrompt: connect.NewClient[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse](
+			httpClient,
+			baseURL+MeshServiceWithdrawPromptProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("WithdrawPrompt")),
+			connect.WithClientOptions(opts...),
+		),
+		interruptAgent: connect.NewClient[v1.InterruptAgentRequest, v1.InterruptAgentResponse](
+			httpClient,
+			baseURL+MeshServiceInterruptAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("InterruptAgent")),
 			connect.WithClientOptions(opts...),
 		),
 		createPairing: connect.NewClient[v1.CreatePairingRequest, v1.CreatePairingResponse](
@@ -759,6 +847,36 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
 			connect.WithClientOptions(opts...),
 		),
+		getAgentChanges: connect.NewClient[v1.GetAgentChangesRequest, v1.GetAgentChangesResponse](
+			httpClient,
+			baseURL+MeshServiceGetAgentChangesProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetAgentChanges")),
+			connect.WithClientOptions(opts...),
+		),
+		getAgentProgress: connect.NewClient[v1.GetAgentProgressRequest, v1.GetAgentProgressResponse](
+			httpClient,
+			baseURL+MeshServiceGetAgentProgressProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetAgentProgress")),
+			connect.WithClientOptions(opts...),
+		),
+		archiveAgent: connect.NewClient[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse](
+			httpClient,
+			baseURL+MeshServiceArchiveAgentProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ArchiveAgent")),
+			connect.WithClientOptions(opts...),
+		),
+		openInEditor: connect.NewClient[v1.OpenInEditorRequest, v1.OpenInEditorResponse](
+			httpClient,
+			baseURL+MeshServiceOpenInEditorProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("OpenInEditor")),
+			connect.WithClientOptions(opts...),
+		),
+		setTailnet: connect.NewClient[v1.SetTailnetRequest, v1.SetTailnetResponse](
+			httpClient,
+			baseURL+MeshServiceSetTailnetProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SetTailnet")),
+			connect.WithClientOptions(opts...),
+		),
 		ringAgent: connect.NewClient[v1.RingAgentRequest, v1.RingAgentResponse](
 			httpClient,
 			baseURL+MeshServiceRingAgentProcedure,
@@ -787,6 +905,8 @@ type meshServiceClient struct {
 	switchAgent       *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
 	resumeAgent       *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
 	retireAgent       *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
+	renameRun         *connect.Client[v1.RenameRunRequest, v1.RenameRunResponse]
+	openView          *connect.Client[v1.OpenViewRequest, v1.OpenViewResponse]
 	stopRun           *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	sendMessage       *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	readInbox         *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
@@ -808,6 +928,9 @@ type meshServiceClient struct {
 	openTerminal      *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
 	readTranscript    *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
 	promptAgent       *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
+	listPrompts       *connect.Client[v1.ListPromptsRequest, v1.ListPromptsResponse]
+	withdrawPrompt    *connect.Client[v1.WithdrawPromptRequest, v1.WithdrawPromptResponse]
+	interruptAgent    *connect.Client[v1.InterruptAgentRequest, v1.InterruptAgentResponse]
 	createPairing     *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
 	listDevices       *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
 	revokeDevice      *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
@@ -839,6 +962,11 @@ type meshServiceClient struct {
 	listMCPServers    *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
 	createWorktree    *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
 	streamLog         *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
+	getAgentChanges   *connect.Client[v1.GetAgentChangesRequest, v1.GetAgentChangesResponse]
+	getAgentProgress  *connect.Client[v1.GetAgentProgressRequest, v1.GetAgentProgressResponse]
+	archiveAgent      *connect.Client[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse]
+	openInEditor      *connect.Client[v1.OpenInEditorRequest, v1.OpenInEditorResponse]
+	setTailnet        *connect.Client[v1.SetTailnetRequest, v1.SetTailnetResponse]
 	ringAgent         *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
 	openAgent         *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
 }
@@ -896,6 +1024,16 @@ func (c *meshServiceClient) ResumeAgent(ctx context.Context, req *connect.Reques
 // RetireAgent calls agentmesh.v1.MeshService.RetireAgent.
 func (c *meshServiceClient) RetireAgent(ctx context.Context, req *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error) {
 	return c.retireAgent.CallUnary(ctx, req)
+}
+
+// RenameRun calls agentmesh.v1.MeshService.RenameRun.
+func (c *meshServiceClient) RenameRun(ctx context.Context, req *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error) {
+	return c.renameRun.CallUnary(ctx, req)
+}
+
+// OpenView calls agentmesh.v1.MeshService.OpenView.
+func (c *meshServiceClient) OpenView(ctx context.Context, req *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error) {
+	return c.openView.CallUnary(ctx, req)
 }
 
 // StopRun calls agentmesh.v1.MeshService.StopRun.
@@ -1001,6 +1139,21 @@ func (c *meshServiceClient) ReadTranscript(ctx context.Context, req *connect.Req
 // PromptAgent calls agentmesh.v1.MeshService.PromptAgent.
 func (c *meshServiceClient) PromptAgent(ctx context.Context, req *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error) {
 	return c.promptAgent.CallUnary(ctx, req)
+}
+
+// ListPrompts calls agentmesh.v1.MeshService.ListPrompts.
+func (c *meshServiceClient) ListPrompts(ctx context.Context, req *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error) {
+	return c.listPrompts.CallUnary(ctx, req)
+}
+
+// WithdrawPrompt calls agentmesh.v1.MeshService.WithdrawPrompt.
+func (c *meshServiceClient) WithdrawPrompt(ctx context.Context, req *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error) {
+	return c.withdrawPrompt.CallUnary(ctx, req)
+}
+
+// InterruptAgent calls agentmesh.v1.MeshService.InterruptAgent.
+func (c *meshServiceClient) InterruptAgent(ctx context.Context, req *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error) {
+	return c.interruptAgent.CallUnary(ctx, req)
 }
 
 // CreatePairing calls agentmesh.v1.MeshService.CreatePairing.
@@ -1158,6 +1311,31 @@ func (c *meshServiceClient) StreamLog(ctx context.Context, req *connect.Request[
 	return c.streamLog.CallServerStream(ctx, req)
 }
 
+// GetAgentChanges calls agentmesh.v1.MeshService.GetAgentChanges.
+func (c *meshServiceClient) GetAgentChanges(ctx context.Context, req *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error) {
+	return c.getAgentChanges.CallUnary(ctx, req)
+}
+
+// GetAgentProgress calls agentmesh.v1.MeshService.GetAgentProgress.
+func (c *meshServiceClient) GetAgentProgress(ctx context.Context, req *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error) {
+	return c.getAgentProgress.CallUnary(ctx, req)
+}
+
+// ArchiveAgent calls agentmesh.v1.MeshService.ArchiveAgent.
+func (c *meshServiceClient) ArchiveAgent(ctx context.Context, req *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error) {
+	return c.archiveAgent.CallUnary(ctx, req)
+}
+
+// OpenInEditor calls agentmesh.v1.MeshService.OpenInEditor.
+func (c *meshServiceClient) OpenInEditor(ctx context.Context, req *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error) {
+	return c.openInEditor.CallUnary(ctx, req)
+}
+
+// SetTailnet calls agentmesh.v1.MeshService.SetTailnet.
+func (c *meshServiceClient) SetTailnet(ctx context.Context, req *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error) {
+	return c.setTailnet.CallUnary(ctx, req)
+}
+
 // RingAgent calls agentmesh.v1.MeshService.RingAgent.
 func (c *meshServiceClient) RingAgent(ctx context.Context, req *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {
 	return c.ringAgent.CallUnary(ctx, req)
@@ -1193,6 +1371,12 @@ type MeshServiceHandler interface {
 	// Stop an agent's process on purpose and keep its conversation: RETIRED, its token revoked, its worktree and
 	// branch kept. A message to it, or ResumeAgent, brings it back. Its parent or a device.
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
+	// Change a run's title. A root may rename its own run; a device any.
+	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
+	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+	// which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
+	// An agent may ask once in 10 seconds.
+	OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error)
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
@@ -1259,8 +1443,18 @@ type MeshServiceHandler interface {
 	ReadTranscript(context.Context, *connect.Request[v1.ReadTranscriptRequest]) (*connect.Response[v1.ReadTranscriptResponse], error)
 	// Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
 	// a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
-	// with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+	// with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
+	// queued (the answer's `queued`) and typed at its next idle. Refused only for an agent with no terminal.
 	PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error)
+	// The prompts the user sent an agent that wait to be typed: sent while it worked, started, waited at a prompt or had
+	// a draft in its box (`PromptAgent` queues them), typed one at a time at its next idle, oldest first.
+	ListPrompts(context.Context, *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error)
+	// Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
+	// once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
+	WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error)
+	// Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
+	// for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
+	InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.
 	CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error)
@@ -1340,6 +1534,22 @@ type MeshServiceHandler interface {
 	CreateWorktree(context.Context, *connect.Request[v1.CreateWorktreeRequest]) (*connect.Response[v1.CreateWorktreeResponse], error)
 	// The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
 	StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error
+	// What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+	// uncommitted work, and commits no remote branch has.
+	GetAgentChanges(context.Context, *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error)
+	// An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+	// its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
+	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+	// ResumeAgent brings it back: the worktree is made again from the branch.
+	ArchiveAgent(context.Context, *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error)
+	// Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+	// path as one argument). The host's own device only: it runs a program on the host's machine.
+	OpenInEditor(context.Context, *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error)
+	// Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+	// manager it restarts itself. The host's own device only.
+	SetTailnet(context.Context, *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error)
 	// Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.
 	RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error)
 	// Attach to a running agent's terminal, or reopen a stopped agent's conversation in your terminal outside any run.
@@ -1419,6 +1629,18 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceRetireAgentProcedure,
 		svc.RetireAgent,
 		connect.WithSchema(meshServiceMethods.ByName("RetireAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRenameRunHandler := connect.NewUnaryHandler(
+		MeshServiceRenameRunProcedure,
+		svc.RenameRun,
+		connect.WithSchema(meshServiceMethods.ByName("RenameRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceOpenViewHandler := connect.NewUnaryHandler(
+		MeshServiceOpenViewProcedure,
+		svc.OpenView,
+		connect.WithSchema(meshServiceMethods.ByName("OpenView")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceStopRunHandler := connect.NewUnaryHandler(
@@ -1545,6 +1767,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServicePromptAgentProcedure,
 		svc.PromptAgent,
 		connect.WithSchema(meshServiceMethods.ByName("PromptAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListPromptsHandler := connect.NewUnaryHandler(
+		MeshServiceListPromptsProcedure,
+		svc.ListPrompts,
+		connect.WithSchema(meshServiceMethods.ByName("ListPrompts")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceWithdrawPromptHandler := connect.NewUnaryHandler(
+		MeshServiceWithdrawPromptProcedure,
+		svc.WithdrawPrompt,
+		connect.WithSchema(meshServiceMethods.ByName("WithdrawPrompt")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceInterruptAgentHandler := connect.NewUnaryHandler(
+		MeshServiceInterruptAgentProcedure,
+		svc.InterruptAgent,
+		connect.WithSchema(meshServiceMethods.ByName("InterruptAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceCreatePairingHandler := connect.NewUnaryHandler(
@@ -1733,6 +1973,36 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("StreamLog")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceGetAgentChangesHandler := connect.NewUnaryHandler(
+		MeshServiceGetAgentChangesProcedure,
+		svc.GetAgentChanges,
+		connect.WithSchema(meshServiceMethods.ByName("GetAgentChanges")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceGetAgentProgressHandler := connect.NewUnaryHandler(
+		MeshServiceGetAgentProgressProcedure,
+		svc.GetAgentProgress,
+		connect.WithSchema(meshServiceMethods.ByName("GetAgentProgress")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceArchiveAgentHandler := connect.NewUnaryHandler(
+		MeshServiceArchiveAgentProcedure,
+		svc.ArchiveAgent,
+		connect.WithSchema(meshServiceMethods.ByName("ArchiveAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceOpenInEditorHandler := connect.NewUnaryHandler(
+		MeshServiceOpenInEditorProcedure,
+		svc.OpenInEditor,
+		connect.WithSchema(meshServiceMethods.ByName("OpenInEditor")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceSetTailnetHandler := connect.NewUnaryHandler(
+		MeshServiceSetTailnetProcedure,
+		svc.SetTailnet,
+		connect.WithSchema(meshServiceMethods.ByName("SetTailnet")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceRingAgentHandler := connect.NewUnaryHandler(
 		MeshServiceRingAgentProcedure,
 		svc.RingAgent,
@@ -1769,6 +2039,10 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceResumeAgentHandler.ServeHTTP(w, r)
 		case MeshServiceRetireAgentProcedure:
 			meshServiceRetireAgentHandler.ServeHTTP(w, r)
+		case MeshServiceRenameRunProcedure:
+			meshServiceRenameRunHandler.ServeHTTP(w, r)
+		case MeshServiceOpenViewProcedure:
+			meshServiceOpenViewHandler.ServeHTTP(w, r)
 		case MeshServiceStopRunProcedure:
 			meshServiceStopRunHandler.ServeHTTP(w, r)
 		case MeshServiceSendMessageProcedure:
@@ -1811,6 +2085,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceReadTranscriptHandler.ServeHTTP(w, r)
 		case MeshServicePromptAgentProcedure:
 			meshServicePromptAgentHandler.ServeHTTP(w, r)
+		case MeshServiceListPromptsProcedure:
+			meshServiceListPromptsHandler.ServeHTTP(w, r)
+		case MeshServiceWithdrawPromptProcedure:
+			meshServiceWithdrawPromptHandler.ServeHTTP(w, r)
+		case MeshServiceInterruptAgentProcedure:
+			meshServiceInterruptAgentHandler.ServeHTTP(w, r)
 		case MeshServiceCreatePairingProcedure:
 			meshServiceCreatePairingHandler.ServeHTTP(w, r)
 		case MeshServiceListDevicesProcedure:
@@ -1873,6 +2153,16 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceCreateWorktreeHandler.ServeHTTP(w, r)
 		case MeshServiceStreamLogProcedure:
 			meshServiceStreamLogHandler.ServeHTTP(w, r)
+		case MeshServiceGetAgentChangesProcedure:
+			meshServiceGetAgentChangesHandler.ServeHTTP(w, r)
+		case MeshServiceGetAgentProgressProcedure:
+			meshServiceGetAgentProgressHandler.ServeHTTP(w, r)
+		case MeshServiceArchiveAgentProcedure:
+			meshServiceArchiveAgentHandler.ServeHTTP(w, r)
+		case MeshServiceOpenInEditorProcedure:
+			meshServiceOpenInEditorHandler.ServeHTTP(w, r)
+		case MeshServiceSetTailnetProcedure:
+			meshServiceSetTailnetHandler.ServeHTTP(w, r)
 		case MeshServiceRingAgentProcedure:
 			meshServiceRingAgentHandler.ServeHTTP(w, r)
 		case MeshServiceOpenAgentProcedure:
@@ -1928,6 +2218,14 @@ func (UnimplementedMeshServiceHandler) ResumeAgent(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RetireAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RenameRun is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenView is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
@@ -2012,6 +2310,18 @@ func (UnimplementedMeshServiceHandler) ReadTranscript(context.Context, *connect.
 
 func (UnimplementedMeshServiceHandler) PromptAgent(context.Context, *connect.Request[v1.PromptAgentRequest]) (*connect.Response[v1.PromptAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.PromptAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListPrompts(context.Context, *connect.Request[v1.ListPromptsRequest]) (*connect.Response[v1.ListPromptsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListPrompts is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) WithdrawPrompt(context.Context, *connect.Request[v1.WithdrawPromptRequest]) (*connect.Response[v1.WithdrawPromptResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.WithdrawPrompt is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) InterruptAgent(context.Context, *connect.Request[v1.InterruptAgentRequest]) (*connect.Response[v1.InterruptAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.InterruptAgent is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) CreatePairing(context.Context, *connect.Request[v1.CreatePairingRequest]) (*connect.Response[v1.CreatePairingResponse], error) {
@@ -2136,6 +2446,26 @@ func (UnimplementedMeshServiceHandler) CreateWorktree(context.Context, *connect.
 
 func (UnimplementedMeshServiceHandler) StreamLog(context.Context, *connect.Request[v1.StreamLogRequest], *connect.ServerStream[v1.StreamLogResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StreamLog is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetAgentChanges(context.Context, *connect.Request[v1.GetAgentChangesRequest]) (*connect.Response[v1.GetAgentChangesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetAgentChanges is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetAgentProgress is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ArchiveAgent(context.Context, *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ArchiveAgent is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) OpenInEditor(context.Context, *connect.Request[v1.OpenInEditorRequest]) (*connect.Response[v1.OpenInEditorResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.OpenInEditor is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SetTailnet(context.Context, *connect.Request[v1.SetTailnetRequest]) (*connect.Response[v1.SetTailnetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetTailnet is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) RingAgent(context.Context, *connect.Request[v1.RingAgentRequest]) (*connect.Response[v1.RingAgentResponse], error) {

@@ -4,7 +4,7 @@
 
 import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { RequestMeta } from "./types_pb";
+import type { QueuedPrompt, RequestMeta } from "./types_pb";
 import { file_agentmesh_v1_types } from "./types_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/chat.proto.
  */
 export const file_agentmesh_v1_chat: GenFile = /*@__PURE__*/
-  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiFQoTUHJvbXB0QWdlbnRSZXNwb25zZSrEAQoOVHJhbnNjcmlwdEtpbmQSHwobVFJBTlNDUklQVF9LSU5EX1VOU1BFQ0lGSUVEEAASGAoUVFJBTlNDUklQVF9LSU5EX1VTRVIQARIdChlUUkFOU0NSSVBUX0tJTkRfQVNTSVNUQU5UEAISHQoZVFJBTlNDUklQVF9LSU5EX1RPT0xfQ0FMTBADEh8KG1RSQU5TQ1JJUFRfS0lORF9UT09MX1JFU1VMVBAEEhgKFFRSQU5TQ1JJUFRfS0lORF9NRVNIEAViBnByb3RvMw", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiQQoTUHJvbXB0QWdlbnRSZXNwb25zZRIqCgZxdWV1ZWQYASABKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0IiMKEkxpc3RQcm9tcHRzUmVxdWVzdBINCgVhZ2VudBgBIAEoCSJCChNMaXN0UHJvbXB0c1Jlc3BvbnNlEisKB3Byb21wdHMYASADKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0ImIKFVdpdGhkcmF3UHJvbXB0UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhEKCXByb21wdF9pZBgDIAEoCSJEChZXaXRoZHJhd1Byb21wdFJlc3BvbnNlEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQiTwoVSW50ZXJydXB0QWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkiKQoWSW50ZXJydXB0QWdlbnRSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIKsQBCg5UcmFuc2NyaXB0S2luZBIfChtUUkFOU0NSSVBUX0tJTkRfVU5TUEVDSUZJRUQQABIYChRUUkFOU0NSSVBUX0tJTkRfVVNFUhABEh0KGVRSQU5TQ1JJUFRfS0lORF9BU1NJU1RBTlQQAhIdChlUUkFOU0NSSVBUX0tJTkRfVE9PTF9DQUxMEAMSHwobVFJBTlNDUklQVF9LSU5EX1RPT0xfUkVTVUxUEAQSGAoUVFJBTlNDUklQVF9LSU5EX01FU0gQBWIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * One line of the conversation, in the order the CLI wrote it. Thinking, subagents' own turns and the CLI's
@@ -219,6 +219,13 @@ export const PromptAgentRequestSchema: GenMessage<PromptAgentRequest> = /*@__PUR
  * @generated from message agentmesh.v1.PromptAgentResponse
  */
 export type PromptAgentResponse = Message<"agentmesh.v1.PromptAgentResponse"> & {
+  /**
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   *
+   * @generated from field: agentmesh.v1.QueuedPrompt queued = 1;
+   */
+  queued?: QueuedPrompt | undefined;
 };
 
 /**
@@ -227,6 +234,136 @@ export type PromptAgentResponse = Message<"agentmesh.v1.PromptAgentResponse"> & 
  */
 export const PromptAgentResponseSchema: GenMessage<PromptAgentResponse> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_chat, 4);
+
+/**
+ * @generated from message agentmesh.v1.ListPromptsRequest
+ */
+export type ListPromptsRequest = Message<"agentmesh.v1.ListPromptsRequest"> & {
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 1;
+   */
+  agent: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.ListPromptsRequest.
+ * Use `create(ListPromptsRequestSchema)` to create a new message.
+ */
+export const ListPromptsRequestSchema: GenMessage<ListPromptsRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 5);
+
+/**
+ * @generated from message agentmesh.v1.ListPromptsResponse
+ */
+export type ListPromptsResponse = Message<"agentmesh.v1.ListPromptsResponse"> & {
+  /**
+   * Oldest first: the order they are typed in.
+   *
+   * @generated from field: repeated agentmesh.v1.QueuedPrompt prompts = 1;
+   */
+  prompts: QueuedPrompt[];
+};
+
+/**
+ * Describes the message agentmesh.v1.ListPromptsResponse.
+ * Use `create(ListPromptsResponseSchema)` to create a new message.
+ */
+export const ListPromptsResponseSchema: GenMessage<ListPromptsResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 6);
+
+/**
+ * @generated from message agentmesh.v1.WithdrawPromptRequest
+ */
+export type WithdrawPromptRequest = Message<"agentmesh.v1.WithdrawPromptRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+
+  /**
+   * The prompt to take back; empty takes the newest one queued.
+   *
+   * @generated from field: string prompt_id = 3;
+   */
+  promptId: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.WithdrawPromptRequest.
+ * Use `create(WithdrawPromptRequestSchema)` to create a new message.
+ */
+export const WithdrawPromptRequestSchema: GenMessage<WithdrawPromptRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 7);
+
+/**
+ * @generated from message agentmesh.v1.WithdrawPromptResponse
+ */
+export type WithdrawPromptResponse = Message<"agentmesh.v1.WithdrawPromptResponse"> & {
+  /**
+   * @generated from field: agentmesh.v1.QueuedPrompt prompt = 1;
+   */
+  prompt?: QueuedPrompt | undefined;
+};
+
+/**
+ * Describes the message agentmesh.v1.WithdrawPromptResponse.
+ * Use `create(WithdrawPromptResponseSchema)` to create a new message.
+ */
+export const WithdrawPromptResponseSchema: GenMessage<WithdrawPromptResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 8);
+
+/**
+ * @generated from message agentmesh.v1.InterruptAgentRequest
+ */
+export type InterruptAgentRequest = Message<"agentmesh.v1.InterruptAgentRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.InterruptAgentRequest.
+ * Use `create(InterruptAgentRequestSchema)` to create a new message.
+ */
+export const InterruptAgentRequestSchema: GenMessage<InterruptAgentRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 9);
+
+/**
+ * @generated from message agentmesh.v1.InterruptAgentResponse
+ */
+export type InterruptAgentResponse = Message<"agentmesh.v1.InterruptAgentResponse"> & {
+  /**
+   * True once the agent was seen back at its prompt; false when the key was sent but it hadn't stopped yet when the
+   * daemon stopped looking (its state follows when it does).
+   *
+   * @generated from field: bool stopped = 1;
+   */
+  stopped: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.InterruptAgentResponse.
+ * Use `create(InterruptAgentResponseSchema)` to create a new message.
+ */
+export const InterruptAgentResponseSchema: GenMessage<InterruptAgentResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 10);
 
 /**
  * @generated from enum agentmesh.v1.TranscriptKind

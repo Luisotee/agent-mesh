@@ -415,6 +415,12 @@ func logEntryFromEvent(ev *v1.Event, agentNames map[string]string, filterID, fil
 		}
 		entry.Kind = "reserve"
 		entry.Detail = fmt.Sprintf("over_reserve=%v", p.ReserveChanged.OverReserve)
+	case *v1.Event_RunRenamed:
+		if !matches(ev.AgentId) {
+			return nil, false
+		}
+		entry.Kind = "rename"
+		entry.Detail = p.RunRenamed.Previous + " -> " + p.RunRenamed.Title
 	case *v1.Event_RunStopped:
 		if !matches(ev.AgentId) {
 			return nil, false

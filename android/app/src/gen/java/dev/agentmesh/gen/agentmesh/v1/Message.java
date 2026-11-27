@@ -549,7 +549,74 @@ public  final class Message extends
     bitField0_ = (bitField0_ & ~0x00000008);
   }
 
-  public static final int RE_FIELD_NUMBER = 11;
+  public static final int WAIT_UNTIL_FIELD_NUMBER = 11;
+  private com.google.protobuf.Timestamp waitUntil_;
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  @java.lang.Override
+  public boolean hasWaitUntil() {
+    return ((bitField0_ & 0x00000010) != 0);
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getWaitUntil() {
+    return waitUntil_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : waitUntil_;
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  private void setWaitUntil(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    waitUntil_ = value;
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeWaitUntil(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    if (waitUntil_ != null &&
+        waitUntil_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+      waitUntil_ =
+        com.google.protobuf.Timestamp.newBuilder(waitUntil_).mergeFrom(value).buildPartial();
+    } else {
+      waitUntil_ = value;
+    }
+    bitField0_ |= 0x00000010;
+  }
+  /**
+   * <pre>
+   * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+   * </pre>
+   *
+   * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+   */
+  private void clearWaitUntil() {
+    waitUntil_ = null;
+    bitField0_ = (bitField0_ & ~0x00000010);
+  }
+
+  public static final int RE_FIELD_NUMBER = 12;
   private java.lang.String re_;
   /**
    * <pre>
@@ -557,7 +624,7 @@ public  final class Message extends
    * current task when it was sent. Empty for any other message.
    * </pre>
    *
-   * <code>string re = 11 [json_name = "re"];</code>
+   * <code>string re = 12 [json_name = "re"];</code>
    * @return The re.
    */
   @java.lang.Override
@@ -570,7 +637,7 @@ public  final class Message extends
    * current task when it was sent. Empty for any other message.
    * </pre>
    *
-   * <code>string re = 11 [json_name = "re"];</code>
+   * <code>string re = 12 [json_name = "re"];</code>
    * @return The bytes for re.
    */
   @java.lang.Override
@@ -584,7 +651,7 @@ public  final class Message extends
    * current task when it was sent. Empty for any other message.
    * </pre>
    *
-   * <code>string re = 11 [json_name = "re"];</code>
+   * <code>string re = 12 [json_name = "re"];</code>
    * @param value The re to set.
    */
   private void setRe(
@@ -599,7 +666,7 @@ public  final class Message extends
    * current task when it was sent. Empty for any other message.
    * </pre>
    *
-   * <code>string re = 11 [json_name = "re"];</code>
+   * <code>string re = 12 [json_name = "re"];</code>
    */
   private void clearRe() {
 
@@ -611,7 +678,7 @@ public  final class Message extends
    * current task when it was sent. Empty for any other message.
    * </pre>
    *
-   * <code>string re = 11 [json_name = "re"];</code>
+   * <code>string re = 12 [json_name = "re"];</code>
    * @param value The bytes for re to set.
    */
   private void setReBytes(
@@ -1268,11 +1335,82 @@ public  final class Message extends
 
     /**
      * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    @java.lang.Override
+    public boolean hasWaitUntil() {
+      return instance.hasWaitUntil();
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.Timestamp getWaitUntil() {
+      return instance.getWaitUntil();
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder setWaitUntil(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.setWaitUntil(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder setWaitUntil(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      copyOnWrite();
+      instance.setWaitUntil(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder mergeWaitUntil(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.mergeWaitUntil(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A wait's own deadline, already capped at accountability.wait_max from its time; unset without one.
+     * </pre>
+     *
+     * <code>.google.protobuf.Timestamp wait_until = 11 [json_name = "waitUntil"];</code>
+     */
+    public Builder clearWaitUntil() {  copyOnWrite();
+      instance.clearWaitUntil();
+      return this;
+    }
+
+    /**
+     * <pre>
      * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
      * current task when it was sent. Empty for any other message.
      * </pre>
      *
-     * <code>string re = 11 [json_name = "re"];</code>
+     * <code>string re = 12 [json_name = "re"];</code>
      * @return The re.
      */
     @java.lang.Override
@@ -1285,7 +1423,7 @@ public  final class Message extends
      * current task when it was sent. Empty for any other message.
      * </pre>
      *
-     * <code>string re = 11 [json_name = "re"];</code>
+     * <code>string re = 12 [json_name = "re"];</code>
      * @return The bytes for re.
      */
     @java.lang.Override
@@ -1299,7 +1437,7 @@ public  final class Message extends
      * current task when it was sent. Empty for any other message.
      * </pre>
      *
-     * <code>string re = 11 [json_name = "re"];</code>
+     * <code>string re = 12 [json_name = "re"];</code>
      * @param value The re to set.
      * @return This builder for chaining.
      */
@@ -1315,7 +1453,7 @@ public  final class Message extends
      * current task when it was sent. Empty for any other message.
      * </pre>
      *
-     * <code>string re = 11 [json_name = "re"];</code>
+     * <code>string re = 12 [json_name = "re"];</code>
      * @return This builder for chaining.
      */
     public Builder clearRe() {
@@ -1329,7 +1467,7 @@ public  final class Message extends
      * current task when it was sent. Empty for any other message.
      * </pre>
      *
-     * <code>string re = 11 [json_name = "re"];</code>
+     * <code>string re = 12 [json_name = "re"];</code>
      * @param value The bytes for re to set.
      * @return This builder for chaining.
      */
@@ -1367,12 +1505,13 @@ public  final class Message extends
             "createdAt_",
             "deliveredAt_",
             "readAt_",
+            "waitUntil_",
             "re_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u1009\u0000\u0004\u0208\u0005\u0208\u0006\f\u0007\u0208\b\u1009\u0001\t\u1009" +
-              "\u0002\n\u1009\u0003\u000b\u0208";
+              "\u0000\f\u0000\u0001\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u1009" +
+              "\u0000\u0004\u0208\u0005\u0208\u0006\f\u0007\u0208\b\u1009\u0001\t\u1009\u0002\n" +
+              "\u1009\u0003\u000b\u1009\u0004\f\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

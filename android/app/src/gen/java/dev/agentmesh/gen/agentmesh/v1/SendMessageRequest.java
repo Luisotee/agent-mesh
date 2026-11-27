@@ -17,6 +17,7 @@ public  final class SendMessageRequest extends
   private SendMessageRequest() {
     to_ = "";
     body_ = "";
+    until_ = "";
     re_ = "";
   }
   private int bitField0_;
@@ -224,7 +225,89 @@ public  final class SendMessageRequest extends
 
   }
 
-  public static final int RE_FIELD_NUMBER = 5;
+  public static final int UNTIL_FIELD_NUMBER = 5;
+  private java.lang.String until_;
+  /**
+   * <pre>
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+   * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+   * on another message type or a wait to anyone but your parent, is refused.
+   * </pre>
+   *
+   * <code>string until = 5 [json_name = "until"];</code>
+   * @return The until.
+   */
+  @java.lang.Override
+  public java.lang.String getUntil() {
+    return until_;
+  }
+  /**
+   * <pre>
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+   * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+   * on another message type or a wait to anyone but your parent, is refused.
+   * </pre>
+   *
+   * <code>string until = 5 [json_name = "until"];</code>
+   * @return The bytes for until.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getUntilBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(until_);
+  }
+  /**
+   * <pre>
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+   * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+   * on another message type or a wait to anyone but your parent, is refused.
+   * </pre>
+   *
+   * <code>string until = 5 [json_name = "until"];</code>
+   * @param value The until to set.
+   */
+  private void setUntil(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    until_ = value;
+  }
+  /**
+   * <pre>
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+   * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+   * on another message type or a wait to anyone but your parent, is refused.
+   * </pre>
+   *
+   * <code>string until = 5 [json_name = "until"];</code>
+   */
+  private void clearUntil() {
+
+    until_ = getDefaultInstance().getUntil();
+  }
+  /**
+   * <pre>
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+   * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+   * on another message type or a wait to anyone but your parent, is refused.
+   * </pre>
+   *
+   * <code>string until = 5 [json_name = "until"];</code>
+   * @param value The bytes for until to set.
+   */
+  private void setUntilBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    until_ = value.toStringUtf8();
+
+  }
+
+  public static final int RE_FIELD_NUMBER = 6;
   private java.lang.String re_;
   /**
    * <pre>
@@ -233,7 +316,7 @@ public  final class SendMessageRequest extends
    * current task.
    * </pre>
    *
-   * <code>string re = 5 [json_name = "re"];</code>
+   * <code>string re = 6 [json_name = "re"];</code>
    * @return The re.
    */
   @java.lang.Override
@@ -247,7 +330,7 @@ public  final class SendMessageRequest extends
    * current task.
    * </pre>
    *
-   * <code>string re = 5 [json_name = "re"];</code>
+   * <code>string re = 6 [json_name = "re"];</code>
    * @return The bytes for re.
    */
   @java.lang.Override
@@ -262,7 +345,7 @@ public  final class SendMessageRequest extends
    * current task.
    * </pre>
    *
-   * <code>string re = 5 [json_name = "re"];</code>
+   * <code>string re = 6 [json_name = "re"];</code>
    * @param value The re to set.
    */
   private void setRe(
@@ -278,7 +361,7 @@ public  final class SendMessageRequest extends
    * current task.
    * </pre>
    *
-   * <code>string re = 5 [json_name = "re"];</code>
+   * <code>string re = 6 [json_name = "re"];</code>
    */
   private void clearRe() {
 
@@ -291,7 +374,7 @@ public  final class SendMessageRequest extends
    * current task.
    * </pre>
    *
-   * <code>string re = 5 [json_name = "re"];</code>
+   * <code>string re = 6 [json_name = "re"];</code>
    * @param value The bytes for re to set.
    */
   private void setReBytes(
@@ -612,12 +695,96 @@ public  final class SendMessageRequest extends
 
     /**
      * <pre>
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+     * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+     * on another message type or a wait to anyone but your parent, is refused.
+     * </pre>
+     *
+     * <code>string until = 5 [json_name = "until"];</code>
+     * @return The until.
+     */
+    @java.lang.Override
+    public java.lang.String getUntil() {
+      return instance.getUntil();
+    }
+    /**
+     * <pre>
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+     * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+     * on another message type or a wait to anyone but your parent, is refused.
+     * </pre>
+     *
+     * <code>string until = 5 [json_name = "until"];</code>
+     * @return The bytes for until.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getUntilBytes() {
+      return instance.getUntilBytes();
+    }
+    /**
+     * <pre>
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+     * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+     * on another message type or a wait to anyone but your parent, is refused.
+     * </pre>
+     *
+     * <code>string until = 5 [json_name = "until"];</code>
+     * @param value The until to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUntil(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setUntil(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+     * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+     * on another message type or a wait to anyone but your parent, is refused.
+     * </pre>
+     *
+     * <code>string until = 5 [json_name = "until"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUntil() {
+      copyOnWrite();
+      instance.clearUntil();
+      return this;
+    }
+    /**
+     * <pre>
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+     * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+     * on another message type or a wait to anyone but your parent, is refused.
+     * </pre>
+     *
+     * <code>string until = 5 [json_name = "until"];</code>
+     * @param value The bytes for until to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUntilBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setUntilBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
      * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
      * a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
      * current task.
      * </pre>
      *
-     * <code>string re = 5 [json_name = "re"];</code>
+     * <code>string re = 6 [json_name = "re"];</code>
      * @return The re.
      */
     @java.lang.Override
@@ -631,7 +798,7 @@ public  final class SendMessageRequest extends
      * current task.
      * </pre>
      *
-     * <code>string re = 5 [json_name = "re"];</code>
+     * <code>string re = 6 [json_name = "re"];</code>
      * @return The bytes for re.
      */
     @java.lang.Override
@@ -646,7 +813,7 @@ public  final class SendMessageRequest extends
      * current task.
      * </pre>
      *
-     * <code>string re = 5 [json_name = "re"];</code>
+     * <code>string re = 6 [json_name = "re"];</code>
      * @param value The re to set.
      * @return This builder for chaining.
      */
@@ -663,7 +830,7 @@ public  final class SendMessageRequest extends
      * current task.
      * </pre>
      *
-     * <code>string re = 5 [json_name = "re"];</code>
+     * <code>string re = 6 [json_name = "re"];</code>
      * @return This builder for chaining.
      */
     public Builder clearRe() {
@@ -678,7 +845,7 @@ public  final class SendMessageRequest extends
      * current task.
      * </pre>
      *
-     * <code>string re = 5 [json_name = "re"];</code>
+     * <code>string re = 6 [json_name = "re"];</code>
      * @param value The bytes for re to set.
      * @return This builder for chaining.
      */
@@ -710,11 +877,12 @@ public  final class SendMessageRequest extends
             "to_",
             "type_",
             "body_",
+            "until_",
             "re_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\f\u0004\u0208\u0005\u0208";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\f\u0004\u0208\u0005\u0208\u0006\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

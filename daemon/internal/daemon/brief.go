@@ -159,7 +159,7 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 		out = append(out, d.tierLeanLine(r))
 	}
 	if isRoot { // the user's brakes: repos they merge or approve plans in, and what to ask before
-		out = append(out, d.autonomyBrief(r)...)
+		out = append(out, d.autonomyBrief(r, run)...)
 	}
 	if isRoot { // new or retired model families: the root's to propose a research ask on
 		if n := d.ModelNotice(ctx); n != "" {

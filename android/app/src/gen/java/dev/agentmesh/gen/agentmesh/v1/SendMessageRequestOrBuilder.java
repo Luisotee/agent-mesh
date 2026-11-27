@@ -66,12 +66,38 @@ public interface SendMessageRequestOrBuilder extends
 
   /**
    * <pre>
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+   * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+   * on another message type or a wait to anyone but your parent, is refused.
+   * </pre>
+   *
+   * <code>string until = 5 [json_name = "until"];</code>
+   * @return The until.
+   */
+  java.lang.String getUntil();
+  /**
+   * <pre>
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
+   * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
+   * on another message type or a wait to anyone but your parent, is refused.
+   * </pre>
+   *
+   * <code>string until = 5 [json_name = "until"];</code>
+   * @return The bytes for until.
+   */
+  com.google.protobuf.ByteString
+      getUntilBytes();
+
+  /**
+   * <pre>
    * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
    * a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
    * current task.
    * </pre>
    *
-   * <code>string re = 5 [json_name = "re"];</code>
+   * <code>string re = 6 [json_name = "re"];</code>
    * @return The re.
    */
   java.lang.String getRe();
@@ -82,7 +108,7 @@ public interface SendMessageRequestOrBuilder extends
    * current task.
    * </pre>
    *
-   * <code>string re = 5 [json_name = "re"];</code>
+   * <code>string re = 6 [json_name = "re"];</code>
    * @return The bytes for re.
    */
   com.google.protobuf.ByteString

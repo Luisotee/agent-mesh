@@ -562,3 +562,42 @@ func TestATaskForAWorkerThatHasNotReportedIsNeverCompacted(t *testing.T) {
 		t.Errorf("a mid-task answer compacted: %v", cs)
 	}
 }
+
+// A headless compaction still running when meshd stops is ended by the stop, and Serve returns: close() waits for
+// the compaction's goroutine (it is in bgWG) instead of closing the store under it, and the stop is not a
+// reason to wait the compaction's own timeout.
+func TestAHeadlessCompactionStillRunningWhenMeshdStopsIsEndedByTheStop(t *testing.T) {
+	started, ended := make(chan struct{}), make(chan error, 1)
+	var once sync.Once
+	w := startCompact(t, func(c *daemon.AgentConfig) {
+		c.CompactTimeout = 10 * time.Minute
+		c.RunCLI = func(ctx context.Context, argv []string, env map[string]string, cwd string) (string, error) {
+			once.Do(func() { close(started) })
+			<-ctx.Done() // a compaction that never finishes by itself
+			ended <- ctx.Err()
+			return "", ctx.Err()
+		}
+	})
+	_, before := w.stopped(t, "stopping", "", v1.AgentRole_AGENT_ROLE_WORKER, 500000, hour, 0)
+	if _, err := w.device.Mesh.ResumeAgent(context.Background(), connect.NewRequest(&v1.ResumeAgentRequest{Agent: before.Id, Task: "more"})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the compaction never started")
+	}
+	begin := time.Now()
+	w.stop() // fails the test when Serve does not return within 10 s
+	if took := time.Since(begin); took > 9*time.Second {
+		t.Errorf("stopping took %v with a compaction running", took)
+	}
+	select {
+	case err := <-ended:
+		if err == nil {
+			t.Error("the compaction's context was not ended")
+		}
+	default:
+		t.Error("the compaction was still running when Serve returned")
+	}
+}

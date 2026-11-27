@@ -1,18 +1,20 @@
 import { Copy, ExternalLink, Hand, MessageSquarePlus, PanelRightClose, Terminal } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
-import { LEVEL_LABEL, hasLevels, levelOf, listOf, nameEntries, withLevel, type Level } from '@/autonomy'
+import { getAgent, getCost, getUsage, holdPullRequest, sendMessage, setSetting } from '@/actions'
+import { ASK_KEY, LEVEL_LABEL, RUN_LEVEL_LABEL, askBeforeOf, askLines, hasLevels, levelOf, listOf, nameEntries, runLevelOf, withLevel, type Level } from '@/autonomy'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, Textarea } from '@/components/ui/input'
 import { ModelControl } from './model-control'
-import { MessageType } from '@/gen/agentmesh/v1/types_pb'
+import { Changes, Progress, WorktreeActions } from './agent-work'
+import { MessageType, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
 import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { costOf, costRows, dollars, isLead, prRows, quotaRows, resetsIn, type PrRow } from '@/side-panel'
+import { costOf, costRows, dollars, historyRows, isLead, prRows, type PrRow } from '@/side-panel'
+import { quotaRows, resetText } from '@/usage'
 
 /**
  * Beside the open agent: for a run's lead the whole run (what it cost in total and per agent, what waits on the user,
@@ -87,6 +89,7 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           <dd>{ROLE_LABEL[agent.role]}</dd>
         </dl>
         <ModelControl host={host} agent={agent} className="mt-1.5" />
+        <WorktreeActions key={agent.id} host={host} agent={agent} />
         <div className="mt-2 flex gap-1.5">
           {canTerminal && agent.terminalId && (
             <Button size="sm" variant="outline" onClick={() => app.selectAgent(host.info.id, agent.id, 'terminal')}>
@@ -100,7 +103,11 @@ function ForAgent({ host, agentId }: { host: HostRuntime; agentId: string }) {
           )}
         </div>
       </Section>
-      <Autonomy host={host} repo={agent.repo} />
+      <Progress host={host} agent={agent} />
+      <Changes host={host} agent={agent} />
+      <ModelHistory host={host} agent={agent} />
+      <Autonomy host={host} repo={agent.repo} run={run} />
+      <AskBefore host={host} run={run} />
       <Section title="Cost">
         {cost.error && !cost.value && <p className="text-xs text-destructive">Couldn't read the cost: {cost.error}</p>}
         {cost.loading && !cost.value && <p className="text-xs text-muted-foreground">Loading…</p>}
@@ -264,7 +271,7 @@ function Quota({ host }: { host: HostRuntime }) {
                 <div className={cn('h-full rounded-full', r.atReserve ? 'bg-state-needs' : 'bg-primary')} style={{ width: `${Math.min(100, Math.max(0, r.used))}%` }} />
                 {q.reserve < 100 && <div className="absolute inset-y-0 w-px bg-foreground/60" style={{ left: `${q.reserve}%` }} title={`Reserve: nothing new starts at ${q.reserve}%`} />}
               </div>
-              {r.resetsAt && <p className="text-[11px] text-muted-foreground">{resetsIn(r.resetsAt)}</p>}
+              {r.resetsAt && <p className="text-[11px] text-muted-foreground">{resetText(r.resetsAt)}</p>}
             </li>
           ))}
         </ul>
@@ -274,9 +281,71 @@ function Quota({ host }: { host: HostRuntime }) {
 }
 
 /** The user's level for the agent's project: which PRs a root may merge and whose plans it may approve (host settings). */
-function Autonomy({ host, repo }: { host: HostRuntime; repo: string }) {
+/** The models the agent ran on, oldest first: read from the host (`GetAgent`) when the agent is shown and again when its model or effort changes. */
+function ModelHistory({ host, agent }: { host: HostRuntime; agent: Agent }) {
+  const got = usePolled(async () => getAgent(host.client, agent.id), `${host.info.id}/${agent.id}/${agent.model}/${agent.effort}`, 120_000)
+  const rows = historyRows(got.value?.modelHistory ?? [])
+  // Older hosts keep none; one row is no history (the model is shown above).
+  if (rows.length < 2) return null
+  return (
+    <Section title="Model history" count={rows.length}>
+      <ol aria-label="Model history" className="space-y-0.5 text-xs">
+        {rows.map((r, i) => (
+          <li key={i} className="flex justify-between gap-2">
+            <span className="truncate">{r.text}</span>
+            <span className="shrink-0 text-muted-foreground" title={r.at ? new Date(r.at).toLocaleString() : undefined}>{r.why}</span>
+          </li>
+        ))}
+      </ol>
+    </Section>
+  )
+}
+
+/** The host's "always ask me before" list, one thing to a line: the lead of every run asks first (`autonomy.ask_before`). */
+function AskBefore({ host, run }: { host: HostRuntime; run?: Run }) {
+  const settings = useHostState(host, (s) => s.settings)
+  const saved = askBeforeOf(settings)
+  const [text, setText] = useState<string | undefined>()
+  const [error, setError] = useState('')
+  if (!settings[ASK_KEY]) return null
+  const shown = text ?? saved.join('\n')
+  async function save() {
+    if (text === undefined) return
+    const next = askLines(text)
+    setText(undefined)
+    if (JSON.stringify(next) === JSON.stringify(saved)) return
+    setError('')
+    try {
+      await setSetting(host.client, ASK_KEY, next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    }
+  }
+  return (
+    <Section title="Ask me before">
+      <Textarea aria-label="Always ask me before" value={shown} onChange={(e) => setText(e.target.value)} onBlur={() => void save()} placeholder="deploys&#10;migrations" className="min-h-14 text-xs" />
+      <p className="mt-1 text-[11px] text-muted-foreground">One per line. Every lead asks you before doing these, in every run.</p>
+      {run?.autonomy && run.autonomy.askBefore.length > 0 && (
+        <p className="mt-1 text-[11px] text-muted-foreground">This run also asks before: {run.autonomy.askBefore.join('; ')} (set when it started).</p>
+      )}
+      {error && <p role="alert" className="mt-1 text-[11px] text-destructive">{error}</p>}
+    </Section>
+  )
+}
+
+function Autonomy({ host, repo, run }: { host: HostRuntime; repo: string; run?: Run }) {
   const settings = useHostState(host, (s) => s.settings)
   const [error, setError] = useState('')
+  // A run started with a level of its own replaced the repo lists for itself: what its lead was told is that level, not the project's.
+  const own = runLevelOf(run?.autonomy)
+  if (own) {
+    return (
+      <Section title="Autonomy">
+        <p className="text-xs">{RUN_LEVEL_LABEL[own]}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">Set when this run started: it replaces the project's level for this run, so the project's setting below changes nothing here. Hold a single PR below.</p>
+      </Section>
+    )
+  }
   if (!repo || !hasLevels(settings)) return null
   const level = levelOf(settings, repo)
   const byName = nameEntries(settings, repo)

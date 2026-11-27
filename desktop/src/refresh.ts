@@ -1,9 +1,9 @@
 import { equals } from '@bufbuild/protobuf'
 import type { MeshClient } from './actions'
-import { listPullRequests, listWaiting } from './actions'
+import { listPermissions, listPullRequests, listWaiting } from './actions'
 import { realTimers, type Timers } from './connection'
 import { AgentSchema, MessageType, RunStatus, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
-import { setPullRequests, setWaiting, type HostStore } from './store'
+import { setGithubProblem, setPermissions, setPullRequests, setWaiting, type HostStore } from './store'
 
 /**
  * Two things the event stream doesn't carry, read from the host again when they may have changed.
@@ -21,7 +21,7 @@ import { setPullRequests, setWaiting, type HostStore } from './store'
  * `agentsEveryMs`; an agent an event touched meanwhile keeps what the event said.
  */
 export function hostRefresher(
-  client: Pick<MeshClient, 'listWaiting' | 'listAgents' | 'listPullRequests'>,
+  client: Pick<MeshClient, 'listWaiting' | 'listAgents' | 'listPullRequests' | 'listPermissions'>,
   store: HostStore,
   log: (line: string) => void,
   timers: Timers = realTimers,
@@ -43,6 +43,10 @@ export function hostRefresher(
   let prTouches = 0
   let complained = false
   let waitingFailed = false
+  // The held permission prompts: listed at connect and when the host says one was held or ended.
+  let permLoading = false
+  let permAgain = false
+  let permComplained = false
 
   const complain = (what: string, e: unknown) => {
     // A host that doesn't know the action (an older daemon) would say so every 30 s: once is enough.
@@ -77,6 +81,30 @@ export function hostRefresher(
     }
   }
 
+  async function loadPermissions(): Promise<void> {
+    if (permLoading) {
+      permAgain = true // what changed meanwhile is asked for once this call is done
+      return
+    }
+    permLoading = true
+    try {
+      const res = await listPermissions(client as MeshClient)
+      if (stopped) return
+      permComplained = false
+      store.setState(setPermissions(res.permissions))
+    } catch (e) {
+      // An older host doesn't know the action; said once. The list stays as it was.
+      if (!permComplained) log(`couldn't list the permission prompts: ${e instanceof Error ? e.message : String(e)}`)
+      permComplained = true
+    } finally {
+      permLoading = false
+      if (permAgain && !stopped) {
+        permAgain = false
+        void loadPermissions()
+      }
+    }
+  }
+
   /** At most one call per `debounceMs`, however many events come: a burst is one call, and a steady stream can't starve it. */
   const schedule = () => {
     if (stopped || pause !== undefined) return
@@ -108,6 +136,8 @@ export function hostRefresher(
       const failedRuns = new Set(results.flatMap((r, i) => (r.status === 'rejected' ? [runIds[i]!] : [])))
       const kept = Object.values(store.getState().pullRequests).filter((p) => failedRuns.has(store.getState().agents[p.agentId]?.runId ?? ''))
       store.setState(setPullRequests([...agents, ...kept]))
+      // The reason GitHub can't be read, when any run's answer gives one (a host with no `gh` says it for every run).
+      store.setState(setGithubProblem(results.flatMap((r) => (r.status === 'fulfilled' && r.value.githubProblem ? [r.value.githubProblem] : []))[0] ?? ''))
       if (failed) {
         // Said once (a host without `gh` or an older daemon would say it every minute); the buckets then lack "ready to review".
         if (!prsComplained) log(`couldn't read the pull requests: ${failed.reason instanceof Error ? failed.reason.message : String(failed.reason)}`)
@@ -173,6 +203,7 @@ export function hostRefresher(
           schedule()
           return
         // These change an agent the store holds too, so a list of the agents that was on its way is older than them.
+        case 'agentArchived':
         case 'agentReopenRequested':
         case 'agentReopenDropped':
         case 'agentReopened':
@@ -183,6 +214,9 @@ export function hostRefresher(
           return
         case 'pullRequestChanged':
           prTouches++
+          return
+        case 'permissionChanged':
+          void loadPermissions()
           return
         case 'runStopped':
           waitingTouches++
@@ -197,6 +231,7 @@ export function hostRefresher(
       pause = undefined
       void loadWaiting()
       void loadPullRequests()
+      void loadPermissions()
     },
     start(): void {
       ticker ??= timers.setInterval(() => void loadAgents(), agentsEveryMs)

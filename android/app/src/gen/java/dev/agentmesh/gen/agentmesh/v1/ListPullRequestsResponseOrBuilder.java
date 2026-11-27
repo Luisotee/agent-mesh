@@ -23,4 +23,26 @@ public interface ListPullRequestsResponseOrBuilder extends
    * <code>repeated .agentmesh.v1.AgentPullRequests agents = 1 [json_name = "agents"];</code>
    */
   int getAgentsCount();
+
+  /**
+   * <pre>
+   * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+   * (`gh auth status` fails). Empty when `gh` works.
+   * </pre>
+   *
+   * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+   * @return The githubProblem.
+   */
+  java.lang.String getGithubProblem();
+  /**
+   * <pre>
+   * Why no PR can be read from GitHub on this host: "no_gh" (the `gh` CLI is not installed) or "not_logged_in"
+   * (`gh auth status` fails). Empty when `gh` works.
+   * </pre>
+   *
+   * <code>string github_problem = 2 [json_name = "githubProblem"];</code>
+   * @return The bytes for githubProblem.
+   */
+  com.google.protobuf.ByteString
+      getGithubProblemBytes();
 }

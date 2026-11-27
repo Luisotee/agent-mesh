@@ -165,6 +165,7 @@ func (d *Daemon) prepareWorktreeForTask(ctx context.Context, a *v1.Agent, target
 	}
 	if recreated {
 		prep.note = fmt.Sprintf("recreated worktree %s", a.Worktree)
+		d.includeInto(ctx, a.Repo, a.Worktree)
 	}
 	if !changeTask {
 		return prep, nil

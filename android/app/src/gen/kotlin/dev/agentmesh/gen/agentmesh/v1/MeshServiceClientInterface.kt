@@ -62,6 +62,18 @@ public interface MeshServiceClientInterface {
   public suspend fun retireAgent(request: RetireAgentRequest, headers: Headers = emptyMap()): ResponseMessage<RetireAgentResponse>
 
   /**
+   *  Change a run's title. A root may rename its own run; a device any.
+   */
+  public suspend fun renameRun(request: RenameRunRequest, headers: Headers = emptyMap()): ResponseMessage<RenameRunResponse>
+
+  /**
+   *  Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+   *  which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
+   *  An agent may ask once in 10 seconds.
+   */
+  public suspend fun openView(request: OpenViewRequest, headers: Headers = emptyMap()): ResponseMessage<OpenViewResponse>
+
+  /**
    *  Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
    *  it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
    */
@@ -188,9 +200,28 @@ public interface MeshServiceClientInterface {
   /**
    *  Type a prompt into the agent's running CLI, as the user would in its terminal (the chat view's composer). Never
    *  a second process on the conversation, and never a mesh message: it is the user's own words, so only a device
-   *  with the terminal.input right may. Refused while the input box holds a draft or someone is typing.
+   *  with the terminal.input right may. Typed at once when the agent is at its prompt with an empty input box; else
+   *  queued (the answer's `queued`) and typed at its next idle. Refused only for an agent with no terminal.
    */
   public suspend fun promptAgent(request: PromptAgentRequest, headers: Headers = emptyMap()): ResponseMessage<PromptAgentResponse>
+
+  /**
+   *  The prompts the user sent an agent that wait to be typed: sent while it worked, started, waited at a prompt or had
+   *  a draft in its box (`PromptAgent` queues them), typed one at a time at its next idle, oldest first.
+   */
+  public suspend fun listPrompts(request: ListPromptsRequest, headers: Headers = emptyMap()): ResponseMessage<ListPromptsResponse>
+
+  /**
+   *  Take back a queued prompt before it is typed (the chat's Up arrow): the prompt is returned, to edit or drop. Refused
+   *  once the daemon has started typing it, so a prompt is either withdrawn or typed, never both.
+   */
+  public suspend fun withdrawPrompt(request: WithdrawPromptRequest, headers: Headers = emptyMap()): ResponseMessage<WithdrawPromptResponse>
+
+  /**
+   *  Interrupt an agent's turn, as Esc does in its terminal: the CLI stops what it is doing and waits for a prompt. Only
+   *  for a CLI whose interrupt key the adapter knows. A root may interrupt an agent of its own run.
+   */
+  public suspend fun interruptAgent(request: InterruptAgentRequest, headers: Headers = emptyMap()): ResponseMessage<InterruptAgentResponse>
 
   /**
    *  Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
@@ -363,6 +394,37 @@ public interface MeshServiceClientInterface {
    *  The run's events and messages as a timeline (sends, nudges, alerts, swaps...).
    */
   public suspend fun streamLog(headers: Headers = emptyMap()): ServerOnlyStreamInterface<StreamLogRequest, StreamLogResponse>
+
+  /**
+   *  What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+   *  uncommitted work, and commits no remote branch has.
+   */
+  public suspend fun getAgentChanges(request: GetAgentChangesRequest, headers: Headers = emptyMap()): ResponseMessage<GetAgentChangesResponse>
+
+  /**
+   *  An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+   *  its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+   */
+  public suspend fun getAgentProgress(request: GetAgentProgressRequest, headers: Headers = emptyMap()): ResponseMessage<GetAgentProgressResponse>
+
+  /**
+   *  Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+   *  changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+   *  ResumeAgent brings it back: the worktree is made again from the branch.
+   */
+  public suspend fun archiveAgent(request: ArchiveAgentRequest, headers: Headers = emptyMap()): ResponseMessage<ArchiveAgentResponse>
+
+  /**
+   *  Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+   *  path as one argument). The host's own device only: it runs a program on the host's machine.
+   */
+  public suspend fun openInEditor(request: OpenInEditorRequest, headers: Headers = emptyMap()): ResponseMessage<OpenInEditorResponse>
+
+  /**
+   *  Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+   *  manager it restarts itself. The host's own device only.
+   */
+  public suspend fun setTailnet(request: SetTailnetRequest, headers: Headers = emptyMap()): ResponseMessage<SetTailnetResponse>
 
   /**
    *  Re-ring an agent that has unread mail now, through the doorbell delivery path and draft guard.

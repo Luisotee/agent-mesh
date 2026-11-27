@@ -15,7 +15,6 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
-	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 // shareWithSetup makes a share folder that holds the setup agent's instructions.
@@ -138,7 +137,7 @@ func TestSetupRootMayPairButOthersMayNot(t *testing.T) {
 	asSetup := h.as(tok)
 
 	// The setup agent pairs and lists devices, and reads the tailnet.
-	if _, err := asSetup.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("p1"), Name: "phone"})); err != nil {
+	if _, err := asSetup.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("p1"), Name: "phone"})); err != nil {
 		t.Fatalf("setup root CreatePairing: %v", err)
 	}
 	if _, err := asSetup.ListDevices(ctx, connect.NewRequest(&v1.ListDevicesRequest{})); err != nil {
@@ -163,7 +162,7 @@ func TestSetupRootMayPairButOthersMayNot(t *testing.T) {
 		cl  func() error
 	}{
 		{"root", func() error {
-			_, err := h.as(rootTok).CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("p2")}))
+			_, err := h.as(rootTok).CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("p2")}))
 			return err
 		}},
 		{"root devices", func() error {
@@ -287,24 +286,11 @@ func TestTheSetupAgentsReminderIsSilentWhileItsResetTypes(t *testing.T) {
 	if text := h.d.ReminderText(ctx, h.agent(got.Agent.Id), "compact"); !strings.Contains(text, "the setup agent of run "+got.Run.Id) {
 		t.Fatalf("reminder = %q", text)
 	}
-	// The reset is on the agent only for this check: left there, the daemon's reset machinery would act on it.
-	putReset := func(pr *v1.RootReset) {
-		t.Helper()
-		err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
-			a, err := tx.GetAgent(got.Agent.Id)
-			if err != nil {
-				return err
-			}
-			a.PendingReset = pr
-			return tx.PutAgent(a)
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	putReset(&v1.RootReset{Id: "r-test", Via: "command", RequestedAt: timestamppb.Now(), TypedAt: timestamppb.Now()})
-	text := h.d.ReminderText(ctx, h.agent(got.Agent.Id), "clear")
-	putReset(nil)
+	// The reset is on the agent value only, not in the store: a stored reset is one the daemon's own reset step
+	// (a doorbell's deliver) may finish between the write and the check.
+	typing := h.agent(got.Agent.Id)
+	typing.PendingReset = &v1.RootReset{Id: "r-test", Via: "command", RequestedAt: timestamppb.Now(), TypedAt: timestamppb.Now()}
+	text := h.d.ReminderText(ctx, typing, "clear")
 	if text != "" {
 		t.Fatalf("a reminder while the reset types: %q", text)
 	}

@@ -29,6 +29,14 @@ export function TabBar() {
         return (
           <div
             key={tabKey(t)}
+            draggable
+            // Dropped on an edge of the main pane (`DropEdges`), the tab opens as a split there.
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', tabKey(t))
+              e.dataTransfer.effectAllowed = 'move'
+              app.setDragTab(t)
+            }}
+            onDragEnd={() => app.setDragTab(undefined)}
             className={cn('group flex max-w-52 min-w-0 items-center rounded-t-md border border-b-0 text-[13px]', active ? 'bg-background text-foreground' : 'border-transparent text-muted-foreground hover:bg-accent')}
           >
             <button

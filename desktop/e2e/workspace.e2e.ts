@@ -177,8 +177,8 @@ test('the chat view: the conversation as blocks, a prompt typed from the compose
 
   // A prompt from the composer reaches the agent's CLI, and its turn shows up in the conversation.
   const box = panel.getByRole('textbox', { name: 'Prompt' })
-  // The host types only into an empty input box, so a send right after the agent started may be refused (the text
-  // stays in the composer): send again until it is taken.
+  // A send is queued when the agent can't take it yet (still starting) and typed at its next idle: the box empties
+  // at once. Sent again only if the host refused outright.
   const send = () =>
     expect
       .poll(async () => {
@@ -216,4 +216,34 @@ test('the chat view: the conversation as blocks, a prompt typed from the compose
   const read = await host.client().readTranscript({ agent: lead.id, offset: -1n, backward: true })
   expect(read.supported).toBe(true)
   expect(read.entries.filter((e) => e.kind === TranscriptKind.USER).map((e) => e.text)).toEqual(['fix the typo', 'first line\nsecond line'])
+
+  // Mid-turn a send is queued, never refused: it shows waiting under the conversation, Up takes the newest back to
+  // edit, and what stays queued is typed once the turn ends.
+  await page.keyboard.press('Control+Shift+J')
+  await panel.getByTestId('terminal').click()
+  await page.keyboard.type('/hold')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Control+Shift+J')
+  await expect.poll(() => panel.getByTestId('chat-status').innerText(), { timeout: 20_000 }).toContain('Working')
+  await box.fill('after the hold')
+  await box.press('Enter')
+  const queue = panel.getByRole('region', { name: 'Queued prompts' })
+  await queue.getByText('after the hold').waitFor()
+  await queue.getByText(/Sent when it finishes its turn/).waitFor()
+  await box.fill('second thoughts')
+  await box.press('Enter')
+  await queue.getByText('second thoughts').waitFor()
+  await page.screenshot({ path: path.join(shots, 'chat-queued.png') })
+  await box.press('ArrowUp')
+  await expect.poll(() => box.inputValue()).toBe('second thoughts')
+  await queue.getByText('second thoughts').waitFor({ state: 'detached' })
+  await box.fill('')
+  // The held turn ends (Enter in its terminal): the queued prompt goes in.
+  await page.keyboard.press('Control+Shift+J')
+  await panel.getByTestId('terminal').click()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Control+Shift+J')
+  await expect.poll(() => list.innerText(), { timeout: 20_000 }).toContain('Done: after the hold')
+  await queue.waitFor({ state: 'detached' })
+  expect(await list.innerText()).not.toContain('second thoughts')
 })

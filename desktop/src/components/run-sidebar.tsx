@@ -1,11 +1,13 @@
-import { Plus, UserPlus } from 'lucide-react'
+import { Pencil, Plus, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
+import { renameRun } from '@/actions'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { useApp, useAppState, useHostState } from '@/context'
-import { BUCKET_LABEL, bucketOf, groupByProject, groupByState, waitingIds, type Bucket, type BucketContext, type Group } from '@/buckets'
+import { BUCKET_LABEL, bucketOf, githubNote, groupByProject, groupByState, waitingIds, type Bucket, type BucketContext, type Group } from '@/buckets'
 import { buildTrees, joinWaiting, repoName, ROLE_LABEL, statusSentence, type TreeNode } from '@/derive'
-import { RunStatus, type Agent } from '@/gen/agentmesh/v1/types_pb'
+import { RunStatus, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
 import { cn } from '@/lib/utils'
 import type { HostRuntime, SidebarGroup } from '@/model'
 import { StateIcon } from './state-icon'
@@ -21,6 +23,7 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
   const waiting = useHostState(host, (s) => s.waiting)
   const pullRequests = useHostState(host, (s) => s.pullRequests)
   const group = useAppState((s) => s.sidebarGroup)
+  const githubProblem = useHostState(host, (s) => s.githubProblem)
   const trees = useMemo(() => buildTrees(runs, agents), [runs, agents])
   const ctx = useMemo<BucketContext>(() => ({ waiting: waitingIds(joinWaiting(waiting, runs, agents)), pullRequests }), [waiting, runs, agents, pullRequests])
   const groups = useMemo(() => (group === 'project' ? groupByProject(runs, agents, ctx, repoName) : group === 'state' ? groupByState(runs, agents, ctx) : []), [group, runs, agents, ctx])
@@ -35,6 +38,7 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
         </div>
       </div>
       <GroupSwitch />
+      {githubNote(githubProblem) && <p role="note" className="mx-3 mb-2 rounded-md border border-dashed px-2 py-1.5 text-[11px] text-muted-foreground">{githubNote(githubProblem)}</p>}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {trees.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-muted-foreground">No runs yet. Start one to give a lead agent its work.</p>
@@ -44,7 +48,7 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
         {group === 'run' && trees.map((t) => (
           <section key={t.run.id} className="mb-3" aria-label={t.run.title || t.run.id}>
             <header className="flex items-center gap-2 px-2 py-1">
-              <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{t.run.title || 'Untitled run'}</h3>
+              <RunTitle host={host} run={t.run} />
               {t.run.status === RunStatus.CLOSED && <Badge>closed</Badge>}
               {t.needsInput > 0 && <Badge className="border-state-needs text-state-needs">{t.needsInput} need you</Badge>}
               <SpawnDialog host={host} runId={t.run.id} trigger={<Button size="icon" variant="ghost" className="size-6" aria-label={`Add an agent to ${t.run.title || t.run.id}`}><UserPlus className="size-3.5" /></Button>} />
@@ -60,6 +64,49 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
         ))}
       </div>
     </nav>
+  )
+}
+
+/** A run's title; the pencil (or a double click) makes it editable, Enter saves, Escape keeps it. */
+export function RunTitle({ host, run }: { host: HostRuntime; run: Run }) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const title = run.title || 'Untitled run'
+  async function save() {
+    const next = text.trim()
+    if (busy) return // Enter and the blur that follows it are one save
+    if (!next || next === run.title) return setEditing(false)
+    setBusy(true)
+    try {
+      await renameRun(host.client, run.id, next)
+      setEditing(false)
+      setError('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const open = () => {
+    setText(run.title)
+    setError('')
+    setEditing(true)
+  }
+  if (!editing) {
+    return (
+      <>
+        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold" title="Double click to rename" onDoubleClick={open}>{title}</h3>
+        <Button size="icon" variant="ghost" className="size-6" aria-label={`Rename ${title}`} onClick={open}><Pencil className="size-3.5" /></Button>
+      </>
+    )
+  }
+  return (
+    <form className="flex min-w-0 flex-1 flex-col gap-1" onSubmit={(e) => { e.preventDefault(); void save() }}>
+      <Input aria-label="Run title" autoFocus value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setEditing(false) }} onBlur={() => void save()} className="h-7 text-[13px]" />
+      {error && <span role="alert" className="text-[11px] text-destructive">{error}</span>}
+    </form>
   )
 }
 
@@ -169,6 +216,7 @@ function AgentButton({ agent: a, host, note }: { agent: Agent; host: HostRuntime
           <span className="flex items-center gap-1.5">
             <span className="truncate font-medium">{a.name}</span>
             <Badge>{ROLE_LABEL[a.role]}</Badge>
+            {a.archived && <Badge>archived</Badge>}
           </span>
           <span className="block truncate text-xs text-muted-foreground">{statusSentence(a)}</span>
           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
