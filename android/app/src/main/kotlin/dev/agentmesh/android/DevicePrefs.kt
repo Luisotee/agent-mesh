@@ -82,6 +82,22 @@ class DevicePrefs(context: Context) {
         else if (drafts.getString(key, null) != text.take(MAX_DRAFT)) drafts.edit().putString(key, text.take(MAX_DRAFT)).apply()
     }
 
+    private val _activitySeen = MutableStateFlow(readSeen())
+
+    /** The newest Activity entry the user has looked at, by host (an event's `seq`): what is newer counts as unread. */
+    val activitySeen: StateFlow<Map<String, Long>> get() = _activitySeen
+
+    fun markActivitySeen(hostId: String, seq: Long) {
+        if (seq <= (_activitySeen.value[hostId] ?: 0L)) return
+        _activitySeen.value = _activitySeen.value + (hostId to seq)
+        prefs.edit().putString(SEEN, org.json.JSONObject(_activitySeen.value as Map<*, *>).toString()).apply()
+    }
+
+    private fun readSeen(): Map<String, Long> = runCatching {
+        val o = org.json.JSONObject(prefs.getString(SEEN, null) ?: return emptyMap())
+        o.keys().asSequence().associateWith { o.getLong(it) }
+    }.getOrDefault(emptyMap())
+
     /** The shells this phone opened (`hostId/shellId`, oldest first): their terminal is sized to the phone's view, also after the app was restarted. Bounded: the oldest are forgotten. */
     private fun phoneShells(): List<String> = prefs.getString(PHONE_SHELLS, null).orEmpty().split('\n').filter { it.isNotEmpty() }
 
@@ -106,6 +122,7 @@ class DevicePrefs(context: Context) {
             for ((h, repos) in _pins.value) for (r in repos) arr.put(org.json.JSONArray().put(h).put(r))
             prefs.edit().putString(PINS, arr.toString()).apply()
         }
+        if (hostId in _activitySeen.value) { _activitySeen.value = _activitySeen.value - hostId; prefs.edit().putString(SEEN, org.json.JSONObject(_activitySeen.value as Map<*, *>).toString()).apply() }
         val keep = _hidden.value.filterTo(HashSet()) { !it.startsWith("$hostId\n") }
         if (keep.size != _hidden.value.size) { prefs.edit().putStringSet(HIDDEN, keep).apply(); _hidden.value = keep }
     }
@@ -137,6 +154,7 @@ class DevicePrefs(context: Context) {
         const val EVENTS = "notify_events"
         const val PINS = "pins"
         const val HIDDEN = "hidden_projects"
+        const val SEEN = "activity_seen"
         const val PHONE_SHELLS = "phone_shell_marks"
         const val MAX_PHONE_SHELLS = 60
         const val MAX_DRAFT = 50_000

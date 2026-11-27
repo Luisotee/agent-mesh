@@ -16,6 +16,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
 )
 
 func (h *agentsHarness) withdraw(agent, id, mid string) (*v1.QueuedPrompt, error) {
@@ -327,11 +328,23 @@ func TestASendOverADraftWhileSomeoneTypesAndOtherRefusals(t *testing.T) {
 	user := h.openTerminal(ctx, a, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL})
 	defer user.Close()
 	user.Ready(ctx)
+	typedAt := time.Now()
 	user.Input(ctx, []byte("x\x7f"))
-	waitFor(t, "the keystroke counted", func() bool {
-		_, err := h.sendAnyway(a.Id, p.Id, "half a thou", "over-6-"+time.Now().String())
-		return err != nil && strings.Contains(err.Error(), "someone is typing")
+	// Wait for the host to count the keystroke by looking at it, not by sending: a send that arrives before the host
+	// has counted it finds nobody typing and goes through (the draft is cleared, the prompt is typed and gone), and the
+	// polling that followed could then never see "someone is typing" again.
+	tc, err := termclient.New(statedir.Paths{Dir: h.state}.Term())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the keystroke counted by the host", func() bool {
+		ti := h.terminalOf(ctx, tc, a)
+		// Newer than the keystroke: the typist before it, on the same terminal, left a time of its own.
+		return ti != nil && ti.InputClients > 0 && ti.LastClientInput != nil && ti.LastClientInput.AsTime().After(typedAt)
 	})
+	if _, err := h.sendAnyway(a.Id, p.Id, "half a thou", "over-6"); err == nil || !strings.Contains(err.Error(), "someone is typing") {
+		t.Fatalf("a send while someone types: %v", err)
+	}
 	if q := h.prompts(a.Id); len(q) != 1 || q[0].Id != p.Id {
 		t.Errorf("the prompt should still wait: %v", q)
 	}
