@@ -496,6 +496,16 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		// as it was and nothing is requested twice.
 		fromParent := !IsAgent(actor.Class) || to.ParentId == actor.Id
 		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) && fromParent
+		if direct {
+			// An addition to a planner at work on its plan (a turn running, no plan or question from it since its
+			// task) is more work for the plan it is making, not a decision to skip it: it ends no phase and
+			// reopens nothing. To skip a plan the parent approves it. Read before this message is stored.
+			if add, err := plannerOwesItsPlan(t.Reader, to); err != nil {
+				return err
+			} else if add {
+				direct = false
+			}
+		}
 		// A task that is not a read-only one, from the agent's parent or a device, makes an asker or reviewer
 		// the worker for it (takeChange), before the direct task lifts its list.
 		wasReadOnly := adapter.ReadOnly(to.Role)

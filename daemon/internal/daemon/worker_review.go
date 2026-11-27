@@ -126,9 +126,10 @@ func githubRepoOf(u string) string {
 }
 
 // workerGuard refuses what a worker may not do with a review of this PR: one that is not its own (its head is not
-// the worker's branch), and one whose rounds its parent runs (`review.by`, `--reviews root`: a relay for a risky
-// PR). Anyone else passes.
-func (d *Daemon) workerGuard(r store.Reader, actor *v1.Actor, pr *prInfo) error {
+// the worker's branch, nor the branch checked out in its own worktree: a worker may open its PR from another
+// branch than the one it was registered on), and one whose rounds its parent runs (`review.by`, `--reviews root`: a
+// relay for a risky PR). Anyone else passes.
+func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Actor, pr *prInfo) error {
 	self := d.selfWorker(r, actor)
 	if self == nil {
 		return nil
@@ -138,10 +139,23 @@ func (d *Daemon) workerGuard(r store.Reader, actor *v1.Actor, pr *prInfo) error 
 			"your parent runs the reviews of your PR (review.by or --reviews root: a relay, or a PR it reads itself): "+
 				"don't ask a round; report `done` and it starts them"))
 	}
-	if pr.HeadRef == "" || pr.HeadRef != self.Branch {
+	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && pr.HeadRef != worktreeBranch(ctx, self)) {
 		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
 	}
 	return nil
+}
+
+// worktreeBranch is the branch checked out in a worker's own worktree (read-only), or "" when it has none, the
+// worktree is gone or HEAD is detached: then only the registered branch counts.
+func worktreeBranch(ctx context.Context, a *v1.Agent) string {
+	if a.Worktree == "" {
+		return ""
+	}
+	b, err := gitRO(ctx, a.Worktree, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return b
 }
 
 // workerRoundsUsed is how many reviews of the PR count against a worker's ceiling: the answered rounds (any

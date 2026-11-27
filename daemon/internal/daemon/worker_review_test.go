@@ -657,3 +657,27 @@ func TestAWorkerReviewsNoPRByURLOfAnotherGitHubRepo(t *testing.T) {
 		t.Errorf("a PR on its upstream remote: %v", err)
 	}
 }
+
+// A worker registered on mesh/<run>/<slug> that moved its work to another branch (and opened its PR from it) still
+// reviews its own PR: the branch checked out in its own worktree counts. Another PR's head still does not.
+func TestAWorkerThatMovedToAnotherBranchStillReviewsItsPR(t *testing.T) {
+	a := startAuthor(t, "")
+	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
+	if out, err := exec.Command("git", "-C", a.worker.Worktree, "switch", "-q", "-c", "moved-on").CombinedOutput(); err != nil {
+		t.Fatalf("git switch: %v %s", err, out)
+	}
+	a.pr.headRef = "moved-on"
+	a.pr.push(t, "the feature")
+	res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
+	if err != nil {
+		t.Fatalf("a PR from the branch its worktree is on: %v", err)
+	}
+	if len(res.Agents) != 1 {
+		t.Errorf("round %v", res)
+	}
+	a.pr.headRef = "somebody-elses"
+	a.pr.push(t, "again")
+	if _, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Kind: "claude"}); code(err) != connect.CodePermissionDenied {
+		t.Errorf("another PR: %v", err)
+	}
+}

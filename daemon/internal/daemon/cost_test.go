@@ -22,6 +22,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 var costT0 = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
@@ -36,7 +37,7 @@ func costISO(minutes float64) string {
 
 func startCostHarness(t *testing.T, home string) *harness {
 	t.Helper()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{
 		StateDir: state,
 		TCP:      "127.0.0.1:0",
@@ -161,7 +162,7 @@ func TestCostColdResumesAndCopyDedupAndUnstoppedRunCap(t *testing.T) {
 	home := t.TempDir()
 	var now atomic.Int64
 	now.Store(costT0.UnixNano())
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{
 		StateDir: state,
 		TCP:      "127.0.0.1:0",
@@ -242,7 +243,7 @@ func TestCostComprehensiveAttributionAndWindows(t *testing.T) {
 	home := t.TempDir()
 	var now atomic.Int64
 	now.Store(costT0.UnixNano())
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{
 		StateDir: state,
 		TCP:      "127.0.0.1:0",

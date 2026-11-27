@@ -283,7 +283,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		return nil, err
 	}
 	r := d.store.Read(ctx)
-	if err := d.workerGuard(r, actor, pr); err != nil {
+	if err := d.workerGuard(ctx, r, actor, pr); err != nil {
 		return nil, err
 	}
 	if err := d.workerCeiling(r, actor, m.Meta, pr, m.Size); err != nil {
@@ -381,7 +381,7 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 		return nil, err
 	}
 	r := d.store.Read(ctx)
-	if err := d.workerGuard(r, actor, pr); err != nil {
+	if err := d.workerGuard(ctx, r, actor, pr); err != nil {
 		return nil, err
 	}
 	if err := d.workerCeiling(r, actor, m.Meta, pr, m.Size); err != nil {

@@ -24,6 +24,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // boxWorld starts a world whose fake claude draws the input box and logs the lines typed (and frames written)
@@ -265,7 +266,7 @@ func TestAnAgentAtADialogGetsNoSecondEnterAndTheDoorbellIsGivenUp(t *testing.T) 
 // inboxWorld is a world whose fake claude binds a cross-session inbox.
 func inboxWorld(t *testing.T, env map[string]string, tweaks ...func(*daemon.AgentConfig)) (*reopenWorld, string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ibx")
+	dir, err := shortdir.Make("ibx")
 	if err != nil {
 		t.Fatal(err)
 	}

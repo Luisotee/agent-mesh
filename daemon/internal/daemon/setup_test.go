@@ -15,6 +15,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // shareWithSetup makes a share folder that holds the setup agent's instructions.
@@ -43,7 +44,7 @@ func startSetup(t *testing.T, h *agentsHarness) *v1.StartSetupResponse {
 
 func TestStartSetupStartsOnceAndResumes(t *testing.T) {
 	share := shareWithSetup(t)
-	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
+	h := startWithAgents(t, shortdir.State(t), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
 	ctx := context.Background()
 
 	first := startSetup(t, h)
@@ -95,7 +96,7 @@ func TestStartSetupStartsOnceAndResumes(t *testing.T) {
 
 func TestStartSetupNeedsItsInstructions(t *testing.T) {
 	// No share folder at all.
-	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir())
+	h := startWithAgents(t, shortdir.State(t), t.TempDir())
 	_, err := h.device.Mesh.StartSetup(context.Background(), connect.NewRequest(&v1.StartSetupRequest{Meta: meta("s1")}))
 	if code(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("no share: %v, want failed precondition", err)
@@ -103,7 +104,7 @@ func TestStartSetupNeedsItsInstructions(t *testing.T) {
 	// A share folder without SETUP.md (an old install).
 	old := t.TempDir()
 	os.MkdirAll(filepath.Join(old, "protocol"), 0o755)
-	h2 := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = old })
+	h2 := startWithAgents(t, shortdir.State(t), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = old })
 	_, err = h2.device.Mesh.StartSetup(context.Background(), connect.NewRequest(&v1.StartSetupRequest{Meta: meta("s2")}))
 	if code(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("no SETUP.md: %v, want failed precondition", err)
@@ -127,7 +128,7 @@ func TestOnlyDevicesStartSetup(t *testing.T) {
 
 func TestSetupRootMayPairButOthersMayNot(t *testing.T) {
 	share := shareWithSetup(t)
-	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
+	h := startWithAgents(t, shortdir.State(t), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
 	ctx := context.Background()
 	setup := startSetup(t, h)
 	tok, err := fsutil.ReadSecret(statedir.Paths{Dir: h.state}.AgentToken(setup.Agent.Id))
@@ -201,7 +202,7 @@ func TestSetupAgentFirstDoorbellNamesItsInstructions(t *testing.T) {
 // refused) is finished by the next StartSetup, not handed to SpawnAgent as it is.
 func TestStartSetupFinishesAHalfMadeScratchRepo(t *testing.T) {
 	share := shareWithSetup(t)
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	scratch := filepath.Join(state, "setup")
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		t.Fatal(err)
@@ -224,7 +225,7 @@ func TestStartSetupFinishesAHalfMadeScratchRepo(t *testing.T) {
 // always have one.
 func TestStartSetupPicksACLIThatIsInstalled(t *testing.T) {
 	share := shareWithSetup(t)
-	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) {
+	h := startWithAgents(t, shortdir.State(t), t.TempDir(), func(c *daemon.AgentConfig) {
 		c.Share = share
 		c.Binaries = map[string]string{"agy": filepath.Join(bins, "agy")} // no claude, and LookPath finds nothing
 	})
@@ -237,7 +238,7 @@ func TestStartSetupPicksACLIThatIsInstalled(t *testing.T) {
 
 func TestStartSetupWithNoCLIInstalledSaysSo(t *testing.T) {
 	share := shareWithSetup(t)
-	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) {
+	h := startWithAgents(t, shortdir.State(t), t.TempDir(), func(c *daemon.AgentConfig) {
 		c.Share = share
 		c.Binaries = map[string]string{}
 	})
@@ -279,7 +280,7 @@ func TestStartSetupDoesNotUseAnEnclosingRepo(t *testing.T) {
 // The setup agent's reminder follows the root's rule: silent while its reset is typing.
 func TestTheSetupAgentsReminderIsSilentWhileItsResetTypes(t *testing.T) {
 	share := shareWithSetup(t)
-	h := startWithAgents(t, filepath.Join(t.TempDir(), "state"), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
+	h := startWithAgents(t, shortdir.State(t), t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
 	ctx := context.Background()
 	got := startSetup(t, h)
 	h.waitState(got.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)

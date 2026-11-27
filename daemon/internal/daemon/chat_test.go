@@ -2,7 +2,6 @@ package daemon_test
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,11 +13,12 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 func chatDaemon(t *testing.T, env map[string]string) (*agentsHarness, *v1.Agent) {
 	t.Helper()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) {
 		c.Env["FAKECLAUDE_TRANSCRIPT"] = "1"
 		c.Env["FAKECLAUDE_BOX"] = "1" // a prompt goes only into a box that reads empty
@@ -193,7 +193,7 @@ func TestAPromptIsRefusedWhereTheLineWouldAnswerAPromptOrThereIsNoTerminal(t *te
 }
 
 func TestEveryBuiltInCLIHasAChatView(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	run := startRun(t, h.device.Mesh, "")

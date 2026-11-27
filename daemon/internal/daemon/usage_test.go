@@ -16,11 +16,12 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/hook"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 func TestModelLimitsPersistAcrossDaemonRestart(t *testing.T) {
 	ctx := context.Background()
-	state := t.TempDir()
+	state := shortdir.State(t)
 	home := t.TempDir()
 	h := startWithAgents(t, state, home, func(c *daemon.AgentConfig) {
 		c.RetireEvery = 50 * time.Millisecond

@@ -20,6 +20,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"github.com/Luisotee/agent-mesh/daemon/internal/termclient"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // reopenWorld is a daemon whose fake claude logs every launch's argv.
@@ -33,7 +34,7 @@ func startReopen(t *testing.T, tweaks ...func(*daemon.AgentConfig)) *reopenWorld
 	t.Helper()
 	// Its own folder, removed with retries after the terminal host is stopped: an agent's last hook (a spooled
 	// file) can land while a plain t.TempDir() is being removed, which fails the test for nothing.
-	root, err := os.MkdirTemp("", "reopen-")
+	root, err := shortdir.Make("reopen-")
 	if err != nil {
 		t.Fatal(err)
 	}

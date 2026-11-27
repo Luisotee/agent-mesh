@@ -367,6 +367,18 @@ func lastReport(r store.Reader, a *v1.Agent) (*v1.Message, error) {
 	return report, nil
 }
 
+// plannerOwesItsPlan reports whether the agent is a planner at work on its plan: in its plan phase, in a turn
+// (WORKING) and with no report (plan, question, done or failed) since its last task or answer. A task sent to it
+// now is an addition to the plan it is making. One that finds it idle (its turn ended with no plan: a silent stop)
+// or after its plan is not: that is the parent's own choice to skip the plan.
+func plannerOwesItsPlan(r store.Reader, a *v1.Agent) (bool, error) {
+	if a.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING || a.State != v1.AgentState_AGENT_STATE_WORKING {
+		return false, nil
+	}
+	report, err := lastReport(r, a)
+	return report == nil, err
+}
+
 // mayMove is who may approve, switch or resume an agent: a device, or the agent's parent.
 func mayMove(actor *v1.Actor, a *v1.Agent, what string) error {
 	if IsAgent(actor.Class) && a.ParentId != actor.Id {
