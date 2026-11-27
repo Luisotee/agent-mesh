@@ -13,7 +13,7 @@ import type { Project } from '@/gen/agentmesh/v1/mesh_pb'
 import { displayChord } from '@/keys'
 import type { HostRuntime } from '@/model'
 import { usePolled } from '@/polled'
-import { appKeys } from '@/prefs'
+import { useKeys } from '@/hooks'
 import { rankProjects } from '@/projects'
 import { quotaRows, resetText, type QuotaRow } from '@/usage'
 import { AddHostDialog, RemoveHostDialog } from './host-dialogs'
@@ -25,7 +25,7 @@ export function SidebarFooter() {
   const hosts = useAppState((s) => s.hosts)
   const host = useSelectedHost()
   const settingsOpen = useAppState((s) => s.settingsOpen)
-  const keys = appKeys(hosts[0]?.store.getState().settings ?? {})
+  const keys = useKeys(hosts)
   const mayPair = useHostState(host ?? hosts[0]!, (s) => !!host && s.conn.kind === 'ready' && canPair(host.store))
   const [adding, setAdding] = useState(false)
   const [project, setProject] = useState(false)

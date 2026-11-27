@@ -16,6 +16,7 @@ const letter = (c: Chord) => /^[A-Z]$/.test(c.key)
 /**
  * The command a key press runs, if any. In a focused terminal a Mod+letter chord (Ctrl+W, Ctrl+C, Ctrl+K) goes to the
  * shell, and the same chord with Shift added runs the command (Ctrl+Shift+W closes the tab), as Windows Terminal does.
+ * Only Ctrl is the shell's: a macOS terminal never sends Cmd keys to it, so a Cmd chord always runs its command.
  * A chord without Ctrl or Meta (F2, Alt+ArrowDown) does nothing while the user types in a field or a terminal.
  */
 export function commandFor(e: KeyboardEvent, keys: Record<KeyedCommand, string>): KeyedCommand | undefined {
@@ -24,14 +25,14 @@ export function commandFor(e: KeyboardEvent, keys: Record<KeyedCommand, string>)
   for (const id of ids) {
     const chord = parseChord(keys[id])
     if (!chord || !matches(e, chord)) continue
-    if (term && letter(chord) && (chord.ctrl || chord.meta) && !chord.shift) continue
+    if (term && letter(chord) && chord.ctrl && !chord.shift) continue
     if (!chord.ctrl && !chord.meta && typing(e.target)) continue
     return id
   }
   if (term && e.shiftKey) {
     for (const id of ids) {
       const chord = parseChord(keys[id])
-      if (chord && letter(chord) && (chord.ctrl || chord.meta) && !chord.shift && matches(e, { ...chord, shift: true })) return id
+      if (chord && letter(chord) && chord.ctrl && !chord.shift && matches(e, { ...chord, shift: true })) return id
     }
   }
   return undefined

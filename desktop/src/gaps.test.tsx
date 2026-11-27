@@ -19,6 +19,7 @@ import { GetAgentResponseSchema, GetCostResponseSchema, GetUsageResponseSchema, 
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus, SettingSchema$ as SettingDescriptor, SettingSchemaSchema } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, offerView, showView, type HostRuntime } from './model'
 import { ViewToasts } from './components/view-toasts'
+import { useShortcuts } from './shortcuts'
 import { createHostStore } from './store'
 
 afterEach(cleanup)
@@ -125,10 +126,35 @@ describe('Watch all answers a plan or question in the tile', () => {
   })
 })
 
-describe('renaming a run', () => {
-  it('edits the title in place on F2: Enter saves it through the registry', async () => {
-    const { client, wrap } = fixture()
+describe('the sidebar rows', () => {
+  it('opens a row\'s menu on Shift+F10, and folds the open worker\'s lead when told', async () => {
+    const { host, model, wrap } = fixture()
+    model.selectAgent(host.info.id, 'w1')
     render(wrap(<ProjectSidebar />))
+    // The open worker's lead is unfolded, and its chevron folds it all the same.
+    expect(screen.getByRole('button', { name: 'app-fix', exact: true })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Fold ship it' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'app-fix', exact: true })).toBeNull())
+    screen.getByRole('button', { name: /^ship it, lead/ }).focus()
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}')
+    expect(await screen.findByRole('menuitem', { name: /Rename/ })).toBeInTheDocument()
+  })
+})
+
+describe('renaming a run', () => {
+  it('edits the title in place on F2, of the focused row\'s run and not the open agent\'s: Enter saves it through the registry', async () => {
+    const { host, model, client, wrap } = fixture()
+    const s = host.store.getState()
+    host.store.setState({
+      runs: { ...s.runs, r2: create(RunSchema, { id: 'r2', title: 'other run', status: RunStatus.OPEN }) },
+      agents: { ...s.agents, l2: agent('l2', { runId: 'r2', role: AgentRole.ROOT, name: 'app-other' }) },
+    })
+    model.selectAgent(host.info.id, 'l2')
+    function Keys() {
+      useShortcuts()
+      return null
+    }
+    render(wrap(<><Keys /><ProjectSidebar /></>))
     screen.getByRole('button', { name: /^ship it, lead/ }).focus()
     await userEvent.keyboard('{F2}')
     const box = screen.getByLabelText('Run title')

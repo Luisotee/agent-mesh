@@ -13,12 +13,11 @@ import { useApp, useAppState, useHostState } from '@/context'
 import { githubNote } from '@/buckets'
 import { repoName, ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
-import { useSidebarHosts } from '@/hooks'
+import { useKeys, useSidebarHosts } from '@/hooks'
 import { hueStyle } from '@/hue'
 import { displayChord } from '@/keys'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { appKeys } from '@/prefs'
 import { buildProjects, helpersLabel, anyWorking, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
 import { vendorOfKind } from '@/vendor'
 import { ArchiveDialog } from './agent-work'
@@ -46,7 +45,7 @@ export function ProjectSidebar() {
   const shown = projects.filter((p) => p.needs > 0 || !(hidden[p.hostId] ?? []).includes(p.repo))
   const hiddenRows = projects.filter((p) => !shown.includes(p))
   const many = hosts.length > 1
-  const keys = appKeys(hosts[0]?.store.getState().settings ?? {})
+  const keys = useKeys(hosts)
   const loading = side.some((h) => h.loading)
   if (collapsed) {
     return (
@@ -167,7 +166,7 @@ function menuKey(e: KeyboardEvent<HTMLElement>) {
   if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
     e.preventDefault()
     e.stopPropagation()
-    e.currentTarget.closest('[data-row]')?.querySelector<HTMLElement>('[data-row-more]')?.click()
+    e.currentTarget.closest('[data-row]')?.querySelector<HTMLElement>('[data-row-more] button')?.click()
   }
 }
 
@@ -226,7 +225,7 @@ function ProjectItem({ project: p, many }: { project: ProjectRow; many: boolean 
           </ul>
           {p.also.length > 0 && (
             <Folded title="Also working here" count={p.also.length}>
-              {p.also.map((r) => <LeadItem key={r.run.id} row={r} />)}
+              {p.also.map((r) => <LeadItem key={r.run.id} row={r} elsewhere />)}
             </Folded>
           )}
           {p.earlier.length > 0 && (
@@ -300,7 +299,7 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
   return [
     { label: 'Open chat', onSelect: () => app.selectAgent(hostId, a.id, 'chat') },
     { label: 'Open its terminal', onSelect: () => app.selectAgent(hostId, a.id, 'terminal'), disabled: !terminals },
-    { label: 'Model…', onSelect: () => { app.selectAgent(hostId, a.id); app.setPanel(true) } },
+    { label: 'Model…', onSelect: () => { app.selectAgent(hostId, a.id); app.showModel() } },
     { label: 'Send a message…', onSelect: () => app.selectAgent(hostId, a.id, 'overview') },
     'separator',
     { label: 'Copy worktree path', onSelect: () => copy(a.worktree), disabled: !a.worktree },
@@ -311,15 +310,16 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
 }
 
 /** A run, as its lead: open it, or open the chevron to see its workers. */
-function LeadItem({ row }: { row: LeadRow }) {
+function LeadItem({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
   const app = useApp()
   const host = useAppState((s) => s.hosts.find((h) => h.info.id === row.hostId))
   const selectedHere = useAppState((s) => s.hostId === row.hostId && !!s.agentId && s.agentId !== row.lead?.id && [...row.helpers, ...flatAgents(row.workers)].some((a) => a.id === s.agentId))
-  const renaming = useAppState((s) => s.renaming?.hostId === row.hostId && s.renaming.runId === row.run.id)
-  const [open, setOpen] = useState(false)
+  // The title is edited under the lead's own project only, so one editor is ever open.
+  const renaming = useAppState((s) => !elsewhere && s.renaming?.hostId === row.hostId && s.renaming.runId === row.run.id)
+  // Unset, the open agent's lead is open, so the open agent's row is in sight; the chevron then decides.
+  const [open, setOpen] = useState<boolean>()
   const [dialog, setDialog] = useState<RowDialog>()
-  // The open agent's lead stays open, so the open agent's row is in sight.
-  const expanded = open || selectedHere
+  const expanded = open ?? selectedHere
   const lead = row.lead
   const title = row.run.title || lead?.name || 'Untitled run'
   const entries: MenuEntry[] = [
@@ -346,7 +346,7 @@ function LeadItem({ row }: { row: LeadRow }) {
           {renaming ? (
             <RunTitleEditor host={host} run={row.run} onDone={() => app.renameRun(undefined)} />
           ) : lead ? (
-            <AgentButton hostId={row.hostId} agent={lead} title={title} helpers={row.helpers} onKeyDown={(e) => { menuKey(e); if (e.key === 'F2') { e.preventDefault(); app.renameRun({ hostId: row.hostId, runId: row.run.id }) } }} />
+            <AgentButton hostId={row.hostId} agent={lead} title={title} helpers={row.helpers} onKeyDown={menuKey} />
           ) : (
             <span className="min-w-0 flex-1 truncate px-2 py-1.5 text-[13px] text-muted-foreground">{title}: no agents yet</span>
           )}
@@ -398,6 +398,8 @@ function AgentButton({ hostId, agent: a, title, helpers, tag, onKeyDown }: { hos
     <button
       type="button"
       data-sidebar-row="agent"
+      data-host-id={hostId}
+      data-agent-id={a.id}
       aria-current={selected ? 'true' : undefined}
       aria-label={title ? `${title}, ${ROLE_LABEL[a.role]} ${a.name}` : a.name}
       onClick={() => app.selectAgent(hostId, a.id)}
@@ -417,7 +419,6 @@ function AgentButton({ hostId, agent: a, title, helpers, tag, onKeyDown }: { hos
           {tag && <Chip className="border-identity/50 text-identity">{tag}</Chip>}
           {help && <Chip className={cn(anyWorking(helpers) && 'border-state-working/60')}>{help}</Chip>}
           {[vendorOfKind(a.kind) === 'other' || !a.model ? a.kind : '', a.model].filter(Boolean).map((x, i) => <Chip key={i}>{x}</Chip>)}
-          {a.archived && <Chip>archived</Chip>}
         </Chips>
       </span>
     </button>

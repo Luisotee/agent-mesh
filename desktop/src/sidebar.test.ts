@@ -50,6 +50,22 @@ describe('leadRows', () => {
     // What waits on the user first.
     expect(rows[0]!.run.id).toBe('r1')
   })
+
+  it('lifts the children of an archived agent into its place: an archived lead\'s live workers keep the run', () => {
+    const rows = leadRows(host(
+      [
+        agent('lead', { role: AgentRole.ROOT, archived: true }),
+        agent('w', { parentId: 'lead' }),
+        agent('mid', { parentId: 'w', archived: true }),
+        agent('sub', { parentId: 'mid', state: AgentState.NEEDS_INPUT }),
+      ],
+      [run('r1')],
+    ))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.lead?.id).toBe('w')
+    expect(rows[0]!.workers.map((x) => x.agent.id)).toEqual(['sub'])
+    expect(rows[0]!.needs).toBe(1)
+  })
 })
 
 describe('buildProjects', () => {

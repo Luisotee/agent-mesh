@@ -13,7 +13,7 @@ import { ModelControl } from './model-control'
 import { Changes, Progress, WorktreeActions } from './agent-work'
 import { StateIcon } from './state-icon'
 import { MessageType, type Agent } from '@/gen/agentmesh/v1/types_pb'
-import { useApp, useHostState } from '@/context'
+import { useApp, useAppState, useHostState } from '@/context'
 import { joinWaiting, repoName, ROLE_LABEL } from '@/derive'
 import { usePolled } from '@/polled'
 import { cn } from '@/lib/utils'
@@ -160,6 +160,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const run = useHostState(host, (s) => s.runs[agent.runId])
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
   const own = runLevelOf(run?.autonomy)
+  const reveal = useAppState((s) => s.modelShown)
   const rows: Array<[string, string, boolean?]> = [
     ['Project', repoName(agent.repo)],
     ['Host', host.info.name],
@@ -171,7 +172,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
     ['Run id', agent.runId, true],
   ]
   return (
-    <Fold title="Details">
+    <Fold title="Details" reveal={reveal}>
       <dl className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 text-xs">
         {rows.filter(([, v]) => v).map(([k, v, mono]) => (
           <div key={k} className="contents">

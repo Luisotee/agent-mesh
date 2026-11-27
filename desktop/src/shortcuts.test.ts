@@ -22,6 +22,11 @@ describe('commandFor', () => {
     expect(commandFor(press(inTerm, 'k', { ctrlKey: true }), keys)).toBeUndefined()
   })
 
+  it('runs a Cmd chord in a terminal too: a macOS terminal never sends Cmd keys to the shell', () => {
+    const mac = { ...keys, tab_close: 'Meta+W' }
+    expect(commandFor(press(inTerm, 'w', { metaKey: true }), mac)).toBe('tab_close')
+  })
+
   it('takes the same chord with Shift added in a terminal (Ctrl+Shift+W closes there)', () => {
     expect(commandFor(press(inTerm, 'W', { ctrlKey: true, shiftKey: true }), keys)).toBe('tab_close')
     // A chord that has Shift already keeps it, in a terminal too.

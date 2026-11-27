@@ -112,7 +112,10 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     panel: () => app.setPanel(!st().panelOpen),
     find: () => app.openFind(!st().findOpen),
     rename: () => {
-      const { hostId, agentId, hosts } = st()
+      // The focused sidebar row's run, else the open agent's.
+      const row = document.activeElement?.closest<HTMLElement>('[data-sidebar-row="agent"]')
+      const { hostId, agentId } = row?.dataset.agentId ? { hostId: row.dataset.hostId, agentId: row.dataset.agentId } : st()
+      const { hosts } = st()
       const runId = hostId && agentId ? hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.runId : undefined
       if (hostId && runId) {
         app.setSidebarCollapsed(false)

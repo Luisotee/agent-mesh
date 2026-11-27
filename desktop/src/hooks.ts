@@ -4,6 +4,7 @@ import type { HostRuntime } from './model'
 import { joinWaiting } from './derive'
 import type { SidebarHost } from './sidebar'
 import type { HostState } from './store'
+import { appKeys, type KeyedCommand } from './prefs'
 
 /** The current time, ticking every `everyMs`, for a label like "12 s ago". */
 export function useNow(everyMs = 10_000): number {
@@ -54,11 +55,12 @@ function sidebarHost(h: HostRuntime, s: HostState, prev?: { from: HostState; out
   const up = s.conn.kind === 'ready'
   const down = up ? undefined : `${h.info.name} is ${CONN_WORD[s.conn.kind] ?? s.conn.kind}${s.conn.kind === 'reconnecting' || s.conn.kind === 'stopped' ? `: ${'error' in s.conn ? s.conn.error : s.conn.message}` : ''}`
   const loading = !s.synced && (s.conn.kind === 'connecting' || s.conn.kind === 'ready')
-  if (prev && f && prev.out.loading === loading && f.runs === s.runs && f.agents === s.agents && f.waiting === s.waiting && prev.out.up === up && prev.out.down === down && prev.out.hostName === h.info.name) return prev.out
+  const here = h.info.kind === 'state-dir' || !!h.info.here
+  if (prev && f && prev.out.here === here && prev.out.loading === loading && f.runs === s.runs && f.agents === s.agents && f.waiting === s.waiting && prev.out.up === up && prev.out.down === down && prev.out.hostName === h.info.name) return prev.out
   return {
     hostId: h.info.id,
     hostName: h.info.name,
-    here: h.info.kind === 'state-dir' || !!h.info.here,
+    here,
     up,
     down,
     loading,
@@ -91,4 +93,16 @@ export function useSidebarHosts(hosts: HostRuntime[]): SidebarHost[] {
     return last.current
   }, [hosts])
   return useSyncExternalStore(subscribe, snapshot)
+}
+
+const NO_SETTINGS = {}
+
+/** The shortcuts' keys (the first host's `app.keys.*`), re-rendering when they are rebound. */
+export function useKeys(hosts: HostRuntime[]): Record<KeyedCommand, string> {
+  const h = hosts[0]
+  const settings = useSyncExternalStore(
+    useCallback((notify: () => void) => h?.store.subscribe(notify) ?? (() => {}), [h]),
+    () => h?.store.getState().settings ?? NO_SETTINGS,
+  )
+  return appKeys(settings)
 }

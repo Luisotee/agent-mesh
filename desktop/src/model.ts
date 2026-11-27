@@ -142,6 +142,8 @@ export interface AppState extends WorkspaceState {
   closedTabs: TabRef[]
   /** The side panel beside the open agent is shown. */
   panelOpen: boolean
+  /** Bumped to show the open agent's model control (the panel opens and unfolds its Details). */
+  modelShown: number
   /** The New workspace dialog is open. */
   workspaceOpen: boolean
   /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */
@@ -213,6 +215,8 @@ export interface AppModel {
   /** Opens the last tab closed in this session again. */
   reopenTab(): void
   setPanel(open: boolean): void
+  /** Opens the side panel on the open agent's model control. */
+  showModel(): void
   /** Opens the New workspace dialog: on a run (to add an agent to it) or a project (to start a lead there), on a host. */
   openWorkspace(open: boolean, runId?: string, at?: { hostId: string; repo: string }): void
   openPairing(open: boolean): void
@@ -285,7 +289,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: 0, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -452,6 +456,7 @@ export function createAppModel(api: DesktopApi): AppModel {
       else model.reopenTab()
     },
     setPanel: (panelOpen) => set({ panelOpen }),
+    showModel: () => set((s) => ({ panelOpen: true, modelShown: s.modelShown + 1 })),
     openWorkspace: (workspaceOpen, runId, at) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, workspaceHost: workspaceOpen ? at?.hostId : undefined }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),

@@ -1,12 +1,11 @@
 import { Columns2, PanelRight, Rows2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { displayChord } from '@/keys'
-import { appKeys } from '@/prefs'
 import { useApp, useAppState } from '@/context'
 import { cn } from '@/lib/utils'
 import { hueStyle } from '@/hue'
 import { MAX_SIDE_PANES, tabKey } from '@/workspace'
-import { useHostViews } from '@/hooks'
+import { useHostViews, useKeys } from '@/hooks'
 import { StateIcon } from './state-icon'
 import { Tip } from '@/components/ui/tooltip'
 
@@ -26,7 +25,7 @@ export function TabBar() {
   const panelOpen = useAppState((s) => s.panelOpen)
   const dragging = useAppState((s) => s.dragTab)
   const views = useHostViews(hosts)
-  const keys = appKeys(hosts[0]?.store.getState().settings ?? {})
+  const keys = useKeys(hosts)
   const many = hosts.length > 1
   const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true)
   return (

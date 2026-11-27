@@ -72,12 +72,14 @@ const helper = (a: Agent) => a.role === AgentRole.REVIEWER || a.role === AgentRo
 const ms = (t?: { seconds: bigint; nanos: number }) => (t ? Number(t.seconds) * 1000 + Math.floor(t.nanos / 1e6) : 0)
 const activity = (a: Agent) => Math.max(ms(a.lastActivity), ms(a.createdAt))
 
+/** The nodes minus the archived ones, an archived agent's children lifted into its place (they may still run). */
+const unarchived = (nodes: TreeNode[]): TreeNode[] => nodes.flatMap((n) => (n.agent.archived ? unarchived(n.children) : [n]))
+
 /** A tree node's workers and helpers: read-only agents fold into the agent above them, at any depth under it. */
 function split(nodes: TreeNode[], leadRepo: string): { helpers: Agent[]; workers: WorkerRow[] } {
   const helpers: Agent[] = []
   const workers: WorkerRow[] = []
-  for (const n of nodes) {
-    if (n.agent.archived) continue
+  for (const n of unarchived(nodes)) {
     if (helper(n.agent)) {
       helpers.push(n.agent)
       // Whatever a read-only agent started folds in with it.
@@ -99,11 +101,11 @@ export const leadAgents = (r: LeadRow): Agent[] => [...(r.lead ? [r.lead] : []),
 /** The workers of a lead row, at any depth. */
 export const allWorkers = (rows: WorkerRow[]): WorkerRow[] => rows.flatMap((w) => [w, ...allWorkers(w.workers)])
 
-/** The runs of one host as lead rows (archived agents left out, and a run whose every agent is archived). */
+/** The runs of one host as lead rows (archived agents left out, their children lifted; a run whose every agent is archived left out). */
 export function leadRows(h: SidebarHost): LeadRow[] {
   const out: LeadRow[] = []
   for (const t of buildTrees(h.runs, h.agents)) {
-    const roots = t.roots.filter((n) => !n.agent.archived)
+    const roots = unarchived(t.roots)
     if (t.roots.length > 0 && roots.length === 0) continue
     // The lead is the run's root agent; any other top-level agent (its parent unknown) shows as one of its workers.
     const leadAt = Math.max(0, roots.findIndex((n) => n.agent.role === AgentRole.ROOT))
