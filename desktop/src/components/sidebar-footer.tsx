@@ -12,6 +12,7 @@ import { usePolled } from '@/polled'
 import { useKeys } from '@/hooks'
 import { quotaRows, resetText, type QuotaRow } from '@/usage'
 import { AddHostDialog, RemoveHostDialog } from './host-dialogs'
+import { ActivityBell } from './activity-list'
 import { canPair } from './pair-panel'
 
 /** The sidebar's foot: the quota of each host as small meters, then Settings, the hosts and the + menu. */
@@ -47,6 +48,7 @@ export function SidebarFooter() {
             <Settings />
           </Button>
         </Tip>
+        {host && <ActivityBell host={host} />}
         <ActionMenu side="top" entries={hostEntries} trigger={<Button size="icon" variant="ghost" aria-label="Hosts"><Server /></Button>} />
         <span className="min-w-0 flex-1 truncate px-1 text-xs text-muted-foreground">{host && <HostLine host={host} />}</span>
         <ActionMenu side="top" align="end" entries={plus} trigger={<Button size="icon" variant="ghost" aria-label="New"><Plus /></Button>} />

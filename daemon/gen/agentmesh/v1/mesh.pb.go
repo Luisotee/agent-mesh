@@ -2512,7 +2512,8 @@ func (x *StopAgentResponse) GetAgent() *Agent {
 type SendMessageRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
-	// An agent id or name, or "parent" for the caller's parent.
+	// An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+	// question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
 	To   string      `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`
 	Type MessageType `protobuf:"varint,3,opt,name=type,proto3,enum=agentmesh.v1.MessageType" json:"type,omitempty"`
 	Body string      `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
@@ -3220,7 +3221,11 @@ type Waiting struct {
 	// The plan or question; unset for a prompt.
 	Message *Message `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
 	// For a prompt, why the agent is stopped (its state detail).
-	Detail        string `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"`
+	Detail string `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"`
+	// The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+	// the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+	// view and Activity still show it.
+	ForUser       bool `protobuf:"varint,6,opt,name=for_user,json=forUser,proto3" json:"for_user,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3288,6 +3293,13 @@ func (x *Waiting) GetDetail() string {
 		return x.Detail
 	}
 	return ""
+}
+
+func (x *Waiting) GetForUser() bool {
+	if x != nil {
+		return x.ForUser
+	}
+	return false
 }
 
 type SubscribeEventsRequest struct {
@@ -8424,13 +8436,14 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x12ListWaitingRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"F\n" +
 	"\x13ListWaitingResponse\x12/\n" +
-	"\awaiting\x18\x01 \x03(\v2\x15.agentmesh.v1.WaitingR\awaiting\"\xb3\x01\n" +
+	"\awaiting\x18\x01 \x03(\v2\x15.agentmesh.v1.WaitingR\awaiting\"\xce\x01\n" +
 	"\aWaiting\x12-\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x19.agentmesh.v1.WaitingKindR\x04kind\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12/\n" +
 	"\amessage\x18\x04 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12\x16\n" +
-	"\x06detail\x18\x05 \x01(\tR\x06detail\"y\n" +
+	"\x06detail\x18\x05 \x01(\tR\x06detail\x12\x19\n" +
+	"\bfor_user\x18\x06 \x01(\bR\aforUser\"y\n" +
 	"\x16SubscribeEventsRequest\x12,\n" +
 	"\x06cursor\x18\x01 \x01(\v2\x14.agentmesh.v1.CursorR\x06cursor\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1a\n" +

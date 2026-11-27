@@ -64,6 +64,25 @@ func (f *fakePush) delivered() int {
 	return len(f.got)
 }
 
+// startUserRun starts a run whose plans the user approves (its lead's workers' plans are the user's to answer).
+func startUserRun(t *testing.T, c agentmeshv1connect.MeshServiceClient) *v1.Run {
+	t.Helper()
+	res, err := c.StartRun(context.Background(), connect.NewRequest(&v1.StartRunRequest{Meta: meta(""), Title: "demo",
+		Autonomy: &v1.RunAutonomy{UserApprovesPlans: true}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Msg.Run
+}
+
+// askUser is a lead asking the user: `mesh send user --type question`.
+func askUser(t *testing.T, lead *agentmeshv1connect.MeshServiceClient, typ v1.MessageType, body string) {
+	t.Helper()
+	if _, err := (*lead).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{To: "user", Type: typ, Body: body})); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // phone is a paired device with its WebPush keys.
 type phone struct {
 	id       string
@@ -161,8 +180,8 @@ func TestPushCarriesTheNoticeEncryptedToEachPhone(t *testing.T) {
 	if reg.DeviceId != ph.id || reg.EndpointHost == "" || reg.LastOkAt != nil {
 		t.Fatalf("registration %+v", reg)
 	}
-	run := startRun(t, h.device.Mesh, "")
-	h.seedAgent(run.Id, "p-root", "shop-lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	run := startUserRun(t, h.device.Mesh)
+	lead := h.as(h.seedAgent(run.Id, "p-root", "shop-lead", "", v1.AgentRole_AGENT_ROLE_ROOT))
 	w := h.seedAgent(run.Id, "p-w1", "shop-fix", "p-root", v1.AgentRole_AGENT_ROLE_WORKER)
 	send := func(tok string, typ v1.MessageType, body string) {
 		t.Helper()
@@ -191,10 +210,12 @@ func TestPushCarriesTheNoticeEncryptedToEachPhone(t *testing.T) {
 	}
 	setPushSetting(t, h, "app.notify.events", []any{"question"})
 	send(w, v1.MessageType_MESSAGE_TYPE_DONE, "done")
+	// A worker's question to its lead is the lead's; only what the lead asks the user is the user's.
+	send(w, v1.MessageType_MESSAGE_TYPE_QUESTION, "worker asks")
 	setPushSetting(t, h, "app.notify.enabled", false)
-	send(w, v1.MessageType_MESSAGE_TYPE_QUESTION, "which db?")
+	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "which db?")
 	setPushSetting(t, h, "app.notify.enabled", true)
-	send(w, v1.MessageType_MESSAGE_TYPE_QUESTION, "and now?")
+	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "and now?")
 	waitFor(t, "the question's push", func() bool { return srv.delivered() == 2 })
 	srv.mu.Lock()
 	body = srv.got[1]
@@ -225,18 +246,18 @@ func TestAPhonesOwnListOfKindsDecidesWhatIsPushedToIt(t *testing.T) {
 	if _, err := mine.registerEvents(t, srvA.URL+"/a?up=1", "plan", "nonsense"); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("unknown kind: %v", err)
 	}
-	reg, err := mine.registerEvents(t, srvA.URL+"/a?up=1", "report", "plan", "plan")
+	reg, err := mine.registerEvents(t, srvA.URL+"/a?up=1", "question", "plan", "plan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(reg.Events, ","); got != "report,plan" {
+	if got := strings.Join(reg.Events, ","); got != "question,plan" {
 		t.Fatalf("stored list %q (repeats dropped, order kept)", got)
 	}
 	hosts.register(t, srvB.URL+"/b?up=1")
 	setPushSetting(t, h, "app.notify.events", []any{"question"})
 
-	run := startRun(t, h.device.Mesh, "")
-	h.seedAgent(run.Id, "p-root", "shop-lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
+	run := startUserRun(t, h.device.Mesh)
+	lead := h.as(h.seedAgent(run.Id, "p-root", "shop-lead", "", v1.AgentRole_AGENT_ROLE_ROOT))
 	w := h.seedAgent(run.Id, "p-w1", "shop-fix", "p-root", v1.AgentRole_AGENT_ROLE_WORKER)
 	send := func(typ v1.MessageType, body string) {
 		t.Helper()
@@ -255,11 +276,11 @@ func TestAPhonesOwnListOfKindsDecidesWhatIsPushedToIt(t *testing.T) {
 		return out
 	}
 	send(v1.MessageType_MESSAGE_TYPE_PLAN, "a plan")
-	send(v1.MessageType_MESSAGE_TYPE_QUESTION, "a question")
+	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "a question")
 	send(v1.MessageType_MESSAGE_TYPE_DONE, "a report")
 	waitFor(t, "each phone's pushes", func() bool { return srvA.delivered() == 2 && srvB.delivered() == 1 })
-	// The phone's own list pushes the plan and the report and not the question; the host's list, only the question.
-	if got := strings.Join(kinds(srvA, mine), ","); got != "plan,report" {
+	// The phone's own list pushes the plan and the question (a worker's report is nobody's push); the host's list, only the question.
+	if got := strings.Join(kinds(srvA, mine), ","); got != "plan,question" {
 		t.Fatalf("the phone with its own list got %q", got)
 	}
 	if got := strings.Join(kinds(srvB, hosts), ","); got != "question" {
@@ -277,7 +298,7 @@ func TestAPhonesOwnListOfKindsDecidesWhatIsPushedToIt(t *testing.T) {
 		t.Fatalf("re-registered with none: %+v %v", reg, err)
 	}
 	setPushSetting(t, h, "app.notify.enabled", true)
-	send(v1.MessageType_MESSAGE_TYPE_QUESTION, "a second question")
+	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "a second question")
 	waitFor(t, "the question reaches the phone that follows the host", func() bool { return srvA.delivered() == 3 })
 }
 
@@ -299,17 +320,13 @@ func TestPushRetriesThenForgetsAGoneEndpoint(t *testing.T) {
 	if _, err := ph.c.TestPush(ctx, connect.NewRequest(&v1.TestPushRequest{Meta: meta("")})); connect.CodeOf(err) != connect.CodeUnavailable {
 		t.Fatalf("test push against a 503: %v", err)
 	}
-	run := startRun(t, h.device.Mesh, "")
-	h.seedAgent(run.Id, "g-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
-	w := h.seedAgent(run.Id, "g-w1", "fix", "g-root", v1.AgentRole_AGENT_ROLE_WORKER)
-	readInbox(t, h.as(w))
-	if _, err := h.as(w).SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: v1.MessageType_MESSAGE_TYPE_FAILED, Body: "broke"})); err != nil {
-		t.Fatal(err)
-	}
+	run := startUserRun(t, h.device.Mesh)
+	lead := h.as(h.seedAgent(run.Id, "g-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT))
+	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_INFO, "it broke")
 	waitFor(t, "the retried push", func() bool { return srv.delivered() == 1 })
 	srv.mu.Lock()
 	if u := srv.headers[0].Get("Urgency"); u != "normal" {
-		t.Errorf("a failure's urgency is %q", u)
+		t.Errorf("news that asks nothing has urgency %q", u)
 	}
 	srv.mu.Unlock()
 
@@ -386,7 +403,7 @@ func TestPushReportsALaunchThatFailedAndDeletedItsAgent(t *testing.T) {
 	srv := newFakePush(t)
 	ph := pairPhone(t, h, "pixel", false)
 	ph.register(t, srv.URL+"/up")
-	run := startRun(t, h.device.Mesh, "")
+	run := startUserRun(t, h.device.Mesh)
 	a := &v1.Agent{Id: "lf-w1", RunId: run.Id, Name: "shop-fix"}
 	if err := h.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
 		if err := tx.PutAgent(a); err != nil {
@@ -466,7 +483,7 @@ func TestNoPushGoesToARevokedDevice(t *testing.T) {
 	srv := newFakePush(t, http.StatusServiceUnavailable)
 	ph := pairPhone(t, h, "pixel", false)
 	ph.register(t, srv.URL+"/up")
-	run := startRun(t, h.device.Mesh, "")
+	run := startUserRun(t, h.device.Mesh)
 	h.seedAgent(run.Id, "rv-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
 	w := h.seedAgent(run.Id, "rv-w1", "fix", "rv-root", v1.AgentRole_AGENT_ROLE_WORKER)
 	readInbox(t, h.as(w))
@@ -492,7 +509,7 @@ func TestPushToANewEndpointDoesNotWaitForTheOldOnesRetries(t *testing.T) {
 	moved := newFakePush(t)
 	ph := pairPhone(t, h, "pixel", false)
 	ph.register(t, old.URL+"/up")
-	run := startRun(t, h.device.Mesh, "")
+	run := startUserRun(t, h.device.Mesh)
 	h.seedAgent(run.Id, "mv-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
 	w := h.seedAgent(run.Id, "mv-w1", "fix", "mv-root", v1.AgentRole_AGENT_ROLE_WORKER)
 	readInbox(t, h.as(w))
@@ -551,7 +568,7 @@ func TestAReplayedRegisterPushLeavesTheCurrentSenderAlone(t *testing.T) {
 	}
 	reg("r-1", old.URL+"/up")
 	reg("r-2", cur.URL+"/up")
-	run := startRun(t, h.device.Mesh, "")
+	run := startUserRun(t, h.device.Mesh)
 	h.seedAgent(run.Id, "rp-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
 	w := h.seedAgent(run.Id, "rp-w1", "fix", "rp-root", v1.AgentRole_AGENT_ROLE_WORKER)
 	readInbox(t, h.as(w))
@@ -585,7 +602,7 @@ func heldPush(t *testing.T, status int) (srv *httptest.Server, first <-chan stru
 // plans has a worker send its lead n plans, each one push.
 func plans(t *testing.T, h *harness, prefix string, n int) {
 	t.Helper()
-	run := startRun(t, h.device.Mesh, "")
+	run := startUserRun(t, h.device.Mesh)
 	h.seedAgent(run.Id, prefix+"-root", "lead", "", v1.AgentRole_AGENT_ROLE_ROOT)
 	w := h.seedAgent(run.Id, prefix+"-w1", "fix", prefix+"-root", v1.AgentRole_AGENT_ROLE_WORKER)
 	readInbox(t, h.as(w))

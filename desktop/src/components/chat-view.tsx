@@ -174,7 +174,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const runId = agent?.runId
   const messageLoad = useHostState(host, (s) => (runId ? s.messageLoad[runId] : undefined))
   const allMessages = useHostState(host, (s) => s.messages)
-  const waiting = useHostState(host, (s) => s.waiting)
+  const waiting = useHostState(host, (s) => s.waitingAll)
   const mine = useMemo(() => messagesOf(allMessages, agentId), [allMessages, agentId])
   const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
   // A plan an agent asked to show (`OpenView`) is shown like one waiting on the user, whatever the window held.
