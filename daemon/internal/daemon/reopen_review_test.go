@@ -281,6 +281,7 @@ func TestAPlannedFollowUpKeepsAPlannerPlanningAndADevicesDirectTaskLiftsItsList(
 	}
 	waitFor(t, "the follow-up delivered", func() bool { return w.delivered(t, p.Id, planned.Msg.Message.Id) })
 	w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
+	readInbox(t, w.as(w.token(t, p.Id))) // it has read the follow-up: a direct task is not an addition to it
 	direct, err := w.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: p.Id,
 		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task (no plan): just make the change"}))
 	if err != nil {

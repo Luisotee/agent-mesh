@@ -389,6 +389,7 @@ func TestFreeModelsOffRefusalsLeaveAPlannerAsItWas(t *testing.T) {
 	if sent.Msg.Resumed != nil || !strings.Contains(sent.Msg.ResumeError, "repos.no_free_models") {
 		t.Errorf("a direct task to the stopped planner: resumed %v, reason %q", sent.Msg.Resumed, sent.Msg.ResumeError)
 	}
+	readInbox(t, w.as(w.token(t, running.Id))) // it has read its task: a direct task is not an addition to it
 	_, err = w.asRoot.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: running.Id, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task: build it"}))
 	if err == nil || !strings.Contains(err.Error(), "repos.no_free_models") {
 		t.Errorf("a direct task to the running planner: want a refusal naming repos.no_free_models, got %v", err)

@@ -32,4 +32,23 @@ public interface StartRunRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getTitleBytes();
+
+  /**
+   * <pre>
+   * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+   * @return Whether the autonomy field is set.
+   */
+  boolean hasAutonomy();
+  /**
+   * <pre>
+   * What the user lets this run's root do without asking: replaces the host's repo autonomy lists for this run.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.RunAutonomy autonomy = 3 [json_name = "autonomy"];</code>
+   * @return The autonomy.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RunAutonomy getAutonomy();
 }

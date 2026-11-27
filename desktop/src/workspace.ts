@@ -165,3 +165,22 @@ export function focusPane(s: WorkspaceState & Selection, ref: TabRef): Partial<W
   const swapped: PaneRef[] = s.side.flatMap((p, i) => (i !== at ? [p] : s.hostId && s.agentId ? [{ hostId: s.hostId, agentId: s.agentId, tab: s.tab }] : []))
   return { hostId: target.hostId, agentId: target.agentId, tab: target.tab, side: swapped, views }
 }
+
+/** An edge of the main pane a tab can be dropped on. */
+export type Edge = 'left' | 'right' | 'top' | 'bottom'
+
+/**
+ * A tab dropped on an edge of the main pane: it opens as a pane there. The right and left edges put the panes side by side,
+ * the top and bottom stack them; dropped on the right or bottom the agent is beside the open one, on the left or top it
+ * takes the main pane's place and the open agent moves beside it. Does nothing for the agent the main pane shows, one already beside, or when
+ * three panes are beside already (`pinSplit`).
+ */
+export function splitAtEdge(s: WorkspaceState & Selection, ref: TabRef, edge: Edge): Partial<WorkspaceState & Selection> {
+  const pinned = pinSplit(s, ref)
+  if (Object.keys(pinned).length === 0) return {}
+  const dir: SplitDir = edge === 'left' || edge === 'right' ? 'row' : 'column'
+  const after = { ...s, ...pinned }
+  // With nothing in the main pane the agent just fills it: there is nothing to put it before.
+  if ((edge === 'left' || edge === 'top') && s.agentId) return { ...pinned, ...focusPane(after, ref), splitDir: dir }
+  return { ...pinned, splitDir: dir }
+}

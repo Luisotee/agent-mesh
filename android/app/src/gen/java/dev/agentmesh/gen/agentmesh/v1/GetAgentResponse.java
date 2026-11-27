@@ -15,6 +15,7 @@ public  final class GetAgentResponse extends
     // @@protoc_insertion_point(message_implements:agentmesh.v1.GetAgentResponse)
     GetAgentResponseOrBuilder {
   private GetAgentResponse() {
+    modelHistory_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int AGENT_FIELD_NUMBER = 1;
@@ -62,6 +63,144 @@ public  final class GetAgentResponse extends
   private void clearAgent() {
     agent_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int MODEL_HISTORY_FIELD_NUMBER = 2;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.ModelSwap> modelHistory_;
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.ModelSwap> getModelHistoryList() {
+    return modelHistory_;
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.ModelSwapOrBuilder> 
+      getModelHistoryOrBuilderList() {
+    return modelHistory_;
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  @java.lang.Override
+  public int getModelHistoryCount() {
+    return modelHistory_.size();
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.ModelSwap getModelHistory(int index) {
+    return modelHistory_.get(index);
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.ModelSwapOrBuilder getModelHistoryOrBuilder(
+      int index) {
+    return modelHistory_.get(index);
+  }
+  private void ensureModelHistoryIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.ModelSwap> tmp = modelHistory_;
+    if (!tmp.isModifiable()) {
+      modelHistory_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  private void setModelHistory(
+      int index, dev.agentmesh.gen.agentmesh.v1.ModelSwap value) {
+    java.util.Objects.requireNonNull(value);
+    ensureModelHistoryIsMutable();
+    modelHistory_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  private void addModelHistory(dev.agentmesh.gen.agentmesh.v1.ModelSwap value) {
+    java.util.Objects.requireNonNull(value);
+    ensureModelHistoryIsMutable();
+    modelHistory_.add(value);
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  private void addModelHistory(
+      int index, dev.agentmesh.gen.agentmesh.v1.ModelSwap value) {
+    java.util.Objects.requireNonNull(value);
+    ensureModelHistoryIsMutable();
+    modelHistory_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  private void addAllModelHistory(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.ModelSwap> values) {
+    ensureModelHistoryIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, modelHistory_);
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  private void clearModelHistory() {
+    modelHistory_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+   */
+  private void removeModelHistory(int index) {
+    ensureModelHistoryIsMutable();
+    modelHistory_.remove(index);
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.GetAgentResponse parseFrom(
@@ -208,6 +347,156 @@ public  final class GetAgentResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.ModelSwap> getModelHistoryList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getModelHistoryList());
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    @java.lang.Override
+    public int getModelHistoryCount() {
+      return instance.getModelHistoryCount();
+    }/**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.ModelSwap getModelHistory(int index) {
+      return instance.getModelHistory(index);
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder setModelHistory(
+        int index, dev.agentmesh.gen.agentmesh.v1.ModelSwap value) {
+      copyOnWrite();
+      instance.setModelHistory(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder setModelHistory(
+        int index, dev.agentmesh.gen.agentmesh.v1.ModelSwap.Builder builderForValue) {
+      copyOnWrite();
+      instance.setModelHistory(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder addModelHistory(dev.agentmesh.gen.agentmesh.v1.ModelSwap value) {
+      copyOnWrite();
+      instance.addModelHistory(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder addModelHistory(
+        int index, dev.agentmesh.gen.agentmesh.v1.ModelSwap value) {
+      copyOnWrite();
+      instance.addModelHistory(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder addModelHistory(
+        dev.agentmesh.gen.agentmesh.v1.ModelSwap.Builder builderForValue) {
+      copyOnWrite();
+      instance.addModelHistory(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder addModelHistory(
+        int index, dev.agentmesh.gen.agentmesh.v1.ModelSwap.Builder builderForValue) {
+      copyOnWrite();
+      instance.addModelHistory(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder addAllModelHistory(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.ModelSwap> values) {
+      copyOnWrite();
+      instance.addAllModelHistory(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder clearModelHistory() {
+      copyOnWrite();
+      instance.clearModelHistory();
+      return this;
+    }
+    /**
+     * <pre>
+     * The models it ran on, oldest first: its spawn, then each reopen that moved it (approve, switch, quota, resume).
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.ModelSwap model_history = 2 [json_name = "modelHistory"];</code>
+     */
+    public Builder removeModelHistory(int index) {
+      copyOnWrite();
+      instance.removeModelHistory(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetAgentResponse)
   }
   @java.lang.Override
@@ -226,9 +515,12 @@ public  final class GetAgentResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "bitField0_",
             "agent_",
+            "modelHistory_",
+            dev.agentmesh.gen.agentmesh.v1.ModelSwap.class,
           };
           java.lang.String info =
-              "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";
+              "\u0000\u0002\u0000\u0001\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -51,7 +51,8 @@ test('the sidebar groups the agents by run, project and status bucket', async ()
   await group.getByRole('button', { name: 'Status' }).click()
   const idle = nav.getByRole('region', { name: 'Idle' })
   await expect.poll(() => idle.getByRole('button').count(), { timeout: 20_000 }).toBe(2)
-  expect(await idle.innerText()).toContain('repo · group run')
+  // Each row's repo and run, as chips.
+  for (const chip of ['repo', 'group run']) expect(await idle.getByText(chip, { exact: true }).count()).toBe(2)
   await page.screenshot({ path: path.join(shots, 'sidebar-status.png') })
 
   // The side panel shows the open lead's run: its cost (nothing spent by a fake CLI), its place and the host's quota.

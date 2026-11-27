@@ -11,6 +11,8 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/DecidePermission
   /agentmesh.v1.MeshService/EditPeer
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetAgentChanges
+  /agentmesh.v1.MeshService/GetAgentProgress
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
   /agentmesh.v1.MeshService/GetUsage
@@ -32,10 +34,12 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenTerminal
+  /agentmesh.v1.MeshService/OpenView
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReadTranscript
   /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/RemovePeer
+  /agentmesh.v1.MeshService/RenameRun
   /agentmesh.v1.MeshService/ReportHook
   /agentmesh.v1.MeshService/RequestPermission
   /agentmesh.v1.MeshService/ResetRoot
@@ -136,6 +140,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/AdoptSession
   /agentmesh.v1.MeshService/ApproveAgent
+  /agentmesh.v1.MeshService/ArchiveAgent
   /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
@@ -144,6 +149,8 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/DecidePermission
   /agentmesh.v1.MeshService/EditPeer
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetAgentChanges
+  /agentmesh.v1.MeshService/GetAgentProgress
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
   /agentmesh.v1.MeshService/GetUsage
@@ -167,12 +174,15 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ListTools
   /agentmesh.v1.MeshService/ListWaiting
   /agentmesh.v1.MeshService/OpenAgent
+  /agentmesh.v1.MeshService/OpenInEditor
   /agentmesh.v1.MeshService/OpenTerminal
+  /agentmesh.v1.MeshService/OpenView
   /agentmesh.v1.MeshService/PromptAgent
   /agentmesh.v1.MeshService/ReadTranscript
   /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/RemovePeer
+  /agentmesh.v1.MeshService/RenameRun
   /agentmesh.v1.MeshService/ResetRoot
   /agentmesh.v1.MeshService/ResetSetting
   /agentmesh.v1.MeshService/ResolveModel
@@ -184,6 +194,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SetReserve
   /agentmesh.v1.MeshService/SetSetting
+  /agentmesh.v1.MeshService/SetTailnet
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StartRun
   /agentmesh.v1.MeshService/StartSetup
@@ -201,6 +212,8 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/GetAgent
+  /agentmesh.v1.MeshService/GetAgentChanges
+  /agentmesh.v1.MeshService/GetAgentProgress
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
   /agentmesh.v1.MeshService/GetUsage

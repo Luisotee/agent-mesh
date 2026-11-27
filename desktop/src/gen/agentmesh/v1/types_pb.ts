@@ -18,7 +18,7 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/types.proto.
  */
 export const file_agentmesh_v1_types: GenFile = /*@__PURE__*/
-  fileDesc("ChhhZ2VudG1lc2gvdjEvdHlwZXMucHJvdG8SDGFnZW50bWVzaC52MSJSCgtSZXF1ZXN0TWV0YRITCgttdXRhdGlvbl9pZBgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLHAQoDUnVuEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEicKBnN0YXR1cxgDIAEoDjIXLmFnZW50bWVzaC52MS5SdW5TdGF0dXMSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKY3JlYXRlZF9ieRgFIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchIUCgxvdmVyX3Jlc2VydmUYBiABKAgSDQoFc2V0dXAYByABKAgirggKBUFnZW50EgoKAmlkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIMCgRuYW1lGAMgASgJEiUKBHJvbGUYBCABKA4yFy5hZ2VudG1lc2gudjEuQWdlbnRSb2xlEhEKCXBhcmVudF9pZBgFIAEoCRIMCgRraW5kGAYgASgJEgwKBHJlcG8YByABKAkSEAoId29ya3RyZWUYCCABKAkSDgoGYnJhbmNoGAkgASgJEg0KBW1vZGVsGAogASgJEg4KBmVmZm9ydBgLIAEoCRISCgpzZXNzaW9uX2lkGAwgASgJEhMKC3Rlcm1pbmFsX2lkGA0gASgJEicKBXN0YXRlGA4gASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUSEwoLbmVlZHNfaW5wdXQYDyABKAUSFAoMc3RhdGVfZGV0YWlsGBAgASgJEjEKDWxhc3RfYWN0aXZpdHkYESABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNyZWF0ZWRfYXQYEiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhEKCWV4aXRfY29kZRgTIAEoBRI2ChRzdGF0ZV9iZWZvcmVfY29tcGFjdBgUIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFN0YXRlEgwKBHRpZXIYFSABKAkSEQoJZXhlY190aWVyGBYgASgJEicKBXBoYXNlGBcgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50UGhhc2USDgoGcGlubmVkGBggASgIEhIKCmRlbnlfZWRpdHMYGSABKAgSLAoOcGVuZGluZ19yZW9wZW4YGiABKAsyFC5hZ2VudG1lc2gudjEuUmVvcGVuEhMKC2Jhc2VfY29tbWl0GBsgASgJEhsKE3Jlc3VtZWRfZnJvbV9ydW5faWQYHCABKAkSHQoVcmVzdW1lZF9mcm9tX2FnZW50X2lkGB0gASgJEgwKBHBlZXIYHiABKAgSCwoDbWNwGB8gAygJEjsKEnBlbmRpbmdfY29tcGFjdGlvbhggIAEoCzIfLmFnZW50bWVzaC52MS5QZW5kaW5nQ29tcGFjdGlvbhIuCg1wZW5kaW5nX3Jlc2V0GCEgASgLMhcuYWdlbnRtZXNoLnYxLlJvb3RSZXNldBIrCgpsYXN0X3Jlc2V0GCIgASgLMhcuYWdlbnRtZXNoLnYxLlJvb3RSZXNldBIZChFsYXN0X3R1cm5fYnlfbWVzaBgjIAEoCBITCgthZGRlZF90b29scxgkIAMoCRITCgt0b29sc19hZGRlZBglIAEoCBIPCgdtY3BfYWxsGCYgASgIEhEKCXJldmlld19ieRgnIAEoCRITCgthZG9wdGVkX3BpZBgoIAEoBRIZChFhZG9wdGVkX3BpZF9zdGFydBgpIAEoBCLQAQoGUmVvcGVuEgoKAmlkGAEgASgJEg0KBW1vZGVsGAIgASgJEg4KBmVmZm9ydBgDIAEoCRISCgpkZW55X2VkaXRzGAQgASgIEgsKA3doeRgFIAEoCRIOCgZyZWFzb24YBiABKAkSMAoMcmVxdWVzdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIpCgxyZXF1ZXN0ZWRfYnkYCCABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3ISDQoFZnJlc2gYCSABKAgi3gIKB01lc3NhZ2USCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEiEKBGZyb20YAyABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3ISDQoFdG9faWQYBCABKAkSDwoHdG9fbmFtZRgFIAEoCRInCgR0eXBlGAYgASgOMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VUeXBlEgwKBGJvZHkYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMZGVsaXZlcmVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgdyZWFkX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp3YWl0X3VudGlsGAsgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIpCgZDdXJzb3ISEgoKZ2VuZXJhdGlvbhgBIAEoCRILCgNzZXEYAiABKAMivg4KBUV2ZW50EgsKA3NlcRgBIAEoAxISCgpnZW5lcmF0aW9uGAIgASgJEigKBHRpbWUYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBnJ1bl9pZBgEIAEoCRIQCghhZ2VudF9pZBgFIAEoCRIiCgVhY3RvchgGIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchITCgttdXRhdGlvbl9pZBgHIAEoCRIvCgtydW5fc3RhcnRlZBgKIAEoCzIYLmFnZW50bWVzaC52MS5SdW5TdGFydGVkSAASMwoNYWdlbnRfc3Bhd25lZBgLIAEoCzIaLmFnZW50bWVzaC52MS5BZ2VudFNwYXduZWRIABI+ChNhZ2VudF9zdGF0ZV9jaGFuZ2VkGAwgASgLMh8uYWdlbnRtZXNoLnYxLkFnZW50U3RhdGVDaGFuZ2VkSAASMQoMbWVzc2FnZV9zZW50GA0gASgLMhkuYWdlbnRtZXNoLnYxLk1lc3NhZ2VTZW50SAASOwoRbWVzc2FnZV9kZWxpdmVyZWQYDiABKAsyHi5hZ2VudG1lc2gudjEuTWVzc2FnZURlbGl2ZXJlZEgAEjEKDGFnZW50X2V4aXRlZBgPIAEoCzIZLmFnZW50bWVzaC52MS5BZ2VudEV4aXRlZEgAEjMKDWFnZW50X2Fkb3B0ZWQYECABKAsyGi5hZ2VudG1lc2gudjEuQWdlbnRBZG9wdGVkSAASPAoSaG9va19kZWNvZGVfZmFpbGVkGBEgASgLMh4uYWdlbnRtZXNoLnYxLkhvb2tEZWNvZGVGYWlsZWRIABI3Cg9zZXR0aW5nX2NoYW5nZWQYEiABKAsyHC5hZ2VudG1lc2gudjEuU2V0dGluZ0NoYW5nZWRIABJEChZhZ2VudF9yZW9wZW5fcmVxdWVzdGVkGBMgASgLMiIuYWdlbnRtZXNoLnYxLkFnZW50UmVvcGVuUmVxdWVzdGVkSAASNQoOYWdlbnRfcmVvcGVuZWQYFCABKAsyGy5hZ2VudG1lc2gudjEuQWdlbnRSZW9wZW5lZEgAEj4KE2FnZW50X3BoYXNlX2NoYW5nZWQYFSABKAsyHy5hZ2VudG1lc2gudjEuQWdlbnRQaGFzZUNoYW5nZWRIABJAChRhZ2VudF9yZW9wZW5fZHJvcHBlZBgWIAEoCzIgLmFnZW50bWVzaC52MS5BZ2VudFJlb3BlbkRyb3BwZWRIABIzCg1kZXZpY2VfcGFpcmVkGBkgASgLMhouYWdlbnRtZXNoLnYxLkRldmljZVBhaXJlZEgAEjUKDmRldmljZV9yZXZva2VkGBogASgLMhsuYWdlbnRtZXNoLnYxLkRldmljZVJldm9rZWRIABIzCg1hZ2VudF9yZXRpcmVkGBcgASgLMhouYWdlbnRtZXNoLnYxLkFnZW50UmV0aXJlZEgAEi8KC3J1bl9zdG9wcGVkGBggASgLMhguYWdlbnRtZXNoLnYxLlJ1blN0b3BwZWRIABI3Cg9yZXNlcnZlX2NoYW5nZWQYGyABKAsyHC5hZ2VudG1lc2gudjEuUmVzZXJ2ZUNoYW5nZWRIABI8ChJhZ2VudF9yb2xlX2NoYW5nZWQYHCABKAsyHi5hZ2VudG1lc2gudjEuQWdlbnRSb2xlQ2hhbmdlZEgAEjcKD2FnZW50X2NvbXBhY3RlZBgdIAEoCzIcLmFnZW50bWVzaC52MS5BZ2VudENvbXBhY3RlZEgAEkAKFHJvb3RfcmVzZXRfcmVxdWVzdGVkGB4gASgLMiAuYWdlbnRtZXNoLnYxLlJvb3RSZXNldFJlcXVlc3RlZEgAEj4KE3Jvb3RfcmVzZXRfZmluaXNoZWQYHyABKAsyHy5hZ2VudG1lc2gudjEuUm9vdFJlc2V0RmluaXNoZWRIABI3Cg9kb29yYmVsbF9mYWlsZWQYICABKAsyHC5hZ2VudG1lc2gudjEuRG9vcmJlbGxGYWlsZWRIABIzCg1kb29yYmVsbF9oZWxkGCEgASgLMhouYWdlbnRtZXNoLnYxLkRvb3JiZWxsSGVsZEgAEjkKEHdvcmt0cmVlX2NyZWF0ZWQYIiABKAsyHS5hZ2VudG1lc2gudjEuV29ya3RyZWVDcmVhdGVkSAASQAoUcHVsbF9yZXF1ZXN0X2NoYW5nZWQYIyABKAsyIC5hZ2VudG1lc2gudjEuUHVsbFJlcXVlc3RDaGFuZ2VkSAASMwoNcHJvbXB0X3F1ZXVlZBgkIAEoCzIaLmFnZW50bWVzaC52MS5Qcm9tcHRRdWV1ZWRIABIxCgxwcm9tcHRfdHlwZWQYJSABKAsyGS5hZ2VudG1lc2gudjEuUHJvbXB0VHlwZWRIABI5ChBwcm9tcHRfd2l0aGRyYXduGCYgASgLMh0uYWdlbnRtZXNoLnYxLlByb21wdFdpdGhkcmF3bkgAQgkKB3BheWxvYWQimwEKDFF1ZXVlZFByb21wdBIKCgJpZBgBIAEoCRIQCghhZ2VudF9pZBgCIAEoCRIMCgR0ZXh0GAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiEKBGZyb20YBSABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3ISDAoEaGVsZBgGIAEoCSI6CgxQcm9tcHRRdWV1ZWQSKgoGcHJvbXB0GAEgASgLMhouYWdlbnRtZXNoLnYxLlF1ZXVlZFByb21wdCIgCgtQcm9tcHRUeXBlZBIRCglwcm9tcHRfaWQYASABKAkiJAoPUHJvbXB0V2l0aGRyYXduEhEKCXByb21wdF9pZBgBIAEoCSKlAQoIV29ya3RyZWUSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEgwKBHNsdWcYAyABKAkSDAoEcmVwbxgEIAEoCRIMCgRwYXRoGAUgASgJEg4KBmJyYW5jaBgGIAEoCRITCgtiYXNlX2NvbW1pdBgHIAEoCRIuCgpjcmVhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI7Cg9Xb3JrdHJlZUNyZWF0ZWQSKAoId29ya3RyZWUYASABKAsyFi5hZ2VudG1lc2gudjEuV29ya3RyZWUiLAoKUnVuU3RhcnRlZBIeCgNydW4YASABKAsyES5hZ2VudG1lc2gudjEuUnVuIjIKDEFnZW50U3Bhd25lZBIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCKGAQoRQWdlbnRTdGF0ZUNoYW5nZWQSJgoEZnJvbRgBIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFN0YXRlEiQKAnRvGAIgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUSDgoGZGV0YWlsGAMgASgJEhMKC25lZWRzX2lucHV0GAQgASgFIjUKC01lc3NhZ2VTZW50EiYKB21lc3NhZ2UYASABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSJCChBNZXNzYWdlRGVsaXZlcmVkEhIKCm1lc3NhZ2VfaWQYASABKAkSCwoDdmlhGAIgASgJEg0KBXRyaWVzGAMgASgFIkQKDkRvb3JiZWxsRmFpbGVkEhMKC21lc3NhZ2VfaWRzGAEgAygJEg0KBXRyaWVzGAIgASgFEg4KBnJlYXNvbhgDIAEoCSJCCgxEb29yYmVsbEhlbGQSEwoLbWVzc2FnZV9pZHMYASADKAkSDgoGcmVhc29uGAIgASgJEg0KBWRyYWZ0GAMgASgJIkAKC0FnZW50RXhpdGVkEhEKCWV4aXRfY29kZRgBIAEoBRIOCgZzaWduYWwYAiABKAUSDgoGcmVhc29uGAMgASgJIjUKDEFnZW50QWRvcHRlZBITCgt0ZXJtaW5hbF9pZBgBIAEoCRIQCghsYXVuY2hlZBgCIAEoCCI8ChRBZ2VudFJlb3BlblJlcXVlc3RlZBIkCgZyZW9wZW4YASABKAsyFC5hZ2VudG1lc2gudjEuUmVvcGVuIl4KDUFnZW50UmVvcGVuZWQSJAoGcmVvcGVuGAEgASgLMhQuYWdlbnRtZXNoLnYxLlJlb3BlbhITCgt0ZXJtaW5hbF9pZBgCIAEoCRISCgpzZXNzaW9uX2lkGAMgASgJIkoKEkFnZW50UmVvcGVuRHJvcHBlZBIkCgZyZW9wZW4YASABKAsyFC5hZ2VudG1lc2gudjEuUmVvcGVuEg4KBnJlYXNvbhgCIAEoCSIeCgxBZ2VudFJldGlyZWQSDgoGcmVhc29uGAEgASgJIgwKClJ1blN0b3BwZWQiJgoOUmVzZXJ2ZUNoYW5nZWQSFAoMb3Zlcl9yZXNlcnZlGAEgASgIIm4KEUFnZW50UGhhc2VDaGFuZ2VkEiYKBGZyb20YASABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRQaGFzZRIkCgJ0bxgCIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFBoYXNlEgsKA3doeRgDIAEoCSJrChBBZ2VudFJvbGVDaGFuZ2VkEiUKBGZyb20YASABKA4yFy5hZ2VudG1lc2gudjEuQWdlbnRSb2xlEiMKAnRvGAIgASgOMhcuYWdlbnRtZXNoLnYxLkFnZW50Um9sZRILCgN3aHkYAyABKAkiNQoQSG9va0RlY29kZUZhaWxlZBISCgpldmVudF9uYW1lGAEgASgJEg0KBWVycm9yGAIgASgJIoIBCg5TZXR0aW5nQ2hhbmdlZBILCgNrZXkYASABKAkSJQoFdmFsdWUYAiABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSKAoIcHJldmlvdXMYAyABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSEgoKdG9fZGVmYXVsdBgEIAEoCCJQCg1TZXR0aW5nU2NoZW1hEgwKBHR5cGUYASABKAkSDwoHc3VtbWFyeRgCIAEoCRIPCgdjaG9pY2VzGAMgAygJEg8KB3Jlc3RhcnQYBCABKAgi/AEKB1NldHRpbmcSCwoDa2V5GAEgASgJEiUKBXZhbHVlGAIgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEicKB2RlZmF1bHQYAyABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSDgoGaXNfc2V0GAQgASgIEisKBnNjaGVtYRgFIAEoCzIbLmFnZW50bWVzaC52MS5TZXR0aW5nU2NoZW1hEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEicKCnVwZGF0ZWRfYnkYByABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3Ii2QEKBkRldmljZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEicKBWNsYXNzGAMgASgOMhguYWdlbnRtZXNoLnYxLkFjdG9yQ2xhc3MSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKcmV2b2tlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoEcHVzaBgGIAEoCzIeLmFnZW50bWVzaC52MS5QdXNoUmVnaXN0cmF0aW9uIvYBChBQdXNoUmVnaXN0cmF0aW9uEhEKCWRldmljZV9pZBgBIAEoCRIVCg1lbmRwb2ludF9ob3N0GAIgASgJEjEKDXJlZ2lzdGVyZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmxhc3Rfb2tfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmxhc3RfZXJyb3IYBSABKAkSMQoNZmFpbGluZ19zaW5jZRgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGZXZlbnRzGAcgAygJIkgKDERldmljZVBhaXJlZBIkCgZkZXZpY2UYASABKAsyFC5hZ2VudG1lc2gudjEuRGV2aWNlEhIKCnBhaXJpbmdfaWQYAiABKAkiMAoNRGV2aWNlUmV2b2tlZBIRCglkZXZpY2VfaWQYASABKAkSDAoEbmFtZRgCIAEoCSpTCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhMKD1JVTl9TVEFUVVNfT1BFThABEhUKEVJVTl9TVEFUVVNfQ0xPU0VEEAIqggEKCUFnZW50Um9sZRIaChZBR0VOVF9ST0xFX1VOU1BFQ0lGSUVEEAASEwoPQUdFTlRfUk9MRV9ST09UEAESFQoRQUdFTlRfUk9MRV9XT1JLRVIQAhIUChBBR0VOVF9ST0xFX0FTS0VSEAMSFwoTQUdFTlRfUk9MRV9SRVZJRVdFUhAEKokCCgpBZ2VudFN0YXRlEhsKF0FHRU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASGAoUQUdFTlRfU1RBVEVfU1RBUlRJTkcQARIUChBBR0VOVF9TVEFURV9JRExFEAISFwoTQUdFTlRfU1RBVEVfV09SS0lORxADEhsKF0FHRU5UX1NUQVRFX05FRURTX0lOUFVUEAQSFgoSQUdFTlRfU1RBVEVfRVhJVEVEEAUSFwoTQUdFTlRfU1RBVEVfVU5LTk9XThAGEhcKE0FHRU5UX1NUQVRFX1JFVElSRUQQBxIXChNBR0VOVF9TVEFURV9MSU1JVEVEEAgSFQoRQUdFTlRfU1RBVEVfRVJST1IQCSpeCgpBZ2VudFBoYXNlEhsKF0FHRU5UX1BIQVNFX1VOU1BFQ0lGSUVEEAASGAoUQUdFTlRfUEhBU0VfUExBTk5JTkcQARIZChVBR0VOVF9QSEFTRV9FWEVDVVRJTkcQAirrAQoLTWVzc2FnZVR5cGUSHAoYTUVTU0FHRV9UWVBFX1VOU1BFQ0lGSUVEEAASFQoRTUVTU0FHRV9UWVBFX1RBU0sQARIVChFNRVNTQUdFX1RZUEVfUExBThACEhkKFU1FU1NBR0VfVFlQRV9RVUVTVElPThADEhcKE01FU1NBR0VfVFlQRV9BTlNXRVIQBBIVChFNRVNTQUdFX1RZUEVfRE9ORRAFEhcKE01FU1NBR0VfVFlQRV9GQUlMRUQQBhIVChFNRVNTQUdFX1RZUEVfSU5GTxAHEhUKEU1FU1NBR0VfVFlQRV9XQUlUEAhiBnByb3RvMw", [file_agentmesh_v1_actor, file_agentmesh_v1_context, file_agentmesh_v1_pr, file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("ChhhZ2VudG1lc2gvdjEvdHlwZXMucHJvdG8SDGFnZW50bWVzaC52MSJSCgtSZXF1ZXN0TWV0YRITCgttdXRhdGlvbl9pZBgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCL0AQoDUnVuEgoKAmlkGAEgASgJEg0KBXRpdGxlGAIgASgJEicKBnN0YXR1cxgDIAEoDjIXLmFnZW50bWVzaC52MS5SdW5TdGF0dXMSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoKY3JlYXRlZF9ieRgFIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchIUCgxvdmVyX3Jlc2VydmUYBiABKAgSDQoFc2V0dXAYByABKAgSKwoIYXV0b25vbXkYCCABKAsyGS5hZ2VudG1lc2gudjEuUnVuQXV0b25vbXkibAoLUnVuQXV0b25vbXkSGwoTdXNlcl9hcHByb3Zlc19wbGFucxgBIAEoCBITCgt1c2VyX21lcmdlcxgCIAEoCBISCgphc2tfYmVmb3JlGAMgAygJEhcKD2tlZXBfcmVwb19saXN0cxgEIAEoCCLACAoFQWdlbnQSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEgwKBG5hbWUYAyABKAkSJQoEcm9sZRgEIAEoDjIXLmFnZW50bWVzaC52MS5BZ2VudFJvbGUSEQoJcGFyZW50X2lkGAUgASgJEgwKBGtpbmQYBiABKAkSDAoEcmVwbxgHIAEoCRIQCgh3b3JrdHJlZRgIIAEoCRIOCgZicmFuY2gYCSABKAkSDQoFbW9kZWwYCiABKAkSDgoGZWZmb3J0GAsgASgJEhIKCnNlc3Npb25faWQYDCABKAkSEwoLdGVybWluYWxfaWQYDSABKAkSJwoFc3RhdGUYDiABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZRITCgtuZWVkc19pbnB1dBgPIAEoBRIUCgxzdGF0ZV9kZXRhaWwYECABKAkSMQoNbGFzdF9hY3Rpdml0eRgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJZXhpdF9jb2RlGBMgASgFEjYKFHN0YXRlX2JlZm9yZV9jb21wYWN0GBQgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUSDAoEdGllchgVIAEoCRIRCglleGVjX3RpZXIYFiABKAkSJwoFcGhhc2UYFyABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRQaGFzZRIOCgZwaW5uZWQYGCABKAgSEgoKZGVueV9lZGl0cxgZIAEoCBIsCg5wZW5kaW5nX3Jlb3BlbhgaIAEoCzIULmFnZW50bWVzaC52MS5SZW9wZW4SEwoLYmFzZV9jb21taXQYGyABKAkSGwoTcmVzdW1lZF9mcm9tX3J1bl9pZBgcIAEoCRIdChVyZXN1bWVkX2Zyb21fYWdlbnRfaWQYHSABKAkSDAoEcGVlchgeIAEoCBILCgNtY3AYHyADKAkSOwoScGVuZGluZ19jb21wYWN0aW9uGCAgASgLMh8uYWdlbnRtZXNoLnYxLlBlbmRpbmdDb21wYWN0aW9uEi4KDXBlbmRpbmdfcmVzZXQYISABKAsyFy5hZ2VudG1lc2gudjEuUm9vdFJlc2V0EisKCmxhc3RfcmVzZXQYIiABKAsyFy5hZ2VudG1lc2gudjEuUm9vdFJlc2V0EhkKEWxhc3RfdHVybl9ieV9tZXNoGCMgASgIEhMKC2FkZGVkX3Rvb2xzGCQgAygJEhMKC3Rvb2xzX2FkZGVkGCUgASgIEg8KB21jcF9hbGwYJiABKAgSEQoJcmV2aWV3X2J5GCcgASgJEhMKC2Fkb3B0ZWRfcGlkGCggASgFEhkKEWFkb3B0ZWRfcGlkX3N0YXJ0GCkgASgEEhAKCGFyY2hpdmVkGCogASgIItABCgZSZW9wZW4SCgoCaWQYASABKAkSDQoFbW9kZWwYAiABKAkSDgoGZWZmb3J0GAMgASgJEhIKCmRlbnlfZWRpdHMYBCABKAgSCwoDd2h5GAUgASgJEg4KBnJlYXNvbhgGIAEoCRIwCgxyZXF1ZXN0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEikKDHJlcXVlc3RlZF9ieRgIIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchINCgVmcmVzaBgJIAEoCCLeAgoHTWVzc2FnZRIKCgJpZBgBIAEoCRIOCgZydW5faWQYAiABKAkSIQoEZnJvbRgDIAEoCzITLmFnZW50bWVzaC52MS5BY3RvchINCgV0b19pZBgEIAEoCRIPCgd0b19uYW1lGAUgASgJEicKBHR5cGUYBiABKA4yGS5hZ2VudG1lc2gudjEuTWVzc2FnZVR5cGUSDAoEYm9keRgHIAEoCRIuCgpjcmVhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxkZWxpdmVyZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEisKB3JlYWRfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCndhaXRfdW50aWwYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIikKBkN1cnNvchISCgpnZW5lcmF0aW9uGAEgASgJEgsKA3NlcRgCIAEoAyLlDwoFRXZlbnQSCwoDc2VxGAEgASgDEhIKCmdlbmVyYXRpb24YAiABKAkSKAoEdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGcnVuX2lkGAQgASgJEhAKCGFnZW50X2lkGAUgASgJEiIKBWFjdG9yGAYgASgLMhMuYWdlbnRtZXNoLnYxLkFjdG9yEhMKC211dGF0aW9uX2lkGAcgASgJEi8KC3J1bl9zdGFydGVkGAogASgLMhguYWdlbnRtZXNoLnYxLlJ1blN0YXJ0ZWRIABIzCg1hZ2VudF9zcGF3bmVkGAsgASgLMhouYWdlbnRtZXNoLnYxLkFnZW50U3Bhd25lZEgAEj4KE2FnZW50X3N0YXRlX2NoYW5nZWQYDCABKAsyHy5hZ2VudG1lc2gudjEuQWdlbnRTdGF0ZUNoYW5nZWRIABIxCgxtZXNzYWdlX3NlbnQYDSABKAsyGS5hZ2VudG1lc2gudjEuTWVzc2FnZVNlbnRIABI7ChFtZXNzYWdlX2RlbGl2ZXJlZBgOIAEoCzIeLmFnZW50bWVzaC52MS5NZXNzYWdlRGVsaXZlcmVkSAASMQoMYWdlbnRfZXhpdGVkGA8gASgLMhkuYWdlbnRtZXNoLnYxLkFnZW50RXhpdGVkSAASMwoNYWdlbnRfYWRvcHRlZBgQIAEoCzIaLmFnZW50bWVzaC52MS5BZ2VudEFkb3B0ZWRIABI8ChJob29rX2RlY29kZV9mYWlsZWQYESABKAsyHi5hZ2VudG1lc2gudjEuSG9va0RlY29kZUZhaWxlZEgAEjcKD3NldHRpbmdfY2hhbmdlZBgSIAEoCzIcLmFnZW50bWVzaC52MS5TZXR0aW5nQ2hhbmdlZEgAEkQKFmFnZW50X3Jlb3Blbl9yZXF1ZXN0ZWQYEyABKAsyIi5hZ2VudG1lc2gudjEuQWdlbnRSZW9wZW5SZXF1ZXN0ZWRIABI1Cg5hZ2VudF9yZW9wZW5lZBgUIAEoCzIbLmFnZW50bWVzaC52MS5BZ2VudFJlb3BlbmVkSAASPgoTYWdlbnRfcGhhc2VfY2hhbmdlZBgVIAEoCzIfLmFnZW50bWVzaC52MS5BZ2VudFBoYXNlQ2hhbmdlZEgAEkAKFGFnZW50X3Jlb3Blbl9kcm9wcGVkGBYgASgLMiAuYWdlbnRtZXNoLnYxLkFnZW50UmVvcGVuRHJvcHBlZEgAEjMKDWRldmljZV9wYWlyZWQYGSABKAsyGi5hZ2VudG1lc2gudjEuRGV2aWNlUGFpcmVkSAASNQoOZGV2aWNlX3Jldm9rZWQYGiABKAsyGy5hZ2VudG1lc2gudjEuRGV2aWNlUmV2b2tlZEgAEjMKDWFnZW50X3JldGlyZWQYFyABKAsyGi5hZ2VudG1lc2gudjEuQWdlbnRSZXRpcmVkSAASLwoLcnVuX3N0b3BwZWQYGCABKAsyGC5hZ2VudG1lc2gudjEuUnVuU3RvcHBlZEgAEjcKD3Jlc2VydmVfY2hhbmdlZBgbIAEoCzIcLmFnZW50bWVzaC52MS5SZXNlcnZlQ2hhbmdlZEgAEjwKEmFnZW50X3JvbGVfY2hhbmdlZBgcIAEoCzIeLmFnZW50bWVzaC52MS5BZ2VudFJvbGVDaGFuZ2VkSAASNwoPYWdlbnRfY29tcGFjdGVkGB0gASgLMhwuYWdlbnRtZXNoLnYxLkFnZW50Q29tcGFjdGVkSAASQAoUcm9vdF9yZXNldF9yZXF1ZXN0ZWQYHiABKAsyIC5hZ2VudG1lc2gudjEuUm9vdFJlc2V0UmVxdWVzdGVkSAASPgoTcm9vdF9yZXNldF9maW5pc2hlZBgfIAEoCzIfLmFnZW50bWVzaC52MS5Sb290UmVzZXRGaW5pc2hlZEgAEjcKD2Rvb3JiZWxsX2ZhaWxlZBggIAEoCzIcLmFnZW50bWVzaC52MS5Eb29yYmVsbEZhaWxlZEgAEjMKDWRvb3JiZWxsX2hlbGQYISABKAsyGi5hZ2VudG1lc2gudjEuRG9vcmJlbGxIZWxkSAASOQoQd29ya3RyZWVfY3JlYXRlZBgiIAEoCzIdLmFnZW50bWVzaC52MS5Xb3JrdHJlZUNyZWF0ZWRIABJAChRwdWxsX3JlcXVlc3RfY2hhbmdlZBgjIAEoCzIgLmFnZW50bWVzaC52MS5QdWxsUmVxdWVzdENoYW5nZWRIABIzCg1wcm9tcHRfcXVldWVkGCQgASgLMhouYWdlbnRtZXNoLnYxLlByb21wdFF1ZXVlZEgAEjEKDHByb21wdF90eXBlZBglIAEoCzIZLmFnZW50bWVzaC52MS5Qcm9tcHRUeXBlZEgAEjkKEHByb21wdF93aXRoZHJhd24YJiABKAsyHS5hZ2VudG1lc2gudjEuUHJvbXB0V2l0aGRyYXduSAASLwoLcnVuX3JlbmFtZWQYJyABKAsyGC5hZ2VudG1lc2gudjEuUnVuUmVuYW1lZEgAEj0KEnBlcm1pc3Npb25fY2hhbmdlZBgoIAEoCzIfLmFnZW50bWVzaC52MS5QZXJtaXNzaW9uQ2hhbmdlZEgAEjUKDmFnZW50X2FyY2hpdmVkGCkgASgLMhsuYWdlbnRtZXNoLnYxLkFnZW50QXJjaGl2ZWRIAEIJCgdwYXlsb2FkIpsBCgxRdWV1ZWRQcm9tcHQSCgoCaWQYASABKAkSEAoIYWdlbnRfaWQYAiABKAkSDAoEdGV4dBgDIAEoCRIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIhCgRmcm9tGAUgASgLMhMuYWdlbnRtZXNoLnYxLkFjdG9yEgwKBGhlbGQYBiABKAkiOgoMUHJvbXB0UXVldWVkEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQiIAoLUHJvbXB0VHlwZWQSEQoJcHJvbXB0X2lkGAEgASgJIiQKD1Byb21wdFdpdGhkcmF3bhIRCglwcm9tcHRfaWQYASABKAkipQEKCFdvcmt0cmVlEgoKAmlkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIMCgRzbHVnGAMgASgJEgwKBHJlcG8YBCABKAkSDAoEcGF0aBgFIAEoCRIOCgZicmFuY2gYBiABKAkSEwoLYmFzZV9jb21taXQYByABKAkSLgoKY3JlYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiOwoPV29ya3RyZWVDcmVhdGVkEigKCHdvcmt0cmVlGAEgASgLMhYuYWdlbnRtZXNoLnYxLldvcmt0cmVlIi0KClJ1blJlbmFtZWQSDQoFdGl0bGUYASABKAkSEAoIcHJldmlvdXMYAiABKAkiQgoRUGVybWlzc2lvbkNoYW5nZWQSCgoCaWQYASABKAkSEgoKYWdlbnRfbmFtZRgCIAEoCRINCgVzdGF0ZRgDIAEoCSJTCg1BZ2VudEFyY2hpdmVkEhAKCHdvcmt0cmVlGAEgASgJEg4KBmJyYW5jaBgCIAEoCRIQCgh1bnB1c2hlZBgDIAEoBRIOCgZmb3JjZWQYBCABKAgiLAoKUnVuU3RhcnRlZBIeCgNydW4YASABKAsyES5hZ2VudG1lc2gudjEuUnVuIjIKDEFnZW50U3Bhd25lZBIiCgVhZ2VudBgBIAEoCzITLmFnZW50bWVzaC52MS5BZ2VudCKGAQoRQWdlbnRTdGF0ZUNoYW5nZWQSJgoEZnJvbRgBIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFN0YXRlEiQKAnRvGAIgASgOMhguYWdlbnRtZXNoLnYxLkFnZW50U3RhdGUSDgoGZGV0YWlsGAMgASgJEhMKC25lZWRzX2lucHV0GAQgASgFIjUKC01lc3NhZ2VTZW50EiYKB21lc3NhZ2UYASABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSJCChBNZXNzYWdlRGVsaXZlcmVkEhIKCm1lc3NhZ2VfaWQYASABKAkSCwoDdmlhGAIgASgJEg0KBXRyaWVzGAMgASgFIkQKDkRvb3JiZWxsRmFpbGVkEhMKC21lc3NhZ2VfaWRzGAEgAygJEg0KBXRyaWVzGAIgASgFEg4KBnJlYXNvbhgDIAEoCSJCCgxEb29yYmVsbEhlbGQSEwoLbWVzc2FnZV9pZHMYASADKAkSDgoGcmVhc29uGAIgASgJEg0KBWRyYWZ0GAMgASgJIkAKC0FnZW50RXhpdGVkEhEKCWV4aXRfY29kZRgBIAEoBRIOCgZzaWduYWwYAiABKAUSDgoGcmVhc29uGAMgASgJIjUKDEFnZW50QWRvcHRlZBITCgt0ZXJtaW5hbF9pZBgBIAEoCRIQCghsYXVuY2hlZBgCIAEoCCI8ChRBZ2VudFJlb3BlblJlcXVlc3RlZBIkCgZyZW9wZW4YASABKAsyFC5hZ2VudG1lc2gudjEuUmVvcGVuIl4KDUFnZW50UmVvcGVuZWQSJAoGcmVvcGVuGAEgASgLMhQuYWdlbnRtZXNoLnYxLlJlb3BlbhITCgt0ZXJtaW5hbF9pZBgCIAEoCRISCgpzZXNzaW9uX2lkGAMgASgJIkoKEkFnZW50UmVvcGVuRHJvcHBlZBIkCgZyZW9wZW4YASABKAsyFC5hZ2VudG1lc2gudjEuUmVvcGVuEg4KBnJlYXNvbhgCIAEoCSIeCgxBZ2VudFJldGlyZWQSDgoGcmVhc29uGAEgASgJIgwKClJ1blN0b3BwZWQiJgoOUmVzZXJ2ZUNoYW5nZWQSFAoMb3Zlcl9yZXNlcnZlGAEgASgIIm4KEUFnZW50UGhhc2VDaGFuZ2VkEiYKBGZyb20YASABKA4yGC5hZ2VudG1lc2gudjEuQWdlbnRQaGFzZRIkCgJ0bxgCIAEoDjIYLmFnZW50bWVzaC52MS5BZ2VudFBoYXNlEgsKA3doeRgDIAEoCSJrChBBZ2VudFJvbGVDaGFuZ2VkEiUKBGZyb20YASABKA4yFy5hZ2VudG1lc2gudjEuQWdlbnRSb2xlEiMKAnRvGAIgASgOMhcuYWdlbnRtZXNoLnYxLkFnZW50Um9sZRILCgN3aHkYAyABKAkiNQoQSG9va0RlY29kZUZhaWxlZBISCgpldmVudF9uYW1lGAEgASgJEg0KBWVycm9yGAIgASgJIoIBCg5TZXR0aW5nQ2hhbmdlZBILCgNrZXkYASABKAkSJQoFdmFsdWUYAiABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSKAoIcHJldmlvdXMYAyABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSEgoKdG9fZGVmYXVsdBgEIAEoCCJQCg1TZXR0aW5nU2NoZW1hEgwKBHR5cGUYASABKAkSDwoHc3VtbWFyeRgCIAEoCRIPCgdjaG9pY2VzGAMgAygJEg8KB3Jlc3RhcnQYBCABKAgi/AEKB1NldHRpbmcSCwoDa2V5GAEgASgJEiUKBXZhbHVlGAIgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEicKB2RlZmF1bHQYAyABKAsyFi5nb29nbGUucHJvdG9idWYuVmFsdWUSDgoGaXNfc2V0GAQgASgIEisKBnNjaGVtYRgFIAEoCzIbLmFnZW50bWVzaC52MS5TZXR0aW5nU2NoZW1hEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEicKCnVwZGF0ZWRfYnkYByABKAsyEy5hZ2VudG1lc2gudjEuQWN0b3Ii2QEKBkRldmljZRIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEicKBWNsYXNzGAMgASgOMhguYWdlbnRtZXNoLnYxLkFjdG9yQ2xhc3MSLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKcmV2b2tlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoEcHVzaBgGIAEoCzIeLmFnZW50bWVzaC52MS5QdXNoUmVnaXN0cmF0aW9uIvYBChBQdXNoUmVnaXN0cmF0aW9uEhEKCWRldmljZV9pZBgBIAEoCRIVCg1lbmRwb2ludF9ob3N0GAIgASgJEjEKDXJlZ2lzdGVyZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmxhc3Rfb2tfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmxhc3RfZXJyb3IYBSABKAkSMQoNZmFpbGluZ19zaW5jZRgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGZXZlbnRzGAcgAygJIkgKDERldmljZVBhaXJlZBIkCgZkZXZpY2UYASABKAsyFC5hZ2VudG1lc2gudjEuRGV2aWNlEhIKCnBhaXJpbmdfaWQYAiABKAkiMAoNRGV2aWNlUmV2b2tlZBIRCglkZXZpY2VfaWQYASABKAkSDAoEbmFtZRgCIAEoCSpTCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhMKD1JVTl9TVEFUVVNfT1BFThABEhUKEVJVTl9TVEFUVVNfQ0xPU0VEEAIqggEKCUFnZW50Um9sZRIaChZBR0VOVF9ST0xFX1VOU1BFQ0lGSUVEEAASEwoPQUdFTlRfUk9MRV9ST09UEAESFQoRQUdFTlRfUk9MRV9XT1JLRVIQAhIUChBBR0VOVF9ST0xFX0FTS0VSEAMSFwoTQUdFTlRfUk9MRV9SRVZJRVdFUhAEKokCCgpBZ2VudFN0YXRlEhsKF0FHRU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASGAoUQUdFTlRfU1RBVEVfU1RBUlRJTkcQARIUChBBR0VOVF9TVEFURV9JRExFEAISFwoTQUdFTlRfU1RBVEVfV09SS0lORxADEhsKF0FHRU5UX1NUQVRFX05FRURTX0lOUFVUEAQSFgoSQUdFTlRfU1RBVEVfRVhJVEVEEAUSFwoTQUdFTlRfU1RBVEVfVU5LTk9XThAGEhcKE0FHRU5UX1NUQVRFX1JFVElSRUQQBxIXChNBR0VOVF9TVEFURV9MSU1JVEVEEAgSFQoRQUdFTlRfU1RBVEVfRVJST1IQCSpeCgpBZ2VudFBoYXNlEhsKF0FHRU5UX1BIQVNFX1VOU1BFQ0lGSUVEEAASGAoUQUdFTlRfUEhBU0VfUExBTk5JTkcQARIZChVBR0VOVF9QSEFTRV9FWEVDVVRJTkcQAirrAQoLTWVzc2FnZVR5cGUSHAoYTUVTU0FHRV9UWVBFX1VOU1BFQ0lGSUVEEAASFQoRTUVTU0FHRV9UWVBFX1RBU0sQARIVChFNRVNTQUdFX1RZUEVfUExBThACEhkKFU1FU1NBR0VfVFlQRV9RVUVTVElPThADEhcKE01FU1NBR0VfVFlQRV9BTlNXRVIQBBIVChFNRVNTQUdFX1RZUEVfRE9ORRAFEhcKE01FU1NBR0VfVFlQRV9GQUlMRUQQBhIVChFNRVNTQUdFX1RZUEVfSU5GTxAHEhUKEU1FU1NBR0VfVFlQRV9XQUlUEAhiBnByb3RvMw", [file_agentmesh_v1_actor, file_agentmesh_v1_context, file_agentmesh_v1_pr, file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * RequestMeta comes with every write. A retried write with the same mutation id returns the first result
@@ -95,6 +95,15 @@ export type Run = Message$1<"agentmesh.v1.Run"> & {
    * @generated from field: bool setup = 7;
    */
   setup: boolean;
+
+  /**
+   * The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+   * settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+   * its `ask_before` is added to the settings'.
+   *
+   * @generated from field: agentmesh.v1.RunAutonomy autonomy = 8;
+   */
+  autonomy?: RunAutonomy | undefined;
 };
 
 /**
@@ -103,6 +112,49 @@ export type Run = Message$1<"agentmesh.v1.Run"> & {
  */
 export const RunSchema: GenMessage<Run> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_types, 1);
+
+/**
+ * What the user lets this run's root do without asking, for every repo of the run.
+ *
+ * @generated from message agentmesh.v1.RunAutonomy
+ */
+export type RunAutonomy = Message$1<"agentmesh.v1.RunAutonomy"> & {
+  /**
+   * The user approves this run's plans and merges its PRs: the root never `mesh approve`s a plan or merges.
+   *
+   * @generated from field: bool user_approves_plans = 1;
+   */
+  userApprovesPlans: boolean;
+
+  /**
+   * The user merges this run's PRs: the root never merges one (it may still approve plans).
+   *
+   * @generated from field: bool user_merges = 2;
+   */
+  userMerges: boolean;
+
+  /**
+   * Things the root asks the user before doing, for this run only.
+   *
+   * @generated from field: repeated string ask_before = 3;
+   */
+  askBefore: string[];
+
+  /**
+   * Keep the host's repo lists (`repos.user_approves_plans`, `repos.user_merges`) for this run too, and only add
+   * `ask_before`: the two flags above are then ignored.
+   *
+   * @generated from field: bool keep_repo_lists = 4;
+   */
+  keepRepoLists: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.RunAutonomy.
+ * Use `create(RunAutonomySchema)` to create a new message.
+ */
+export const RunAutonomySchema: GenMessage<RunAutonomy> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 2);
 
 /**
  * @generated from message agentmesh.v1.Agent
@@ -377,6 +429,14 @@ export type Agent = Message$1<"agentmesh.v1.Agent"> & {
    * @generated from field: uint64 adopted_pid_start = 41;
    */
   adoptedPidStart: bigint;
+
+  /**
+   * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+   * recreates the worktree from the branch and clears this.
+   *
+   * @generated from field: bool archived = 42;
+   */
+  archived: boolean;
 };
 
 /**
@@ -384,7 +444,7 @@ export type Agent = Message$1<"agentmesh.v1.Agent"> & {
  * Use `create(AgentSchema)` to create a new message.
  */
 export const AgentSchema: GenMessage<Agent> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 2);
+  messageDesc(file_agentmesh_v1_types, 3);
 
 /**
  * Reopen is a relaunch of an agent's own conversation (`claude --resume <session>`) on another model, effort or
@@ -454,7 +514,7 @@ export type Reopen = Message$1<"agentmesh.v1.Reopen"> & {
  * Use `create(ReopenSchema)` to create a new message.
  */
 export const ReopenSchema: GenMessage<Reopen> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 3);
+  messageDesc(file_agentmesh_v1_types, 4);
 
 /**
  * @generated from message agentmesh.v1.Message
@@ -529,7 +589,7 @@ export type Message = Message$1<"agentmesh.v1.Message"> & {
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 4);
+  messageDesc(file_agentmesh_v1_types, 5);
 
 /**
  * Cursor is a position in the host's event log. A cursor from another generation (the log was recreated) can't
@@ -554,7 +614,7 @@ export type Cursor = Message$1<"agentmesh.v1.Cursor"> & {
  * Use `create(CursorSchema)` to create a new message.
  */
 export const CursorSchema: GenMessage<Cursor> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 5);
+  messageDesc(file_agentmesh_v1_types, 6);
 
 /**
  * Event is one entry of the host's event log: durable, numbered and replayable. Ephemeral frames are not
@@ -779,6 +839,24 @@ export type Event = Message$1<"agentmesh.v1.Event"> & {
      */
     value: PromptWithdrawn;
     case: "promptWithdrawn";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.RunRenamed run_renamed = 39;
+     */
+    value: RunRenamed;
+    case: "runRenamed";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.PermissionChanged permission_changed = 40;
+     */
+    value: PermissionChanged;
+    case: "permissionChanged";
+  } | {
+    /**
+     * @generated from field: agentmesh.v1.AgentArchived agent_archived = 41;
+     */
+    value: AgentArchived;
+    case: "agentArchived";
   } | { case: undefined; value?: undefined };
 };
 
@@ -787,7 +865,7 @@ export type Event = Message$1<"agentmesh.v1.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 6);
+  messageDesc(file_agentmesh_v1_types, 7);
 
 /**
  * A prompt the user sent an agent's chat that waits to be typed into its terminal (`PromptAgent`, `ListPrompts`).
@@ -837,7 +915,7 @@ export type QueuedPrompt = Message$1<"agentmesh.v1.QueuedPrompt"> & {
  * Use `create(QueuedPromptSchema)` to create a new message.
  */
 export const QueuedPromptSchema: GenMessage<QueuedPrompt> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 7);
+  messageDesc(file_agentmesh_v1_types, 8);
 
 /**
  * A prompt was queued for an agent (`PromptAgent` while it couldn't take one).
@@ -856,7 +934,7 @@ export type PromptQueued = Message$1<"agentmesh.v1.PromptQueued"> & {
  * Use `create(PromptQueuedSchema)` to create a new message.
  */
 export const PromptQueuedSchema: GenMessage<PromptQueued> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 8);
+  messageDesc(file_agentmesh_v1_types, 9);
 
 /**
  * A queued prompt was typed into the agent's terminal.
@@ -875,7 +953,7 @@ export type PromptTyped = Message$1<"agentmesh.v1.PromptTyped"> & {
  * Use `create(PromptTypedSchema)` to create a new message.
  */
 export const PromptTypedSchema: GenMessage<PromptTyped> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 9);
+  messageDesc(file_agentmesh_v1_types, 10);
 
 /**
  * A queued prompt was taken back before it was typed (`WithdrawPrompt`).
@@ -894,7 +972,7 @@ export type PromptWithdrawn = Message$1<"agentmesh.v1.PromptWithdrawn"> & {
  * Use `create(PromptWithdrawnSchema)` to create a new message.
  */
 export const PromptWithdrawnSchema: GenMessage<PromptWithdrawn> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 10);
+  messageDesc(file_agentmesh_v1_types, 11);
 
 /**
  * @generated from message agentmesh.v1.Worktree
@@ -946,7 +1024,7 @@ export type Worktree = Message$1<"agentmesh.v1.Worktree"> & {
  * Use `create(WorktreeSchema)` to create a new message.
  */
 export const WorktreeSchema: GenMessage<Worktree> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 11);
+  messageDesc(file_agentmesh_v1_types, 12);
 
 /**
  * @generated from message agentmesh.v1.WorktreeCreated
@@ -963,7 +1041,104 @@ export type WorktreeCreated = Message$1<"agentmesh.v1.WorktreeCreated"> & {
  * Use `create(WorktreeCreatedSchema)` to create a new message.
  */
 export const WorktreeCreatedSchema: GenMessage<WorktreeCreated> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 12);
+  messageDesc(file_agentmesh_v1_types, 13);
+
+/**
+ * A run's title changed (`RenameRun`).
+ *
+ * @generated from message agentmesh.v1.RunRenamed
+ */
+export type RunRenamed = Message$1<"agentmesh.v1.RunRenamed"> & {
+  /**
+   * @generated from field: string title = 1;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string previous = 2;
+   */
+  previous: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.RunRenamed.
+ * Use `create(RunRenamedSchema)` to create a new message.
+ */
+export const RunRenamedSchema: GenMessage<RunRenamed> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 14);
+
+/**
+ * A permission prompt of an agent's CLI was held for its parent, or ended. The list of pending prompts is in the
+ * daemon's memory only (`ListPermissions`); this event tells an app to list it again, and carries no prompt text.
+ *
+ * @generated from message agentmesh.v1.PermissionChanged
+ */
+export type PermissionChanged = Message$1<"agentmesh.v1.PermissionChanged"> & {
+  /**
+   * The prompt's id, as `ListPermissions` gives it.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string agent_name = 2;
+   */
+  agentName: string;
+
+  /**
+   * "asked" (held for the parent), "allowed" or "denied" (the parent or a device answered), "ended" (answered at the
+   * agent's terminal, ran out, or the agent went on).
+   *
+   * @generated from field: string state = 3;
+   */
+  state: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.PermissionChanged.
+ * Use `create(PermissionChangedSchema)` to create a new message.
+ */
+export const PermissionChangedSchema: GenMessage<PermissionChanged> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 15);
+
+/**
+ * An agent was archived: its worktree removed, its branch kept (`ArchiveAgent`).
+ *
+ * @generated from message agentmesh.v1.AgentArchived
+ */
+export type AgentArchived = Message$1<"agentmesh.v1.AgentArchived"> & {
+  /**
+   * @generated from field: string worktree = 1;
+   */
+  worktree: string;
+
+  /**
+   * @generated from field: string branch = 2;
+   */
+  branch: string;
+
+  /**
+   * Commits of its branch no remote branch has, when it was archived (0 for a branch that was pushed).
+   *
+   * @generated from field: int32 unpushed = 3;
+   */
+  unpushed: number;
+
+  /**
+   * Archived although it had unpushed commits (`force`).
+   *
+   * @generated from field: bool forced = 4;
+   */
+  forced: boolean;
+};
+
+/**
+ * Describes the message agentmesh.v1.AgentArchived.
+ * Use `create(AgentArchivedSchema)` to create a new message.
+ */
+export const AgentArchivedSchema: GenMessage<AgentArchived> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_types, 16);
 
 /**
  * @generated from message agentmesh.v1.RunStarted
@@ -980,7 +1155,7 @@ export type RunStarted = Message$1<"agentmesh.v1.RunStarted"> & {
  * Use `create(RunStartedSchema)` to create a new message.
  */
 export const RunStartedSchema: GenMessage<RunStarted> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 13);
+  messageDesc(file_agentmesh_v1_types, 17);
 
 /**
  * @generated from message agentmesh.v1.AgentSpawned
@@ -997,7 +1172,7 @@ export type AgentSpawned = Message$1<"agentmesh.v1.AgentSpawned"> & {
  * Use `create(AgentSpawnedSchema)` to create a new message.
  */
 export const AgentSpawnedSchema: GenMessage<AgentSpawned> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 14);
+  messageDesc(file_agentmesh_v1_types, 18);
 
 /**
  * @generated from message agentmesh.v1.AgentStateChanged
@@ -1029,7 +1204,7 @@ export type AgentStateChanged = Message$1<"agentmesh.v1.AgentStateChanged"> & {
  * Use `create(AgentStateChangedSchema)` to create a new message.
  */
 export const AgentStateChangedSchema: GenMessage<AgentStateChanged> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 15);
+  messageDesc(file_agentmesh_v1_types, 19);
 
 /**
  * @generated from message agentmesh.v1.MessageSent
@@ -1046,7 +1221,7 @@ export type MessageSent = Message$1<"agentmesh.v1.MessageSent"> & {
  * Use `create(MessageSentSchema)` to create a new message.
  */
 export const MessageSentSchema: GenMessage<MessageSent> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 16);
+  messageDesc(file_agentmesh_v1_types, 20);
 
 /**
  * @generated from message agentmesh.v1.MessageDelivered
@@ -1079,7 +1254,7 @@ export type MessageDelivered = Message$1<"agentmesh.v1.MessageDelivered"> & {
  * Use `create(MessageDeliveredSchema)` to create a new message.
  */
 export const MessageDeliveredSchema: GenMessage<MessageDelivered> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 17);
+  messageDesc(file_agentmesh_v1_types, 21);
 
 /**
  * A doorbell was typed or written again and again and never got through (the agent's input never took it, or it
@@ -1110,7 +1285,7 @@ export type DoorbellFailed = Message$1<"agentmesh.v1.DoorbellFailed"> & {
  * Use `create(DoorbellFailedSchema)` to create a new message.
  */
 export const DoorbellFailedSchema: GenMessage<DoorbellFailed> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 18);
+  messageDesc(file_agentmesh_v1_types, 22);
 
 /**
  * A doorbell has waited for a human's draft in the agent's input box to go for a long time (`delivery.draft_hold_alert`).
@@ -1142,7 +1317,7 @@ export type DoorbellHeld = Message$1<"agentmesh.v1.DoorbellHeld"> & {
  * Use `create(DoorbellHeldSchema)` to create a new message.
  */
 export const DoorbellHeldSchema: GenMessage<DoorbellHeld> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 19);
+  messageDesc(file_agentmesh_v1_types, 23);
 
 /**
  * @generated from message agentmesh.v1.AgentExited
@@ -1171,7 +1346,7 @@ export type AgentExited = Message$1<"agentmesh.v1.AgentExited"> & {
  * Use `create(AgentExitedSchema)` to create a new message.
  */
 export const AgentExitedSchema: GenMessage<AgentExited> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 20);
+  messageDesc(file_agentmesh_v1_types, 24);
 
 /**
  * The agent's terminal is recorded: a launch has just started it (AgentSpawned was written before it existed), or
@@ -1198,7 +1373,7 @@ export type AgentAdopted = Message$1<"agentmesh.v1.AgentAdopted"> & {
  * Use `create(AgentAdoptedSchema)` to create a new message.
  */
 export const AgentAdoptedSchema: GenMessage<AgentAdopted> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 21);
+  messageDesc(file_agentmesh_v1_types, 25);
 
 /**
  * A reopen was asked for. It runs at once when the agent is idle or stopped, else at its next IDLE.
@@ -1217,7 +1392,7 @@ export type AgentReopenRequested = Message$1<"agentmesh.v1.AgentReopenRequested"
  * Use `create(AgentReopenRequestedSchema)` to create a new message.
  */
 export const AgentReopenRequestedSchema: GenMessage<AgentReopenRequested> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 22);
+  messageDesc(file_agentmesh_v1_types, 26);
 
 /**
  * The agent's conversation was relaunched in a new terminal: same agent, session and worktree.
@@ -1246,7 +1421,7 @@ export type AgentReopened = Message$1<"agentmesh.v1.AgentReopened"> & {
  * Use `create(AgentReopenedSchema)` to create a new message.
  */
 export const AgentReopenedSchema: GenMessage<AgentReopened> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 23);
+  messageDesc(file_agentmesh_v1_types, 27);
 
 /**
  * A reopen asked for was not done: the agent was stopped first, or its relaunch failed (then the agent is
@@ -1271,7 +1446,7 @@ export type AgentReopenDropped = Message$1<"agentmesh.v1.AgentReopenDropped"> & 
  * Use `create(AgentReopenDroppedSchema)` to create a new message.
  */
 export const AgentReopenDroppedSchema: GenMessage<AgentReopenDropped> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 24);
+  messageDesc(file_agentmesh_v1_types, 28);
 
 /**
  * An agent was retired: its process stopped on purpose.
@@ -1292,7 +1467,7 @@ export type AgentRetired = Message$1<"agentmesh.v1.AgentRetired"> & {
  * Use `create(AgentRetiredSchema)` to create a new message.
  */
 export const AgentRetiredSchema: GenMessage<AgentRetired> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 25);
+  messageDesc(file_agentmesh_v1_types, 29);
 
 /**
  * A run was stopped: its agents retired and the run closed.
@@ -1307,7 +1482,7 @@ export type RunStopped = Message$1<"agentmesh.v1.RunStopped"> & {
  * Use `create(RunStoppedSchema)` to create a new message.
  */
 export const RunStoppedSchema: GenMessage<RunStopped> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 26);
+  messageDesc(file_agentmesh_v1_types, 30);
 
 /**
  * A run's quota reserve override changed (`mesh reserve on|off`).
@@ -1326,7 +1501,7 @@ export type ReserveChanged = Message$1<"agentmesh.v1.ReserveChanged"> & {
  * Use `create(ReserveChangedSchema)` to create a new message.
  */
 export const ReserveChangedSchema: GenMessage<ReserveChanged> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 27);
+  messageDesc(file_agentmesh_v1_types, 31);
 
 /**
  * @generated from message agentmesh.v1.AgentPhaseChanged
@@ -1355,7 +1530,7 @@ export type AgentPhaseChanged = Message$1<"agentmesh.v1.AgentPhaseChanged"> & {
  * Use `create(AgentPhaseChangedSchema)` to create a new message.
  */
 export const AgentPhaseChangedSchema: GenMessage<AgentPhaseChanged> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 28);
+  messageDesc(file_agentmesh_v1_types, 32);
 
 /**
  * An asker or reviewer was given a change to make and became a worker, in the same conversation. Its live
@@ -1387,7 +1562,7 @@ export type AgentRoleChanged = Message$1<"agentmesh.v1.AgentRoleChanged"> & {
  * Use `create(AgentRoleChangedSchema)` to create a new message.
  */
 export const AgentRoleChangedSchema: GenMessage<AgentRoleChanged> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 29);
+  messageDesc(file_agentmesh_v1_types, 33);
 
 /**
  * A hook's payload couldn't be decoded. Never read as any other event.
@@ -1411,7 +1586,7 @@ export type HookDecodeFailed = Message$1<"agentmesh.v1.HookDecodeFailed"> & {
  * Use `create(HookDecodeFailedSchema)` to create a new message.
  */
 export const HookDecodeFailedSchema: GenMessage<HookDecodeFailed> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 30);
+  messageDesc(file_agentmesh_v1_types, 34);
 
 /**
  * A setting was set or reset. Global: it carries no run, and every subscriber gets it. The actor and mutation id
@@ -1450,7 +1625,7 @@ export type SettingChanged = Message$1<"agentmesh.v1.SettingChanged"> & {
  * Use `create(SettingChangedSchema)` to create a new message.
  */
 export const SettingChangedSchema: GenMessage<SettingChanged> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 31);
+  messageDesc(file_agentmesh_v1_types, 35);
 
 /**
  * What a setting's value may be, enough for a client to draw its editor and validate before it sends.
@@ -1506,7 +1681,7 @@ export type SettingSchema = Message$1<"agentmesh.v1.SettingSchema"> & {
  * Use `create(SettingSchemaSchema)` to create a new message.
  */
 export const SettingSchemaSchema: GenMessage<SettingSchema> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 32);
+  messageDesc(file_agentmesh_v1_types, 36);
 
 /**
  * One setting: its effective value, what it falls back to, and who last set it.
@@ -1563,7 +1738,7 @@ export type Setting = Message$1<"agentmesh.v1.Setting"> & {
  * Use `create(SettingSchema$)` to create a new message.
  */
 export const SettingSchema$: GenMessage<Setting> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 33);
+  messageDesc(file_agentmesh_v1_types, 37);
 
 /**
  * A paired client device.
@@ -1611,7 +1786,7 @@ export type Device = Message$1<"agentmesh.v1.Device"> & {
  * Use `create(DeviceSchema)` to create a new message.
  */
 export const DeviceSchema: GenMessage<Device> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 34);
+  messageDesc(file_agentmesh_v1_types, 38);
 
 /**
  * A device's push endpoint, as `mesh devices` shows it. The endpoint's URL is a capability (whoever holds it can
@@ -1669,7 +1844,7 @@ export type PushRegistration = Message$1<"agentmesh.v1.PushRegistration"> & {
  * Use `create(PushRegistrationSchema)` to create a new message.
  */
 export const PushRegistrationSchema: GenMessage<PushRegistration> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 35);
+  messageDesc(file_agentmesh_v1_types, 39);
 
 /**
  * @generated from message agentmesh.v1.DevicePaired
@@ -1694,7 +1869,7 @@ export type DevicePaired = Message$1<"agentmesh.v1.DevicePaired"> & {
  * Use `create(DevicePairedSchema)` to create a new message.
  */
 export const DevicePairedSchema: GenMessage<DevicePaired> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 36);
+  messageDesc(file_agentmesh_v1_types, 40);
 
 /**
  * @generated from message agentmesh.v1.DeviceRevoked
@@ -1716,7 +1891,7 @@ export type DeviceRevoked = Message$1<"agentmesh.v1.DeviceRevoked"> & {
  * Use `create(DeviceRevokedSchema)` to create a new message.
  */
 export const DeviceRevokedSchema: GenMessage<DeviceRevoked> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_types, 37);
+  messageDesc(file_agentmesh_v1_types, 41);
 
 /**
  * @generated from enum agentmesh.v1.RunStatus

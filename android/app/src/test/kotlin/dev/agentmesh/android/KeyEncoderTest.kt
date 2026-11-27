@@ -63,6 +63,32 @@ class KeyEncoderTest {
         assertEquals(0, ImeBuffer.change(z, z).first.size)
     }
 
+    @Test fun `an IME that inserts before the sentinel types the text only, never the sentinel or a Backspace`() {
+        val z = ImeBuffer.SENTINEL
+        assertEquals("a", s(ImeBuffer.change(z, "a" + z).first))
+        assertEquals("ab", s(ImeBuffer.change(z, "a" + z + "b").first))
+        assertEquals(z, ImeBuffer.change(z, "a" + z).second)
+        // The sentinel gone is one Backspace, and a text replaced is a Backspace for each of its characters.
+        assertEquals("\u007f", s(ImeBuffer.change(z, "").first))
+        assertEquals("\u007f\u007f\u007fok", s(ImeBuffer.change(z + "ab", "ok").first))
+    }
+
+    @Test fun `a sticky modifier is for the first key of what is typed, not every character of it`() {
+        val z = ImeBuffer.SENTINEL
+        assertArrayEquals(byteArrayOf(3, 'd'.code.toByte()), KeyEncoder.text("cd", ctrl = true))
+        assertEquals("\u001Bcd", s(KeyEncoder.text("cd", alt = true)))
+        assertArrayEquals(byteArrayOf(3, 'd'.code.toByte()), ImeBuffer.change(z, z + "cd", ctrl = true).first)
+        // Over a newline too: Alt goes to the first of the keys only.
+        assertEquals("\u001Ba\rb", s(ImeBuffer.change(z, z + "a\nb", alt = true).first))
+        assertEquals("\u001B\rx", s(ImeBuffer.change(z, z + "\nx", alt = true).first))
+    }
+
+    @Test fun `Ctrl with Backspace is the backspace character, Alt puts an ESC before either`() {
+        assertEquals("\u0008", s(KeyEncoder.key(Key.Backspace, ctrl = true)))
+        assertEquals("\u001B\u0008", s(KeyEncoder.key(Key.Backspace, ctrl = true, alt = true)))
+        assertEquals("\u001B\u007f", s(KeyEncoder.key(Key.Backspace, alt = true)))
+    }
+
     @Test fun `a selection runs from the first cell to the last, either way`() {
         val sel = Selection(CellPos(5, 10), CellPos(2, 12))
         assertEquals(CellPos(5, 10), sel.start); assertEquals(CellPos(2, 12), sel.end)
@@ -73,15 +99,6 @@ class KeyEncoderTest {
         assertFalse(sel.contains(5, 9, 80)); assertFalse(sel.contains(0, 13, 80))
         val back = Selection(CellPos(2, 12), CellPos(5, 10))
         assertEquals(sel.start, back.start); assertEquals(sel.end, back.end)
-    }
-
-    @Test fun `a long press takes the word under the finger, a blank takes itself`() {
-        val line = "git commit -m fix"
-        assertEquals(4..9, Selection.wordAt(line, 6))
-        assertEquals(0..2, Selection.wordAt(line, 0))
-        assertEquals(14..16, Selection.wordAt(line, 16))
-        assertEquals(3..3, Selection.wordAt(line, 3))
-        assertEquals(40..40, Selection.wordAt(line, 40))
     }
 
     @Test fun `a point is the cell under it, clamped to the screen, for the row it shows`() {

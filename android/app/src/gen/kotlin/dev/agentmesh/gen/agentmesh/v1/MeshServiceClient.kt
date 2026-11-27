@@ -177,6 +177,38 @@ public class MeshServiceClient(
 
 
   /**
+   *  Change a run's title. A root may rename its own run; a device any.
+   */
+  override suspend fun renameRun(request: RenameRunRequest, headers: Headers): ResponseMessage<RenameRunResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RenameRun",
+      dev.agentmesh.gen.agentmesh.v1.RenameRunRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RenameRunResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
+   *  which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
+   *  An agent may ask once in 10 seconds.
+   */
+  override suspend fun openView(request: OpenViewRequest, headers: Headers): ResponseMessage<OpenViewResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/OpenView",
+      dev.agentmesh.gen.agentmesh.v1.OpenViewRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.OpenViewResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
    *  it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
    */
@@ -1042,6 +1074,87 @@ public class MeshServiceClient(
       dev.agentmesh.gen.agentmesh.v1.StreamLogRequest::class,
       dev.agentmesh.gen.agentmesh.v1.StreamLogResponse::class,
       StreamType.SERVER,
+    ),
+  )
+
+
+  /**
+   *  What an agent's worktree holds that isn't on a remote yet: the files changed since the commit its branch started at,
+   *  uncommitted work, and commits no remote branch has.
+   */
+  override suspend fun getAgentChanges(request: GetAgentChangesRequest, headers: Headers): ResponseMessage<GetAgentChangesResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetAgentChanges",
+      dev.agentmesh.gen.agentmesh.v1.GetAgentChangesRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetAgentChangesResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
+   *  its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
+   */
+  override suspend fun getAgentProgress(request: GetAgentProgressRequest, headers: Headers): ResponseMessage<GetAgentProgressResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetAgentProgress",
+      dev.agentmesh.gen.agentmesh.v1.GetAgentProgressRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetAgentProgressResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
+   *  changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
+   *  ResumeAgent brings it back: the worktree is made again from the branch.
+   */
+  override suspend fun archiveAgent(request: ArchiveAgentRequest, headers: Headers): ResponseMessage<ArchiveAgentResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ArchiveAgent",
+      dev.agentmesh.gen.agentmesh.v1.ArchiveAgentRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ArchiveAgentResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Open a path of an agent's worktree in the host's editor (the `editor.command` setting, run without a shell with the
+   *  path as one argument). The host's own device only: it runs a program on the host's machine.
+   */
+  override suspend fun openInEditor(request: OpenInEditorRequest, headers: Headers): ResponseMessage<OpenInEditorResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/OpenInEditor",
+      dev.agentmesh.gen.agentmesh.v1.OpenInEditorRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.OpenInEditorResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Turn the built-in Tailscale node on or off. Takes effect at the next start of meshd: when it runs under a service
+   *  manager it restarts itself. The host's own device only.
+   */
+  override suspend fun setTailnet(request: SetTailnetRequest, headers: Headers): ResponseMessage<SetTailnetResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/SetTailnet",
+      dev.agentmesh.gen.agentmesh.v1.SetTailnetRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.SetTailnetResponse::class,
+      StreamType.UNARY,
     ),
   )
 

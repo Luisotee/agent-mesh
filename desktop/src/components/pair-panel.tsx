@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPairing, listDevices, revokeDevice } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SkeletonLines } from '@/components/ui/skeleton'
 import { Input, Select } from '@/components/ui/input'
 import { Field } from '@/components/ui/label'
 import { useHostState } from '@/context'
@@ -153,7 +154,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
           </label>
           {!reachable && (
             <p role="note" className="text-xs text-state-needs">
-              This host has no direct TLS listener, no running Tailscale node and no relay, so a device on another machine can't reach it. Start meshd with <code className="font-mono">--listen</code>, or with <code className="font-mono">--tailscale</code> and log the node in, or with the relay flags.
+              This host has no direct TLS listener, no running Tailscale node and no relay, so a device on another machine can't reach it, and the host refuses to make a link until it has one (it says why). Turn Tailscale on above, or start meshd with <code className="font-mono">--listen</code> or the relay flags; a link for a direct address needs the address typed in.
             </p>
           )}
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
@@ -196,7 +197,7 @@ export function PairPanel({ host }: { host: HostRuntime }) {
 
       <div className="flex max-w-2xl flex-col gap-2">
         <h2 className="text-sm font-semibold">Paired devices</h2>
-        {!loaded && !error && <p className="text-xs text-muted-foreground">Loading…</p>}
+        {!loaded && !error && <SkeletonLines label="Loading the paired devices" lines={2} />}
         {loaded && devices.length === 0 && <p className="text-xs text-muted-foreground">No device is paired yet.</p>}
         {devices.length > 0 && (
           <ul aria-label="Paired devices" className="divide-y rounded-lg border bg-card">

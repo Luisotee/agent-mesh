@@ -1,4 +1,4 @@
-import { approveAgent, retireAgent, ringAgent, startRun, stopAgent, switchToNextModel } from './actions'
+import { approveAgent, renameRun, retireAgent, ringAgent, startRun, stopAgent, switchToNextModel } from './actions'
 import { canPair } from './components/pair-panel'
 import { joinWaiting, ROLE_LABEL, statusSentence, type Waiting } from './derive'
 import { AgentRole, AgentState, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
@@ -90,6 +90,16 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
   }
 }
 
+/** The host's settings by what they are for: a palette command opens the screen filtered to one (the query is a key prefix). */
+const SETTINGS_SECTIONS: ReadonlyArray<readonly [title: string, query: string, detail: string]> = [
+  ['Notifications', 'app.notify', 'alerts sound tray'],
+  ['Theme', 'app.theme', 'colours appearance'],
+  ['Model tiers', 'tiers.', 'models effort light mid strong'],
+  ['What leads may do without asking', 'autonomy.', 'autonomy merge approve ask before'],
+  ['Repositories', 'repos.', 'repos folder no free models'],
+  ['Permission prompts', 'permission.', 'wait allow deny'],
+]
+
 /** Every command the palette lists, for the state the app is in now. */
 export function buildCommands(app: AppModel): Command[] {
   const s = app.store.getState()
@@ -117,6 +127,11 @@ export function buildCommands(app: AppModel): Command[] {
   }
   if (selected && canPair(selected.store)) out.push({ id: 'pair', title: 'Pair a device', group: 'View', run: () => app.openPairing(true) })
   out.push({ id: 'shortcuts', title: 'Keyboard shortcuts…', group: 'View', detail: 'rebind keys', run: () => app.openSettings(true, 'app.keys') })
+  if (selected) {
+    for (const [title, query, detail] of SETTINGS_SECTIONS) {
+      out.push({ id: `settings:${query}`, title: `Settings: ${title}`, group: 'View', detail: `${detail} host settings`, run: () => app.openSettings(true, query) })
+    }
+  }
 
   if (selected) {
     out.push({ id: 'setup', title: 'Set up with the assistant', group: 'Actions', detail: `${selected.info.name} · connect repos, machines, your phone`, run: () => app.openSetup(selected.info.id) })
@@ -150,6 +165,28 @@ export function buildCommands(app: AppModel): Command[] {
     if (many) out.push({ id: `host:${h.info.id}`, title: `Go to host ${h.info.name}`, group: 'Hosts', run: () => app.selectHost(h.info.id) })
     for (const run of Object.values(hs.runs).sort((a, b) => Number(a.status === RunStatus.CLOSED) - Number(b.status === RunStatus.CLOSED) || a.title.localeCompare(b.title))) {
       const lead = Object.values(hs.agents).find((a) => a.runId === run.id && a.role === AgentRole.ROOT)
+      if (run.status !== RunStatus.CLOSED) {
+        out.push({
+          id: `add-agent:${h.info.id}/${run.id}`,
+          title: `Add an agent to run ${run.title || run.id}…`,
+          group: 'Actions',
+          detail: [run.id, many ? h.info.name : '', 'spawn worker workspace'].join(' '),
+          run: () => {
+            app.selectHost(h.info.id)
+            app.openWorkspace(true, run.id)
+          },
+        })
+      }
+      out.push({
+        id: `rename-run:${h.info.id}/${run.id}`,
+        title: `Rename run ${run.title || run.id}…`,
+        group: 'Actions',
+        detail: [run.id, many ? h.info.name : ''].join(' '),
+        ask: { prompt: `New title for run ${run.title || run.id}`, placeholder: run.title || 'What the run is for' },
+        run: async (title = '') => {
+          if (title.trim()) await renameRun(h.client, run.id, title.trim())
+        },
+      })
       out.push({
         id: `run:${h.info.id}/${run.id}`,
         title: `Go to run ${run.title || run.id}`,

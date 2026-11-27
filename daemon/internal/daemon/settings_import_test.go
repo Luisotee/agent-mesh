@@ -12,6 +12,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 const ownerPolicy = `{
@@ -41,7 +42,7 @@ func raw(s *v1.Setting) string { return s.Value.String() }
 
 func TestMeshdImportsThePolicyFileOnItsFirstStartOnly(t *testing.T) {
 	file := writePolicy(t, ownerPolicy)
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWith(t, state, withPolicy(file))
 	if s := setting(t, h, "compact.claude"); !s.IsSet || s.Value.GetNumberValue() != 250000 {
 		t.Errorf("compact.claude %v", s)
@@ -94,7 +95,7 @@ func TestMeshdWithNoPolicyFileOrABrokenOneStartsAnyway(t *testing.T) {
 
 func TestMeshdLogsAChangedPolicyFile(t *testing.T) {
 	file := writePolicy(t, `{"compact": {"agy": 5}}`)
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	startWith(t, state, withPolicy(file)).stop()
 	os.WriteFile(file, []byte(`{"compact": {"agy": 6}}`), 0o644)
 	logs := &syncBuffer{}
@@ -192,5 +193,38 @@ func TestImportSettingsMapsCopilotModelAndTheRenamedLeaves(t *testing.T) {
 	}
 	if s := setting(t, h, "peers.dir"); s.Value.GetStringValue() != "~/r" {
 		t.Errorf("%v", s)
+	}
+}
+
+// A file cannot do what its caller could not: a paired device importing a file that names a host-only setting leaves it alone
+// and says so; the host's own device sets it.
+func TestImportSettingsLeavesHostOnlySettingsToTheHostsOwnDevice(t *testing.T) {
+	h := start(t, "")
+	ctx := context.Background()
+	file := writePolicy(t, `{"editor": {"command": "sh"}, "compact": {"claude": 7}}`)
+	phone := pairPhone(t, h, "phone", false)
+	res, err := phone.c.ImportSettings(ctx, connect.NewRequest(&v1.ImportSettingsRequest{Meta: meta(""), From: file, Overwrite: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Msg.Imported) != 1 || res.Msg.Imported[0].Key != "compact.claude" {
+		t.Errorf("imported %v", res.Msg.Imported)
+	}
+	if got := strings.Join(res.Msg.Skipped, "\n"); !strings.Contains(got, "editor.command") || !strings.Contains(got, "host itself") {
+		t.Errorf("skipped %q", got)
+	}
+	if s := setting(t, h, "editor.command"); s.IsSet {
+		t.Errorf("editor.command after the phone's import: %v", s)
+	}
+	res, err = h.device.Mesh.ImportSettings(ctx, connect.NewRequest(&v1.ImportSettingsRequest{Meta: meta(""), From: file, Overwrite: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, i := range res.Msg.Imported {
+		found = found || i.Key == "editor.command"
+	}
+	if !found {
+		t.Errorf("the host's own device imported %v", res.Msg.Imported)
 	}
 }

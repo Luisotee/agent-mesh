@@ -48,6 +48,35 @@ describe('themes', () => {
     }
   })
 
+  // WCAG's contrast ratio of two #rrggbb colours.
+  const contrast = (a: string, b: string) => {
+    const lum = (hex: string) => {
+      const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!
+    }
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
+    return (hi! + 0.05) / (lo! + 0.05)
+  }
+
+  it('keeps muted text readable (4.5:1) and the hues, vendor marks and glow visible (3:1) on every surface, chips and selected rows included', () => {
+    for (const t of themes) {
+      // The surfaces text and marks sit on: the page, panels, cards, chips (muted) and selected rows and tiles (accent).
+      for (const bg of ['background', 'surface', 'card', 'muted', 'accent']) {
+        expect(contrast(t.tokens['muted-foreground']!, t.tokens[bg]!), `${t.name} muted on ${bg}`).toBeGreaterThanOrEqual(4.5)
+        for (const k of Object.keys(t.tokens).filter((k) => /^(hue-|vendor-|glow$)/.test(k))) {
+          expect(contrast(t.tokens[k]!, t.tokens[bg]!), `${t.name} ${k} on ${bg}`).toBeGreaterThanOrEqual(3)
+        }
+      }
+    }
+  })
+
+  it('names the bundled fonts first', () => {
+    const root = document.createElement('div')
+    applyTheme(themeByName('Dracula'), root)
+    expect(root.style.getPropertyValue('--font-ui')).toMatch(/^'Geist Variable', 'Geist'/)
+    expect(root.style.getPropertyValue('--font-code')).toMatch(/^'JetBrains Mono Variable', 'JetBrains Mono'/)
+  })
+
   it('falls back to Dracula for a name it lacks', () => {
     expect(themeByName('Solarized').name).toBe('Dracula')
     expect(themeByName(undefined).name).toBe('Dracula')
@@ -57,11 +86,11 @@ describe('themes', () => {
     const root = document.createElement('div')
     applyTheme(themeByName('Nord'), root)
     expect(root.style.getPropertyValue('--primary')).toBe('#88c0d0')
-    expect(root.style.getPropertyValue('--font-code')).toContain('Cascadia Code')
-    expect(root.style.getPropertyValue('--ui-text')).toBe('14px')
+    expect(root.style.getPropertyValue('--font-code')).toMatch(/^'JetBrains Mono Variable', 'JetBrains Mono', /)
+    expect(root.style.getPropertyValue('--ui-text')).toBe('15px')
     expect(root.dataset).toMatchObject({ theme: 'Nord', density: 'comfortable' })
     applyTheme(themeByName('Dracula'), root)
-    expect(root.style.getPropertyValue('--ui-text')).toBe('13px')
+    expect(root.style.getPropertyValue('--ui-text')).toBe('14px')
   })
 
   it('has the same token names in the Android files (one shared source)', () => {

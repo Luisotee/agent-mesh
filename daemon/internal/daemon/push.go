@@ -484,7 +484,7 @@ func pushTarget(ctx context.Context, deviceID string) (string, error) {
 	if id == "" || id == actor.Id {
 		return actor.Id, nil
 	}
-	if err := requireHostDevice(ctx); err != nil {
+	if err := requireHostDevice(ctx, "act on another device's push endpoint"); err != nil {
 		return "", denied("a device may act only on its own push endpoint")
 	}
 	return id, nil

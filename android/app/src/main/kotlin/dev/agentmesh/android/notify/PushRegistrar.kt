@@ -82,7 +82,11 @@ class PushRegistrar(
             events.drop(1).collect {
                 // One coroutine per host: a host that is slow to answer doesn't hold the others' new list back. A host that isn't
                 // connected now registers with the current list when it connects (each registration reads it afresh).
-                for (rt in runtimes.value.values) if (rt.state.value.conn is ConnState.Ready && store.get(rt.hostId) != null) launch { register(rt) }
+                // A host's earlier registration that is still waiting its turn is replaced: each reads the list afresh, so one is enough.
+                for (rt in runtimes.value.values) if (rt.state.value.conn is ConnState.Ready && store.get(rt.hostId) != null) synchronized(pending) {
+                    pending.remove(rt.hostId)?.cancel()
+                    pending[rt.hostId] = scope.launch { register(rt) }
+                }
             }
         }
         scope.launch {

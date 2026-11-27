@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -93,7 +94,7 @@ private const val READABLE_SP = 8f
  * resizes it.
  */
 @Composable
-fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier, selection: Selection? = null, onSelection: (Selection?) -> Unit = {}) {
+fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier, selection: Selection? = null, onSelection: (Selection?) -> Unit = {}, onTap: () -> Unit = {}) {
     // The state is the screen's: a new screen (another agent) starts from the fitted size and no pan.
     // 0 fits the host's width to the screen; a pinch sets a size of the user's own.
     var userSp by remember(screen) { mutableFloatStateOf(0f) }
@@ -112,6 +113,11 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
             delay(DESCRIPTION_EVERY_MS)
         }
     }
+    // The gesture blocks below run for as long as their key (the screen) holds, so what they call must be read afresh: the
+    // selection's owner changes when the screen is made again, and a tap's meaning with the keyboard.
+    val currentOnSelection by rememberUpdatedState(onSelection)
+    val currentOnTap by rememberUpdatedState(onTap)
+    val currentSelection by rememberUpdatedState(selection)
     Canvas(
         modifier.fillMaxSize()
             .semantics { contentDescription = description }
@@ -128,7 +134,12 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                     }
                 }
             }
-            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }, onTap = { onSelection(null) }) }
+            .pointerInput(screen) { detectTapGestures(onDoubleTap = { userSp = 0f; panX = 0f }, onTap = {
+                // A tap that drops a selection is only that: it doesn't also ask for the keyboard.
+                val had = currentSelection != null
+                currentOnSelection(null)
+                if (!had) currentOnTap()
+            }) }
             // A long press selects the word under the finger, and dragging on extends it from there.
             .pointerInput(screen) {
                 var anchor: CellPos? = null
@@ -144,9 +155,9 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                         val c = cellAt(o)
                         val word = screen.wordRange(screen.externalRow(c.row), c.col)
                         anchor = CellPos(word.first, c.row)
-                        onSelection(Selection(anchor!!, CellPos(word.last, c.row)))
+                        currentOnSelection(Selection(anchor!!, CellPos(word.last, c.row)))
                     },
-                    onDrag = { change, _ -> anchor?.let { onSelection(Selection(it, cellAt(change.position))) } },
+                    onDrag = { change, _ -> anchor?.let { currentOnSelection(Selection(it, cellAt(change.position))) } },
                     onDragEnd = { anchor = null },
                     onDragCancel = { anchor = null },
                 )
@@ -221,7 +232,7 @@ private fun DrawScope.drawTerminal(emu: TerminalEmulator, screen: TermScreen, th
             if (w == 0) { ci += chars; continue }
             val x = x0 + col * cell.w
             if (bg != theme.background) drawRect(bg, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
-            if (selection != null && selection.contains(col, absRow, cols)) drawRect(theme.selection, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
+            if (selection != null && (col until col + w).any { selection.contains(it, absRow, cols) }) drawRect(theme.selection, topLeft = androidx.compose.ui.geometry.Offset(x, y), size = androidx.compose.ui.geometry.Size(cell.w * w, cell.h))
             if (chars > 0 && cp != ' '.code && fx and TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE == 0) {
                 val p = if (boldFx) bold else regular
                 p.color = fg.toArgb()

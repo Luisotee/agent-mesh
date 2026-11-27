@@ -38,7 +38,7 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 func TestTheAppRowsAreInTheTable(t *testing.T) {
 	s := Default()
 	got := s.Keys("app.")
-	want := []string{"app.chat_keys.interrupt", "app.chat_keys.recall", "app.dock.new_agents", "app.keys.chat_toggle", "app.keys.dock", "app.keys.palette", "app.keys.settings", "app.keys.tab_close", "app.keys.tab_next", "app.keys.tab_prev", "app.keys.waiting_next", "app.notify.enabled", "app.notify.events", "app.notify.sound", "app.theme", "app.tray.close_to_tray"}
+	want := []string{"app.chat_keys.interrupt", "app.chat_keys.recall", "app.dock.new_agents", "app.keys.chat_toggle", "app.keys.dock", "app.keys.palette", "app.keys.settings", "app.keys.tab_close", "app.keys.tab_next", "app.keys.tab_prev", "app.keys.waiting_next", "app.notify.enabled", "app.notify.events", "app.notify.sound", "app.open_views", "app.theme", "app.tray.close_to_tray"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("app rows %v, want %v", got, want)
 	}

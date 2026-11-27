@@ -25,13 +25,14 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/pairing"
 	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/tlsutil"
 )
 
 func startWithConfig(t *testing.T, cfg daemon.Config) *harness {
 	t.Helper()
 	if cfg.StateDir == "" {
-		cfg.StateDir = filepath.Join(t.TempDir(), "state")
+		cfg.StateDir = shortdir.State(t)
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -461,12 +462,9 @@ func TestTailnetServesPinnedTLSAndPairsOverIt(t *testing.T) {
 	if st.Msg.AuthUrl != "https://login.example/a/1" || st.Msg.DirectUrl != "" {
 		t.Fatalf("TailnetStatus needing login = %v", st.Msg)
 	}
-	cp, err = h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-pair-2")}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cp.Msg.DirectUrl != "" {
-		t.Fatalf("pairing while the node needs login: DirectUrl %q", cp.Msg.DirectUrl)
+	// With no other route the link has nothing to carry: refused with the cause, not made.
+	if _, err = h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-pair-2")})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "node isn't connected yet") {
+		t.Fatalf("pairing while the node needs login = %v, want the refusal", err)
 	}
 
 	h.stop()
@@ -500,12 +498,8 @@ func TestTailnetListenFailureIsReported(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-fail")}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cp.Msg.DirectUrl != "" {
-		t.Fatalf("pairing DirectUrl = %q with no tailnet listener", cp.Msg.DirectUrl)
+	if _, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("tn-fail")})); code(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("pairing with no tailnet listener = %v, want the refusal", err)
 	}
 }
 

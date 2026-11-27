@@ -14,11 +14,12 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 func chatDaemon(t *testing.T, env map[string]string) (*agentsHarness, *v1.Agent) {
 	t.Helper()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) {
 		c.Env["FAKECLAUDE_TRANSCRIPT"] = "1"
 		c.Env["FAKECLAUDE_BOX"] = "1" // a prompt goes only into a box that reads empty
@@ -162,7 +163,7 @@ func TestOnlyATypingDevicePromptsAndADraftHoldsTheQueue(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Errorf("an agent prompting: %v", err)
 	}
-	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +231,7 @@ func TestAPromptWaitsOutTheAgentsOwnPrompt(t *testing.T) {
 }
 
 func TestEveryBuiltInCLIHasAChatView(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	run := startRun(t, h.device.Mesh, "")

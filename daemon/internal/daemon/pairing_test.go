@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/pairing"
 	"github.com/Luisotee/agent-mesh/daemon/internal/relay"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 func pairingClient(state, hostURL string) agentmeshv1connect.PairingServiceClient {
@@ -102,7 +102,7 @@ func TestPairingRedeemListAndRevoke(t *testing.T) {
 		t.Fatalf("scrubbed mutation = %+v", &scrubbedMut)
 	}
 	// A retry after redemption has no token or URI left to return: it is refused, not answered with an empty link.
-	_, err = h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+	_, err = h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 		Meta:       meta("pair-1"),
 		Name:       "my-phone",
 		TtlSeconds: 600,
@@ -117,7 +117,7 @@ func TestPairingRedeemListAndRevoke(t *testing.T) {
 	if err != nil || hello.Msg.Actor.GetId() != red.Msg.DeviceId || hello.Msg.Actor.GetName() != "Pixel 9" {
 		t.Fatalf("paired hello = %v, %v", hello, err)
 	}
-	if _, err := devClient.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("p-dev")})); code(err) != connect.CodePermissionDenied {
+	if _, err := devClient.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("p-dev")})); code(err) != connect.CodePermissionDenied {
 		t.Fatalf("paired device CreatePairing = %v, want PermissionDenied", err)
 	}
 	if _, err := devClient.ListDevices(ctx, connect.NewRequest(&v1.ListDevicesRequest{})); code(err) != connect.CodePermissionDenied {
@@ -187,7 +187,7 @@ func TestRevokeSelf(t *testing.T) {
 	pc := pairingClient(h.state, "")
 	pair := func(name string, readOnly bool) *v1.RedeemPairingResponse {
 		t.Helper()
-		cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-" + name), Name: name, ReadOnly: readOnly, TtlSeconds: 600}))
+		cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("pair-" + name), Name: name, ReadOnly: readOnly, TtlSeconds: 600}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -252,7 +252,7 @@ func TestRevokeSelf(t *testing.T) {
 
 func TestReadOnlyAndExpiredPairing(t *testing.T) {
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
-	state := t.TempDir() + "/state"
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{StateDir: state, Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatal(err)
@@ -278,7 +278,7 @@ func TestReadOnlyAndExpiredPairing(t *testing.T) {
 	pc := pairingClient(state, "")
 
 	// Read-only device pairing.
-	roPair, err := local.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+	roPair, err := local.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 		Meta:       meta("ro-1"),
 		Name:       "viewer",
 		ReadOnly:   true,
@@ -303,7 +303,7 @@ func TestReadOnlyAndExpiredPairing(t *testing.T) {
 	}
 
 	// Expired pairing is refused.
-	expPair, err := local.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+	expPair, err := local.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 		Meta:       meta("exp-1"),
 		TtlSeconds: 30,
 	}))
@@ -329,7 +329,7 @@ func TestCreatePairingRelayOverrideAndTTLOverflow(t *testing.T) {
 
 	// Huge ttl_seconds must be rejected instead of wrapping negative via time.Duration multiplication.
 	for _, badTTL := range []int64{-1, 86401, 9223372037, math.MaxInt64} {
-		if _, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		if _, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 			Meta:       meta("bad-ttl"),
 			TtlSeconds: badTTL,
 		})); code(err) != connect.CodeInvalidArgument {
@@ -338,7 +338,7 @@ func TestCreatePairingRelayOverrideAndTTLOverflow(t *testing.T) {
 	}
 
 	// Default uses configured relay URL, TCP, and derived client token.
-	defRes, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+	defRes, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 		Meta: meta("def-relay"),
 	}))
 	if err != nil {
@@ -382,7 +382,7 @@ func TestCreatePairingRelayOverrideAndTTLOverflow(t *testing.T) {
 
 func TestRevokeDeviceInvalidatesPendingTerminalTicketAndSubscribeRace(t *testing.T) {
 	home := t.TempDir()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, home)
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()
@@ -392,7 +392,7 @@ func TestRevokeDeviceInvalidatesPendingTerminalTicketAndSubscribeRace(t *testing
 	ag := h.spawn(run.Id, repo, "w1", "hi")
 
 	// Pair a remote device and obtain a terminal ticket BEFORE revocation.
-	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 		Meta: meta("pair-term"), Name: "stolen-phone",
 	}))
 	if err != nil {
@@ -479,7 +479,7 @@ func TestDeviceEventsNotSentToRunAgents(t *testing.T) {
 	}
 
 	// Pair and revoke a device, then close the worker's run.
-	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 		Meta: meta("pair-ev"), Name: "secret-phone",
 	}))
 	if err != nil {
@@ -550,7 +550,7 @@ func TestDeviceEventsOnlyToHostDevice(t *testing.T) {
 	run := startRun(t, h.device.Mesh, "r-dev-scope")
 
 	pair := func(id string, readOnly bool) *v1.RedeemPairingResponse {
-		cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{
+		cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL,
 			Meta: meta("pair-" + id), Name: id, ReadOnly: readOnly,
 		}))
 		if err != nil {
@@ -624,7 +624,7 @@ func TestSameRelayURL(t *testing.T) {
 
 func TestTerminalTicketStoreErrorIs503(t *testing.T) {
 	home := t.TempDir()
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWithAgents(t, state, home)
 	t.Cleanup(func() { stopTermHost(t, state) })
 	ctx := context.Background()
@@ -632,7 +632,7 @@ func TestTerminalTicketStoreErrorIs503(t *testing.T) {
 	repo := gitRepo(t)
 	run := startRun(t, h.device.Mesh, "term-503")
 	ag := h.spawn(run.Id, repo, "w1", "hi")
-	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-503"), Name: "phone"}))
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("pair-503"), Name: "phone"}))
 	if err != nil {
 		t.Fatal(err)
 	}

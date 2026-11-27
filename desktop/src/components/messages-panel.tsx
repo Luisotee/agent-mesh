@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { answer } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SkeletonLines } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/input'
 import { useHostState } from '@/context'
 import { MESSAGE_LABEL, messagesOf } from '@/derive'
@@ -42,7 +43,7 @@ export function MessagesPanel({ host, agentId, active = true }: { host: HostRunt
         <Button size="sm" variant="outline" onClick={() => host.loadMessages(runId, true)}>Try again</Button>
       </div>
     ) : (
-      <p role="status" className="py-6 text-center text-xs text-muted-foreground">Loading messages…</p>
+      <SkeletonLines label="Loading messages" lines={4} className="py-4" />
     )
   }
   if (mine.length === 0) {
@@ -95,7 +96,7 @@ function MessageCard({ host, message: m, open }: { host: HostRuntime; message: M
 }
 
 /** The user's reply: a plan is approved or sent back with changes, a question is answered; both go to the author as an `answer`. */
-function AnswerForm({ host, message: m }: { host: HostRuntime; message: Message }) {
+export function AnswerForm({ host, message: m }: { host: HostRuntime; message: Message }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')

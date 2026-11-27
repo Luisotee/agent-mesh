@@ -73,7 +73,7 @@ export function resolveTheme(f: ThemeFile): Theme {
   return {
     name: f.name,
     dark: f.dark,
-    font: { sans: f.font?.sans ?? 'Inter', mono: f.font?.mono ?? 'JetBrains Mono' },
+    font: { sans: f.font?.sans ?? 'Geist', mono: f.font?.mono ?? 'JetBrains Mono' },
     density: f.density === 'comfortable' ? 'comfortable' : 'compact',
     tokens: f.tokens,
     terminal: resolveTerminal(f),
@@ -101,11 +101,18 @@ export function onThemeChange(fn: (t: Theme) => void): () => void {
   return () => void listeners.delete(fn)
 }
 
-const stack = (family: string, rest: string) => `'${family}', ${rest}`
+/**
+ * A font stack for a theme's family. Geist and JetBrains Mono are bundled (`@fontsource-variable/*`, imported in
+ * src/index.css) under the family name plus " Variable"; that name goes first, then the plain one an installed copy has.
+ */
+const stack = (family: string, rest: string) => `'${family} Variable', '${family}', ${rest}`
 export const monoStack = (t: Theme) => stack(t.font.mono, "ui-monospace, 'Cascadia Code', Menlo, monospace")
 
-/** What density sets: Tailwind's spacing step and the body text size. */
-const DENSITY = { compact: { spacing: '0.25rem', text: '13px' }, comfortable: { spacing: '0.28rem', text: '14px' } }
+/**
+ * What density sets: Tailwind's spacing step and the body text size. The type scale around it is 12/13/14/15/18/22px:
+ * meta 12 (nothing smaller), sidebar rows 13, body 14 (15 comfortable), chat prose 15.
+ */
+const DENSITY = { compact: { spacing: '0.25rem', text: '14px' }, comfortable: { spacing: '0.28rem', text: '15px' } }
 
 export function applyTheme(theme: Theme, root: HTMLElement = document.documentElement): void {
   for (const [k, v] of Object.entries(theme.tokens)) root.style.setProperty(`--${k}`, v)

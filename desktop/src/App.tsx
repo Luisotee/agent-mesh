@@ -1,6 +1,9 @@
 import { Gauge, PanelRight, QrCode, Search, Settings } from 'lucide-react'
+import { LazyMotion, MotionConfig, domAnimation } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Tip, TooltipProvider } from '@/components/ui/tooltip'
 import { AppContext, useApp, useAppState, useHostState, useSelectedHost } from '@/context'
 import { createAppModel, type HostRuntime } from '@/model'
 import type { DesktopApi, OpenedLink } from '../shared/api'
@@ -8,10 +11,11 @@ import { AgentPanel } from '@/components/agent-panel'
 import { ConnectionBanner } from '@/components/connection-banner'
 import { CommandPalette } from '@/components/command-palette'
 import { Dock } from '@/components/dock'
-import { Panes } from '@/components/panes'
+import { DropEdges, Panes } from '@/components/panes'
 import { SidePanel } from '@/components/side-panel'
 import { WatchAll } from '@/components/watch-all'
 import { TabBar } from '@/components/tab-bar'
+import { ViewToasts } from '@/components/view-toasts'
 import { AddHostDialog, AddHostForm, RemoveHostDialog } from '@/components/host-dialogs'
 import { LocalSetup } from '@/components/local-setup'
 import { EmptyPane } from '@/components/empty-pane'
@@ -19,7 +23,7 @@ import { RunSidebar } from '@/components/run-sidebar'
 import { PairPanel, canPair } from '@/components/pair-panel'
 import { SettingsPanel } from '@/components/settings-panel'
 import { UsagePanel } from '@/components/usage-panel'
-import { joinWaiting } from '@/derive'
+import { waitingCount } from '@/derive'
 import { useShortcuts } from '@/shortcuts'
 import { appPrefs } from '@/prefs'
 import { applyTheme, themeByName } from '@/theme'
@@ -48,7 +52,14 @@ export function App({ api }: { api: DesktopApi }) {
   }, [api])
   return (
     <AppContext.Provider value={model}>
-      <Shell opened={opened} linkChecked={linkChecked} onOpenedDone={() => setOpened(undefined)} />
+      {/* Motion answers the user's actions only (rows and tiles coming and going), and none when they prefer reduced motion. */}
+      <MotionConfig reducedMotion="user">
+        <LazyMotion features={domAnimation} strict>
+          <TooltipProvider delay={400}>
+            <Shell opened={opened} linkChecked={linkChecked} onOpenedDone={() => setOpened(undefined)} />
+          </TooltipProvider>
+        </LazyMotion>
+      </MotionConfig>
     </AppContext.Provider>
   )
 }
@@ -59,7 +70,7 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
   const hosts = useAppState((s) => s.hosts)
   const host = useSelectedHost()
   useShortcuts()
-  if (!loaded) return <div className="grid h-screen place-items-center text-muted-foreground">Loading…</div>
+  if (!loaded) return <ShellSkeleton />
   if (error) return <div role="alert" className="grid h-screen place-items-center text-destructive">{error}</div>
   if (hosts.length === 0) return <Welcome opened={opened} linkChecked={linkChecked} onDone={onOpenedDone} />
   return (
@@ -75,13 +86,31 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
           <main className="flex min-w-0 flex-1 flex-col">
             <ConnectionBanner host={host} />
             <TabBar />
-            <MainPane host={host} />
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <MainPane host={host} />
+              <DropEdges />
+            </div>
             <Dock />
           </main>
           <PanelSlot host={host} />
           <CommandPalette />
+          <ViewToasts />
         </>
       )}
+    </div>
+  )
+}
+
+/** The window's outline while the saved hosts are read: a rail, a sidebar of rows and an empty main area. */
+function ShellSkeleton() {
+  return (
+    <div role="status" aria-label="Loading" className="flex h-screen"><span className="sr-only">Loading</span>
+      <div className="flex w-14 flex-col items-center gap-2 border-r py-3"><Skeleton className="size-9 rounded-lg" /></div>
+      <div className="flex w-80 flex-col gap-3 border-r bg-surface p-3">
+        <Skeleton className="h-4 w-1/2" />
+        {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-9" />)}
+      </div>
+      <div className="flex-1" />
     </div>
   )
 }
@@ -115,8 +144,8 @@ function Welcome({ opened, linkChecked, onDone }: { opened?: OpenedLink; linkChe
     <div className="grid h-screen place-items-center overflow-y-auto p-6">
       <div className="flex w-[34rem] max-w-full flex-col gap-4 rounded-lg border bg-card p-6">
         <div>
-          <h1 className="text-base font-semibold">Connect to agent-mesh</h1>
-          <p className="text-xs text-muted-foreground">
+          <h1 className="text-lg font-semibold">Connect to agent-mesh</h1>
+          <p className="text-[13px] text-muted-foreground">
             agent-mesh runs as a daemon on your computer (on Windows, inside WSL) or on a server. The app looks for one on this computer first.
           </p>
         </div>
@@ -163,20 +192,21 @@ const DOT: Record<string, string> = { ready: 'bg-state-done', connecting: 'bg-st
 
 function RailItem({ host, selected, onSelect }: { host: HostRuntime; selected: boolean; onSelect: () => void }) {
   const kind = useHostState(host, (s) => s.conn.kind)
-  const waiting = useHostState(host, (s) => joinWaiting(s.waiting, s.runs, s.agents).length)
+  const waiting = useHostState(host, (s) => waitingCount(s.waiting, s.permissions, s.runs, s.agents))
   return (
+    <Tip side="right" label={`${host.info.name}: ${kind}`}>
     <button
       type="button"
       onClick={onSelect}
-      title={`${host.info.name}: ${kind}`}
       aria-label={`Host ${host.info.name}, ${kind}`}
       aria-current={selected ? 'true' : undefined}
-      className={cn('relative grid size-9 place-items-center rounded-lg border bg-card text-sm font-semibold uppercase hover:bg-accent', selected && 'border-primary')}
+      className={cn('relative grid size-9 place-items-center rounded-lg border bg-card text-sm font-semibold uppercase outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring', selected && 'border-primary')}
     >
       {host.info.name.slice(0, 2)}
       <span className={cn('absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-background', DOT[kind])} />
-      {waiting > 0 && <span className="absolute -top-1 -right-1 grid min-w-4 place-items-center rounded-full bg-state-needs px-1 text-[10px] leading-4 font-bold text-primary-foreground">{waiting}</span>}
+      {waiting > 0 && <span className="absolute -top-1 -right-1 grid min-w-4 place-items-center rounded-full bg-state-needs px-1 text-xs leading-4 font-bold text-primary-foreground tabular-nums">{waiting}</span>}
     </button>
+    </Tip>
   )
 }
 
@@ -192,29 +222,39 @@ function HostHeader({ host }: { host: HostRuntime }) {
   return (
     <header className="flex items-start gap-2 border-b px-3 py-2.5">
       <div className="min-w-0 flex-1">
-        <h1 className="truncate text-sm font-semibold">{host.info.name}</h1>
-        <p className="truncate text-[11px] text-muted-foreground">
-          {conn.kind === 'ready' ? `daemon ${conn.hello.version} · you are ${conn.hello.actor?.name || 'a device'}` : conn.kind}
+        <h1 className="truncate text-[15px] font-semibold">{host.info.name}</h1>
+        <p className="truncate text-xs text-muted-foreground">
+          {conn.kind === 'ready' ? `Daemon ${conn.hello.version}, you are ${conn.hello.actor?.name || 'a device'}` : conn.kind}
         </p>
       </div>
-      <Button size="icon" variant="ghost" aria-label="Command palette" title="Command palette" onClick={() => app.openPalette(true)}>
-        <Search />
-      </Button>
+      <Tip label="Command palette">
+        <Button size="icon" variant="ghost" aria-label="Command palette" onClick={() => app.openPalette(true)}>
+          <Search />
+        </Button>
+      </Tip>
       <RemoveHostDialog host={host} />
       {mayPair && (
-        <Button size="icon" variant={pairOpen ? 'secondary' : 'ghost'} aria-label="Pair a device" aria-pressed={pairOpen} onClick={() => app.openPairing(!pairOpen)}>
-          <QrCode />
-        </Button>
+        <Tip label="Pair a device">
+          <Button size="icon" variant={pairOpen ? 'secondary' : 'ghost'} aria-label="Pair a device" aria-pressed={pairOpen} onClick={() => app.openPairing(!pairOpen)}>
+            <QrCode />
+          </Button>
+        </Tip>
       )}
-      <Button size="icon" variant={panelOpen ? 'secondary' : 'ghost'} aria-label="Side panel" aria-pressed={panelOpen} title="Cost, pull requests and quota of the open agent's run" onClick={() => app.setPanel(!panelOpen)}>
-        <PanelRight />
-      </Button>
-      <Button size="icon" variant={usageOpen ? 'secondary' : 'ghost'} aria-label="Usage and cost" aria-pressed={usageOpen} onClick={() => app.openUsage(!usageOpen)}>
-        <Gauge />
-      </Button>
-      <Button size="icon" variant={open ? 'secondary' : 'ghost'} aria-label="Settings" aria-pressed={open} onClick={() => app.openSettings(!open)}>
-        <Settings />
-      </Button>
+      <Tip label="Cost, pull requests and quota of the open agent's run">
+        <Button size="icon" variant={panelOpen ? 'secondary' : 'ghost'} aria-label="Side panel" aria-pressed={panelOpen} onClick={() => app.setPanel(!panelOpen)}>
+          <PanelRight />
+        </Button>
+      </Tip>
+      <Tip label="Usage and cost">
+        <Button size="icon" variant={usageOpen ? 'secondary' : 'ghost'} aria-label="Usage and cost" aria-pressed={usageOpen} onClick={() => app.openUsage(!usageOpen)}>
+          <Gauge />
+        </Button>
+      </Tip>
+      <Tip label="Settings">
+        <Button size="icon" variant={open ? 'secondary' : 'ghost'} aria-label="Settings" aria-pressed={open} onClick={() => app.openSettings(!open)}>
+          <Settings />
+        </Button>
+      </Tip>
     </header>
   )
 }

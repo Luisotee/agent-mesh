@@ -50,7 +50,7 @@ class DockHost(val hostId: String, val hostName: String, val skewMs: Long, val r
 fun dockTilesAcross(hosts: List<DockHost>): List<Tile> {
     val all = hosts.flatMap { h -> dockTiles(h.runs, h.agents, h.messages).map { Tile(it.agent, it.run, it.activity, it.lastSent, h.hostId, h.hostName, h.skewMs) } }
     return all.sortedWith(
-        compareBy<Tile> { if (attention(it.agent)) 0 else 1 }.thenByDescending { at(it.agent) - it.skewMs }.thenBy { it.agent.name }.thenBy { it.hostName },
+        compareBy<Tile> { if (attention(it.agent)) 0 else 1 }.thenByDescending { at(it.agent).let { t -> if (t > 0) t - it.skewMs else 0L } }.thenBy { it.agent.name }.thenBy { it.hostName },
     )
 }
 

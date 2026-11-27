@@ -112,4 +112,34 @@ class NotifyEventsSettingsTest {
         waitUntil { api.registerCalls.get() >= before + 2 }
         api.registerGate!!.complete(Unit)
     }
+
+    @Test fun `a quick run of changes leaves one registration waiting for a slow host, with the last list`() {
+        val api = RecordingApi()
+        NotificationsTest.api = api
+        container.prefs.setNotifyEvents(null)
+        val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        val deadline = System.currentTimeMillis() + 5_000
+        var rt: HostRuntime? = null
+        while (rt == null && System.currentTimeMillis() < deadline) { rt = container.runtimes.value[host.id]; Thread.sleep(20) }
+        rt!!.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        container.prefs.setPush(true)
+        container.pushRegistrar.onEndpoint(host.id, SavedEndpoint("https://ntfy.example/up?up=1", "pub", "auth"))
+        waitUntil { api.pushEvents.isNotEmpty() }
+        Thread.sleep(300)
+        val calls = api.registerCalls.get()
+        val sent = api.pushEvents.size
+        api.registerGate = kotlinx.coroutines.CompletableDeferred()
+        container.prefs.setNotifyEvents(setOf("plan"))
+        waitUntil { api.registerCalls.get() > calls }
+        // Two more changes while the first is on its way: only the last of them is to be sent after it.
+        container.prefs.setNotifyEvents(setOf("plan", "input"))
+        container.prefs.setNotifyEvents(setOf("plan", "input", "report"))
+        Thread.sleep(300)
+        api.registerGate!!.complete(Unit)
+        waitUntil { api.pushEvents.size >= sent + 2 }
+        Thread.sleep(300)
+        // The one on its way, then the last list once: not one for each change.
+        assertEquals(sent + 2, api.pushEvents.size)
+        assertEquals(listOf("input", "plan", "report"), api.pushEvents.last())
+    }
 }

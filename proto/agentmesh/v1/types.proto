@@ -36,6 +36,23 @@ message Run {
   // True for the run the first-run setup agent lives in (`StartSetup`): its root may also pair devices and read the
   // tailnet, which only the host's own device may otherwise.
   bool setup = 7;
+  // The user's autonomy for this run, set when it starts (`StartRunRequest.autonomy`); unset means the host's
+  // settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
+  // its `ask_before` is added to the settings'.
+  RunAutonomy autonomy = 8;
+}
+
+// What the user lets this run's root do without asking, for every repo of the run.
+message RunAutonomy {
+  // The user approves this run's plans and merges its PRs: the root never `mesh approve`s a plan or merges.
+  bool user_approves_plans = 1;
+  // The user merges this run's PRs: the root never merges one (it may still approve plans).
+  bool user_merges = 2;
+  // Things the root asks the user before doing, for this run only.
+  repeated string ask_before = 3;
+  // Keep the host's repo lists (`repos.user_approves_plans`, `repos.user_merges`) for this run too, and only add
+  // `ask_before`: the two flags above are then ignored.
+  bool keep_repo_lists = 4;
 }
 
 // AgentRole is an agent's place in its run. It is also its token's actor class.
@@ -151,6 +168,9 @@ message Agent {
   // daemon's, and the daemon never signals it.
   int32 adopted_pid = 40;
   uint64 adopted_pid_start = 41;
+  // Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+  // recreates the worktree from the branch and clears this.
+  bool archived = 42;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -260,6 +280,9 @@ message Event {
     PromptQueued prompt_queued = 36;
     PromptTyped prompt_typed = 37;
     PromptWithdrawn prompt_withdrawn = 38;
+    RunRenamed run_renamed = 39;
+    PermissionChanged permission_changed = 40;
+    AgentArchived agent_archived = 41;
   }
 }
 
@@ -305,6 +328,33 @@ message Worktree {
 
 message WorktreeCreated {
   Worktree worktree = 1;
+}
+
+// A run's title changed (`RenameRun`).
+message RunRenamed {
+  string title = 1;
+  string previous = 2;
+}
+
+// A permission prompt of an agent's CLI was held for its parent, or ended. The list of pending prompts is in the
+// daemon's memory only (`ListPermissions`); this event tells an app to list it again, and carries no prompt text.
+message PermissionChanged {
+  // The prompt's id, as `ListPermissions` gives it.
+  string id = 1;
+  string agent_name = 2;
+  // "asked" (held for the parent), "allowed" or "denied" (the parent or a device answered), "ended" (answered at the
+  // agent's terminal, ran out, or the agent went on).
+  string state = 3;
+}
+
+// An agent was archived: its worktree removed, its branch kept (`ArchiveAgent`).
+message AgentArchived {
+  string worktree = 1;
+  string branch = 2;
+  // Commits of its branch no remote branch has, when it was archived (0 for a branch that was pushed).
+  int32 unpushed = 3;
+  // Archived although it had unpushed commits (`force`).
+  bool forced = 4;
 }
 
 message RunStarted {

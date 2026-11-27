@@ -23,6 +23,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 type harness struct {
@@ -40,7 +41,7 @@ func start(t *testing.T, state string) *harness { return startWith(t, state, nil
 func startWith(t *testing.T, state string, tweak func(*daemon.Config)) *harness {
 	t.Helper()
 	if state == "" {
-		state = filepath.Join(t.TempDir(), "state")
+		state = shortdir.State(t)
 	}
 	cfg := daemon.Config{StateDir: state, TCP: "127.0.0.1:0",
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
@@ -216,7 +217,7 @@ func TestBrowserRequestsAreRefusedOnEveryListener(t *testing.T) {
 }
 
 func TestNonLoopbackTCPIsRefused(t *testing.T) {
-	d, err := daemon.New(daemon.Config{StateDir: t.TempDir(), TCP: "0.0.0.0:0",
+	d, err := daemon.New(daemon.Config{StateDir: shortdir.New(t), TCP: "0.0.0.0:0",
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
 		t.Fatal(err)
@@ -330,7 +331,7 @@ func recv(t *testing.T, s *connect.ServerStreamForClient[v1.SubscribeEventsRespo
 }
 
 func TestEventStreamSnapshotsResumesAndEnds(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := start(t, state)
 	ctx := context.Background()
 	first := startRun(t, h.device.Mesh, "")
@@ -533,6 +534,20 @@ func TestATooLongStateDirIsAClearError(t *testing.T) {
 	err = d.Serve(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "shorter --state") {
 		t.Errorf("serve in a long state dir: %v", err)
+	}
+}
+
+// The test helpers keep their state dirs short, so a long TMPDIR (or GOTMPDIR) does not take a socket path over its
+// limit: the suite passes with any.
+func TestADaemonStartsInTheHelpersStateDirWhateverTMPDIRIs(t *testing.T) {
+	long := filepath.Join(shortdir.New(t), strings.Repeat("a-long-tmpdir-", 10)) // not t.TempDir: its parent is fixed at its first call
+	if err := os.MkdirAll(long, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", long)
+	h := start(t, "")
+	if sock := (statedir.Paths{Dir: h.state}).Socket(); len(sock) > 107 {
+		t.Fatalf("the socket path is %d bytes: %s", len(sock), sock)
 	}
 }
 

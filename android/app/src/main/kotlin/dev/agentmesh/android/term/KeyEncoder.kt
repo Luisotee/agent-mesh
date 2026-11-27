@@ -22,8 +22,8 @@ object KeyEncoder {
             Key.Tab -> if (alt) "$ESC\t" else "\t"
             Key.ShiftTab -> "$ESC[Z"
             Key.Enter -> if (alt) "$ESC\r" else "\r"
-            // The DEL a terminal sends for the Backspace key (what the host's terminals expect: Backspace is not ^H).
-            Key.Backspace -> if (alt) "$ESC\u007f" else "\u007f"
+            // The DEL a terminal sends for the Backspace key (what the host's terminals expect: Backspace is not ^H); Ctrl with it is ^H.
+            Key.Backspace -> (if (alt) ESC else "") + (if (ctrl) "\u0008" else "\u007f")
             Key.Delete -> if (m) "$ESC[3;${mod(ctrl, alt)}~" else "$ESC[3~"
             Key.PageUp -> if (m) "$ESC[5;${mod(ctrl, alt)}~" else "$ESC[5~"
             Key.PageDown -> if (m) "$ESC[6;${mod(ctrl, alt)}~" else "$ESC[6~"
@@ -43,15 +43,19 @@ object KeyEncoder {
         else -> "$ESC[$code"
     }
 
-    /** Typed text: each character as UTF-8, with Ctrl making a control code of a letter (and `@ [ \ ] ^ _ ?`), and Alt an ESC before it. */
+    /**
+     * Typed text: each character as UTF-8. The sticky modifiers are one-shot, so they take the first character only: Ctrl
+     * makes a control code of a letter (and `@ [ \ ] ^ _ ?`), Alt puts an ESC before it.
+     */
     fun text(text: String, ctrl: Boolean = false, alt: Boolean = false): ByteArray {
         val out = java.io.ByteArrayOutputStream()
         var i = 0
         while (i < text.length) {
             val cp = text.codePointAt(i)
+            val first = i == 0
             i += Character.charCount(cp)
-            if (alt) out.write(0x1b)
-            val code = if (ctrl) control(cp) else null
+            if (alt && first) out.write(0x1b)
+            val code = if (ctrl && first) control(cp) else null
             if (code != null) out.write(code) else out.write(String(Character.toChars(cp)).toByteArray(Charsets.UTF_8))
         }
         return out.toByteArray()
@@ -74,22 +78,28 @@ object KeyEncoder {
  * selection, a composition or autocorrect never leaves anything to sync. [reset] is what the field holds again after each change.
  */
 object ImeBuffer {
-    const val SENTINEL = "​"
+    const val SENTINEL = "\u200B"
 
     /**
-     * The bytes for a change of the field from [old] to [new], and what it should hold now. Characters added after the old
-     * text are typed; a shorter text is a Backspace for each character removed. A newline is an Enter.
+     * The bytes for a change of the field from [old] to [new], and what it should hold now. The sentinel is never typed: an
+     * IME that inserts before it leaves it in [new], and that is only the added text. Characters added are typed; the
+     * characters removed, and the sentinel itself when it is gone, are a Backspace each. A newline is an Enter. The sticky
+     * [ctrl] and [alt] are for the first key of the change only.
      */
     fun change(old: String, new: String, ctrl: Boolean = false, alt: Boolean = false): Pair<ByteArray, String> {
-        val common = old.commonPrefixWith(new)
-        val removed = old.length - common.length
-        val added = new.substring(common.length)
+        val before = old.replace(SENTINEL, "")
+        val after = new.replace(SENTINEL, "")
+        val common = before.commonPrefixWith(after)
+        val removed = before.length - common.length + (if (SENTINEL in old && SENTINEL !in new) 1 else 0)
+        val added = after.substring(common.length)
         val out = java.io.ByteArrayOutputStream()
+        var c = ctrl
+        var a = alt
         // A replaced composition (autocorrect swapped a word) is its deletions, then its text.
-        repeat(removed) { out.write(KeyEncoder.key(Key.Backspace, alt = alt)) }
+        repeat(removed) { out.write(KeyEncoder.key(Key.Backspace, ctrl = c, alt = a)); c = false; a = false }
         for (part in added.split('\n').withIndex()) {
-            if (part.index > 0) out.write(KeyEncoder.key(Key.Enter, alt = alt))
-            if (part.value.isNotEmpty()) out.write(KeyEncoder.text(part.value, ctrl, alt))
+            if (part.index > 0) { out.write(KeyEncoder.key(Key.Enter, ctrl = c, alt = a)); c = false; a = false }
+            if (part.value.isNotEmpty()) { out.write(KeyEncoder.text(part.value, c, a)); c = false; a = false }
         }
         return out.toByteArray() to SENTINEL
     }

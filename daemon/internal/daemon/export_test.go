@@ -184,3 +184,8 @@ func (d *Daemon) RecordStopped(ctx context.Context, agentID string) error {
 
 // RunDirForTest is a run's dir (reports, plans, notes).
 func (d *Daemon) RunDirForTest(run string) string { return d.paths.RunDir(run) }
+
+// CopyWorktreeInclude is copyWorktreeInclude: the files of a repo's .worktreeinclude copied into a worktree.
+func CopyWorktreeInclude(ctx context.Context, repo, worktree string, maxBytes int64) WorktreeInclude {
+	return copyWorktreeInclude(ctx, repo, worktree, maxBytes)
+}

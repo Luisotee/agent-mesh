@@ -23,16 +23,6 @@ data class Selection(val anchor: CellPos, val focus: CellPos) {
     private fun before(a: CellPos, b: CellPos) = a.row < b.row || (a.row == b.row && a.col <= b.col)
 
     companion object {
-        /** The word around [col] in [text] (a run of non-space characters), as its first and last column; a blank cell selects itself. */
-        fun wordAt(text: String, col: Int): IntRange {
-            if (col !in text.indices || text[col].isWhitespace()) return col..col
-            var a = col
-            var b = col
-            while (a > 0 && !text[a - 1].isWhitespace()) a--
-            while (b < text.length - 1 && !text[b + 1].isWhitespace()) b++
-            return a..b
-        }
-
         /** The cell under a point: [x],[y] in the canvas, for cells of [cellW] by [cellH] shifted by [panX] and [shiftY], the top row being [topRow]. */
         fun cellAt(x: Float, y: Float, cellW: Float, cellH: Float, panX: Float, shiftY: Float, topRow: Long, cols: Int, rows: Int): CellPos {
             val c = ((x - panX) / cellW).toInt().coerceIn(0, cols - 1)

@@ -1,10 +1,11 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { ExternalLink, Network } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { tailnetStatus } from '@/actions'
+import { setTailnet, tailnetStatus } from '@/actions'
 import { useHostState } from '@/context'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import type { TailnetStatusResponse } from '@/gen/agentmesh/v1/mesh_pb'
 import type { HostRuntime } from '@/model'
 import { safeLoginUrl, tailnetAddresses, tailnetRunning, tailnetStateLabel } from '@/tailnet'
@@ -92,9 +93,12 @@ export function TailnetPanel({ host, onUse, onRunning }: { host: HostRuntime; on
       </header>
 
       {!status.enabled ? (
-        <p className="text-xs text-muted-foreground">
-          This host's built-in Tailscale node is off. Start meshd with <code className="font-mono">--tailscale</code> to reach it from your other devices over a tailnet (docs/relay.md).
-        </p>
+        <div className="flex flex-col items-start gap-2">
+          <p className="text-xs text-muted-foreground">
+            This host's built-in Tailscale node is off. Turn it on to reach this host from your other devices over a tailnet (docs/relay.md), or start meshd with <code className="font-mono">--tailscale</code>.
+          </p>
+          <TailnetSwitch host={host} enable />
+        </div>
       ) : (
         <>
           {status.problems.length > 0 && (
@@ -159,7 +163,54 @@ export function TailnetPanel({ host, onUse, onRunning }: { host: HostRuntime; on
           )}
         </>
       )}
+      {status.enabled && <TailnetSwitch host={host} enable={false} />}
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     </section>
+  )
+}
+
+/**
+ * Turns the node on or off (`SetTailnet`, the host's own device only). The node starts with meshd, so the host restarts it: it
+ * does that itself under a service manager (and says when it can't, so the user restarts it), the agents' terminals live in another process and
+ * keep running, and the app reconnects by itself. The user confirms first, because every connection drops for a moment.
+ */
+function TailnetSwitch({ host, enable }: { host: HostRuntime; enable: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState('')
+  async function go() {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const r = await setTailnet(host.client, enable)
+      setOpen(false)
+      setResult(r.note || (r.restarting ? 'meshd is restarting to apply it: the app reconnects by itself.' : r.restartNeeded ? 'Saved. Restart meshd for it to take effect (it does not run under a service manager).' : ''))
+    } catch (e) {
+      setError(say(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <Button size="sm" variant={enable ? 'secondary' : 'ghost'} onClick={() => setOpen(true)}>
+        {enable ? 'Turn Tailscale on' : 'Turn Tailscale off'}
+      </Button>
+      {result && <p role="status" className="text-xs text-muted-foreground">{result}</p>}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent title={enable ? 'Turn Tailscale on?' : 'Turn Tailscale off?'} description="The host's daemon (meshd) restarts for this to take effect.">
+          <div className="flex flex-col gap-3 text-sm">
+            <p className="text-xs">Every connection to the host (this app's too) drops for a moment and reconnects by itself. Agents keep running: their terminals belong to a separate process. If meshd was not started by a service manager, it only saves the choice and asks you to restart it yourself.</p>
+            {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button disabled={busy} onClick={() => void go()}>{enable ? 'Turn on and restart' : 'Turn off and restart'}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
