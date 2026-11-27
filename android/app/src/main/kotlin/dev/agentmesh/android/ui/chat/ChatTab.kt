@@ -169,9 +169,14 @@ fun ChatTab(
     val waitingOn = remember(host.waiting, host.runs, host.agents, host.messages, agentId) {
         waitingFor(host).filter { it.agent.id == agentId }.mapNotNull { it.message?.id }.toSet()
     }
-    val known = messages.isNotEmpty() || runId in host.messagesLoaded
+    // Cards stand in for the doorbell lines only once the run's history has loaded, and stay so over a reconnect (which
+    // keeps what is held): a live message before the load must not hide the older lines, nor a failed load all of them.
+    val loaded = runId in host.messagesLoaded
+    var loadedOnce by remember(runId) { mutableStateOf(false) }
+    LaunchedEffect(loaded) { if (loaded) loadedOnce = true }
+    val known = loaded || loadedOnce
     val whole = chat.transcript.atStart || !chat.transcript.supported
-    val entries = remember(blocks, messages, known, whole, waitingOn) { mergeTimeline(blocks, messages, cards = known, whole = whole, keep = { it.id in waitingOn }) }
+    val entries = remember(blocks, messages, known, whole, waitingOn) { mergeTimeline(blocks, if (known) messages else emptyList(), cards = known, whole = whole, keep = { it.id in waitingOn }) }
     val stamps = remember(entries) { stamped(entries) }
     val readOnly = isReadOnlyDevice(host)
     val now by produceState(System.currentTimeMillis()) { while (true) { delay(60_000); value = System.currentTimeMillis() } }
@@ -192,7 +197,9 @@ fun ChatTab(
     // header is item 0, so the last entry is item `entries.size`.
     val last = entries.lastOrNull()
     val lastChat = entries.lastOrNull { it is Entry.Chat }
-    LaunchedEffect(last?.id, ((last as? Entry.Chat)?.block as? Block.Tools)?.calls?.size) {
+    // A tool block above a trailing card grows too: follow that as well.
+    val lastTools = (lastChat as? Entry.Chat)?.block as? Block.Tools
+    LaunchedEffect(last?.id, ((last as? Entry.Chat)?.block as? Block.Tools)?.calls?.size, lastTools?.calls?.size) {
         if (stick && entries.isNotEmpty()) list.scrollToItem(entries.size)
     }
     // A card or a block that grows after it was placed (Markdown parsed off the main thread, an answer form) keeps the end in view.
@@ -210,6 +217,8 @@ fun ChatTab(
         if (i >= 0) list.scrollToItem(i + 1, a.second)
         anchor = null
     }
+    // A load that added nothing above (or failed) leaves no stale place behind.
+    LaunchedEffect(chat.earlierBusy) { if (!chat.earlierBusy) anchor = null }
     fun loadEarlier() {
         anchor = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key != "head" }?.let { (it.key as String) to -it.offset }
         stick = false

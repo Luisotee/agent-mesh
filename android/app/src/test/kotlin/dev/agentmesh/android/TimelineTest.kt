@@ -102,4 +102,12 @@ class TimelineTest {
         assertEquals(listOf("msg:p1", "u1", "msg:p2", "u2"), ids(mergeTimeline(blocks, old, cards = true, whole = false, keep = { it.id == "p1" })))
         assertEquals(listOf("msg:p0", "msg:p1", "u1", "msg:p2", "u2"), ids(mergeTimeline(blocks, old, cards = true)))
     }
+
+    @Test fun `a message sent before the window but delivered inside it stays, and one with no time is not held back`() {
+        val blocks = toBlocks(listOf(user("u1", 100_000), user("u2", 110_000)))
+        val late = plan("late", 99_000).toBuilder().setDeliveredAt(com.google.protobuf.Timestamp.newBuilder().setSeconds(105).build()).build()
+        assertEquals(listOf("msg:late", "u1", "u2"), ids(mergeTimeline(blocks, listOf(plan("old", 10_000), late), cards = true, whole = false)))
+        val noTime = dev.agentmesh.gen.agentmesh.v1.Message.newBuilder().setId("n").setToId("lead").setType(MessageType.MESSAGE_TYPE_INFO).build()
+        assertEquals(listOf("u1", "u2", "msg:n"), ids(mergeTimeline(blocks, listOf(noTime), cards = true, whole = false)))
+    }
 }

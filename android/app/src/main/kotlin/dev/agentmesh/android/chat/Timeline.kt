@@ -20,6 +20,8 @@ sealed interface Entry {
     data class Card(val message: Message) : Entry { override val id get() = "msg:${message.id}" }
 }
 
+private fun delivered(m: Message): Long = if (m.hasDeliveredAt()) m.deliveredAt.toMillis() else 0L
+
 private val Entry.at: Long
     get() = when (this) {
         is Entry.Chat -> block.at
@@ -40,9 +42,9 @@ fun mergeTimeline(blocks: List<Block>, messages: List<Message>, cards: Boolean, 
     for (i in cardsAt.size - 2 downTo 0) if (cardsAt[i] == 0L) cardsAt[i] = cardsAt[i + 1]
     // The chat reads the tail of the record: while earlier lines are still to load ([whole] false), a message older than
     // the first line held waits for them too (unless [keep] says it must show, as one that waits on the user), or the
-    // old ones would all pile up above it.
+    // old ones would all pile up above it. A message sent before the window but delivered inside it belongs in it: its doorbell is there.
     val first = blocks.firstOrNull { it.at > 0 }?.at ?: 0L
-    val pending = ArrayDeque(messages.mapIndexed { i, m -> Entry.Card(m) to cardsAt[i] }.filter { (c, at) -> whole || first == 0L || at >= first || keep(c.message) })
+    val pending = ArrayDeque(messages.mapIndexed { i, m -> Entry.Card(m) to cardsAt[i] }.filter { (c, at) -> whole || first == 0L || at == 0L || at >= first || delivered(c.message) >= first || keep(c.message) })
     val out = ArrayList<Entry>(blocks.size + messages.size)
     var clock = 0L
     for (b in blocks) {
