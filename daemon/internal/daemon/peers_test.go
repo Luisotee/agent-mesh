@@ -575,7 +575,8 @@ func TestImportingPeersCarriesTheirConversationsAndWorktreePathsAcrossAndAskResu
 	if ag.RunId != run.Id || ag.SessionId != "sess-alpha" || ag.Worktree != wtA || ar.Msg.Ask.Members[0].How != "resumed its conversation" {
 		t.Fatalf("alpha's agent %v, how %q", ag, ar.Msg.Ask.Members[0].How)
 	}
-	all := w.launches(t, "sess-alpha")
+	var all [][]string
+	waitFor(t, "alpha's launch", func() bool { all = w.launches(t, "sess-alpha"); return len(all) > 0 })
 	if f, deny := flags(all[len(all)-1]); f["--resume"] != "sess-alpha" || f["--session-id"] != "" || !deny {
 		t.Errorf("alpha's launch %v", all)
 	}
@@ -593,10 +594,11 @@ func TestImportingPeersCarriesTheirConversationsAndWorktreePathsAcrossAndAskResu
 	for _, m := range inbox {
 		told = told || strings.Contains(m.Body, "was not found where Claude Code keeps it")
 	}
-	if !told {
-		t.Errorf("beta's task does not say its conversation is gone: %v", inbox)
+	if !told || br.Msg.Ask.Members[0].How != "fresh (its conversation was not found)" {
+		t.Errorf("beta's task does not say its conversation is gone: %v, how %q", inbox, br.Msg.Ask.Members[0].How)
 	}
-	bl := w.launches(t, "sess-beta")
+	var bl [][]string
+	waitFor(t, "beta's launch", func() bool { bl = w.launches(t, "sess-beta"); return len(bl) > 0 })
 	if f, _ := flags(bl[len(bl)-1]); f["--session-id"] != "sess-beta" || f["--resume"] != "" {
 		t.Errorf("beta's launch %v", bl)
 	}

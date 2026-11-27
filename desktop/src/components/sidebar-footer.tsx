@@ -14,7 +14,7 @@ import { quotaSections, resetText, type QuotaLine } from '@/usage'
 import { VendorIcon } from './vendor-icon'
 import { AddHostDialog, RemoveHostDialog } from './host-dialogs'
 import { ActivityBell } from './activity-list'
-import { canPair } from './pair-panel'
+import { canPair, LOCAL_DEVICE } from './pair-panel'
 
 /** The sidebar's foot: the quota of each host as small meters, then Settings, the hosts and the + menu. */
 export function SidebarFooter() {
@@ -24,7 +24,8 @@ export function SidebarFooter() {
   const settingsOpen = useAppState((s) => s.settingsOpen)
   const keys = useKeys(hosts)
   const ready = useHostState(host ?? hosts[0]!, (s) => !!host && s.conn.kind === 'ready')
-  const mayPair = useHostState(host ?? hosts[0]!, () => !!host && canPair(host.store))
+  // The host's own device, by its last hello: the label does not flip while the connection drops and comes back.
+  const mayPair = useHostState(host ?? hosts[0]!, (s) => !!host && (canPair(host.store) || (s.conn.kind !== 'ready' && s.daemon?.actor?.id === LOCAL_DEVICE)))
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<HostRuntime>()
   const fixed = app.api.hosts.fixed

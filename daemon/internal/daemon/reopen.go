@@ -1367,6 +1367,7 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		cur.StateBeforeCompact = v1.AgentState_AGENT_STATE_UNSPECIFIED
 		if r.Fresh {
 			cur.SessionId = ""
+			cur.HadTurn = false // a new conversation has had no turn yet
 		}
 		cur.LastActivity = timestamppb.New(tx.Now())
 		if err := tx.PutAgent(cur); err != nil {
@@ -1465,9 +1466,6 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 		// The state is what the new process's hooks made it: it was set STARTING before the launch.
 		a.TerminalId, a.Model, a.Effort, a.DenyEdits = tid, r.Model, r.Effort, r.DenyEdits
 		a.Archived = false // its worktree was made again before the launch
-		if r.Fresh {
-			a.HadTurn = false // a new conversation has had no turn yet
-		}
 		if plan != nil && plan.SessionId != "" {
 			a.SessionId = plan.SessionId
 		}
