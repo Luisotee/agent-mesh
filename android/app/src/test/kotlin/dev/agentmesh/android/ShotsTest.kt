@@ -33,6 +33,7 @@ import dev.agentmesh.gen.agentmesh.v1.TranscriptEntry
 import dev.agentmesh.gen.agentmesh.v1.TranscriptKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -77,12 +78,17 @@ class ShotsTest {
         return ReadTranscriptResponse.newBuilder().setSupported(true).setSessionId("s1").addAllEntries(entries).setStartOffset(0).setEndOffset(100).setAtStart(true).build()
     }
 
+    private val started = mutableListOf<HostRuntime>()
+
+    @After fun stopRuntimes() { started.forEach { it.stop() } }
+
     private fun runtime(): HostRuntime {
         val repo = HostRepository(tmp.newFile("hosts.json").also { it.delete() }, Plain)
         val host = repo.add("wsl", listOf(Route.Direct("http://127.0.0.1:1")), "t")
         val rt = HostRuntime(host.id, repo, { _, _ -> api() }, CoroutineScope(Dispatchers.Unconfined))
         // Started, so the runtime has built its client (the chat reads through it); its handshake never answers, so the state is the test's.
         rt.start()
+        started += rt
         rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         fun a(id: String, name: String, state: AgentState, parent: String = "", role: AgentRole = AgentRole.AGENT_ROLE_WORKER, runId: String = "r1", repo: String = "/home/u/agent-mesh", kind: String = "claude", model: String = "claude-opus-5-5", needs: Int = 0, detail: String = "") =
             agent(id, runId = runId, role = role, parent = parent, state = state, name = name, at = 2_000, needsInput = needs, detail = detail).toBuilder().setRepo(repo).setKind(kind).setModel(model).build()
@@ -105,9 +111,8 @@ class ShotsTest {
     private fun container() = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> api() })
 
     private fun shot(name: String) {
-        // Markdown is parsed off the main thread: give it its moment before the picture.
-        Thread.sleep(600)
-        compose.waitForIdle()
+        // Markdown is parsed, then its code highlighted, each off the main thread: let both finish before the picture.
+        repeat(2) { Thread.sleep(500); compose.waitForIdle() }
         val bmp = compose.onRoot().captureToImage().asAndroidBitmap()
         File(out, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }

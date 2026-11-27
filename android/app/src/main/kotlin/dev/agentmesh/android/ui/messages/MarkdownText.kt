@@ -44,13 +44,28 @@ private fun messageTypography() = markdownTypography(
     ordered = MaterialTheme.typography.bodyLarge, bullet = MaterialTheme.typography.bodyLarge, list = MaterialTheme.typography.bodyLarge,
 )
 
-/** Code blocks with syntax colours and a header (the language, a copy button), in a palette that follows the theme's dark or light. */
+/**
+ * Code blocks with syntax colours and a header (the language, a copy button), in a palette that follows the theme's dark
+ * or light. Each block has a builder of its own: `Highlights.Builder` is mutable (the library sets the code and the
+ * language on it) and the blocks of a message are highlighted at the same time on background threads, so a shared one
+ * mixes their code and leaks one block's language into the next. `key(dark)` restarts a block's highlighting when the
+ * theme flips, which the library does not (it keys on the code alone).
+ */
 @Composable
 private fun messageComponents(): com.mikepenz.markdown.compose.components.MarkdownComponents {
     val dark = dev.agentmesh.android.ui.LocalMeshTheme.current.dark
-    val highlights = androidx.compose.runtime.remember(dark) { Highlights.Builder().theme(SyntaxThemes.atom(darkMode = dark)) }
     return markdownComponents(
-        codeBlock = { MarkdownHighlightedCodeBlock(content = it.content, node = it.node, highlightsBuilder = highlights, showHeader = true) },
-        codeFence = { MarkdownHighlightedCodeFence(content = it.content, node = it.node, highlightsBuilder = highlights, showHeader = true) },
+        codeBlock = {
+            androidx.compose.runtime.key(dark) {
+                val builder = androidx.compose.runtime.remember { Highlights.Builder().theme(SyntaxThemes.atom(darkMode = dark)) }
+                MarkdownHighlightedCodeBlock(content = it.content, node = it.node, highlightsBuilder = builder, showHeader = true)
+            }
+        },
+        codeFence = {
+            androidx.compose.runtime.key(dark) {
+                val builder = androidx.compose.runtime.remember { Highlights.Builder().theme(SyntaxThemes.atom(darkMode = dark)) }
+                MarkdownHighlightedCodeFence(content = it.content, node = it.node, highlightsBuilder = builder, showHeader = true)
+            }
+        },
     )
 }

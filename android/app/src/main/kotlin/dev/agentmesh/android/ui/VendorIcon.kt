@@ -14,12 +14,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.withSave
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.agentmesh.android.derive.Vendor
 import dev.agentmesh.android.derive.vendorOf
 import dev.agentmesh.android.theme.VendorColors
@@ -62,8 +63,12 @@ fun VendorIcon(kind: String = "", model: String = "", vendor: Vendor? = null, si
     } else {
         val letter = if (v == Vendor.OpenAI) "O" else kind.trim().take(1).uppercase().ifEmpty { "?" }
         Box(
-            modifier.size(size).border(1.dp, color, RoundedCornerShape(size / 5)).semantics { contentDescription = label },
+            modifier.size(size).border(1.dp, color, RoundedCornerShape(size / 5)).clearAndSetSemantics { contentDescription = label },
             contentAlignment = Alignment.Center,
-        ) { Text(letter, color = color, fontSize = (size.value * 0.6f).sp, lineHeight = (size.value * 0.6f).sp, fontWeight = FontWeight.SemiBold) }
+        ) {
+            // The glyph is sized from the box in dp, so a large system font scale doesn't outgrow the badge.
+            val glyph = with(LocalDensity.current) { (size * 0.6f).toSp() }
+            Text(letter, color = color, fontSize = glyph, lineHeight = glyph, fontWeight = FontWeight.SemiBold)
+        }
     }
 }

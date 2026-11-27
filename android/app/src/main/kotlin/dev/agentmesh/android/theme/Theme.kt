@@ -43,7 +43,7 @@ data class TerminalColors(val background: Color, val foreground: Color, val curs
 /** Each vendor's brand colour in this theme (`vendor-*`: the monochrome brands use the theme's text colour). */
 data class VendorColors(val claude: Color, val gemini: Color, val openai: Color, val copilot: Color, val opencode: Color, val deepseek: Color)
 
-/** How many identity hues a theme has (`hue-1`…`hue-8`): a project's colour is one of them (`ui/Hue.kt`). */
+/** How many identity hues a theme has (`hue-1`…`hue-8`): a project's colour is one of them (`derive/Hue.kt`). */
 const val HUES = 8
 
 /**

@@ -83,11 +83,14 @@ private class ShimmerNode(var base: Color, var light: Color, private var animate
     }
 
     override fun ContentDrawScope.draw() {
-        if (!animate) { drawRect(base); return }
-        val w = size.width
-        // A band a third of the width wide, sliding from before the left edge to past the right.
-        val x = -w / 3 + (w + w / 3) * phase
-        drawRect(Brush.linearGradient(listOf(base, light, base), start = Offset(x, 0f), end = Offset(x + w / 3, 0f)))
+        if (!animate) drawRect(base) else {
+            val w = size.width
+            // A band a third of the width wide, sliding from before the left edge to past the right.
+            val x = -w / 3 + (w + w / 3) * phase
+            drawRect(Brush.linearGradient(listOf(base, light, base), start = Offset(x, 0f), end = Offset(x + w / 3, 0f)))
+        }
+        // Under whatever the modifier is on, so it never hides a child (a skeleton's box has none).
+        drawContent()
     }
 }
 
