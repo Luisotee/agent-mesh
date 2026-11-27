@@ -25,6 +25,9 @@ const val POLL_MS = 2_000L
 /** How long after an event the chat reads on: a burst of events is one read. */
 const val SETTLE_MS = 300L
 
+/** How many of a page's replies (the newest) are prepared before it is shown; the rest are parsed as their rows come up. */
+const val WARM_ENTRIES = 30
+
 /** A host's refusal as its words, without the code in front of it. */
 fun say(e: Throwable): String = (e.message ?: e.javaClass.simpleName).replace(Regex("^\\[[a-z_]+]\\s*"), "")
 
@@ -67,7 +70,7 @@ class ChatSync(
 
     private suspend fun warmed(res: dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse) {
         // A failure to prepare is never a failure to show.
-        try { warm(res.entriesList.filter { it.kind == dev.agentmesh.gen.agentmesh.v1.TranscriptKind.TRANSCRIPT_KIND_ASSISTANT }.map { it.text }) } catch (e: CancellationException) { throw e } catch (e: Exception) { }
+        try { warm(res.entriesList.filter { it.kind == dev.agentmesh.gen.agentmesh.v1.TranscriptKind.TRANSCRIPT_KIND_ASSISTANT }.takeLast(WARM_ENTRIES).reversed().map { it.text }) } catch (e: CancellationException) { throw e } catch (e: Exception) { }
     }
 
     private suspend fun run() {

@@ -190,7 +190,7 @@ class ChatSyncTest {
         val sync = ChatSync(backgroundScope, { api }, "w1", warm = { seen += it; assertFalse("prepared before the page is shown", sync0.state.value.loaded) })
         sync0 = sync
         sync.sync(); runCurrent()
-        assertEquals(listOf(listOf("**one**", "two")), seen)
+        assertEquals(listOf(listOf("two", "**one**")), seen) // the newest first
         assertTrue(sync.state.value.loaded)
     }
 

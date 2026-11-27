@@ -1,61 +1,60 @@
 package dev.agentmesh.android.ui.messages
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.unit.dp
-import dev.agentmesh.android.ui.Skeleton
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import com.mikepenz.markdown.compose.components.markdownComponents
-import com.mikepenz.markdown.compose.elements.MarkdownHighlightedCodeBlock
-import com.mikepenz.markdown.compose.elements.MarkdownHighlightedCodeFence
-import com.mikepenz.markdown.m3.Markdown
-import dev.snipme.highlights.Highlights
-import dev.snipme.highlights.model.SyntaxThemes
-import com.mikepenz.markdown.m3.markdownTypography
-import com.mikepenz.markdown.model.markdownDimens
-import com.mikepenz.markdown.model.markdownPadding
-import com.mikepenz.markdown.annotator.annotatorSettings
-import com.mikepenz.markdown.compose.elements.MarkdownTableBasicText
-import org.intellij.markdown.ast.ASTNode
-import org.intellij.markdown.ast.getTextInNode
-import org.intellij.markdown.flavours.gfm.GFMElementTypes
-import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.mikepenz.markdown.annotator.annotatorSettings
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.MarkdownHighlightedCodeBlock
+import com.mikepenz.markdown.compose.elements.MarkdownHighlightedCodeFence
+import com.mikepenz.markdown.compose.elements.MarkdownTableBasicText
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.markdownPadding
 import dev.agentmesh.android.ui.LocalMeshTheme
 import dev.agentmesh.android.ui.MonoSmall
+import dev.agentmesh.android.ui.Skeleton
+import dev.snipme.highlights.Highlights
+import dev.snipme.highlights.model.SyntaxThemes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.intellij.markdown.ast.ASTNode
+import org.intellij.markdown.ast.getTextInNode
+import org.intellij.markdown.flavours.gfm.GFMElementTypes
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 
 /** Text with none of Markdown's marks is shown as text: most info and answer messages are, and plain text costs nothing. */
 private val MARKS = Regex("""[#*_`>|\[\]~]|^\s*([-+]|\d+\.)\s|^\s*---""", RegexOption.MULTILINE)
@@ -82,7 +81,7 @@ fun MarkdownText(text: String) {
     }
     val state = parsed
     when {
-        state != null -> Markdown(state, typography = messageTypography(), padding = messagePadding(), dimens = messageDimens(), components = messageComponents(), modifier = Modifier.fillMaxWidth())
+        state != null -> Markdown(state, typography = messageTypography(), padding = messagePadding(), components = messageComponents(), modifier = Modifier.fillMaxWidth())
         failed -> Text(text, style = MaterialTheme.typography.bodyLarge)
         else -> Pending(text)
     }
@@ -104,8 +103,7 @@ private fun Pending(text: String) {
 @Composable
 private fun messageTypography(): com.mikepenz.markdown.model.MarkdownTypography {
     val t = MaterialTheme.typography
-    return run {
-        markdownTypography(
+    return markdownTypography(
             h1 = t.titleLarge, h2 = t.titleMedium.copy(fontWeight = FontWeight.SemiBold),
             h3 = t.titleMedium, h4 = t.titleSmall, h5 = t.titleSmall, h6 = t.labelLarge,
             text = t.bodyLarge, paragraph = t.bodyLarge,
@@ -113,7 +111,6 @@ private fun messageTypography(): com.mikepenz.markdown.model.MarkdownTypography 
             ordered = t.bodyLarge, bullet = t.bodyLarge, list = t.bodyLarge,
             table = t.bodyMedium,
         )
-    }
 }
 
 /**
@@ -127,9 +124,6 @@ private fun messagePadding() = markdownPadding(
     codeBlock = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
 )
 
-@Composable
-private fun messageDimens() = markdownDimens()
-
 /**
  * Code blocks with syntax colours and a header (the language, a copy button), in a palette that follows the theme's dark
  * or light. Each block has a builder of its own: `Highlights.Builder` is mutable (the library sets the code and the
@@ -140,8 +134,7 @@ private fun messageDimens() = markdownDimens()
 @Composable
 private fun messageComponents(): com.mikepenz.markdown.compose.components.MarkdownComponents {
     val dark = LocalMeshTheme.current.dark
-    return run {
-        markdownComponents(
+    return markdownComponents(
             codeBlock = {
                 key(dark) {
                     val builder = remember { Highlights.Builder().theme(SyntaxThemes.atom(darkMode = dark)) }
@@ -156,7 +149,6 @@ private fun messageComponents(): com.mikepenz.markdown.compose.components.Markdo
             },
             table = { MeshTable(it.content, it.node, it.typography.table) },
         )
-    }
 }
 
 /**

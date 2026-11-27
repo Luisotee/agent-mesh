@@ -114,6 +114,8 @@ import dev.agentmesh.android.ui.MonoSmall
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
 import dev.agentmesh.android.ui.messages.MarkdownCache
 import dev.agentmesh.android.ui.messages.MarkdownText
+import dev.agentmesh.android.ui.messages.isLong
+import dev.agentmesh.android.ui.messages.preview
 import dev.agentmesh.gen.agentmesh.v1.ActorClass
 import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.AgentState
@@ -193,6 +195,8 @@ fun ChatTab(
     val whole = chat.transcript.atStart || !chat.transcript.supported
     val entries = remember(blocks, messages, known, whole, waitingOn) { mergeTimeline(blocks, if (known) messages else emptyList(), cards = known, whole = whole, keep = { it.id in waitingOn }) }
     val stamps = remember(entries) { stamped(entries) }
+    // The cards' bodies are parsed ahead as well (the newest first), as the transcript's replies are by the sync.
+    LaunchedEffect(messages) { MarkdownCache.warm(messages.takeLast(30).reversed().map { if (isLong(it.body)) preview(it.body) else it.body }) }
     val readOnly = isReadOnlyDevice(host)
     val now by produceState(System.currentTimeMillis()) { while (true) { delay(60_000); value = System.currentTimeMillis() } }
     // The user's own words are tinted with the project's identity hue (the same colour on the desktop).
@@ -579,13 +583,15 @@ private fun ToolCallRow(call: ToolCall) {
         else if (r.text.isNotEmpty()) {
             // No scroll of its own inside the chat's list (a drag that began on it would be taken from the list): a few lines, and Show all.
             var all by rememberSaveable(call.id) { mutableStateOf(false) }
-            val long = r.text.length > 400 || r.text.count { it == '\n' } >= TOOL_RESULT_LINES
+            // Whether the eight lines cut something (a long line wraps: counting characters or newlines would miss it).
+            var cut by remember { mutableStateOf(false) }
             Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)).padding(8.dp)) {
                 Text(
-                    r.text + if (r.truncated && all) "\n… cut here" else "", style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    r.text + if (r.truncated) "\n… cut here" else "", style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     maxLines = if (all) Int.MAX_VALUE else TOOL_RESULT_LINES, overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (!all) cut = it.hasVisualOverflow },
                 )
-                if (long) Text(
+                if (all || cut) Text(
                     if (all) "Show less" else "Show all", Modifier.clickable { all = !all }.padding(top = 6.dp).testTag("tool-result-toggle"),
                     style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
                 )

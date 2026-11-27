@@ -19,6 +19,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
@@ -130,5 +131,49 @@ class MarkdownRowsTest {
         assertEquals(64f, columnWidth(1).value, 0.01f)
         assertEquals(240f, columnWidth(500).value, 0.01f)
         assertTrue(columnWidth(20).value in 150f..200f)
+    }
+
+    private val tmp = org.junit.rules.TemporaryFolder().also { it.create() }
+    private val api = RecordingApi()
+    private val started = mutableListOf<dev.agentmesh.android.HostRuntime>()
+
+    private fun chatWith(result: String, truncated: Boolean) {
+        fun e(id: String, kind: dev.agentmesh.gen.agentmesh.v1.TranscriptKind, text: String = "", tool: String = "", input: String = "") =
+            dev.agentmesh.gen.agentmesh.v1.TranscriptEntry.newBuilder().setId(id).setKind(kind).setText(text).setTool(tool).setToolInput(input).setToolUseId("t1").setTruncated(truncated && kind == dev.agentmesh.gen.agentmesh.v1.TranscriptKind.TRANSCRIPT_KIND_TOOL_RESULT).build()
+        val K = dev.agentmesh.gen.agentmesh.v1.TranscriptKind.TRANSCRIPT_KIND_TOOL_CALL
+        val R = dev.agentmesh.gen.agentmesh.v1.TranscriptKind.TRANSCRIPT_KIND_TOOL_RESULT
+        api.transcript = { _, _, _ -> dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse.newBuilder().setSupported(true).setSessionId("s1").addEntries(e("1", K, tool = "Bash", input = "ls")).addEntries(e("2", R, text = result)).setStartOffset(0).setEndOffset(10).setAtStart(true).build() }
+        val repo = dev.agentmesh.android.hosts.HostRepository(tmp.newFile("hosts.json").also { it.delete() }, Plain)
+        val host = repo.add("Home", listOf(dev.agentmesh.android.net.Route.Direct("http://127.0.0.1:1")), "t")
+        val rt = dev.agentmesh.android.HostRuntime(host.id, repo, { _, _ -> api }, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined))
+        rt.start(); started += rt
+        rt.onState(dev.agentmesh.android.store.ConnState.Ready(dev.agentmesh.gen.agentmesh.v1.HelloResponse.getDefaultInstance()))
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(agent("a1", name = "shop-fix", state = dev.agentmesh.gen.agentmesh.v1.AgentState.AGENT_STATE_IDLE).toBuilder().setKind("claude").setTerminalId("t-a1").build())))
+        val container = AppContainer(androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>(), Plain, newApi = { _, _ -> api })
+        compose.setContent { androidx.compose.runtime.CompositionLocalProvider(dev.agentmesh.android.ui.LocalContainer provides container) { AgentMeshTheme(theme) { dev.agentmesh.android.ui.AgentScreen(rt, "a1", {}, dev.agentmesh.android.notify.Tab.Chat) } } }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-tools")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("chat-tools").performClick()
+        compose.waitForIdle()
+    }
+
+    @Test fun `a tool's answer that is cut to eight lines by wrapping offers Show all, a short one does not`() {
+        // One line of 350 characters: no newline, under the old 400-character rule, and about a dozen lines on a phone.
+        chatWith("x".repeat(30).let { w -> (1..12).joinToString(" ") { w } }, truncated = false)
+        compose.onNodeWithTag("tool-result-toggle").assertExists().performClick()
+        compose.onNodeWithText("Show less").assertExists()
+        started.forEach { it.stop() }
+    }
+
+    @Test fun `a short answer has no Show all`() {
+        chatWith("done", truncated = false)
+        compose.onAllNodesWithTag("tool-result-toggle").assertCountEquals(0)
+        started.forEach { it.stop() }
+    }
+
+    @Test fun `an answer the host cut says so without being expanded`() {
+        chatWith("three\nshort\nlines", truncated = true)
+        compose.onNodeWithText("cut here", substring = true, useUnmergedTree = true).assertExists()
+        compose.onAllNodesWithTag("tool-result-toggle").assertCountEquals(0)
+        started.forEach { it.stop() }
     }
 }

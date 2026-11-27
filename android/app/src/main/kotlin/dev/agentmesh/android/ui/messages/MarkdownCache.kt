@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 object MarkdownCache {
     const val MAX_ENTRIES = 300
     const val MAX_CHARS = 600_000
+    const val WARM_BUDGET_MS = 250L
 
     private val lock = Any()
     private val map = LinkedHashMap<String, State.Success>(64, 0.75f, true)
@@ -34,7 +35,6 @@ object MarkdownCache {
             val it = map.entries.iterator()
             while ((map.size > MAX_ENTRIES || chars > MAX_CHARS) && map.size > 1 && it.hasNext()) {
                 val eldest = it.next()
-                if (eldest.key === text) continue
                 chars -= eldest.key.length
                 it.remove()
             }
@@ -42,10 +42,15 @@ object MarkdownCache {
         return made
     }
 
-    /** Parses what has Markdown in it and isn't held yet, off the main thread: newest last, so what is read first stays. */
-    suspend fun warm(texts: Collection<String>) = withContext(Dispatchers.Default) {
+    /**
+     * Parses what has Markdown in it and isn't held yet, off the main thread, in the order given (what is read first goes first)
+     * and for at most [budgetMs]: what is left is parsed when its row comes up, so showing a page never waits long on its parses.
+     */
+    suspend fun warm(texts: Collection<String>, budgetMs: Long = WARM_BUDGET_MS) = withContext(Dispatchers.Default) {
+        val until = System.nanoTime() + budgetMs * 1_000_000
         for (t in texts) {
             ensureActive()
+            if (System.nanoTime() > until) break
             if (hasMarkdown(t) && get(t) == null) parse(t)
         }
     }
