@@ -374,7 +374,7 @@ class ParityScreensTest {
         compose.waitUntil(5_000) { true in api.usageCalls }
         // The timed reads after it don't force the host's cache again.
         compose.waitUntil(5_000) { api.usageCalls.size >= 4 }
-        assertEquals(1, api.usageCalls.count { it })
+        assertEquals(1, api.usageCalls.snapshot().count { it })
     }
 
     @Test fun `the spend of one run is asked for by its id`() {
@@ -385,7 +385,7 @@ class ParityScreensTest {
         waitForTag("cost-tokens")
         compose.onNodeWithTag("span-run").performClick()
         compose.onNodeWithText("Fix the typo").performClick()
-        compose.waitUntil(5_000) { api.costCalls.any { it.first == "r1" } }
+        compose.waitUntil(5_000) { api.costCalls.snapshot().any { it.first == "r1" } }
     }
 
     // ── Settings ──
@@ -553,14 +553,14 @@ class ParityScreensTest {
         compose.waitUntil(5_000) { api.usageCalls.isNotEmpty() }
         compose.onNodeWithTag("refresh").performClick()
         compose.waitUntil(5_000) { true in api.usageCalls }
-        assertEquals(1, api.usageCalls.count { it })
+        assertEquals(1, api.usageCalls.snapshot().count { it })
         val before = api.usageCalls.size
         // The connection drops and returns: the quota is read again, without forcing the host's cache.
         rt.onState(ConnState.Reconnecting(1, System.currentTimeMillis() + 60_000, "gone"))
         compose.waitForIdle()
         rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         compose.waitUntil(5_000) { api.usageCalls.size > before }
-        assertEquals(1, api.usageCalls.count { it })
+        assertEquals(1, api.usageCalls.snapshot().count { it })
     }
 
     @Test fun `a spend error doesn't outlive the span it was for, and the per-agent table can be asked for`() {

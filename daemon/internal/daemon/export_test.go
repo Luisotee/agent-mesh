@@ -217,3 +217,6 @@ func SetPermNoticeAfter(d time.Duration) func() {
 
 // FailingChecks exposes failingChecks.
 func FailingChecks(rollup []map[string]any) []string { return failingChecks(rollup) }
+
+// PushPending is how many batches of events the push dispatcher has taken and not yet dispatched.
+func (d *Daemon) PushPending() int64 { return d.push.pending.Load() }

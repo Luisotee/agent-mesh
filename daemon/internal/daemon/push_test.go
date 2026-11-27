@@ -158,6 +158,13 @@ func (p *phone) open(t *testing.T, body []byte) payload {
 	return out
 }
 
+// pushIdle waits until the push dispatcher has dispatched what has been committed: it reads the notify settings when it
+// dispatches, so a setting changed before that applies to the events still waiting.
+func pushIdle(t *testing.T, h *harness) {
+	t.Helper()
+	waitFor(t, "the push dispatcher idle", func() bool { return h.d.PushPending() == 0 })
+}
+
 // startPush starts a daemon whose pushes retry after the given waits (default 5 ms twice) and may go to loopback,
 // where the fake push services listen.
 func startPush(t *testing.T, retry ...time.Duration) *harness {
@@ -208,12 +215,15 @@ func TestPushCarriesTheNoticeEncryptedToEachPhone(t *testing.T) {
 	if _, err := h.device.Mesh.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "p-root", Type: v1.MessageType_MESSAGE_TYPE_QUESTION, Body: "from me"})); err != nil {
 		t.Fatal(err)
 	}
+	pushIdle(t, h)
 	setPushSetting(t, h, "app.notify.events", []any{"question"})
 	send(w, v1.MessageType_MESSAGE_TYPE_DONE, "done")
 	// A worker's question to its lead is the lead's; only what the lead asks the user is the user's.
 	send(w, v1.MessageType_MESSAGE_TYPE_QUESTION, "worker asks")
+	pushIdle(t, h)
 	setPushSetting(t, h, "app.notify.enabled", false)
 	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "which db?")
+	pushIdle(t, h)
 	setPushSetting(t, h, "app.notify.enabled", true)
 	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "and now?")
 	waitFor(t, "the question's push", func() bool { return srv.delivered() == 2 })
@@ -289,7 +299,7 @@ func TestAPhonesOwnListOfKindsDecidesWhatIsPushedToIt(t *testing.T) {
 	// Notifications off on the host pushes nothing to either, whatever a phone chose.
 	setPushSetting(t, h, "app.notify.enabled", false)
 	send(v1.MessageType_MESSAGE_TYPE_PLAN, "another plan")
-	time.Sleep(100 * time.Millisecond)
+	pushIdle(t, h) // dispatched, and decided, while notifications are off
 	if srvA.delivered() != 2 {
 		t.Fatalf("a push went out with notifications off: %d", srvA.delivered())
 	}
