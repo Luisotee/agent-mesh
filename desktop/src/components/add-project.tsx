@@ -50,7 +50,8 @@ export function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose
       }
       return
     }
-    if (shown[0]) add(shown[0])
+    if (shown[0]) return add(shown[0])
+    setError(typed ? `No project of ${host.info.name} matches "${typed}": type its path, starting with /` : 'Type a name or a path')
   }
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

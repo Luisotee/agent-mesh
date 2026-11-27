@@ -21,7 +21,7 @@ import { LAYOUT_KEY, layoutOf, parseLayout, pruneHost, restoreOf } from './layou
 import { agentProject } from './sidebar'
 import { repoName } from './derive'
 import { isShellTab, shellIdOf, shellProject, shellTabId } from './shells'
-import { closeShell as callCloseShell, listShells, openShell, spawnAgent, startRun } from './actions'
+import { closeShell as callCloseShell, listShells, openShell, spawnAgent, startRun, stopRun } from './actions'
 import type { Shell } from './gen/agentmesh/v1/mesh_pb'
 import type { DockNewAgents } from './prefs'
 
@@ -571,8 +571,15 @@ export function createAppModel(api: DesktopApi): AppModel {
       if (!h) return
       const run = await startRun(h.client, `${kind} in ${repoName(repo)}`)
       if (!run.run) throw new Error('the host started no run')
-      const res = await spawnAgent(h.client, { runId: run.run.id, repo, slug: kind, role: AgentRole.ROOT, kind, tier: '', model: '', effort: '', task: '', plain: true })
-      if (res.agent) model.selectAgent(hostId, res.agent.id, 'chat')
+      try {
+        const res = await spawnAgent(h.client, { runId: run.run.id, repo, slug: kind, role: AgentRole.ROOT, kind, tier: '', model: '', effort: '', task: '', plain: true })
+        if (!res.agent) throw new Error('the host started no agent')
+        model.selectAgent(hostId, res.agent.id, 'chat')
+      } catch (e) {
+        // A run with no agent is nothing to keep: a refused spawn (a cap, a missing terminal host) must not leave one behind per click.
+        await stopRun(h.client, run.run.id).catch(() => {})
+        throw e
+      }
     },
     notify: (text, tone = 'info') => {
       const id = ++noticeSeq

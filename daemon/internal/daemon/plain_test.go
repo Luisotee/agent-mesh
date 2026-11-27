@@ -117,3 +117,20 @@ func TestAResumedPlainAgentIsNotCompacted(t *testing.T) {
 		t.Errorf("a plain agent compacted on resume: %v", w.compactions())
 	}
 }
+
+func TestAPlainAgentsFirstDoorbellNamesTheMessagingRulesNotTheRootCard(t *testing.T) {
+	share := t.TempDir()
+	w, log := boxWorld(t, map[string]string{}, func(c *daemon.AgentConfig) { c.Share = share })
+	run := startRun(t, w.device.Mesh, "")
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+		RunId: run.Id, Repo: gitRepo(t), Slug: "chat", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	send(t, w.device.Mesh, res.Msg.Agent.Id, v1.MessageType_MESSAGE_TYPE_INFO, "a note from the user")
+	waitFor(t, "the doorbell", func() bool { return len(doorbells(lines(t, log))) >= 1 })
+	d := doorbells(lines(t, log))[0]
+	if !strings.Contains(d, "PROTOCOL.md") || strings.Contains(d, "ROOT_CARD.md") {
+		t.Errorf("a plain agent's doorbell %q should name PROTOCOL.md and not ROOT_CARD.md", d)
+	}
+}

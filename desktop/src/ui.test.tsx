@@ -1068,6 +1068,15 @@ describe('SidebarFooter', () => {
     expect(model.store.getState().pins).toEqual({ h1: ['/p/app'] })
   })
 
+  it('says so when a typed name matches no project', async () => {
+    const { wrap, model } = fixture()
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
+    await userEvent.type(await screen.findByRole('textbox'), 'nothing-like-it{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('matches "nothing-like-it"')
+    expect(model.store.getState().pins).toEqual({})
+  })
+
   it('checks a path typed with the host and refuses one that is not a repository, saying why, instead of pinning it', async () => {
     const { wrap, model, client } = fixture()
     client.listProjects.mockImplementation(async (req: unknown) => {
@@ -1816,7 +1825,7 @@ describe('Project shells', () => {
       }),
     })
     f.model.selectAgent('h1', 'lead')
-    return { ...f, client: f.client as unknown as Record<'openShell' | 'closeShell' | 'listShells', ReturnType<typeof vi.fn>> }
+    return { ...f, client: f.client as unknown as Record<'openShell' | 'closeShell' | 'listShells' | 'startRun' | 'spawnAgent', ReturnType<typeof vi.fn>> }
   }
 
   it('offers New terminal from the +, starts a shell in the project, opens its tab, and keeps its tab across a restore', async () => {
@@ -1837,6 +1846,8 @@ describe('Project shells', () => {
     const { client, wrap, model } = shells()
     client.startRun.mockResolvedValue({ run: { id: 'r9' } })
     client.spawnAgent.mockResolvedValue({ agent: { id: 'a9' } })
+    const stopRun = vi.fn(async () => ({}))
+    Object.assign(client, { stopRun })
     render(wrap(<><TabBar /><Notices /></>))
     await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
     await userEvent.click(await screen.findByRole('menuitem', { name: 'New agy agent' }))
@@ -1849,6 +1860,8 @@ describe('Project shells', () => {
     await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
     await userEvent.click(await screen.findByRole('menuitem', { name: 'New Claude agent' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('the host is at its agent cap')
+    // The run it started for the refused agent is stopped, not left empty in the sidebar.
+    expect(stopRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r9' }))
   })
 
   it('asks when a shell tab closes: Keep running closes the tab only and the + menu opens it again; End shell stops it', async () => {

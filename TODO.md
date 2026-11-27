@@ -23,6 +23,8 @@ Open work, kept short on purpose: whoever picks a task up works out the details.
 
 - [ ] Android follows the desktop UI feedback (2026-11-27, `runs/r2lscbp/plans/agent-mesh-ui-feedback.md`; desktop first): a "New agent" in the add menu per CLI the host has (a plain agent: `SpawnAgent.plain`, a root with no task that the host never resets or briefs; the drawer already has an add for projects and leads, and tabs, split panes and the tab bar's view switch are desktop-only). Later PRs of that plan add their lines here: the agent's wait words and the PR sections, the context meter with the reset marks, the model picker by the composer, live agents only in the tree strip, the quota footer per provider with the reserve tick.
 
+- [ ] Plain agents (`SpawnAgent.plain`, the desktop's "New agent") each make a run, a worktree and a branch `mesh/<run>/<slug>` that nothing sweeps (`sweepable` never takes a root's worktree): let the sweeper take a plain root's worktree when it is clean and merged, and have the app name two plain agents of one CLI apart on their tabs. A plain agent is still a lead in `waiting.go`, `cost.go` and `view.go` (it never sends a plan or a done, so nothing waits): audit those if a rollup shows it.
+
 ## From the Orca / Paseo comparison (2026-11-24)
 
 Ideas from comparing agent-mesh with stablyai/orca and getpaseo/paseo. Paseo was trialled and dropped (design, "Alternatives considered"): agent-mesh gets its own apps instead.
