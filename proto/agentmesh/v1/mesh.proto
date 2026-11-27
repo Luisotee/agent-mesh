@@ -234,6 +234,33 @@ service MeshService {
     };
   }
 
+  // The tasks held for a task that is not reported done yet (`SendMessage` with `after`), oldest first. A lead reads its
+  // own run's.
+  rpc ListHeldTasks(ListHeldTasksRequest) returns (ListHeldTasksResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "held"
+      summary: "List the tasks held for another task"
+    };
+  }
+
+  // Drop a held task: it is never sent.
+  rpc CancelHeldTask(CancelHeldTaskRequest) returns (CancelHeldTaskResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "cancel-held"
+      summary: "Drop a task held for another task"
+    };
+  }
+
   // The calling agent's messages; unread ones are marked read unless peek is set.
   rpc ReadInbox(ReadInboxRequest) returns (ReadInboxResponse) {
     option (action) = {
@@ -1202,9 +1229,9 @@ message RenameRunResponse {
 
 message OpenViewRequest {
   RequestMeta meta = 1;
-  // "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
-  // the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
-  // owns the pull request, with its side panel).
+  // "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's messages, or
+  // the run lead's: in the agent's chat on the desktop, the Messages tab on Android), "plan" (the same for the agent that
+  // wrote the plan, at its newest plan) or "pr" (the agent that owns the pull request, with its side panel).
   string view = 2;
   // The agent's name or id for "agent", "terminal", "messages" and "plan" (for "messages" a run's id too); the run's id for
   // "run"; a settings section for "settings" (may be empty); a pull request's URL or `#number` for "pr".
@@ -1512,6 +1539,12 @@ message SendMessageRequest {
   // a newer task came since, after a done for the task, or for a second failed. Empty: the report answers your
   // current task. Only a plan, question, done or failed to your parent takes it.
   string re = 6;
+  // Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+  // The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+  // is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+  // told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+  // task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+  string after = 7;
 }
 
 message SendMessageResponse {
@@ -1522,7 +1555,40 @@ message SendMessageResponse {
   // closed run, no conversation to resume). The message is stored either way and waits for the agent's next
   // resume.
   string resume_error = 3;
+  // Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
+  string held = 4;
 }
+
+// A task held until another task is reported done (`SendMessageRequest.after`).
+message HeldTask {
+  string id = 1;
+  string run_id = 2;
+  // The task it waits for: a message id.
+  string after = 3;
+  // The agent it is for: its id.
+  string to = 4;
+  // The held task's text.
+  string body = 5;
+  // Who asked for it.
+  Actor from = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ListHeldTasksRequest {
+  // Only this run's; empty means the caller's run (a lead) or every run (a device).
+  string run_id = 1;
+}
+
+message ListHeldTasksResponse {
+  repeated HeldTask held = 1;
+}
+
+message CancelHeldTaskRequest {
+  RequestMeta meta = 1;
+  string id = 2;
+}
+
+message CancelHeldTaskResponse {}
 
 message ReadInboxRequest {
   RequestMeta meta = 1;
@@ -1643,7 +1709,16 @@ message SubscribeEventsResponse {
     // An agent or the CLI asked the user's app to show a view (`OpenView`). Sent to the live subscribers of a device's
     // token only; ephemeral, like `activity`.
     ViewRequest view = 6;
+    // A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+    // device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+    ShellChange shell = 7;
   }
+}
+
+// A project shell opened (`closed` unset: `shell` is it) or ended and forgotten by the host (`closed`).
+message ShellChange {
+  Shell shell = 1;
+  bool closed = 2;
 }
 
 // The tool an agent's CLI is running, reported by its hooks. A tool call that changes no state writes no Event

@@ -63,20 +63,11 @@ func TestWaitFromNamesWhatAnIdleAgentWaitsOn(t *testing.T) {
 			t.Errorf("%s: %v from %q detail %q, want %v from %q detail %q", tc.name, got.Kind, got.From, got.Detail, tc.kind, tc.from, tc.det)
 		}
 	}
-	// A lead has no parent: its questions, plans, waits and reports go to the user.
+	// A lead has no parent to wait on: what it says to the user is read as nothing owed to it (a person answers by typing).
 	root := &v1.Agent{Id: "R", Name: "root"}
-	toUser := func(typ v1.MessageType) *v1.Message {
-		return &v1.Message{Id: "u", Type: typ, From: &v1.Actor{Id: root.Id}, ToId: "user", Body: "which one?"}
-	}
-	for typ, want := range map[v1.MessageType]v1.AgentWaitKind{
-		// (Not an answer wait: a person answers a lead by typing into its terminal, which leaves no message to end it.)
-		v1.MessageType_MESSAGE_TYPE_QUESTION: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE,
-		v1.MessageType_MESSAGE_TYPE_WAIT:     v1.AgentWaitKind_AGENT_WAIT_KIND_DECLARED,
-		v1.MessageType_MESSAGE_TYPE_DONE:     v1.AgentWaitKind_AGENT_WAIT_KIND_REPORTED,
-	} {
-		if got := waitFrom(root, "user", []*v1.Message{toUser(typ)}, now); got.Kind != want || got.From != "user" {
-			t.Errorf("a lead's %v to the user: %v from %q, want %v", typ, got.Kind, got.From, want)
-		}
+	asked := &v1.Message{Id: "u", Type: v1.MessageType_MESSAGE_TYPE_QUESTION, From: &v1.Actor{Id: root.Id}, ToId: "user", Body: "which one?"}
+	if got := waitFrom(root, "user", []*v1.Message{asked}, now); got.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.From != "user" {
+		t.Errorf("a lead's question to the user: %v from %q", got.Kind, got.From)
 	}
 	if got := waitFrom(w, "lead", []*v1.Message{wait}, until.AsTime().Add(time.Minute)); got.Kind != v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE || got.Until != nil {
 		t.Errorf("a wait past its deadline is still shown: %v", got)

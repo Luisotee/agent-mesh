@@ -272,8 +272,9 @@ const CHECKS: Record<string, { icon: typeof CircleCheck; tone: string; label: st
  */
 function PullRequests({ prs, lead, host }: { prs: PrRow[]; lead: boolean; host: HostRuntime }) {
   const [showDone, setShowDone] = useState(false)
-  const open = prs.filter((p) => p.state === 'open')
-  const done = prs.filter((p) => p.state !== 'open')
+  const open = prs.filter((p) => p.state !== 'merged' && p.state !== 'closed')
+  // Only what finished is folded: a PR whose state was never read (`unknown`) stays with the open ones.
+  const done = prs.filter((p) => p.state === 'merged' || p.state === 'closed')
   const item = (p: PrRow) => <PrItem key={p.url || `${p.agentId}#${p.number}`} pr={p} showAgent={lead} host={host} />
   return (
     <Section title="Pull requests" count={prs.length}>

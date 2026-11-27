@@ -240,6 +240,37 @@ public class MeshServiceClient(
 
 
   /**
+   *  The tasks held for a task that is not reported done yet (`SendMessage` with `after`), oldest first. A lead reads its
+   *  own run's.
+   */
+  override suspend fun listHeldTasks(request: ListHeldTasksRequest, headers: Headers): ResponseMessage<ListHeldTasksResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListHeldTasks",
+      dev.agentmesh.gen.agentmesh.v1.ListHeldTasksRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListHeldTasksResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Drop a held task: it is never sent.
+   */
+  override suspend fun cancelHeldTask(request: CancelHeldTaskRequest, headers: Headers): ResponseMessage<CancelHeldTaskResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/CancelHeldTask",
+      dev.agentmesh.gen.agentmesh.v1.CancelHeldTaskRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.CancelHeldTaskResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  The calling agent's messages; unread ones are marked read unless peek is set.
    */
   override suspend fun readInbox(request: ReadInboxRequest, headers: Headers): ResponseMessage<ReadInboxResponse> = client.unary(

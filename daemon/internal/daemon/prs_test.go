@@ -620,7 +620,7 @@ func TestAWorkersStackOfBranchesHasItsPRsFoundNotOnlyTheRecordedBranchs(t *testi
 	}
 	runGit(t, w.repo, "branch", stem+"-4", w.base)
 	w.harness.seedAgent(w.run.Id, "a-w2", "demo-fix-4", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
-	w.edit("a-w2", func(a *v1.Agent) { a.Branch = stem + "-4" })
+	w.edit("a-w2", func(a *v1.Agent) { a.Repo, a.Branch = w.repo, stem+"-4" })
 	w.mu.Lock()
 	w.byHead = map[string][]map[string]any{
 		stem:        {ghPR(1, "MERGED", tips[stem], false)},
@@ -727,6 +727,40 @@ func TestAnAgentRecordedOnASuffixedBranchLeavesTheBaseAgentsStackAlone(t *testin
 	}
 	if len(w.heads) == 0 {
 		t.Error("it asked about no branch at all")
+	}
+}
+
+// What another agent only reported, or an agent of another repo with the same slug, is no branch of that agent's own:
+// neither makes this agent's branches foreign.
+func TestAReportedPRAndAnotherReposAgentDoNotTakeABranchFromAStack(t *testing.T) {
+	w := startPR(t)
+	stem := "mesh/" + w.run.Id + "/fix"
+	runGit(t, w.repo, "branch", stem+"-2", w.base)
+	w.edit("a-w1", func(a *v1.Agent) { a.Branch = stem + "-2" })
+	// A second worker linked `fix`'s PR in its report; a third is of another repo and records `fix` too.
+	w.harness.seedAgent(w.run.Id, "a-w2", "demo-reporter", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	w.edit("a-w2", func(a *v1.Agent) { a.Repo, a.Branch = w.repo, stem+"-9" })
+	w.harness.seedAgent(w.run.Id, "a-w3", "api-fix", "a-root", v1.AgentRole_AGENT_ROLE_WORKER)
+	w.edit("a-w3", func(a *v1.Agent) { a.Repo, a.Branch = "/elsewhere/api", stem })
+	if err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutAgentPR(&v1.PullRequest{AgentId: "a-w2", Url: "https://github.com/acme/demo/pull/1", Number: 1, State: "merged", Source: "report", HeadRef: stem})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w.mu.Lock()
+	w.byHead = map[string][]map[string]any{}
+	w.mu.Unlock()
+	w.prs("demo-fix", true)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	found := false
+	for _, h := range w.heads {
+		if h == stem {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("fix was not asked about: a report row or another repo's agent made it foreign: %v", w.heads)
 	}
 }
 

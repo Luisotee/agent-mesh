@@ -38,12 +38,14 @@ func stackBranches(ctx context.Context, r store.Reader, a *v1.Agent, dir string)
 		}
 		bases = append(bases, m[1])
 	}
-	// What other agents of the run own: the branch each records now, and the head of every PR they own (an agent that
-	// moved on to `fix-3` no longer records `fix`, but its PR from there is still its own).
+	// What other agents of the same repo own: the branch each records now, and the head of every PR their own branch
+	// has (an agent that moved on to `fix-3` no longer records `fix`, but its PR from there is still its own). A PR an
+	// agent only reported (`report`) is no branch of its; and the branch names carry no repo, so another repo's agent
+	// of the same slug owns none of ours.
 	foreign := map[string]bool{}
 	if others, err := r.ListAgents(a.RunId); err == nil {
 		for _, o := range others {
-			if o.Id == a.Id {
+			if o.Id == a.Id || o.Repo != a.Repo {
 				continue
 			}
 			if o.Branch != "" {
@@ -51,43 +53,47 @@ func stackBranches(ctx context.Context, r store.Reader, a *v1.Agent, dir string)
 			}
 			if prs, err := r.AgentPRs(o.Id); err == nil {
 				for _, p := range prs {
-					if p.HeadRef != "" {
+					if p.HeadRef != "" && p.Source == "branch" {
 						foreign[p.HeadRef] = true
 					}
 				}
 			}
 		}
 	}
-	// An agent recorded on `<base>-<n>` while another agent of the run owns `<base>` itself (slugs `foo` and `foo-2`)
-	// can't tell `foo`'s later branches from its own: it keeps its recorded branch and the one its worktree is on.
-	expand := len(bases) == 1 || !foreign[bases[1]]
 	seen := map[string]bool{a.Branch: true}
 	branches := []string{a.Branch}
-	add := func(b string) {
+	add := func(b string) bool {
 		b = strings.TrimSpace(b)
-		if b != "" && !seen[b] && !foreign[b] {
-			seen[b] = true
-			branches = append(branches, b)
+		if b == "" || seen[b] || foreign[b] {
+			return false
 		}
+		seen[b] = true
+		branches = append(branches, b)
+		return true
 	}
-	if expand {
-		for _, base := range bases {
-			out, err := git(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/"+base, "refs/heads/"+base+"-*")
-			if err != nil {
-				continue
-			}
-			for _, b := range strings.Fields(out) {
-				if b == base || (strings.HasPrefix(b, base+"-") && isDigits(strings.TrimPrefix(b, base+"-"))) {
-					add(b)
-				}
+	// An agent recorded on `<base>-<n>` while another owns `<base>` itself (slugs `foo` and `foo-2`) can't tell `foo`'s
+	// later branches from its own: it looks from its own name and from no name past one another agent owns.
+	for i, base := range bases {
+		if i > 0 && foreign[base] {
+			break
+		}
+		out, err := git(ctx, dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/"+base, "refs/heads/"+base+"-*")
+		if err != nil {
+			continue
+		}
+		for _, b := range strings.Fields(out) {
+			if b == base || (strings.HasPrefix(b, base+"-") && isDigits(strings.TrimPrefix(b, base+"-"))) {
+				add(b)
 			}
 		}
 	}
 	current := ""
 	if a.Worktree != "" && dir == a.Worktree {
 		if out, err := git(ctx, dir, "branch", "--show-current"); err == nil && strings.HasPrefix(strings.TrimSpace(out), "mesh/"+a.RunId+"/") {
-			current = strings.TrimSpace(out)
-			add(current)
+			// Only a branch the filter let in is the one that is never cut.
+			if b := strings.TrimSpace(out); add(b) || seen[b] {
+				current = b
+			}
 		}
 	}
 	number := func(b string) int {
