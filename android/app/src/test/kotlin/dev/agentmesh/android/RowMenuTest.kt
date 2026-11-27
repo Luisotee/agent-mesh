@@ -108,6 +108,28 @@ class RowMenuTest {
         assertEquals(listOf("stop-run r1"), api.lifecycle.toList())
     }
 
+    @Test fun `Delete the run is offered for an ended run only, asks first, then sends DeleteRun`() {
+        api = RecordingApi(); NotificationsTest.api = api
+        val rt = host(ActorClass.ACTOR_CLASS_DEVICE, lead.toBuilder().setState(dev.agentmesh.gen.agentmesh.v1.AgentState.AGENT_STATE_RETIRED).build())
+        show(rt)
+        compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }
+        compose.onNodeWithTag("menu-delete-run").performClick()
+        compose.onNodeWithText("Delete Fix the typo?").assertIsDisplayed()
+        compose.onNodeWithTag("action-cancel").performClick()
+        assertEquals(emptyList<String>(), api.lifecycle.toList())
+        compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }
+        compose.onNodeWithTag("menu-delete-run").performClick()
+        compose.onNodeWithTag("action-confirm").performClick()
+        waitUntil { api.lifecycle.isNotEmpty() }
+        assertEquals(listOf("delete-run r1"), api.lifecycle.toList())
+    }
+
+    @Test fun `Delete the run is not offered while the run has a process`() {
+        setUp()
+        compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }
+        compose.onNodeWithTag("menu-delete-run").assertIsNotEnabled()
+    }
+
     @Test fun `Rename needs a new title, and sends it on confirm`() {
         setUp()
         compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }

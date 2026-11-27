@@ -418,6 +418,7 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
             if (canAct) {
                 DropdownMenuItem(text = { Text("Add an agent") }, enabled = canAdd, onClick = { menu = false; a.addAgent(r.hostId, r.run.id) }, modifier = Modifier.testTag("menu-add-agent"))
                 DropdownMenuItem(text = { Text("Rename the run…") }, onClick = { menu = false; act(r.hostId, AgentAction.RenameRun(r.run.id, r.run.title.ifEmpty { r.title })) }, modifier = Modifier.testTag("menu-rename-run"))
+                DropdownMenuItem(text = { Text("Delete the run…") }, enabled = r.earlier, onClick = { menu = false; act(r.hostId, AgentAction.DeleteRun(r.run.id, r.title)) }, modifier = Modifier.testTag("menu-delete-run"))
                 DropdownMenuItem(text = { Text("Stop the run…") }, enabled = r.run.status == RunStatus.RUN_STATUS_OPEN, onClick = { menu = false; act(r.hostId, AgentAction.StopRun(r.run.id, r.title)) }, modifier = Modifier.testTag("menu-stop-run"))
             }
             if (lead != null) AgentMenuItems(r.hostId, lead, canAct, a) { menu = false }

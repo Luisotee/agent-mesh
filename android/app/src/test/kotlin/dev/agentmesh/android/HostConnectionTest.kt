@@ -86,6 +86,7 @@ private class FakeApi : MeshApi {
     override suspend fun retireAgent(agent: String) = error("unused")
     override suspend fun renameRun(runId: String, title: String) = error("unused")
     override suspend fun stopRun(runId: String): List<String> = error("unused")
+    override suspend fun deleteRun(runId: String): List<String> = error("unused")
 }
 
 private class Sink(private val scope: TestScope) : ConnectionSink {
