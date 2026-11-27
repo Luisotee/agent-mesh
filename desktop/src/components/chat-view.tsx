@@ -200,22 +200,24 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const hasFiles = (e: React.DragEvent) => !!dropper.current?.allowed && e.dataTransfer.types.includes('Files')
 
   // What was just sent shows at once as the user's bubble ("sending…") and goes when the record has it: it is read again
-  // 0.3 s and 1.5 s after a send, and the host takes a moment to write it. `before` is how many of the same text the
-  // record held then, so an earlier identical prompt ("continue") is not taken for this one.
+  // 0.3 s and 1.5 s after a send, and the host takes a moment to write it. `before` is how many prompts the record held
+  // then: one more is this one, whatever the CLI echoes of its text (an earlier identical prompt does not end it early,
+  // and a text it normalised does not leave it lingering).
   const [sending, setSending] = useState<Array<{ id: number; body: string; before: number; at: number }>>([])
   const sendId = useRef(0)
+  const userBlocks = blocks.filter((b) => b.kind === 'user').length
   useEffect(() => {
     if (sending.length === 0) return
-    const have = (body: string) => blocks.filter((b) => b.kind === 'user' && b.entry.text.trim() === body.trim()).length
-    const left = sending.filter((x) => have(x.body) <= x.before && Date.now() - x.at < 30_000)
+    const recorded = Math.max(0, userBlocks - sending[0]!.before)
+    const left = sending.slice(recorded).filter((x) => Date.now() - x.at < 30_000)
     if (left.length !== sending.length) setSending(left)
     // A bubble the record never shows (the prompt went nowhere) goes after the cap, even with nothing else changing.
     const t = setTimeout(() => setSending((cur) => cur.filter((x) => Date.now() - x.at < 30_000)), 30_000)
     return () => clearTimeout(t)
-  }, [blocks, sending])
+  }, [userBlocks, sending])
   const sentNow = (body: string, queuedAtOnce: boolean) => {
     follow()
-    if (!queuedAtOnce) setSending((cur) => [...cur, { id: ++sendId.current, body, at: Date.now(), before: blocks.filter((b) => b.kind === 'user' && b.entry.text.trim() === body.trim()).length }])
+    if (!queuedAtOnce) setSending((cur) => [...cur, { id: ++sendId.current, body, at: Date.now(), before: userBlocks }])
   }
 
   // Scrolling: follow the end while the reader is at it; keep the place when earlier entries come in above. Sending
@@ -611,7 +613,9 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
     }
   }
   // The whole chat takes a dropped image, not only this form (`ChatView`'s zone asks this).
-  dropper.current = { allowed: !noImages && !why, attach: (files) => void attach(files) }
+  useEffect(() => {
+    dropper.current = { allowed: !noImages && !why, attach: (files) => void attach(files) }
+  })
   /** Sends the box, or `confirmedText`: the command the user was asked about (the box may have changed since; it has no images). */
   async function send(confirmedText?: string) {
     const typed = confirmedText ?? text.trim()

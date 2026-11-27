@@ -151,7 +151,6 @@ export interface AppState extends WorkspaceState {
   messageTo?: { hostId: string; agentId: string }
   /** The Rewind dialog, for this agent (its chat shows it: the prompts are the chat's). */
   rewindFor?: { hostId: string; agentId: string }
-  /** Set to show the open agent's model control (the panel opens and unfolds its Details); cleared once its Details unfolded, so a later mount of the panel opens folded. */
   /** The New workspace dialog is open. */
   workspaceOpen: boolean
   /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */

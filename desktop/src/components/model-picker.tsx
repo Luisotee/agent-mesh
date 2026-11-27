@@ -28,10 +28,14 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
   const asked = useRef('')
   const load = () => {
     if (asked.current === `${host.info.id}/${agent.kind}`) return
-    asked.current = `${host.info.id}/${agent.kind}`
+    const key = `${host.info.id}/${agent.kind}`
+    asked.current = key
     checkModels(host.client).then(
       (r) => setFamilies(familiesOf(r.kinds, agent.kind)),
-      () => {},
+      () => {
+        // Asked again at the next hover or click: the host may only have been busy.
+        if (asked.current === key) asked.current = ''
+      },
     )
   }
   const pick = async (to: { tier?: string; model?: string; effort?: string }) => {
