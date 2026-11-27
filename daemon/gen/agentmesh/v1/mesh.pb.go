@@ -1061,9 +1061,13 @@ type SendMessageRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// An agent id or name, or "parent" for the caller's parent.
-	To            string      `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`
-	Type          MessageType `protobuf:"varint,3,opt,name=type,proto3,enum=agentmesh.v1.MessageType" json:"type,omitempty"`
-	Body          string      `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	To   string      `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`
+	Type MessageType `protobuf:"varint,3,opt,name=type,proto3,enum=agentmesh.v1.MessageType" json:"type,omitempty"`
+	Body string      `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
+	// A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+	// a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
+	// current task.
+	Re            string `protobuf:"bytes,5,opt,name=re,proto3" json:"re,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1122,6 +1126,13 @@ func (x *SendMessageRequest) GetType() MessageType {
 func (x *SendMessageRequest) GetBody() string {
 	if x != nil {
 		return x.Body
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetRe() string {
+	if x != nil {
+		return x.Re
 	}
 	return ""
 }
@@ -6428,12 +6439,13 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\">\n" +
 	"\x11StopAgentResponse\x12)\n" +
-	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"\x96\x01\n" +
+	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"\xa6\x01\n" +
 	"\x12SendMessageRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12-\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x19.agentmesh.v1.MessageTypeR\x04type\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\tR\x04body\"\x99\x01\n" +
+	"\x04body\x18\x04 \x01(\tR\x04body\x12\x0e\n" +
+	"\x02re\x18\x05 \x01(\tR\x02re\"\x99\x01\n" +
 	"\x13SendMessageResponse\x12/\n" +
 	"\amessage\x18\x01 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12.\n" +
 	"\aresumed\x18\x02 \x01(\v2\x14.agentmesh.v1.ReopenR\aresumed\x12!\n" +

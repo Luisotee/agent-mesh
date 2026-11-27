@@ -63,4 +63,28 @@ public interface SendMessageRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getBodyBytes();
+
+  /**
+   * <pre>
+   * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+   * a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
+   * current task.
+   * </pre>
+   *
+   * <code>string re = 5 [json_name = "re"];</code>
+   * @return The re.
+   */
+  java.lang.String getRe();
+  /**
+   * <pre>
+   * A report to your parent: the id of the task it answers (the id in the task's `mesh inbox` header). Refused when
+   * a newer task came since, or when the task was already reported done or failed. Empty: the report answers your
+   * current task.
+   * </pre>
+   *
+   * <code>string re = 5 [json_name = "re"];</code>
+   * @return The bytes for re.
+   */
+  com.google.protobuf.ByteString
+      getReBytes();
 }

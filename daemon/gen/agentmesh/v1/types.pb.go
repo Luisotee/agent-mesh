@@ -1012,7 +1012,10 @@ type Message struct {
 	// When its doorbell reached the recipient's terminal; unset until then.
 	DeliveredAt *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=delivered_at,json=deliveredAt,proto3" json:"delivered_at,omitempty"`
 	// When the recipient read it with ReadInbox; unset until then.
-	ReadAt        *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=read_at,json=readAt,proto3" json:"read_at,omitempty"`
+	ReadAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=read_at,json=readAt,proto3" json:"read_at,omitempty"`
+	// A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+	// current task when it was sent. Empty for any other message.
+	Re            string `protobuf:"bytes,11,opt,name=re,proto3" json:"re,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1115,6 +1118,13 @@ func (x *Message) GetReadAt() *timestamppb.Timestamp {
 		return x.ReadAt
 	}
 	return nil
+}
+
+func (x *Message) GetRe() string {
+	if x != nil {
+		return x.Re
+	}
+	return ""
 }
 
 // Cursor is a position in the host's event log. A cursor from another generation (the log was recreated) can't
@@ -3431,7 +3441,7 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\x12=\n" +
 	"\frequested_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\vrequestedAt\x126\n" +
 	"\frequested_by\x18\b \x01(\v2\x13.agentmesh.v1.ActorR\vrequestedBy\x12\x14\n" +
-	"\x05fresh\x18\t \x01(\bR\x05fresh\"\xf9\x02\n" +
+	"\x05fresh\x18\t \x01(\bR\x05fresh\"\x89\x03\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12'\n" +
@@ -3444,7 +3454,8 @@ const file_agentmesh_v1_types_proto_rawDesc = "" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12=\n" +
 	"\fdelivered_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\vdeliveredAt\x123\n" +
 	"\aread_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\x06readAt\":\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\x06readAt\x12\x0e\n" +
+	"\x02re\x18\v \x01(\tR\x02re\":\n" +
 	"\x06Cursor\x12\x1e\n" +
 	"\n" +
 	"generation\x18\x01 \x01(\tR\n" +

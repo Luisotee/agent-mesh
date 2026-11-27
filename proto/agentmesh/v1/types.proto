@@ -207,6 +207,9 @@ message Message {
   google.protobuf.Timestamp delivered_at = 9;
   // When the recipient read it with ReadInbox; unset until then.
   google.protobuf.Timestamp read_at = 10;
+  // A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+  // current task when it was sent. Empty for any other message.
+  string re = 11;
 }
 
 // Cursor is a position in the host's event log. A cursor from another generation (the log was recreated) can't

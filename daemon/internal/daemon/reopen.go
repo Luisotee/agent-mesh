@@ -1572,3 +1572,35 @@ func (d *Daemon) adoptReopens(ctx context.Context, terminals []*termv1.Terminal,
 	}
 	return nil
 }
+
+// reportTask is the task a report of agent a to its parent answers: its current task, which the daemon stamps on the
+// report (Message.re). A report that names a task (--re) must name that one: a late or retried report for an older
+// task is refused, and so is a second done or failed for a task already reported done or failed (a task or answer
+// since starts the work again). A report that names none is stamped and let through, as every report was before.
+func reportTask(r store.Reader, a *v1.Agent, typ v1.MessageType, re string) (string, error) {
+	cur, _, err := currentTask(r, a)
+	if err != nil || cur == nil {
+		if err == nil && re != "" {
+			return "", failedPrecondition("you named task %s, but no task was sent to you", re)
+		}
+		return "", err
+	}
+	if re == "" {
+		return cur.Id, nil
+	}
+	if re != cur.Id {
+		return "", failedPrecondition("your current task is %s (%s), not %s: that report would answer an older task "+
+			"(read it with `mesh inbox --id %s`; nothing was sent)", cur.Id, firstLineOf(cur.Body, 60), re, cur.Id)
+	}
+	if typ == v1.MessageType_MESSAGE_TYPE_DONE || typ == v1.MessageType_MESSAGE_TYPE_FAILED {
+		last, err := lastReport(r, a)
+		if err != nil {
+			return "", err
+		}
+		if last != nil && (last.Type == v1.MessageType_MESSAGE_TYPE_DONE || last.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
+			return "", failedPrecondition("task %s was already reported %s (%s): nothing was sent",
+				cur.Id, strings.ToLower(strings.TrimPrefix(last.Type.String(), "MESSAGE_TYPE_")), last.Id)
+		}
+	}
+	return cur.Id, nil
+}

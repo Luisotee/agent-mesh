@@ -41,7 +41,10 @@ type PullRequest struct {
 	// The last read failed: state and checks are the last ones seen.
 	Stale bool `protobuf:"varint,9,opt,name=stale,proto3" json:"stale,omitempty"`
 	// The user holds the merge (HoldPullRequest): a root never merges it until it is released.
-	Held          bool `protobuf:"varint,10,opt,name=held,proto3" json:"held,omitempty"`
+	Held bool `protobuf:"varint,10,opt,name=held,proto3" json:"held,omitempty"`
+	// The PR's head branch (GitHub's headRefName); empty until a read gave it. A worker's own PR is the one whose
+	// head is its branch.
+	HeadRef       string `protobuf:"bytes,11,opt,name=head_ref,json=headRef,proto3" json:"head_ref,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -144,6 +147,13 @@ func (x *PullRequest) GetHeld() bool {
 		return x.Held
 	}
 	return false
+}
+
+func (x *PullRequest) GetHeadRef() string {
+	if x != nil {
+		return x.HeadRef
+	}
+	return ""
 }
 
 // WorkEvidence is what a worker's branch and worktree show of its work, for a worker with no PR.
@@ -495,7 +505,7 @@ var File_agentmesh_v1_pr_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"\n" +
-	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x93\x02\n" +
+	"\x15agentmesh/v1/pr.proto\x12\fagentmesh.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xae\x02\n" +
 	"\vPullRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x16\n" +
@@ -508,7 +518,8 @@ const file_agentmesh_v1_pr_proto_rawDesc = "" +
 	"checked_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcheckedAt\x12\x14\n" +
 	"\x05stale\x18\t \x01(\bR\x05stale\x12\x12\n" +
 	"\x04held\x18\n" +
-	" \x01(\bR\x04held\"\xb3\x01\n" +
+	" \x01(\bR\x04held\x12\x19\n" +
+	"\bhead_ref\x18\v \x01(\tR\aheadRef\"\xb3\x01\n" +
 	"\fWorkEvidence\x12\x18\n" +
 	"\acommits\x18\x01 \x01(\x05R\acommits\x12\x1f\n" +
 	"\vhas_commits\x18\x02 \x01(\bR\n" +
