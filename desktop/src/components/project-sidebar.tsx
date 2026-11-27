@@ -84,7 +84,7 @@ export function ProjectSidebar() {
           <Button size="icon" variant="ghost" aria-label="Fold the sidebar" onClick={() => app.setSidebarCollapsed(true)}><PanelLeftClose /></Button>
         </Tip>
       </div>
-      <nav aria-label="Projects" className="flex min-h-0 flex-1 flex-col" onKeyDown={moveByArrows}>
+      <nav aria-label="Projects" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto pb-3">
           {hosts.map((h) => <HostWaiting key={h.info.id} host={h} many={many} />)}
           {hosts.map((h) => <GithubNote key={h.info.id} host={h} many={many} />)}
@@ -105,18 +105,6 @@ export function ProjectSidebar() {
       <SidebarFooter />
     </aside>
   )
-}
-
-/** Alt+↑ and Alt+↓ move the focus between the sidebar's rows (the shortcuts `sidebar_next`/`sidebar_prev` open them). */
-function moveByArrows(e: KeyboardEvent) {
-  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return
-  const rows = sidebarRows()
-  const at = rows.indexOf(document.activeElement as HTMLElement)
-  const next = rows[at < 0 ? 0 : Math.min(rows.length - 1, Math.max(0, at + (e.key === 'ArrowDown' ? 1 : -1)))]
-  if (next) {
-    e.preventDefault()
-    next.focus()
-  }
 }
 
 const sidebarRows = () => [...document.querySelectorAll<HTMLElement>('nav[aria-label="Projects"] [data-sidebar-row]')]
@@ -345,7 +333,7 @@ function LeadItem({ row }: { row: LeadRow }) {
   ]
   const kids = row.workers.length > 0
   return (
-    <m.li initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.14 }} aria-label={title}>
+    <m.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }} aria-label={title}>
       <RowContextMenu entries={entries}>
         <div data-row className="group flex items-center gap-0.5 pr-1">
           {kids ? (

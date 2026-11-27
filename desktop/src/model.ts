@@ -146,8 +146,9 @@ export interface AppState extends WorkspaceState {
   workspaceOpen: boolean
   /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */
   workspaceRun?: string
-  /** The project the New workspace dialog opens on (a project's "New lead here"). */
+  /** The project the New workspace dialog opens on (a project's "New lead here"), and its host (unset: the selected one). */
   workspaceRepo?: string
+  workspaceHost?: string
   /** What the settings screen is filtered by when it opens (the palette's "Keyboard shortcuts"). */
   settingsQuery: string
   /** A queued prompt taken back to edit, for its agent's composer to take (and clear). */
@@ -439,7 +440,7 @@ export function createAppModel(api: DesktopApi): AppModel {
         const { [hostId]: _old, ...rest } = s.hidden
         return { hidden: next.length > 0 ? { ...rest, [hostId]: next } : rest }
       }),
-    openProjectSettings: (projectSettings) => set(projectSettings ? { projectSettings, hostId: projectSettings.hostId } : { projectSettings: undefined }),
+    openProjectSettings: (projectSettings) => set({ projectSettings }),
     renameRun: (renaming) => set({ renaming }),
     reopenTab: () => {
       const s = store.getState()
@@ -451,7 +452,7 @@ export function createAppModel(api: DesktopApi): AppModel {
       else model.reopenTab()
     },
     setPanel: (panelOpen) => set({ panelOpen }),
-    openWorkspace: (workspaceOpen, runId, at) => set((s) => ({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, hostId: workspaceOpen && at ? at.hostId : s.hostId })),
+    openWorkspace: (workspaceOpen, runId, at) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, workspaceHost: workspaceOpen ? at?.hostId : undefined }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
     openUsage: (open) => set({ usageOpen: open, settingsOpen: false, pairOpen: false, watchOpen: false }),

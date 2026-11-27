@@ -172,6 +172,15 @@ describe('ProjectSidebar', () => {
     await waitFor(() => expect(client.stopAgent).toHaveBeenCalledTimes(1))
   })
 
+  it('opens a project\'s dialogs on its host without moving the open agent to another host', () => {
+    const { model } = fixture()
+    model.selectAgent('h1', 'w1')
+    model.openWorkspace(true, undefined, { hostId: 'h2', repo: '/p/web' })
+    expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1', workspaceHost: 'h2', workspaceRepo: '/p/web' })
+    model.openProjectSettings({ hostId: 'h2', repo: '/p/web' })
+    expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1' })
+  })
+
   it('folds to icons and back', async () => {
     const { wrap, model } = fixture()
     render(wrap(<ProjectSidebar />))

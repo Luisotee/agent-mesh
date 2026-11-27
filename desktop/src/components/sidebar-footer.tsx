@@ -40,7 +40,7 @@ export function SidebarFooter() {
   ]
   const hostEntries: MenuEntry[] = [
     ...hosts.flatMap((h) => [
-      { label: many ? `${h.info.name}: settings` : 'Host settings', onSelect: () => { app.selectHost(h.info.id); app.openSettings(true) } },
+      { label: many ? `${h.info.name}: settings` : 'Host settings', onSelect: () => { pickHost(app, h.info.id); app.openSettings(true) } },
       { label: many ? `${h.info.name}: usage and cost` : 'Usage and cost', onSelect: () => toggleUsage(app, h.info.id) },
     ]),
     ...(fixed ? [] : (['separator', ...hosts.map((h) => ({ label: `Remove ${h.info.name}…`, onSelect: () => setRemoving(h), destructive: true })), { label: 'Connect a host…', onSelect: () => setAdding(true) }] as MenuEntry[])),
@@ -79,8 +79,13 @@ function HostLine({ host }: { host: HostRuntime }) {
 function toggleUsage(app: ReturnType<typeof useApp>, hostId: string) {
   const st = app.store.getState()
   if (st.usageOpen && st.hostId === hostId) return app.openUsage(false)
-  app.selectHost(hostId)
+  pickHost(app, hostId)
   app.openUsage(true)
+}
+
+/** Makes a host the one the host screens are of; the open agent stays open when it is that host's. */
+function pickHost(app: ReturnType<typeof useApp>, hostId: string) {
+  if (app.store.getState().hostId !== hostId) app.selectHost(hostId)
 }
 
 const toneOf = (r: QuotaRow): MeterTone => (r.used >= 100 ? 'over' : r.atReserve ? 'warn' : 'ok')

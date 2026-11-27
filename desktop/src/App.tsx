@@ -93,7 +93,7 @@ function Shell({ opened, linkChecked, onOpenedDone }: { opened?: OpenedLink; lin
           <PanelSlot host={host} />
           <CommandPalette />
           <ViewToasts />
-          <NewWorkspaceDialog key={host.info.id} host={host} />
+          <WorkspaceSlot host={host} />
           <ProjectSettingsDialog />
         </>
       )}
@@ -114,6 +114,12 @@ function ShellSkeleton() {
       <div className="flex-1" />
     </div>
   )
+}
+
+/** The New workspace dialog, on the host it was opened for (a project's host), else the selected one. */
+function WorkspaceSlot({ host }: { host: HostRuntime }) {
+  const on = useAppState((s) => s.hosts.find((h) => h.info.id === s.workspaceHost)) ?? host
+  return <NewWorkspaceDialog key={on.info.id} host={on} />
 }
 
 /** The side panel beside the open agent, when it is shown. */
