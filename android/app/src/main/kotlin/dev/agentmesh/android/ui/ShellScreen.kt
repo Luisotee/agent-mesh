@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.derive.repoName
 import dev.agentmesh.android.ui.chat.isReadOnlyDevice
+import kotlinx.coroutines.launch
 
 /**
  * A project shell: a plain login shell in the project's folder on the host, which keeps running when the app is closed. The
@@ -51,6 +52,7 @@ fun ShellScreen(runtime: HostRuntime, shellId: String, onBack: () -> Unit, onMen
     var menu by remember { mutableStateOf(false) }
     var ending by remember { mutableStateOf(false) }
     val canAct = !isReadOnlyDevice(state)
+    val prefs = LocalContainer.current.prefs
     val project = shell?.let { repoName(it.repo) }.orEmpty()
     Scaffold(topBar = {
         TopAppBar(
@@ -78,7 +80,12 @@ fun ShellScreen(runtime: HostRuntime, shellId: String, onBack: () -> Unit, onMen
         )
     }) { pad ->
         when {
-            shell != null || seen -> TerminalTab(runtime, shellId, Modifier.inScaffold(pad).fillMaxSize(), shell = true, phoneSized = shellId in runtime.phoneShells)
+            shell != null || seen -> TerminalTab(runtime, shellId, Modifier.inScaffold(pad).fillMaxSize(), shell = true, phoneSized = prefs.isPhoneShell(runtime.hostId, shellId))
+            state.shells == null && state.shellsFailed -> Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("The host's terminals could not be read.", Modifier.testTag("shell-unread"), color = MaterialTheme.colorScheme.error)
+                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                TextButton(onClick = { scope.launch { runtime.refreshShells() } }) { Text("Try again") }
+            }
             state.shells == null -> Text("Connecting to the host…", Modifier.padding(pad).padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             else -> Column(Modifier.padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("That terminal has ended.", Modifier.testTag("shell-gone"), color = MaterialTheme.colorScheme.onSurfaceVariant)

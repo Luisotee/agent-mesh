@@ -69,8 +69,11 @@ class ShellsTest {
         // The frame that follows is the same shell, not a second one.
         rt.onFrame(frame(change(b)))
         assertEquals(2, rt.state.value.shells!!.size)
+        val before = rt.state.value.shellTouch
         rt.closeShell("a")
         assertEquals(listOf(b.id), rt.state.value.shells!!.map { it.id })
+        // Counted as a change, so a list that was out meanwhile is asked for again.
+        assertEquals(before + 1, rt.state.value.shellTouch)
         assertEquals(listOf("a"), api.closed)
     }
 
@@ -106,6 +109,19 @@ class ShellsTest {
         rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
         rt.refreshShells()
         assertNull(rt.state.value.shells)
+        assertTrue(rt.state.value.shellsFailed)
         assertTrue(rt.state.value.log.any { "shells" in it.text })
+    }
+
+    @Test fun `a shell makes its project appear, an ended one or one with no folder does not`() {
+        val h = dev.agentmesh.android.derive.SidebarHost("h", "wsl", true, false, emptyMap(), emptyMap(), emptySet(), listOf(
+            dev.agentmesh.android.derive.ShellRow("a", "/home/u/shop", 1_000, false),
+            dev.agentmesh.android.derive.ShellRow("b", "/home/u/shop", 2_000, false),
+            dev.agentmesh.android.derive.ShellRow("c", "/home/u/old", 3_000, true),
+            dev.agentmesh.android.derive.ShellRow("d", "", 4_000, false),
+        ))
+        val rows = dev.agentmesh.android.derive.buildProjects(listOf(h), emptyMap())
+        assertEquals(listOf("shop"), rows.map { it.name })
+        assertEquals(listOf("a", "b"), rows.single().shells.map { it.id })
     }
 }

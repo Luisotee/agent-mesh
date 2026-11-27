@@ -174,18 +174,14 @@ class HostRuntime(
     suspend fun refreshShells() {
         repeat(3) { attempt ->
             val asked = _state.value.shellTouch
-            val list = try { awaitApi().listShells() } catch (e: CancellationException) { throw e } catch (e: Exception) { log("couldn't list the host's shells: ${e.message ?: e.javaClass.simpleName}"); return }
-            if (_state.value.shellTouch == asked || attempt == 2) { _state.update { it.copy(shells = list) }; return }
+            val list = try { awaitApi().listShells() } catch (e: CancellationException) { throw e } catch (e: Exception) { log("couldn't list the host's shells: ${e.message ?: e.javaClass.simpleName}"); _state.update { it.copy(shellsFailed = true) }; return }
+            if (_state.value.shellTouch == asked || attempt == 2) { _state.update { it.copy(shells = list, shellsFailed = false) }; return }
         }
     }
-
-    /** The shells this phone opened (in memory): their terminal is sized to the phone's view; another client's shell is watched at its size. */
-    val phoneShells: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /** Starts a shell in [repo] and shows it at once (its `ShellChange` frame brings it too, and is the same shell). */
     suspend fun openShell(repo: String): dev.agentmesh.gen.agentmesh.v1.Shell {
         val shell = connectedApi().openShell(repo)
-        phoneShells.add(shell.id)
         _state.update { applyShell(it, dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder().setShell(shell).build()).let { s -> if (s.shells == null) s.copy(shells = listOf(shell)) else s } }
         return shell
     }
@@ -193,7 +189,8 @@ class HostRuntime(
     /** Ends a shell: gone from the list at once. */
     suspend fun closeShell(id: String) {
         connectedApi().closeShell(id)
-        _state.update { s -> s.copy(shells = s.shells?.filter { it.id != id }) }
+        // Counted as a change: a list that was out meanwhile may still hold it, and is asked for again.
+        _state.update { s -> s.copy(shells = s.shells?.filter { it.id != id }, shellTouch = s.shellTouch + 1) }
     }
 
     /**

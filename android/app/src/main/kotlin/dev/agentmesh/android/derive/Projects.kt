@@ -157,7 +157,7 @@ fun buildProjects(hosts: List<SidebarHost>, pins: Map<String, List<String>>): Li
     for (h in hosts) {
         for (repo in pins[h.hostId].orEmpty()) get(h, repo)
         // A shell shows under its folder's project, which it makes appear when no run is there; an ended one is not offered again.
-        for (sh in h.shells) if (!sh.exited) get(h, sh.repo).shells.add(sh)
+        for (sh in h.shells) if (!sh.exited && sh.repo.isNotEmpty()) get(h, sh.repo).shells.add(sh)
         for (r in leadRows(h)) {
             val p = get(h, r.lead?.repo.orEmpty())
             if (r.earlier) p.earlier.add(r) else { p.runs.add(r); p.needs += r.needs }

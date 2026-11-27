@@ -59,8 +59,9 @@ class ShellScreenTest {
         return rt
     }
 
+    private val container by lazy { AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> api }) }
+
     private fun show(rt: HostRuntime, id: String = "sh1") {
-        val container = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> api })
         compose.setContent { CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { ShellScreen(rt, id, {}) } } }
     }
 
@@ -72,7 +73,7 @@ class ShellScreenTest {
     @Test fun `a shell the phone opened is attached with the phone's size, with its own ticket and the input right`() {
         val s = FakeSocket().also { api.sockets += it }
         val rt = runtime()
-        rt.phoneShells.add("sh1")
+        container.prefs.markPhoneShell(rt.hostId, "sh1")
         show(rt)
         compose.waitUntil(5_000) { api.shellTickets.isNotEmpty() }
         // A shell's own ticket, never an agent's; typing is asked for at once.
@@ -131,5 +132,27 @@ class ShellScreenTest {
         assertEquals(listOf(false), api.shellTicketInputs)
         compose.onAllNodesWithTag("shell-menu").assertCountEquals(0)
         compose.onNodeWithTag("read-only").assertIsDisplayed()
+    }
+
+    @Test fun `a host that cannot list its shells says so, with a way to try again`() {
+        val failing = object : dev.agentmesh.android.net.MeshApi by api { override suspend fun listShells(): List<Shell> = error("no such action") }
+        val repo = HostRepository(tmp.newFile("hosts9.json").also { it.delete() }, Plain)
+        val host = repo.add("Old", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        val rt = HostRuntime(host.id, repo, { _, _ -> failing }, CoroutineScope(Dispatchers.Unconfined))
+        rt.connection.start(); started += rt
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        rt.onFrame(snapshot(emptyList(), emptyList()))
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("shell-unread").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun `the shells the phone opened are remembered across a restart and forgotten with their host`() {
+        val prefs = container.prefs
+        prefs.markPhoneShell("h1", "a"); prefs.markPhoneShell("h2", "b")
+        assertTrue(prefs.isPhoneShell("h1", "a"))
+        prefs.forgetHost("h1")
+        assertTrue(!prefs.isPhoneShell("h1", "a")); assertTrue(prefs.isPhoneShell("h2", "b"))
+        prefs.forgetPhoneShell("h2", "b")
+        assertTrue(!prefs.isPhoneShell("h2", "b"))
     }
 }

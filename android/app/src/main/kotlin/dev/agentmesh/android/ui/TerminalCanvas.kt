@@ -135,7 +135,7 @@ fun TerminalCanvas(
     // A terminal the phone sizes: the columns and rows that fit the view at the text size now, told again when either changes
     // (the keyboard came up, a rotation, a pinch).
     val currentOnViewport by rememberUpdatedState(onViewport)
-    LaunchedEffect(phoneSized, viewPx, userSp) {
+    LaunchedEffect(phoneSized, viewPx, userSp, dens.density, dens.fontScale) {
         if (!phoneSized || viewPx.width <= 0 || viewPx.height <= 0) return@LaunchedEffect
         val cell = cellAt((if (userSp > 0f) userSp else PHONE_SP) * dens.density * dens.fontScale)
         currentOnViewport((viewPx.width / cell.w).toInt().coerceIn(MIN_COLS, MAX_COLS), (viewPx.height / cell.h).toInt().coerceIn(MIN_ROWS, MAX_ROWS))

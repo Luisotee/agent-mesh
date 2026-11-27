@@ -72,6 +72,8 @@ data class HostState(
      * answered. An ended shell stays, marked exited, until the next listing: a screen showing it keeps its last output.
      */
     val shells: List<dev.agentmesh.gen.agentmesh.v1.Shell>? = null,
+    /** The last read of the shells failed (an older host, a bad answer): a screen that waits for the list says so instead of waiting. */
+    val shellsFailed: Boolean = false,
     /** How many `ShellChange` frames arrived: a listing asked before one is older than what we hold. */
     val shellTouch: Int = 0,
     /** How many snapshots arrived: what an event carries can have been missed across one, so a screen reads again. */

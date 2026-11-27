@@ -138,6 +138,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             scope.launch {
                 try {
                     val sh = runtimes[h]?.openShell(repo) ?: return@launch
+                    container.prefs.markPhoneShell(h, sh.id)
                     closeDrawer { openShell(h, sh.id) }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { shellProblem = dev.agentmesh.android.chat.say(e) }
             }
