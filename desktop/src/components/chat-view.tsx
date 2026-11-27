@@ -215,9 +215,11 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
     const first = next.find((x) => x.seen)?.seen
     if (first) {
       const from = first.last ? blocks.findIndex((b) => b.id === first.last) : -1
-      const fresh = blocks.slice(from + 1).filter((b) => b.kind === 'user' && !first.users.has(b.id)).length
-      let drop = fresh
-      next = next.filter((x) => !(x.seen && drop-- > 0))
+      const fresh = blocks.slice(from + 1).filter((b) => b.kind === 'user' && !first.users.has(b.id)).map((b) => b.id)
+      // Each new prompt ends one bubble, and is spent: the bubbles left must not take it for theirs.
+      let drop = fresh.length
+      const spent = new Set(fresh)
+      next = next.filter((x) => !(x.seen && drop-- > 0)).map((x) => (x.seen && fresh.length > 0 ? { ...x, seen: { ...x.seen, users: new Set([...x.seen.users, ...spent]) } } : x))
     }
     next = next.filter((x) => Date.now() - x.at < 30_000)
     if (next.length !== sending.length || next.some((x, i) => x !== sending[i])) setSending(next)
@@ -260,17 +262,25 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
     }
   }, [transcript.entries, transcript.start, active, sending.length, queued.length, followTick, items.length])
   const seenAt = seenLast.current ? items.findIndex((i) => i.id === seenLast.current) : -1
-  const unseen = away ? Math.max(0, items.length - 1 - seenAt) : 0
+  // The entry last seen may be gone (a card answered, a reload): then there is no count to give.
+  const unseen = away && seenAt >= 0 ? Math.max(0, items.length - 1 - seenAt) : 0
   // Read on shortly after a prompt is sent (its turn shows within a second or so); not after the view is gone.
   const sendTimers = useRef<Array<ReturnType<typeof setTimeout>>>([])
   useEffect(() => () => sendTimers.current.forEach(clearTimeout), [])
   const afterSend = () => {
     sendTimers.current = [300, 1500].map((ms) => setTimeout(() => void sync(), ms))
   }
+  const startNow = useRef(transcript.start)
+  startNow.current = transcript.start
   const earlier = async () => {
     const el = scroller.current
     if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop, start: transcript.start }
+    const asked = transcript.start
     await loadEarlier()
+    // A read that failed or brought no page moved nothing: the anchor must not stay armed and stop the chat following the end.
+    setTimeout(() => {
+      if (anchor.current && anchor.current.start === asked && startNow.current === asked) anchor.current = undefined
+    }, 100)
   }
 
   if (!agent) return null
@@ -655,10 +665,12 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
         return
       }
       const res = await promptAgent(host.client, agentId, body)
-      onSending(body, !!res.queued)
+      const dialog = !res.queued && !!cmd && opensDialog(cmd.command, cmd.args)
+      // A queued prompt shows in the queue and a command that opens a dialog in the terminal: no bubble for either.
+      onSending(body, !!res.queued || dialog)
       if (res.queued) host.store.setState(addPrompt(res.queued))
       // Typed at once, a dialog is on the terminal's screen now: take the user there.
-      else if (cmd && opensDialog(cmd.command, cmd.args)) openTerminal()
+      else if (dialog) openTerminal()
       // What was sent goes; text written while it was in flight stays. The saved draft too, directly: a composer
       // unmounted meanwhile (another tab opened) runs no updater.
       const left = (cur: string) => {

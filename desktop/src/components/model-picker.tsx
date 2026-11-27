@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from 'react'
 import { checkModels, switchAgent } from '@/actions'
 import { ActionMenu, type MenuEntry } from '@/components/ui/menu'
 import { useApp, useHostState } from '@/context'
-import type { Agent } from '@/gen/agentmesh/v1/types_pb'
+import { AgentPhase, type Agent } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { EFFORTS, familiesOf, pendingText, refusal, runsOn } from '@/models'
 import { cn } from '@/lib/utils'
@@ -46,12 +46,14 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
     }
   }
   const pending = pendingText(agent)
+  // The tier it runs on now: an executing worker's is its execution tier.
+  const runTier = agent.phase === AgentPhase.EXECUTING && agent.execTier ? agent.execTier : agent.tier
   // The listed family the agent runs on: the longest name its model contains (`gpt-5-codex` is not also `gpt-5`).
   const current = families.filter((f) => !!agent.model && agent.model.toLowerCase().includes(f.toLowerCase())).sort((a, b) => b.length - a.length)[0]
   const entries: MenuEntry[] = [
-    ...(tiers.length > 0 ? [{ heading: 'Tier' } as const, ...tiers.map((t) => ({ label: t, checked: agent.tier === t, onSelect: () => void pick({ tier: t }) }))] : []),
-    ...(families.length > 0 ? ['separator' as const, { heading: 'Model' }, ...families.map((f) => ({ label: f, checked: f === current, onSelect: () => void pick({ model: f }) }))] : []),
-    'separator',
+    ...(tiers.length > 0 ? [{ heading: 'Tier' } as const, ...tiers.map((t) => ({ label: t, checked: runTier === t, onSelect: () => void pick({ tier: t }) }))] : []),
+    ...(families.length > 0 ? [...(tiers.length > 0 ? ['separator' as const] : []), { heading: 'Model' }, ...families.map((f) => ({ label: f, checked: f === current, onSelect: () => void pick({ model: f }) }))] : []),
+    ...(tiers.length > 0 || families.length > 0 ? ['separator' as const] : []),
     { heading: 'Effort' },
     ...EFFORTS.map((x) => ({ label: x, checked: agent.effort === x, onSelect: () => void pick({ effort: x }) })),
   ]

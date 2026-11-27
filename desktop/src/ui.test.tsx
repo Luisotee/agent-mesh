@@ -39,7 +39,7 @@ import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext, useApp, useHostState } from './context'
 import { messagesOf } from './derive'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, UserNoticeSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentPhase, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, UserNoticeSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
@@ -1397,6 +1397,14 @@ describe('ModelControl and vendor icons', () => {
     expect(client.switchAgent.mock.calls[2]![0]).toMatchObject({ tier: '', model: '', effort: 'low' })
   })
 
+  it('marks the tier an executing worker runs on, not the one it planned on', async () => {
+    const { host, a, wrap } = control({ tier: 'strong', execTier: 'mid', phase: AgentPhase.EXECUTING })
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    expect(await screen.findByRole('menuitemradio', { name: 'mid' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('menuitemradio', { name: 'strong' })).toHaveAttribute('aria-checked', 'false')
+  })
+
   it('marks the one family the agent runs on, the longest match, as a radio of its group', async () => {
     const { host, a, wrap, client } = control({ model: 'gpt-5-codex' })
     client.checkModels.mockResolvedValue(create(CheckModelsResponseSchema, { kinds: [create(KindModelsSchema, { kind: 'claude', listed: [create(ModelFamilyEntrySchema, { family: 'gpt-5' }), create(ModelFamilyEntrySchema, { family: 'gpt-5-codex' })] })] }))
@@ -1807,6 +1815,44 @@ describe('ChatView', () => {
     expect(await screen.findByText('an old prompt')).toBeInTheDocument()
     expect(screen.getByRole('list', { name: 'Sending' })).toHaveTextContent('run the tests')
     expect(screen.getByRole('button', { name: /Jump to the end/ })).toHaveTextContent(/^Jump to the end$/)
+  })
+
+  it('keeps following the end after a Load earlier that failed', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => {
+      if (req.backward && req.offset === 10n) throw new Error('[unavailable] host busy')
+      return res(tail)
+    })
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const scroller = screen.getByTestId('chat')
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('host busy')
+    await new Promise((r) => setTimeout(r, 150))
+    await userEvent.type(box, 'go on{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalled())
+    await waitFor(() => expect(scroller.scrollTop).toBe(2000))
+  })
+
+  it('ends one bubble for each prompt the record gains, not both for the first', async () => {
+    const entries = [...tail]
+    const read = vi.fn(async () => res(entries))
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, 'first one{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledTimes(1))
+    await userEvent.type(box, 'second one{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledTimes(2))
+    expect(within(await screen.findByRole('list', { name: 'Sending' })).getAllByRole('listitem')).toHaveLength(2)
+    // The record has the first only: one bubble left.
+    entries.push(entry('u1', TranscriptKind.USER, { text: 'first one' }))
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Sending' })).getAllByRole('listitem')).toHaveLength(1), { timeout: 4000 })
+    expect(screen.getByRole('list', { name: 'Sending' })).toHaveTextContent('second one')
   })
 
   it('reads the tail again when an earlier page does not join what is held', async () => {
