@@ -685,4 +685,15 @@ public interface AgentOrBuilder extends
    * @return The archived.
    */
   boolean getArchived();
+
+  /**
+   * <pre>
+   * A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
+   * with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 43 [json_name = "plain"];</code>
+   * @return The plain.
+   */
+  boolean getPlain();
 }

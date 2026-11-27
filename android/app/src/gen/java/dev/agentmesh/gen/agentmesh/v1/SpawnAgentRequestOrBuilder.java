@@ -319,4 +319,15 @@ public interface SpawnAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getReviewsBytes();
+
+  /**
+   * <pre>
+   * A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
+   * plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
+   * </pre>
+   *
+   * <code>bool plain = 16 [json_name = "plain"];</code>
+   * @return The plain.
+   */
+  boolean getPlain();
 }
