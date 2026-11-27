@@ -1,16 +1,13 @@
-// Package notice decides what an event means to the person, for the push notifications meshd sends to phones.
-// The same rules as the apps' own local notifications: android/.../notify/Notice.kt (noticeFor, brief) and
-// desktop/src/notify.ts. Change one, change all three.
+// Package notice holds what a notification is made of: its kinds, tabs and plain-text bodies. What deserves one is
+// decided in internal/daemon (notify.go), once, as a UserNotice event that the apps and the phones' pushes follow.
+// Android's own local rules (android/.../notify/Notice.kt) still follow the older per-event rules (TODO.md).
 package notice
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 )
 
 // The kinds, as the host's app.notify.events setting names them (settings.NotifyEvents).
@@ -23,6 +20,10 @@ const (
 	Exited   = "exited"
 	Limited  = "limited"
 	Error    = "error"
+	// Finished: an agent with no parent ended a turn, or a run finished (nothing of it is left to do or wait for).
+	Finished = "finished"
+	// Ready: a pull request is ready to merge where the user merges, or is one the user holds.
+	Ready = "ready"
 )
 
 // The screen a notification opens, as the apps name their tabs.
@@ -30,6 +31,8 @@ const (
 	TabOverview = "overview"
 	TabMessages = "messages"
 	TabTerminal = "terminal"
+	// TabChat is the agent's chat, the tab of a UserNotice (a phone's payload says TabMessages for it).
+	TabChat = "chat"
 )
 
 // Notice is one notification.
@@ -39,95 +42,14 @@ type Notice struct {
 	Body    string
 	AgentID string
 	Tab     string
+	// ForUser: the user has something to do or to know. False: only the apps' Activity list shows it.
+	ForUser bool
+	// Tag: a later notice with the same tag replaces the earlier one on a screen.
+	Tag string
 }
 
 // Waiting reports whether the notice asks something of the user (a plan, a question, a prompt).
 func (n *Notice) Waiting() bool { return n.Kind == Input || n.Kind == Plan || n.Kind == Question }
-
-// For returns the notice for an event, or nil: an agent stopped at a prompt, a plan, a question, a report or a
-// failure sent to a run's lead, an agent that died, one that hit its usage limit or is in error. Never what a device (the user) did. agent looks an agent up
-// by id (nil when unknown). Unlike the apps, it doesn't judge whether the event is live: meshd calls it only for
-// events as they commit.
-func For(e *v1.Event, agent func(id string) *v1.Agent) *Notice {
-	switch p := e.Payload.(type) {
-	case *v1.Event_AgentStateChanged:
-		a := agent(e.AgentId)
-		ch := p.AgentStateChanged
-		if a == nil || ch.To == ch.From {
-			return nil
-		}
-		body := Brief(ch.Detail)
-		switch ch.To {
-		case v1.AgentState_AGENT_STATE_NEEDS_INPUT:
-			if body == "" {
-				body = "It is stopped at a prompt in its terminal."
-			}
-			return &Notice{Kind: Input, Title: a.Name + " needs you", Body: body, AgentID: a.Id, Tab: TabTerminal}
-		case v1.AgentState_AGENT_STATE_LIMITED:
-			if body == "" {
-				body = "Its terminal says more."
-			}
-			return &Notice{Kind: Limited, Title: a.Name + " hit its usage limit", Body: body, AgentID: a.Id, Tab: TabTerminal}
-		case v1.AgentState_AGENT_STATE_ERROR:
-			if body == "" {
-				body = "Its terminal says more."
-			}
-			return &Notice{Kind: Error, Title: a.Name + " is in error", Body: body, AgentID: a.Id, Tab: TabTerminal}
-		}
-		return nil
-	case *v1.Event_MessageSent:
-		m := p.MessageSent.GetMessage()
-		if m == nil || m.GetFrom().GetClass() == v1.ActorClass_ACTOR_CLASS_DEVICE {
-			return nil
-		}
-		to, from := agent(m.ToId), agent(m.GetFrom().GetId())
-		// What reaches a run's lead is what the user is waiting for; talk among workers isn't.
-		if to == nil || to.Role != v1.AgentRole_AGENT_ROLE_ROOT || from == nil {
-			return nil
-		}
-		n := &Notice{Body: Brief(m.Body), AgentID: from.Id, Tab: TabMessages}
-		switch m.Type {
-		case v1.MessageType_MESSAGE_TYPE_PLAN:
-			n.Kind, n.Title = Plan, from.Name+" sent a plan"
-		case v1.MessageType_MESSAGE_TYPE_QUESTION:
-			n.Kind, n.Title = Question, from.Name+" has a question"
-		case v1.MessageType_MESSAGE_TYPE_DONE:
-			n.Kind, n.Title = Report, from.Name+" reported done"
-		case v1.MessageType_MESSAGE_TYPE_FAILED:
-			n.Kind, n.Title = Failed, from.Name+" failed"
-		default:
-			return nil
-		}
-		return n
-	case *v1.Event_AgentExited:
-		a := agent(e.AgentId)
-		x := p.AgentExited
-		// The user stopping an agent isn't news.
-		if a == nil || x.Reason == "killed" {
-			return nil
-		}
-		n := &Notice{AgentID: a.Id, Tab: TabOverview}
-		switch {
-		case x.ExitCode == 0 && x.Reason != "lost":
-			n.Kind, n.Title = Exited, a.Name+" finished"
-		case x.Reason == "lost":
-			n.Kind, n.Title = Failed, a.Name+" was lost"
-		default:
-			n.Kind, n.Title = Failed, a.Name+" exited with code "+strconv.Itoa(int(x.ExitCode))
-		}
-		return n
-	}
-	return nil
-}
-
-// Relevant reports whether For could return a notice for an event of this payload, without looking anything up.
-func Relevant(e *v1.Event) bool {
-	switch e.Payload.(type) {
-	case *v1.Event_AgentStateChanged, *v1.Event_MessageSent, *v1.Event_AgentExited:
-		return true
-	}
-	return false
-}
 
 const (
 	maxBody = 200

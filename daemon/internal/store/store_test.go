@@ -682,6 +682,33 @@ func waitingIDs(t *testing.T, s *Store, to string) []string {
 	return ids
 }
 
+// An agent's answer closes only what its author asked that agent; the user's closes all of it.
+func TestAnAgentsAnswerClosesOnlyWhatItsAuthorAskedIt(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	put := func(m *v1.Message) {
+		t.Helper()
+		if err := s.Write(ctx, nil, "", func(tx *Tx) error { return tx.PutMessage(m) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const q, ans = v1.MessageType_MESSAGE_TYPE_QUESTION, v1.MessageType_MESSAGE_TYPE_ANSWER
+	put(waitingMsg("m1", q, "lead", "user", fixed))
+	put(waitingMsg("m2", q, "lead", "boss", fixed.Add(time.Second)))
+	a := waitingMsg("m3", ans, "w1", "lead", fixed.Add(2*time.Second))
+	a.From.Class = v1.ActorClass_ACTOR_CLASS_WORKER
+	put(a)
+	if got := waitingIDs(t, s, "user"); len(got) != 1 {
+		t.Fatalf("a worker's answer closed the lead's question to the user: %v", got)
+	}
+	d := waitingMsg("m4", ans, "dev", "lead", fixed.Add(3*time.Second))
+	d.From.Class = v1.ActorClass_ACTOR_CLASS_DEVICE
+	put(d)
+	if got := waitingIDs(t, s, "user"); len(got) != 0 {
+		t.Fatalf("the user's answer left it open: %v", got)
+	}
+}
+
 // A plan or question waits until an answer to its author follows it; a re-put (read, delivered) changes nothing,
 // and an answer that comes first doesn't clear a later message, even on the same nanosecond (id breaks the tie).
 func TestWaitingIsWhatNoAnswerHasFollowed(t *testing.T) {

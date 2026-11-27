@@ -73,7 +73,8 @@ public  final class SendMessageRequest extends
   private java.lang.String to_;
   /**
    * <pre>
-   * An agent id or name, or "parent" for the caller's parent.
+   * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+   * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
    * </pre>
    *
    * <code>string to = 2 [json_name = "to"];</code>
@@ -85,7 +86,8 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * An agent id or name, or "parent" for the caller's parent.
+   * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+   * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
    * </pre>
    *
    * <code>string to = 2 [json_name = "to"];</code>
@@ -98,7 +100,8 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * An agent id or name, or "parent" for the caller's parent.
+   * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+   * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
    * </pre>
    *
    * <code>string to = 2 [json_name = "to"];</code>
@@ -112,7 +115,8 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * An agent id or name, or "parent" for the caller's parent.
+   * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+   * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
    * </pre>
    *
    * <code>string to = 2 [json_name = "to"];</code>
@@ -123,7 +127,8 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * An agent id or name, or "parent" for the caller's parent.
+   * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+   * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
    * </pre>
    *
    * <code>string to = 2 [json_name = "to"];</code>
@@ -618,7 +623,8 @@ public  final class SendMessageRequest extends
 
     /**
      * <pre>
-     * An agent id or name, or "parent" for the caller's parent.
+     * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+     * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
      * </pre>
      *
      * <code>string to = 2 [json_name = "to"];</code>
@@ -630,7 +636,8 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * An agent id or name, or "parent" for the caller's parent.
+     * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+     * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
      * </pre>
      *
      * <code>string to = 2 [json_name = "to"];</code>
@@ -643,7 +650,8 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * An agent id or name, or "parent" for the caller's parent.
+     * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+     * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
      * </pre>
      *
      * <code>string to = 2 [json_name = "to"];</code>
@@ -658,7 +666,8 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * An agent id or name, or "parent" for the caller's parent.
+     * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+     * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
      * </pre>
      *
      * <code>string to = 2 [json_name = "to"];</code>
@@ -671,7 +680,8 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * An agent id or name, or "parent" for the caller's parent.
+     * An agent id or name, or "parent" for the caller's parent, or "user" for the person (a run's lead only: a
+     * question, plan or info, stored in the run and never delivered to an agent; the user answers the lead).
      * </pre>
      *
      * <code>string to = 2 [json_name = "to"];</code>

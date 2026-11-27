@@ -529,12 +529,12 @@ func DefaultLeaves() []Leaf {
 }
 
 // NotifyEvents are the events the desktop app can notify about (app.notify.events).
-var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited", "limited", "error"}
+var NotifyEvents = []string{"input", "plan", "question", "report", "failed", "exited", "limited", "error", "finished", "ready"}
 
 // DefaultNotifyEvents are the ones that notify until the user chooses (every event but a clean exit and a usage
 // limit, which the daemon usually handles itself by moving the agent to the next model). The desktop
 // app falls back to the same list before the host's settings arrive (desktop/src/prefs.ts).
-var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error"}
+var DefaultNotifyEvents = []string{"input", "plan", "question", "report", "failed", "error", "finished", "ready"}
 
 // shortcutModifiers are the modifiers a chord may hold; Mod is Ctrl on Linux and Windows and Cmd on macOS.
 var shortcutModifiers = []string{"Mod", "Ctrl", "Alt", "Shift", "Meta"}
@@ -618,7 +618,7 @@ func AppLeaves() []Leaf {
 		{Key: "app.notify.sound", Label: "Notification sound", Group: GroupNotifications, Type: Bool, Default: true,
 			Summary: "play the system sound with a desktop notification"},
 		{Key: "app.notify.events", Label: "Notify me about", Group: GroupNotifications, Type: Kinds, Default: events, Choices: NotifyEvents,
-			Summary: "Which events notify: an agent stopped at a prompt, a plan or question to answer, a report, a failure, an agent in error or at its usage limit, or any exit. A phone follows this unless it chose its own list."},
+			Summary: "Which events notify: an agent stopped at a prompt, a plan or question that is yours to answer, a failure, an agent in error or at its usage limit, a finished run or agent, a pull request ready to merge (open, checks passing) where you merge, a report or a clean exit. A worker's plan, report or failure to a lead that decides it is only in Activity. A phone follows this unless it chose its own list."},
 		{Key: "app.theme", Label: "Theme", Group: GroupAppearance, Type: String, Default: "Dracula",
 			Summary: "The colours the apps draw with. An app without that theme uses Dracula, and the Android app's own choice overrides it on that phone."},
 		{Key: "app.dock.new_agents", Label: "New agents in the live dock", Group: GroupAppearance, Type: String, Default: "dock", Choices: DockNewAgents,

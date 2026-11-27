@@ -918,6 +918,10 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err := checkReviewBy(m.Reviews); err != nil {
 		return nil, err
 	}
+	// A plain agent is the user's own conversation: a root that gets no task, so the mesh's procedure never reaches it.
+	if m.Plain && (role != v1.AgentRole_AGENT_ROLE_ROOT || strings.TrimSpace(m.Task) != "" || m.Plan) {
+		return nil, invalid("a plain agent is a root with no task and no plan: type to it in its chat instead")
+	}
 	if d.rt.term == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("this daemon runs without a terminal host"))
 	}
@@ -1072,7 +1076,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 		// A planner plans under the deny list until approved; a read-only role keeps it.
 		DenyEdits: m.Plan || adapter.ReadOnly(role), Mcp: mcpNames, ReviewBy: m.Reviews,
 		// A named model or effort covers the whole task: no plan phase, now or later.
-		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != "")}
+		Pinned: role != v1.AgentRole_AGENT_ROLE_ROOT && !m.Plan && (m.Model != "" || m.Effort != ""), Plain: m.Plain}
 	if m.Plan {
 		agent.Phase, agent.ExecTier = v1.AgentPhase_AGENT_PHASE_PLANNING, m.ExecTier
 	}
