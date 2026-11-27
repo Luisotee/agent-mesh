@@ -296,7 +296,7 @@ function RowDialogs({ host, dialog, onClose }: { host?: HostRuntime; dialog: Row
   return dialog.kind === 'stop' ? (
     <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Stop ${a.name}?`} description="Its process ends; its conversation is kept." action="Stop" run={() => stopAgent(host.client, a.id)} />
   ) : (
-    <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Retire ${a.name}?`} description="Its process stops and its conversation is kept; a message brings it back." action="Retire" run={() => retireAgent(host.client, a.id)} />
+    <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Retire ${a.name}?`} description="Its process stops and its conversation is kept; a task or an answer brings it back." action="Retire" run={() => retireAgent(host.client, a.id)} />
   )
 }
 

@@ -187,7 +187,7 @@ export interface AppModel {
   closeTab(ref: TabRef): void
   /** Moves a tab to where another is in the strip (a tab dragged onto another). */
   moveTab(ref: TabRef, to: TabRef): void
-  /** The tab after (1) or before (-1) the open one. */
+  /** The tab after (1) or before (-1) the open one, in its project's tab bar. */
   cycleTab(by: 1 | -1): void
   /** Shows or hides the live dock; showing it clears its count. */
   setDock(open: boolean): void
@@ -485,7 +485,7 @@ export function createAppModel(api: DesktopApi): AppModel {
         return { tabs, dragTab: undefined }
       }),
     cycleTab: (by) => {
-      const next = cycleTab(store.getState(), by)
+      const next = cycleTab(store.getState(), by, shownTabs(store.getState()))
       if (next) set((s) => ({ ...activate(s, next.hostId, next.agentId), settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false }))
     },
     setDock: (open) => set(open ? { dockOpen: true, dockBadge: 0 } : { dockOpen: false }),

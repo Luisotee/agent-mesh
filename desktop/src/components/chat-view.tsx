@@ -400,7 +400,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
   const why = readOnly
     ? 'This device is read-only: it can read the conversation, not type into the agent.'
     : gone
-      ? 'The agent has stopped, so there is no terminal to type into. Send it a message from its menu (⋯) to bring it back.'
+      ? 'The agent has stopped, so there is no terminal to type into. Send it a task from its menu (⋯) to bring it back.'
       : ''
   async function send() {
     const body = text.trim()
@@ -410,9 +410,11 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     try {
       const res = await promptAgent(host.client, agentId, body)
       if (res.queued) host.store.setState(addPrompt(res.queued))
-      // Cleared here too: a composer unmounted while the prompt was in flight (another tab opened) runs no updater.
-      saveDraft(host.info.id, agentId, '')
-      setText('')
+      // What was sent goes; text written while it was in flight stays. The saved draft too, directly: a composer
+      // unmounted meanwhile (another tab opened) runs no updater.
+      const left = (cur: string) => (cur.trim() === body ? '' : cur)
+      saveDraft(host.info.id, agentId, left(loadDraft(host.info.id, agentId)))
+      setText(left)
       onSent()
     } catch (e) {
       setError(say(e))
@@ -515,6 +517,18 @@ function BlockActions({ agentId, text, at, align }: { agentId: string; text: str
   const app = useApp()
   const now = useNow(30_000)
   const [copied, setCopied] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  // Copied only once the write took (it fails when the window lost the focus, or without a clipboard).
+  const copy = () =>
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true)
+        clearTimeout(timer.current)
+        timer.current = setTimeout(() => setCopied(false), 1500)
+      },
+      () => setCopied(false),
+    )
   const quote = () => app.store.setState({ composerFill: { agentId, text: `${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n` } })
   return (
     <div className={cn('flex h-6 items-center gap-0.5 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none', align === 'end' && 'justify-end')}>
@@ -523,11 +537,7 @@ function BlockActions({ agentId, text, at, align }: { agentId: string; text: str
         <button
           type="button"
           aria-label="Copy"
-          onClick={() => {
-            void navigator.clipboard?.writeText(text)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          }}
+          onClick={() => void copy()}
           className="grid size-6 place-items-center rounded outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}

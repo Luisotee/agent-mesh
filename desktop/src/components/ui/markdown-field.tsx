@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { composerKey, type Edit } from '@/composer-keys'
-import { isMac } from '@/keys'
+import { isMac, keyOf } from '@/keys'
 import { cn } from '@/lib/utils'
 import { Textarea } from './input'
 
@@ -72,7 +72,8 @@ export function MarkdownField({ value, onValueChange, onSend, maxHeight = '40vh'
         const el = e.currentTarget
         const out = composerKey(
           { value: el.value, start: el.selectionStart, end: el.selectionEnd },
-          { key: e.key, shift: e.shiftKey, mod: isMac ? e.metaKey : e.ctrlKey, alt: e.altKey },
+          // With Ctrl (Cmd) a letter is its physical key, as the shortcuts take it: Ctrl+K on a Russian layout is K.
+          { key: /^Key[A-Z]$/.test(e.code) ? keyOf(e) : e.key, shift: e.shiftKey, mod: isMac ? e.metaKey : e.ctrlKey, alt: e.altKey },
           !!onSend,
         )
         if (!out) return

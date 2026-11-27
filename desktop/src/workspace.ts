@@ -106,12 +106,16 @@ export function cycleTab(s: WorkspaceState & Selection, by: 1 | -1, tabs: TabRef
 
 /**
  * The tabs one project's tab bar shows: those whose agent's project (`projectOf`, the host and the repo its run is
- * led from) is the open agent's. With no agent open, or one whose project isn't known yet, every tab.
+ * led from) is the open agent's, and those whose project isn't known yet (a host still connecting), so none is
+ * out of reach. With no agent open, or one whose project isn't known yet, every tab.
  */
 export function projectTabs(tabs: TabRef[], projectOf: (t: TabRef) => string | undefined, open: TabRef | undefined): TabRef[] {
   const here = open && projectOf(open)
   if (!here) return tabs
-  return tabs.filter((t) => projectOf(t) === here || (t.hostId === open.hostId && t.agentId === open.agentId))
+  return tabs.filter((t) => {
+    const p = projectOf(t)
+    return p === here || p === undefined || (t.hostId === open.hostId && t.agentId === open.agentId)
+  })
 }
 
 /** Drops what belongs to a host that was removed. */

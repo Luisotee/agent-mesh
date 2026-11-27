@@ -203,14 +203,10 @@ describe('filterCommands', () => {
     expect(model.store.getState().tab).toBe('terminal')
     run.chat_toggle()
     expect(model.store.getState().tab).toBe('chat')
-    // One without (exited, or the host has none) stays in the chat instead of bouncing to the overview and back.
+    // One without (exited, or the host has none) stays in the chat.
     host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, terminalId: '' } } }))
     run.chat_toggle()
     expect(model.store.getState().tab).toBe('chat')
     expect(buildCommands(model).map((c) => c.title)).not.toContain('Switch the open agent between chat and terminal')
-    // The chat is still one press away from the other tabs.
-    model.setTab('chat')
-    run.chat_toggle()
-    expect(model.store.getState().tab).toBe('chat')
   })
 })

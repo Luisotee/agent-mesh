@@ -75,13 +75,24 @@ describe('timeline', () => {
   const at = (s: number) => timestampFromMs(s * 1000)
   const e = (id: string, kind: TranscriptKind, s: number) => create(TranscriptEntrySchema, { id, kind, text: id, time: at(s) })
   const m = (id: string, s: number) => create(MessageSchema, { id, body: id, createdAt: at(s) })
-  const blocks = toBlocks([e('u1', TranscriptKind.USER, 10), e('bell', TranscriptKind.MESH, 20), e('a1', TranscriptKind.ASSISTANT, 30)])
+  const bell = create(TranscriptEntrySchema, { id: 'bell', kind: TranscriptKind.MESH, text: '📬 [mesh] task from lead (ref t1): run `mesh inbox`', time: at(20) })
+  const blocks = toBlocks([e('u1', TranscriptKind.USER, 10), bell, e('a1', TranscriptKind.ASSISTANT, 30)])
 
   it('puts each message where it was sent, and drops the doorbells once the messages are there', () => {
     const items = timeline(blocks, [m('late', 40), m('task', 19), m('early', 5)], false)
     // A message from before the window held is left for "Load earlier".
     expect(items.map((i) => i.id)).toEqual(['u1', 'm-task', 'a1', 'm-late'])
     expect(timeline(blocks, [m('early', 5)], true).map((i) => i.id)).toEqual(['m-early', 'u1', 'a1'])
+  })
+
+  it('drops only the doorbells, and keeps any other mesh line (a root told of its reset)', () => {
+    const text = (id: string, kind: TranscriptKind, s: number, t: string) => create(TranscriptEntrySchema, { id, kind, text: t, time: at(s) })
+    const bs = toBlocks([
+      text('one', TranscriptKind.MESH, 1, '📬 [mesh] task from lead (ref ab12): run `mesh inbox`'),
+      text('two', TranscriptKind.MESH, 2, '📬 [mesh] 2 messages (ref cd34: task from lead, info from mesh): run `mesh inbox`'),
+      text('reset', TranscriptKind.MESH, 3, '📬 [mesh] You are lead, the root of agent-mesh run r1, and `mesh reset` just compacted your session.'),
+    ])
+    expect(timeline(bs, [], true).map((i) => i.id)).toEqual(['reset'])
   })
 
   it('shows a message still waiting on the user from before the window held, at the top', () => {

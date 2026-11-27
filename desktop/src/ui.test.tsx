@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -7,6 +8,7 @@ import type { DesktopApi } from '../shared/api'
 import { App } from './App'
 import { AgentPanel, SendMessageDialog } from './components/agent-panel'
 import { Markdown } from './components/markdown'
+import { MarkdownField } from './components/ui/markdown-field'
 import { ConnectionBanner } from './components/connection-banner'
 import { addPrompt } from './store'
 import { ChatView } from './components/chat-view'
@@ -274,6 +276,18 @@ describe('AgentPanel', () => {
     expect(req.meta.mutationId).toMatch(/^[0-9a-f-]{36}$/)
     expect(req.meta.expiresAt).toBeTruthy()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it("keeps the dialog open and says why when the host couldn't bring a stopped agent back", async () => {
+    const { host, wrap, client } = fixture()
+    fixtureHost = host
+    client.sendMessage.mockResolvedValueOnce({ resumeError: 'the host is at its agent cap' } as never)
+    panel(wrap)
+    const dialog = await openSend()
+    await userEvent.type(within(dialog).getByLabelText('Message', { exact: true }), 'come back')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent("Sent, but it couldn't be brought back: the host is at its agent cap")
+    expect(screen.getByRole('dialog', { name: 'Message app-fix' })).toBeInTheDocument()
   })
 
   it('sends once on a double submit, and stops once on a double click, after a confirmation', async () => {
@@ -607,6 +621,8 @@ describe('Markdown in messages', () => {
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('img')).toBeNull()
     expect(container.querySelector('details')).toBeNull()
+    // Dropped, not escaped into the page as text.
+    expect(container.textContent).not.toMatch(/<script|<details|secret|<img/)
     expect(screen.getByRole('table')).toBeInTheDocument()
   })
 
@@ -615,6 +631,22 @@ describe('Markdown in messages', () => {
     expect(prompt.querySelectorAll('br')).toHaveLength(1)
     const { container: reply } = render(<Markdown>{'one\ntwo'}</Markdown>)
     expect(reply.querySelector('br')).toBeNull()
+    const { container: inline } = render(<Markdown>{'a <b>bold</b> word <!-- note -->'}</Markdown>)
+    expect(inline.textContent).toBe('a bold word ')
+  })
+})
+
+describe('MarkdownField', () => {
+  it('takes Ctrl+B by the physical key, on a layout that types another letter there', () => {
+    function Field() {
+      const [v, setV] = useState('')
+      return <MarkdownField aria-label="Body" value={v} onValueChange={setV} />
+    }
+    render(<Field />)
+    const field = screen.getByRole('textbox', { name: 'Body' }) as HTMLTextAreaElement
+    field.focus()
+    fireEvent.keyDown(field, { key: 'и', code: 'KeyB', ctrlKey: true })
+    expect(field.value).toBe('****')
   })
 })
 

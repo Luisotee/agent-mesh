@@ -8,11 +8,24 @@ type El<T extends keyof React.JSX.IntrinsicElements> = Omit<ComponentProps<T>, '
 
 /** Code blocks highlighted by Shiki (`highlight.ts`: its JavaScript regex engine, no WASM, a grammar loaded when first shown). */
 const plugins = { code: highlighter }
-/** Streamdown's rehype plugins minus `raw`, which would turn raw HTML into elements before `skipHtml` could drop it. */
+/** Streamdown's rehype plugins minus `raw`, which would turn raw HTML into elements. */
 const { raw: _raw, ...kept } = defaultRehypePlugins
 const rehypePlugins = Object.values(kept)
+
+interface MdNode {
+  type: string
+  children?: MdNode[]
+}
+/** Drops raw HTML from the markdown tree (Streamdown's `skipHtml` would leave it as escaped text): no tag shows. */
+function dropHtml(node: MdNode): void {
+  if (!node.children) return
+  node.children = node.children.filter((c) => c.type !== 'html')
+  node.children.forEach(dropHtml)
+}
+const remarkDropHtml = () => dropHtml
+const remarkPlugins = [...Object.values(defaultRemarkPlugins), remarkDropHtml]
 /** A prompt's own line breaks (Shift+Enter) kept, as they were typed; a reply's newlines join, as in any markdown. */
-const breaking = [...Object.values(defaultRemarkPlugins), remarkBreaks]
+const breaking = [...remarkPlugins, remarkBreaks]
 const controls = { code: { copy: true, download: false }, table: false, mermaid: false } as const
 
 /** Opens a link in the user's browser, through the main process, and only an http(s) one. */
@@ -63,7 +76,7 @@ export function Markdown({ children, className, breaks }: { children: string; cl
       className={cn('flex flex-col gap-2 text-sm leading-relaxed break-words [&_pre]:font-mono [&_pre]:text-[13px]', className)}
       skipHtml
       rehypePlugins={rehypePlugins}
-      {...(breaks ? { remarkPlugins: breaking } : {})}
+      remarkPlugins={breaks ? breaking : remarkPlugins}
       mode="static"
       lineNumbers={false}
       plugins={plugins}

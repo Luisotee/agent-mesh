@@ -57,6 +57,7 @@ describe('composerKey', () => {
   it('wraps the selection on Ctrl+B, I and E (and unwraps it), and makes a link on Ctrl+K', () => {
     expect(press('a «word» b', k('b', { mod: true }))).toBe('a **«word»** b')
     expect(press('a **«word»** b', k('b', { mod: true }))).toBe('a «word» b')
+    expect(press('a «**word**» b', k('b', { mod: true }))).toBe('a «word» b')
     expect(press('|', k('i', { mod: true }))).toBe('_|_')
     expect(press('run «ls»', k('e', { mod: true }))).toBe('run `«ls»`')
     expect(press('see «docs»', k('k', { mod: true }))).toBe('see [docs](|)')

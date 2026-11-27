@@ -175,8 +175,9 @@ describe('projectTabs', () => {
   const projectOf = (r: { agentId: string }) => of[r.agentId]
   it('shows the open agent\'s project\'s tabs, all of them with none open or one not known yet', () => {
     const tabs = [t('a'), t('b'), t('c'), t('x')]
-    expect(projectTabs(tabs, projectOf, t('a')).map((r) => r.agentId)).toEqual(['a', 'c'])
-    expect(projectTabs(tabs, projectOf, t('b')).map((r) => r.agentId)).toEqual(['b'])
+    // x's project isn't known yet (its host is connecting): it stays in reach.
+    expect(projectTabs(tabs, projectOf, t('a')).map((r) => r.agentId)).toEqual(['a', 'c', 'x'])
+    expect(projectTabs(tabs, projectOf, t('b')).map((r) => r.agentId)).toEqual(['b', 'x'])
     expect(projectTabs(tabs, projectOf, undefined)).toHaveLength(4)
     expect(projectTabs(tabs, projectOf, t('x'))).toHaveLength(4)
   })

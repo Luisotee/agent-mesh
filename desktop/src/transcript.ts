@@ -114,13 +114,20 @@ export function toolsSummary(calls: ToolCall[]): string {
   return `Ran ${calls.length} ${calls.length === 1 ? 'tool' : 'tools'}: ${names.join(', ')}`
 }
 
+/**
+ * A doorbell the host typed for stored messages (`delivery.go` `Doorbell`: "📬 [mesh] task from x (ref t): run `mesh
+ * inbox`"), which a card stands for. Other mesh lines (a root's `mesh reset` prompt) announce no message and stay.
+ */
+const DOORBELL = /^📬 \[mesh\] [^\n]*\(ref [^)\n]*\)/
+export const isDoorbell = (text: string) => DOORBELL.test(text.trim())
+
 /** What the chat's timeline shows: the conversation's blocks and, where they were sent, the agent's mesh messages. */
 export type Item = Block | { kind: 'message'; id: string; at: number; message: Message }
 
 /**
  * The conversation with the agent's mesh messages (to it and from it) put in where they were sent, as cards. Once the
- * messages are there (`messages` given), the doorbells that announced them ("📬 [mesh] … run `mesh inbox`") go: the
- * cards stand for them. Only messages from the window held on are shown (`atStart`: all of them), so loading earlier
+ * messages are there (`messages` given), the doorbells that announced them (`isDoorbell`) go: the cards stand for
+ * them. Only messages from the window held on are shown (`atStart`: all of them), so loading earlier
  * entries brings the earlier messages in with them; one still waiting on the user (`open`, its id) shows whatever the
  * window, at the top when it is older, so it can always be answered.
  */
@@ -135,7 +142,7 @@ export function timeline(blocks: Block[], messages: Message[] | undefined, atSta
   let i = 0
   for (const b of blocks) {
     while (i < cards.length && cards[i]!.at < b.at) out.push(cards[i++]!)
-    if (b.kind !== 'mesh') out.push(b)
+    if (b.kind !== 'mesh' || !isDoorbell(b.entry.text)) out.push(b)
   }
   while (i < cards.length) out.push(cards[i++]!)
   return out

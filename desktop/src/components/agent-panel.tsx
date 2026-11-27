@@ -90,7 +90,7 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
         open={stopping}
         onOpenChange={setStopping}
         title={`Stop ${agent.name}?`}
-        description="Its CLI exits. A message to it later brings it back in the same conversation."
+        description="Its CLI exits. A task or an answer to it later brings it back in the same conversation."
         action={`Stop ${agent.name}`}
         run={() => stopAgent(host.client, agent.id)}
       />
@@ -136,8 +136,10 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
     setBusy(true)
     setError('')
     try {
-      await sendMessage(host.client, agentId, type, body.trim())
-      onDone()
+      const res = await sendMessage(host.client, agentId, type, body.trim())
+      // Stored either way; a stopped agent the host couldn't start again (a cap, a closed run) says why, and the dialog stays.
+      if (res.resumeError) setError(`Sent, but it couldn't be brought back: ${res.resumeError}`)
+      else onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -145,7 +147,7 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
     }
   }
   return (
-    <DialogContent title={`Message ${agent?.name ?? agentId}`} description="A mesh message, as an agent sends one: it reaches the agent at its next turn, and brings a stopped one back.">
+    <DialogContent title={`Message ${agent?.name ?? agentId}`} description="A mesh message, as an agent sends one: it reaches the agent at its next turn. A task or an answer brings a stopped one back; an info waits.">
       <form
         aria-label="Send a message"
         className="flex flex-col gap-2"

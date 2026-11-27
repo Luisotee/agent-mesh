@@ -105,6 +105,11 @@ function wrap(f: Field, left: string, right = left): Outcome {
   if (sel && before === left && after === right) {
     return { kind: 'edit', edit: { from: f.start - left.length, to: f.end + right.length, text: sel, selStart: f.start - left.length, selEnd: f.end - left.length } }
   }
+  // The selection takes the markers in too (all of `**x**` selected): it is unwrapped the same.
+  if (sel.length >= left.length + right.length && sel.startsWith(left) && sel.endsWith(right)) {
+    const inner = sel.slice(left.length, sel.length - right.length)
+    return { kind: 'edit', edit: { from: f.start, to: f.end, text: inner, selStart: f.start, selEnd: f.start + inner.length } }
+  }
   const text = `${left}${sel}${right}`
   return { kind: 'edit', edit: { from: f.start, to: f.end, text, selStart: f.start + left.length, selEnd: f.start + left.length + sel.length } }
 }
