@@ -162,7 +162,7 @@ func TestOnlyATypingDevicePromptsAndADraftHoldsTheQueue(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Errorf("an agent prompting: %v", err)
 	}
-	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
+	cp, err := h.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
 	if err != nil {
 		t.Fatal(err)
 	}

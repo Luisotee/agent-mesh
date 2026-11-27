@@ -186,7 +186,7 @@ func TestListProjectsForOneRepoKeepsTheListedPathThroughASymlink(t *testing.T) {
 func readOnlyDevice(t *testing.T, w *prWorld) agentmeshv1connect.MeshServiceClient {
 	t.Helper()
 	ctx := context.Background()
-	cp, err := w.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
+	cp, err := w.device.Mesh.CreatePairing(ctx, connect.NewRequest(&v1.CreatePairingRequest{DirectUrl: testDirectURL, Meta: meta("pair-ro"), Name: "ro", ReadOnly: true}))
 	if err != nil {
 		t.Fatal(err)
 	}

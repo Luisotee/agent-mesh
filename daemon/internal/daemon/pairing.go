@@ -69,11 +69,11 @@ func (d *Daemon) disconnectActor(actorID string) {
 	}
 }
 
-// requireHostDevice allows only the host's own device (RevokeDevice).
-func requireHostDevice(ctx context.Context) error {
+// requireHostDevice allows only the host's own device; `what` completes the refusal ("only the host's own device may <what>").
+func requireHostDevice(ctx context.Context, what string) error {
 	actor := auth.ActorFrom(ctx)
 	if actor == nil || actor.Id != localDeviceID {
-		return denied("only the host's own device may manage paired devices")
+		return denied("only the host's own device may %s", what)
 	}
 	return nil
 }
@@ -117,6 +117,10 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 		if host, _, err := net.SplitHostPort(d.info.Listen); err == nil && host != "" && host != "0.0.0.0" && host != "::" {
 			directURL = "https://" + d.info.Listen
 		}
+	}
+	if relayURL == "" && directURL == "" {
+		// A link with no address in it can't be redeemed from anywhere: say why, so the user can give the host one.
+		return nil, failedPrecondition("%s", d.noRouteCause())
 	}
 
 	out := &v1.CreatePairingResponse{}
@@ -185,6 +189,21 @@ func (d *Daemon) CreatePairing(ctx context.Context, req *connect.Request[v1.Crea
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("pairing already redeemed"))
 	}
 	return connect.NewResponse(out), nil
+}
+
+// noRouteCause says why this host has no address a device could pair over, and the ways to give it one.
+func (d *Daemon) noRouteCause() string {
+	why := "this host has no address a device could pair over: it serves no TLS address (meshd --listen <address>), has no relay (--relay-url), and"
+	switch {
+	case d.cfg.Tailnet != nil:
+		why += " its Tailscale node isn't connected yet (see the tailnet's state: it may need a login)"
+	default:
+		why += " Tailscale is off (turn it on from the app's Pair screen, or start meshd with --tailscale)"
+	}
+	if d.info.Listen != "" {
+		why += "; --listen " + d.info.Listen + " names no single address a device could reach, so give one with `direct_url`"
+	}
+	return why + ". Give the host one of them, or pass a `direct_url`."
 }
 
 // sameRelayURL reports whether two relay URLs name the same endpoint: scheme and host compare
@@ -320,7 +339,7 @@ func (d *Daemon) ListDevices(ctx context.Context, req *connect.Request[v1.ListDe
 
 // RevokeDevice revokes a paired device's token and immediately closes its active streams.
 func (d *Daemon) RevokeDevice(ctx context.Context, req *connect.Request[v1.RevokeDeviceRequest]) (*connect.Response[v1.RevokeDeviceResponse], error) {
-	if err := requireHostDevice(ctx); err != nil {
+	if err := requireHostDevice(ctx, "manage paired devices"); err != nil {
 		return nil, err
 	}
 	id := strings.TrimSpace(req.Msg.DeviceId)

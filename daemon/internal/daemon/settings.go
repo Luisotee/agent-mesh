@@ -190,6 +190,7 @@ func (d *Daemon) ResetSetting(ctx context.Context, req *connect.Request[v1.Reset
 // device could otherwise turn the guard off itself), and an agent has no business changing it either.
 var hostOnlySettings = map[string]bool{
 	"push.allow_private_endpoints": true, // what a device's push endpoint may reach (push.go)
+	"editor.command":               true, // the program OpenInEditor runs on the host (editor.go): an agent that could set it could pick what runs on the user's click
 }
 
 // agentBarredSettings may be changed by a device (the user) but never by an agent: each decides what an agent may do to the

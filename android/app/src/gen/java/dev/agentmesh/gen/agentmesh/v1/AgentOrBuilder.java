@@ -674,4 +674,15 @@ public interface AgentOrBuilder extends
    * @return The adoptedPidStart.
    */
   long getAdoptedPidStart();
+
+  /**
+   * <pre>
+   * Archived (`ArchiveAgent`): retired, its worktree removed and its branch kept. A message to it or ResumeAgent
+   * recreates the worktree from the branch and clears this.
+   * </pre>
+   *
+   * <code>bool archived = 42 [json_name = "archived"];</code>
+   * @return The archived.
+   */
+  boolean getArchived();
 }

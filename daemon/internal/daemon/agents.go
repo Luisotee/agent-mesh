@@ -1025,6 +1025,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if _, err := git(ctx, top, "worktree", "add", "-b", branch, worktree, base); err != nil {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, err)
 	}
+	d.includeInto(ctx, top, worktree)
 	// Where its branch started, so a branch that never moved can be told from one with work (StopRun).
 	baseCommit, _ := git(ctx, worktree, "rev-parse", "HEAD")
 
