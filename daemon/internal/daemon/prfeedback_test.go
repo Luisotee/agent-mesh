@@ -142,6 +142,7 @@ func TestBotsAndAgentsOwnCommentsAreNotFeedback(t *testing.T) {
 		comment("owner", "fixed.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)", time.Hour),
 		comment("owner", "done\n\nCo-Authored-By: Claude <noreply@anthropic.com>", time.Hour),
 		comment("owner", "[mesh pr-feedback #12] looped", time.Hour),
+		comment("owner", "I fixed it in 1234abc.\n\n[mesh demo-fix]", time.Hour), // a worker's own, signed
 		comment("owner", "   ", time.Hour),
 	}
 	w.publish()
@@ -210,11 +211,12 @@ func TestARetiredWorkersParentIsToldInOneLineAndTheWorkerNothing(t *testing.T) {
 	w.publish()
 	w.pass()
 	wk, pa := w.told()
-	if len(wk) != 0 || len(pa) != 1 {
+	// The text waits in the retired worker's own inbox (an info starts nothing); its parent gets one line without it.
+	if len(wk) != 1 || !strings.Contains(wk[0], "SECRET-TEXT") || len(pa) != 1 {
 		t.Fatalf("worker %v parent %v", wk, pa)
 	}
-	if !strings.Contains(pa[0], "PR #12") || !strings.Contains(pa[0], "demo-fix is retired") || !strings.Contains(pa[0], "mesh resume demo-fix") ||
-		strings.Contains(pa[0], "SECRET-TEXT") {
+	if !strings.Contains(pa[0], "PR #12 has 2 new review comment(s)") || !strings.Contains(pa[0], "demo-fix is retired") ||
+		!strings.Contains(pa[0], "mesh resume demo-fix") || strings.Contains(pa[0], "SECRET-TEXT") {
 		t.Errorf("the line: %s", pa[0])
 	}
 	w.pass()
@@ -400,5 +402,89 @@ func TestAnInlineCommentOfADraftIsHeardWhenItsReviewIsSubmitted(t *testing.T) {
 	w.pass()
 	if wk, _ := w.told(); len(wk) != 1 || !strings.Contains(wk[0], "a.go:3: drafted early") {
 		t.Fatalf("told %v", wk)
+	}
+}
+
+func TestAGroupOfCommentsAtOneTimeIsNeverCutAndOtherPRsNamedInADoneAreNotWatched(t *testing.T) {
+	w := startFB(t)
+	w.pass()
+	when := time.Hour
+	at0 := at(when) // one review submitted at once: the same time for all
+	for i := 0; i < 12; i++ {
+		c := comment("owner", "same time "+itoa(i), when)
+		c["createdAt"] = at0
+		w.comments = append(w.comments, c)
+	}
+	w.publish()
+	w.pass()
+	wk, _ := w.told()
+	if len(wk) != 1 || !strings.Contains(wk[0], "same time 11") || strings.Contains(wk[0], "more follow") {
+		t.Fatalf("told %v", wk)
+	}
+	// A PR its done only names (a dependency) is no one's to fix here: never read, never told.
+	other := "https://github.com/acme/other/pull/9"
+	w.mu.Lock()
+	w.views[other] = map[string]any{"number": 9, "url": other, "state": "OPEN", "isDraft": false, "headRefOid": "deadbeef",
+		"headRefName": "their-branch", "statusCheckRollup": []any{}, "reviews": []any{}, "comments": []any{comment("owner", "theirs", time.Hour)}}
+	w.mu.Unlock()
+	asWorker := w.as(w.workTok)
+	if _, err := w.as(w.rootTok).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""),
+		To: "demo-fix", Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "go"})); err != nil {
+		t.Fatal(err)
+	}
+	readInbox(t, asWorker)
+	if _, err := asWorker.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "parent",
+		Type: v1.MessageType_MESSAGE_TYPE_DONE, Body: "done, builds on " + other})); err != nil {
+		t.Fatal(err)
+	}
+	w.advance(3 * time.Minute)
+	w.pass()
+	w.pass()
+	if rows, _ := w.d.Store().Read(context.Background()).AgentPRs("a-w1"); len(rows) != 2 {
+		t.Fatalf("the done's PR was not recorded: %v", rows)
+	}
+	if wk, _ := w.told(); len(wk) != 1 {
+		t.Fatalf("a PR the done only names was told: %v", wk)
+	}
+}
+
+func TestTheFirstLooksCursorIsGitHubsClockAndAFeedbackInfoOpensTheTaskForANewDone(t *testing.T) {
+	w := startFB(t)
+	// A comment dated a day ahead of this host's clock (a skewed clock): the cursor starts at it, so it is not told
+	// and a later one is.
+	w.comments = []any{comment("owner", "already there", 24*time.Hour)}
+	w.publish()
+	w.pass()
+	w.comments = append(w.comments, comment("owner", "later", 25*time.Hour))
+	w.publish()
+	w.pass()
+	wk, _ := w.told()
+	if len(wk) != 1 || strings.Contains(wk[0], "already there") || !strings.Contains(wk[0], "later") {
+		t.Fatalf("told %v", wk)
+	}
+	// The worker had reported its task done with --re; the feedback info lets it report again on the same task.
+	asWorker := w.as(w.workTok)
+	task, err := w.as(w.rootTok).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""),
+		To: "demo-fix", Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "go"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readInbox(t, asWorker)
+	send := func() error {
+		_, err := asWorker.SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "parent",
+			Type: v1.MessageType_MESSAGE_TYPE_DONE, Re: task.Msg.Message.Id, Body: "done"}))
+		return err
+	}
+	if err := send(); err != nil {
+		t.Fatal(err)
+	}
+	if err := send(); err == nil {
+		t.Fatal("a second done for the task was taken")
+	}
+	w.comments = append(w.comments, comment("owner", "one more thing", 26*time.Hour))
+	w.publish()
+	w.pass()
+	if err := send(); err != nil {
+		t.Fatalf("a done after the feedback: %v", err)
 	}
 }

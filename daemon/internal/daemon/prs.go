@@ -86,6 +86,13 @@ func (t *prTracker) begin(agentID string, now time.Time, force bool) bool {
 	return true
 }
 
+// lastRead is when the agent's PRs were last read from GitHub (zero: not since this daemon started).
+func (t *prTracker) lastRead(agentID string) time.Time {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.tried[agentID].at
+}
+
 // finish ends a read: ok when GitHub answered in full and what it said is recorded.
 func (t *prTracker) finish(agentID string, now time.Time, ok bool) {
 	t.mu.Lock()

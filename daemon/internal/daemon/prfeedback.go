@@ -34,7 +34,8 @@ import (
 
 const (
 	feedbackResumeMax = 3    // resumes of a retired worker per PR
-	feedbackItemMax   = 10   // items told at once
+	feedbackItemMax   = 10   // items told at once (a time group is not cut: the cursor is a time)
+	feedbackItemHard  = 40   // the most items told at once, a group cut or not
 	feedbackTextMax   = 600  // characters of one item's text
 	feedbackBodyMax   = 4000 // bytes of the item lines
 	prWatchCheckEvery = 5 * time.Second
@@ -50,6 +51,7 @@ type feedbackItem struct {
 
 // ghFeedback is what `gh pr view --json headRefOid,statusCheckRollup,reviews,comments` says.
 type ghFeedback struct {
+	CreatedAt  time.Time        `json:"createdAt"`
 	HeadRefOid string           `json:"headRefOid"`
 	Rollup     []map[string]any `json:"statusCheckRollup"`
 	Reviews    []struct {
@@ -84,12 +86,38 @@ type ghInline struct {
 var prRepoRE = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)`)
 
 // agentAuthored is a comment an agent (or a bot) wrote: not feedback for a worker. An agent's attribution is the
-// last line of what it wrote, so a person quoting one mid-comment is still heard.
+// last line of what it wrote (Claude's, or the `[mesh <name>]` line PROTOCOL.md has a worker sign its PR comments
+// with), so a person quoting one mid-comment is still heard.
 func agentAuthored(login, body string) bool {
 	body = strings.TrimSpace(body)
-	last := body[strings.LastIndex(body, "\n")+1:]
+	last := strings.TrimSpace(body[strings.LastIndex(body, "\n")+1:])
 	return strings.HasSuffix(login, "[bot]") || strings.Contains(last, "Generated with [Claude Code]") ||
-		strings.HasPrefix(strings.TrimSpace(last), "Co-Authored-By:") || strings.HasPrefix(body, "[mesh")
+		strings.HasPrefix(last, "Co-Authored-By:") || strings.HasPrefix(last, "[mesh") || strings.HasPrefix(body, "[mesh")
+}
+
+// newestTime is the newest time GitHub gave of anything on the PR (its creation, a review, a comment), skipped or
+// not: where the cursor starts, on GitHub's clock and not the daemon's.
+func newestTime(v ghFeedback, inline []ghInline) time.Time {
+	t := v.CreatedAt
+	for _, rv := range v.Reviews {
+		if rv.SubmittedAt.After(t) {
+			t = rv.SubmittedAt
+		}
+	}
+	for _, c := range v.Comments {
+		if c.CreatedAt.After(t) {
+			t = c.CreatedAt
+		}
+	}
+	for _, c := range inline {
+		if c.CreatedAt.After(t) {
+			t = c.CreatedAt
+		}
+		if c.UpdatedAt.After(t) {
+			t = c.UpdatedAt
+		}
+	}
+	return t
 }
 
 // trusted is who may give a worker work through a PR: the repo's owner, its members and collaborators. Anyone
@@ -187,8 +215,8 @@ func failingChecks(rollup []map[string]any) []string {
 }
 
 // feedbackText is what a worker is told: each item, the failing checks, and what to do with them.
-func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head string) (string, int) {
-	included := len(items)
+func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head string) (text string, included int, what string) {
+	included = len(items)
 	var b strings.Builder
 	fmt.Fprintf(&b, "[mesh pr-feedback #%d] %s has", p.Number, p.Url)
 	var parts []string
@@ -201,7 +229,8 @@ func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head
 			parts[len(parts)-1] += " on " + head[:7]
 		}
 	}
-	b.WriteString(" " + strings.Join(parts, " and ") + ".\n")
+	what = strings.Join(parts, " and ")
+	b.WriteString(" " + what + ".\n")
 	used := 0
 	for i, it := range items {
 		where := it.author
@@ -209,7 +238,9 @@ func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head
 			where += ", " + it.where
 		}
 		line := "- " + where + ": " + strings.ReplaceAll(clip(it.text, feedbackTextMax), "\n", "\n  ") + "\n"
-		if i >= feedbackItemMax || used+len(line) > feedbackBodyMax {
+		// Cut only between times (the cursor is a time, so an item cut from the middle of a group would be lost),
+		// unless the group passes feedbackItemHard.
+		if i > 0 && (i >= feedbackItemHard || (i >= feedbackItemMax || used+len(line) > feedbackBodyMax) && !it.at.Equal(items[i-1].at)) {
 			fmt.Fprintf(&b, "- … %d more follow at the next look (or read the PR).\n", len(items)-i)
 			included = i
 			break
@@ -221,8 +252,9 @@ func feedbackText(p *v1.PullRequest, items []feedbackItem, checks []string, head
 		b.WriteString("- CI: " + c + "\n")
 	}
 	b.WriteString("Treat each as a claim (PROTOCOL.md rule 8): check it against the code, fix what holds, push, " +
-		"and say in your next report what you fixed and what you declined and why.")
-	return b.String(), included
+		"and say in your next report what you fixed and what you declined and why. If you comment on the PR yourself, " +
+		"end the comment with a line `[mesh <your name>]`, so it is not told back to you.")
+	return b.String(), included, what
 }
 
 // prWatchEvery is the seconds between passes (`prs.watch_every`; 0 is off).
@@ -274,12 +306,13 @@ func (d *Daemon) watchAgentPRs(ctx context.Context, a *v1.Agent, mode string) {
 	for _, p := range rows {
 		open = open || p.State == "open"
 	}
-	if !open && len(rows) == 0 {
-		if rep, err := lastReport(r, a); err != nil || rep == nil || rep.Type != v1.MessageType_MESSAGE_TYPE_DONE {
+	if !open {
+		// No PR is open: look again only for a `done` newer than the last read (it may name a new PR, or the branch
+		// may have one opened after a merge), not at every pass of a finished worker.
+		rep, err := lastReport(r, a)
+		if err != nil || rep == nil || rep.Type != v1.MessageType_MESSAGE_TYPE_DONE || !rep.CreatedAt.AsTime().After(d.prs.lastRead(a.Id)) {
 			return
 		}
-	} else if !open {
-		return
 	}
 	d.refreshPRs(ctx, ctx, a, false)
 	rows, err = d.store.Read(ctx).AgentPRs(a.Id)
@@ -287,7 +320,8 @@ func (d *Daemon) watchAgentPRs(ctx context.Context, a *v1.Agent, mode string) {
 		return
 	}
 	for _, p := range rows {
-		if p.State == "open" && prRepoRE.MatchString(p.Url) {
+		// Its own PRs only: one a `done` merely names (a dependency, a sibling's) is no one's to fix here.
+		if p.State == "open" && (p.Source == "branch" || p.HeadRef == a.Branch) && prRepoRE.MatchString(p.Url) {
 			d.watchPR(ctx, a, p, mode)
 		}
 	}
@@ -296,7 +330,7 @@ func (d *Daemon) watchAgentPRs(ctx context.Context, a *v1.Agent, mode string) {
 // watchPR reads one open PR and tells what is new on it.
 func (d *Daemon) watchPR(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mode string) {
 	m := prRepoRE.FindStringSubmatch(p.Url)
-	out, err := d.runGH(ctx, ghDir(a), "pr", "view", p.Url, "--json", "headRefOid,statusCheckRollup,reviews,comments")
+	out, err := d.runGH(ctx, ghDir(a), "pr", "view", p.Url, "--json", "createdAt,headRefOid,statusCheckRollup,reviews,comments")
 	if err != nil {
 		return // tried again at the next pass; the cursor stays
 	}
@@ -304,18 +338,21 @@ func (d *Daemon) watchPR(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mo
 	if json.Unmarshal(out, &v) != nil {
 		return
 	}
-	now := d.nowTime()
 	failing := checksWord(v.Rollup) == "failing"
-	if p.FeedbackCursor == nil { // first look: what is there already is not news
-		d.saveCursor(ctx, a, p, now, ternary(failing, v.HeadRefOid, ""), 0, nil, "")
-		return
-	}
 	out, err = d.runGH(ctx, ghDir(a), "api", "repos/"+m[1]+"/pulls/"+m[2]+"/comments?per_page=100&sort=created&direction=desc")
 	if err != nil {
 		return
 	}
 	var inline []ghInline
 	if json.Unmarshal(out, &inline) != nil {
+		return
+	}
+	if p.FeedbackCursor == nil { // first look: what is there already is not news (the cursor starts on GitHub's clock)
+		start := newestTime(v, inline)
+		if start.IsZero() {
+			start = d.nowTime()
+		}
+		d.saveCursor(ctx, a, p, start, ternary(failing, v.HeadRefOid, ""), 0, nil, "")
 		return
 	}
 	cursor := p.FeedbackCursor.AsTime()
@@ -336,11 +373,11 @@ func (d *Daemon) watchPR(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mo
 		}
 		return
 	}
-	body, included := feedbackText(p, items, checks, v.HeadRefOid)
+	body, included, what := feedbackText(p, items, checks, v.HeadRefOid)
 	if included < len(items) { // the rest is told at the next look: the cursor stops at the last one told
 		newest = items[included-1].at
 	}
-	d.tellFeedback(ctx, a, p, mode, body, included+len(checks), newest, failedHead)
+	d.tellFeedback(ctx, a, p, mode, body, what, newest, failedHead)
 }
 
 func ternary(c bool, a, b string) string {
@@ -374,22 +411,25 @@ func (d *Daemon) saveCursor(ctx context.Context, a *v1.Agent, p *v1.PullRequest,
 		if err := tx.PutAgentPR(row); err != nil {
 			return err
 		}
+		live, err := tx.GetAgent(a.Id)
+		if err != nil {
+			return nil
+		}
+		// The text goes to the worker's own inbox whether it runs or not: a retired one finds it when it is resumed
+		// (an info starts nothing), and rings only a live one.
 		if toWorker != nil {
-			if live, err := tx.GetAgent(a.Id); err == nil && !stopped(live) {
-				if _, err := tellTx(tx, live, *toWorker); err != nil {
-					return err
-				}
+			if _, err := tellTx(tx, live, *toWorker); err != nil {
+				return err
+			}
+			if !stopped(live) {
 				ring = append(ring, live.Id)
-				toParent = "" // it was told itself
 			}
 		}
-		if toParent != "" { // a worker retired since it was looked at is told through its parent
-			if live, err := tx.GetAgent(a.Id); err == nil {
-				if m, err := d.noteParentTx(tx, live, "pr-feedback", toParent); err != nil {
-					return err
-				} else if m != nil {
-					ring = append(ring, m.ToId)
-				}
+		if toParent != "" && stopped(live) { // a retired worker's parent is told in a line, with no text
+			if m, err := d.noteParentTx(tx, live, "pr-feedback", toParent); err != nil {
+				return err
+			} else if m != nil {
+				ring = append(ring, m.ToId)
 			}
 		}
 		return nil
@@ -407,21 +447,21 @@ func (d *Daemon) saveCursor(ctx context.Context, a *v1.Agent, p *v1.PullRequest,
 
 // tellFeedback delivers what is new: to a live worker as an info (it rings when the worker is idle); for a retired
 // one by `prs.feedback`: its parent is told in one line (notify), or the worker is reopened with the text (resume).
-func (d *Daemon) tellFeedback(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mode, body string, n int, newest time.Time, failedHead string) {
+func (d *Daemon) tellFeedback(ctx context.Context, a *v1.Agent, p *v1.PullRequest, mode, body, what string, newest time.Time, failedHead string) {
 	live, err := d.getAgent(d.store.Read(ctx), a.Id)
 	if err != nil {
 		return
 	}
-	line := fmt.Sprintf("PR #%d has %d new review item(s) or failing checks; %s is retired: `mesh resume %s` to have it act on them.",
-		p.Number, n, a.Name, a.Name)
-	if !stopped(live) {
-		d.saveCursor(ctx, a, p, newest, failedHead, 0, &body, line) // the line only if it retires before the write
+	line := fmt.Sprintf("PR #%d has %s; %s is retired and its inbox holds the text: `mesh resume %s` brings it back to act on it.",
+		p.Number, what, a.Name, a.Name)
+	if !stopped(live) { // the line is sent only if it retires before the write
+		d.saveCursor(ctx, a, p, newest, failedHead, 0, &body, line)
 		return
 	}
 	if mode == "resume" {
 		if p.FeedbackResumes >= feedbackResumeMax {
-			line = fmt.Sprintf("PR #%d has new feedback; %s was resumed for this PR %d times already: `mesh resume %s` yourself.",
-				p.Number, a.Name, feedbackResumeMax, a.Name)
+			line = fmt.Sprintf("PR #%d has %s; %s was resumed for this PR %d times already, its inbox holds the text: `mesh resume %s` yourself.",
+				p.Number, what, a.Name, feedbackResumeMax, a.Name)
 		} else {
 			mid := fmt.Sprintf("prfb:%s:%s:%s:%s", a.Id, prKey(p.Url), newest.UTC().Format(time.RFC3339Nano), failedHead)
 			res, err := d.SendMessage(auth.WithActor(ctx, meshActor), connect.NewRequest(&v1.SendMessageRequest{
@@ -431,12 +471,13 @@ func (d *Daemon) tellFeedback(ctx context.Context, a *v1.Agent, p *v1.PullReques
 			case err == nil && res.Msg.Resumed != nil:
 				d.saveCursor(ctx, a, p, newest, failedHead, 1, nil, "")
 				return
-			case err == nil:
-				line += " (It could not be resumed here; the feedback waits in its inbox.)"
+			case err == nil: // the task is stored in its inbox, with the text
+				d.saveCursor(ctx, a, p, newest, failedHead, 0, nil, line+" (It could not be resumed here.)")
+				return
 			default:
 				line += " (Resuming it was refused: " + clip(err.Error(), 200) + ")"
 			}
 		}
 	}
-	d.saveCursor(ctx, a, p, newest, failedHead, 0, nil, line)
+	d.saveCursor(ctx, a, p, newest, failedHead, 0, &body, line)
 }
