@@ -84,11 +84,19 @@ func (d *Daemon) deliverSoon(agentID string) {
 	}
 	d.rt.deliverQueued[agentID] = true
 	d.rt.mu.Unlock()
-	go func() {
-		if err := d.deliver(context.Background(), agentID); err != nil {
+	// In bgWG, and ended by the daemon's stop: close() closes the store only once it has returned.
+	started := d.goBG(func() {
+		ctx, cancel := d.stopCtx()
+		defer cancel()
+		if err := d.deliver(ctx, agentID); err != nil && ctx.Err() == nil {
 			d.log.Warn("doorbell", "agent", agentID, "err", err)
 		}
-	}()
+	})
+	if !started {
+		d.rt.mu.Lock()
+		delete(d.rt.deliverQueued, agentID)
+		d.rt.mu.Unlock()
+	}
 }
 
 // agentLock is held by whatever types into an agent's terminal or replaces it: a doorbell, a reopen, a stop.
@@ -194,6 +202,16 @@ func (d *Daemon) deliver(ctx context.Context, agentID string) error {
 			return nil
 		case ringEnded:
 			rg = nil
+		}
+	}
+	// The user's own queued prompts go before the doorbells, when no doorbell is in flight: the user is watching, and
+	// a doorbell only says to read the inbox, which the turn after does as well.
+	if d.promptInFlight(a) {
+		return nil // a prompt just typed hasn't started its turn: nothing goes in after it until it does
+	}
+	if rg == nil && takesDoorbell(a.State) {
+		if typed, err := d.typeQueuedPrompt(ctx, a); typed || err != nil {
+			return err
 		}
 	}
 	if len(msgs) == 0 {
@@ -654,6 +672,11 @@ func (d *Daemon) retryDoorbells(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	prompts, err := d.store.Read(ctx).AgentsWithQueuedPrompts()
+	if err != nil {
+		return
+	}
+	ids = append(ids, prompts...)
 	seen := map[string]bool{}
 	for _, a := range pending {
 		seen[a.Id] = true

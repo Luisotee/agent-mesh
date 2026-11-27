@@ -33,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.net.toJson
@@ -49,7 +50,10 @@ import kotlinx.serialization.json.JsonPrimitive
 @Composable
 fun HostSettingsScreen(runtime: HostRuntime, onBack: () -> Unit) {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
-    val groups = remember(state.settings) { state.settings.values.sortedBy { it.key }.groupBy { groupOf(it.key) }.toSortedMap() }
+    // A key chord (`app.keys.*`) is for a keyboard, and the host's own device edits it there: a phone has none to press.
+    val shown = remember(state.settings) { state.settings.values.filter { !isShortcut(it) } }
+    val hidden = state.settings.size - shown.size
+    val groups = remember(shown) { shown.sortedBy { it.key }.groupBy { groupOf(it.key) }.toSortedMap() }
     var editing by remember { mutableStateOf<String?>(null) }
     Scaffold(topBar = {
         TopAppBar(title = { Text("${runtime.host?.name ?: "Host"} settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
@@ -62,11 +66,20 @@ fun HostSettingsScreen(runtime: HostRuntime, onBack: () -> Unit) {
                     item(key = "g:$group") { SectionHeader(group) }
                     items(list, key = { it.key }) { s -> SettingRow(s) { editing = s.key } }
                 }
+                if (hidden > 0) item(key = "hidden-keys") {
+                    Text(
+                        "$hidden keyboard shortcuts (the desktop's) are not shown here: a phone has no keyboard to press them on. Set them in the desktop app.",
+                        Modifier.padding(16.dp).testTag("hidden-shortcuts"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
     state.settings[editing]?.let { s -> SettingDialog(runtime, s, onClose = { editing = null }) }
 }
+
+/** A setting whose value is a key chord (`app.keys.*`). */
+fun isShortcut(s: Setting): Boolean = s.schema.type == "shortcut"
 
 private fun valueText(s: Setting): String {
     val c = controlFor(s.schema.type, s.schema.choicesList)

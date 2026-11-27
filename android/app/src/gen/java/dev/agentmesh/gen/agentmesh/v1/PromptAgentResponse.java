@@ -16,6 +16,79 @@ public  final class PromptAgentResponse extends
     PromptAgentResponseOrBuilder {
   private PromptAgentResponse() {
   }
+  private int bitField0_;
+  public static final int QUEUED_FIELD_NUMBER = 1;
+  private dev.agentmesh.gen.agentmesh.v1.QueuedPrompt queued_;
+  /**
+   * <pre>
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+   */
+  @java.lang.Override
+  public boolean hasQueued() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.QueuedPrompt getQueued() {
+    return queued_ == null ? dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.getDefaultInstance() : queued_;
+  }
+  /**
+   * <pre>
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+   */
+  private void setQueued(dev.agentmesh.gen.agentmesh.v1.QueuedPrompt value) {
+    java.util.Objects.requireNonNull(value);
+    queued_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeQueued(dev.agentmesh.gen.agentmesh.v1.QueuedPrompt value) {
+    java.util.Objects.requireNonNull(value);
+    if (queued_ != null &&
+        queued_ != dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.getDefaultInstance()) {
+      queued_ =
+        dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.newBuilder(queued_).mergeFrom(value).buildPartial();
+    } else {
+      queued_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+   * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+   */
+  private void clearQueued() {
+    queued_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.PromptAgentResponse parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -113,6 +186,83 @@ public  final class PromptAgentResponse extends
     }
 
 
+    /**
+     * <pre>
+     * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+     * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+     */
+    @java.lang.Override
+    public boolean hasQueued() {
+      return instance.hasQueued();
+    }
+    /**
+     * <pre>
+     * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+     * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.QueuedPrompt getQueued() {
+      return instance.getQueued();
+    }
+    /**
+     * <pre>
+     * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+     * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+     */
+    public Builder setQueued(dev.agentmesh.gen.agentmesh.v1.QueuedPrompt value) {
+      copyOnWrite();
+      instance.setQueued(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+     * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+     */
+    public Builder setQueued(
+        dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.Builder builderForValue) {
+      copyOnWrite();
+      instance.setQueued(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+     * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+     */
+    public Builder mergeQueued(dev.agentmesh.gen.agentmesh.v1.QueuedPrompt value) {
+      copyOnWrite();
+      instance.mergeQueued(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Set when the prompt was queued instead of typed (the agent worked, started, waited at a prompt or had a draft in
+     * its box): it is typed at the agent's next idle, and may be withdrawn until then.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.QueuedPrompt queued = 1 [json_name = "queued"];</code>
+     */
+    public Builder clearQueued() {  copyOnWrite();
+      instance.clearQueued();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.PromptAgentResponse)
   }
   @java.lang.Override
@@ -128,9 +278,12 @@ public  final class PromptAgentResponse extends
         return new Builder();
       }
       case BUILD_MESSAGE_INFO: {
-          java.lang.Object[] objects = null;
+          java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
+            "queued_",
+          };
           java.lang.String info =
-              "\u0000\u0000";
+              "\u0000\u0001\u0000\u0001\u0001\u0001\u0001\u0000\u0000\u0000\u0001\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

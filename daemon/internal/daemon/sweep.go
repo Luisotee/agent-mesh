@@ -226,7 +226,7 @@ func leftoverProcesses(top string, table []proc.Info) []proc.Info {
 // sweepWorktrees stops leftover process trees in the given non-root agents' worktrees (TERM, brief wait, KILL).
 // Never fails retire or run stop: errors are logged.
 func (d *Daemon) sweepWorktrees(ctx context.Context, agents []*v1.Agent) {
-	if len(agents) == 0 {
+	if len(agents) == 0 || ctx.Err() != nil {
 		return
 	}
 	r := d.store.Read(context.WithoutCancel(ctx))

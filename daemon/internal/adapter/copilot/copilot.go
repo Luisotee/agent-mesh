@@ -84,7 +84,7 @@ var _ adapter.Adapter = (*Adapter)(nil)
 // output settles), and no session lookup (the id is its own).
 func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeRequest]) (*connect.Response[adapterv1.DescribeResponse], error) {
 	return connect.NewResponse(&adapterv1.DescribeResponse{Kind: Kind, DisplayName: "GitHub Copilot",
-		VerifiedVersions: VerifiedVersions, Capabilities: []string{"session-id"}}), nil
+		VerifiedVersions: VerifiedVersions, Capabilities: []string{"session-id", capTranscript}}), nil
 }
 
 // DecodeHook returns empty: Copilot has no hooks.

@@ -74,7 +74,7 @@ var _ adapter.Adapter = (*Adapter)(nil)
 // Describe says what the adapter is.
 func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeRequest]) (*connect.Response[adapterv1.DescribeResponse], error) {
 	return connect.NewResponse(&adapterv1.DescribeResponse{Kind: Kind, DisplayName: "Claude Code",
-		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook", "context", "compact-live", CapInboxSocket, CapTranscript, CapBracketedPaste}}), nil
+		VerifiedVersions: VerifiedVersions, Capabilities: []string{"hooks", "session-id", "startup-hook", "context", "compact-live", CapInboxSocket, CapTranscript, CapBracketedPaste, CapInterruptEsc}}), nil
 }
 
 // LookupSession returns empty: Claude picks its session id up front in PlanLaunch.
