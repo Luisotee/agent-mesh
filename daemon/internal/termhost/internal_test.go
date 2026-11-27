@@ -39,6 +39,22 @@ func TestRingKeepsTheNewestBytes(t *testing.T) {
 	}
 }
 
+func TestScreenKeepsNoScrollbackAndRepaintsTheVisibleLines(t *testing.T) {
+	s := NewScreen(20, 4, nil)
+	defer s.Close()
+	for i := 0; i < 5000; i++ {
+		s.Write([]byte("line " + strings.Repeat("x", 10) + "\r\n"))
+	}
+	s.Write([]byte("last line"))
+	// The emulator's default scrollback (10,000 lines) holds ~220 MB for a big terminal and nothing reads it.
+	if n := s.(*vtScreen).emu.ScrollbackLen(); n > 1 {
+		t.Errorf("scrollback holds %d lines, want at most 1", n)
+	}
+	if got := string(s.Repaint()); !strings.Contains(got, "last line") || !strings.Contains(got, "line xxxxxxxxxx") {
+		t.Errorf("repaint lost the visible lines: %q", got)
+	}
+}
+
 func TestRepaintShowsTheScreenCursorAndModes(t *testing.T) {
 	replies := make(chan []byte, 4)
 	s := NewScreen(20, 4, func(b []byte) { replies <- b })

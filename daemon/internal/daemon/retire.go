@@ -236,8 +236,9 @@ func (d *Daemon) RetireAgent(ctx context.Context, req *connect.Request[v1.Retire
 // retireQuiet is how often the retire pass runs by default.
 const retireQuiet = 10 * time.Second
 
-// retireIdle retires the agents that reported done or failed and then stayed idle `idle_retire` seconds (0 never).
-// Not: a root; one with a reopen pending; one with unread mail (work is coming, or a doorbell was lost); one whose
+// retireIdle retires the agents that reported done or failed and then stayed idle `idle_retire` seconds (0 never), a
+// reviewer or an asker after `idle_retire.review` instead when that is the shorter (nothing comes back for it: a
+// re-review or a follow-up ask resumes the same conversation). Not: a root; one with a reopen pending; one with unread mail (work is coming, or a doorbell was lost); one whose
 // newest report since its last task or answer isn't done or failed (a plan or question waits on its parent); or
 // one a client with input rights is attached to (the viewer rule: someone is looking).
 func (d *Daemon) retireIdle(ctx context.Context) {
@@ -249,9 +250,15 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	after := time.Duration(v.(float64) * float64(time.Second))
-	if after <= 0 {
+	afterWork := time.Duration(v.(float64) * float64(time.Second))
+	if afterWork <= 0 {
 		return
+	}
+	afterReview := afterWork
+	if v, err := d.Setting(r, "idle_retire.review"); err == nil {
+		if f, ok := v.(float64); ok && f > 0 {
+			afterReview = min(afterWork, time.Duration(f*float64(time.Second)))
+		}
 	}
 	agents, err := r.ListAgents("")
 	if err != nil {
@@ -267,6 +274,10 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 		if err != nil || report == nil ||
 			(report.Type != v1.MessageType_MESSAGE_TYPE_DONE && report.Type != v1.MessageType_MESSAGE_TYPE_FAILED) {
 			continue
+		}
+		after := afterWork
+		if a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER || a.Role == v1.AgentRole_AGENT_ROLE_ASKER {
+			after = afterReview
 		}
 		since := report.CreatedAt.AsTime()
 		if a.LastActivity != nil && a.LastActivity.AsTime().After(since) {

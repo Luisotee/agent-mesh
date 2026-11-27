@@ -425,6 +425,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "percent of a vendor's quota used at which nothing new starts on it"},
 		Leaf{Key: "idle_retire", Label: "Retire idle agents after", Group: GroupAgents, Type: Seconds, Default: 300.0,
 			Summary: "seconds an agent idle after its done or failed stays open before it is retired; 0 never retires"},
+		Leaf{Key: "idle_retire.review", Label: "Retire idle reviewers and askers after", Group: GroupAgents, Advanced: true, Type: Seconds, Default: 15.0,
+			Summary: "seconds a reviewer or asker idle after its done or failed stays open before it is retired (the shorter of this and `idle_retire`; 0 uses `idle_retire`): nothing is waiting on it, and a re-review or a follow-up ask resumes the same conversation"},
 		Leaf{Key: "accountability.nudge_after", Label: "Nudge a silent agent after", Group: GroupAgents, Advanced: true, Type: Seconds, Default: 30.0,
 			Summary: "seconds an agent idle after a task, with no report to its parent, waits before it is nudged once (and, if it ends another turn the same way, its parent told); 0 turns nudges off"},
 		Leaf{Key: "accountability.wait_max", Label: "Longest declared wait", Group: GroupAgents, Advanced: true, Type: Seconds, Default: 14400.0,
