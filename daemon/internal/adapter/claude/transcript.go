@@ -40,7 +40,7 @@ var (
 	systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
 	// Claude Code wraps what a user pasted in tags that carry a random id, the closing tag too (`<pasted_content id="x">…
 	// </pasted_content id="x">`): the user sees the pasted text, not the tags, so only the tags go.
-	pastedTag = regexp.MustCompile(`</?pasted_content(?:\s[^>]*)?>`)
+	pastedTag = regexp.MustCompile(`</?pasted_content(?:\s+[^\s>"=]+(?:="[^"]*")?)*\s*>`)
 	// A slash command the user typed is recorded as tags: its name, then its arguments (the CLI also writes its
 	// output as <local-command-stdout>, which is dropped).
 	// Bash mode (`! cmd` in the box) is recorded as <bash-input>cmd</bash-input>, its output as <bash-stdout> and
@@ -141,12 +141,14 @@ const doorbellPrefix = "Another Claude session sent a message:"
 // user typed, or nothing (injected context, an empty line). A doorbell is a line that begins with the mark, alone or
 // after Claude's own prefix: injected context that only quotes it (the user's CLAUDE.md does) is not one.
 func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
-	text = strings.TrimSpace(pastedTag.ReplaceAllString(systemReminder.ReplaceAllString(text, ""), ""))
+	text = strings.TrimSpace(systemReminder.ReplaceAllString(text, ""))
 	if rest := strings.TrimSpace(strings.TrimPrefix(text, doorbellPrefix)); strings.HasPrefix(rest, doorbellMark) {
 		line, _, _ := strings.Cut(rest, "\n")
 		return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_MESH, Text: line}
 	}
-	if meta || text == "" || localOutput.MatchString(text) || bashOutput.MatchString(text) {
+	// What the user pasted is theirs whatever it starts with: the marks below are looked for before the paste tags go, so a pasted
+	// doorbell or `<bash-stdout>` is shown as typed text and not taken for the real one.
+	if meta || pastedTag.ReplaceAllString(text, "") == "" || localOutput.MatchString(text) || bashOutput.MatchString(text) {
 		return nil
 	}
 	if m := bashInput.FindStringSubmatch(text); m != nil {
@@ -160,6 +162,7 @@ func userEntry(text string, meta bool) *agentmeshv1.TranscriptEntry {
 		}
 		text = cmd
 	}
+	text = strings.TrimSpace(pastedTag.ReplaceAllString(text, ""))
 	return &agentmeshv1.TranscriptEntry{Kind: agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_USER, Text: text}
 }
 

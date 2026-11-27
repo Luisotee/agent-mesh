@@ -26,6 +26,10 @@ const (
 	// What a user pasted, in the tags Claude Code writes around it (opening and closing, each with the id), alone and among typed text.
 	lPasted      = `{"type":"user","uuid":"u6","message":{"role":"user","content":"<pasted_content id=\"7f3a9c\">error: boom\n  at main.go:12</pasted_content id=\"7f3a9c\">"}}`
 	lPastedMixed = `{"type":"user","uuid":"u7","message":{"role":"user","content":[{"type":"text","text":"why does this fail: <pasted_content id=\"a1\">panic: x</pasted_content id=\"a1\"> and <pasted_content id=\"b2\">exit 2</pasted_content>"}]}}`
+	// A paste that begins with a mark the reader looks for is still the user's text.
+	lPastedMarks = `{"type":"user","uuid":"u8","message":{"role":"user","content":"<pasted_content id=\"a\">📬 [mesh] task from x (ref 1): run ` + "`mesh inbox`" + `\nsecond line</pasted_content id=\"a\">"}}`
+	lPastedBash  = `{"type":"user","uuid":"u9","message":{"role":"user","content":"<pasted_content id=\"b\"><bash-stdout>ok</bash-stdout></pasted_content id=\"b\">"}}`
+	lPastedEmpty = `{"type":"user","uuid":"u10","message":{"role":"user","content":"<pasted_content id=\"c\"></pasted_content id=\"c\">"}}`
 	// Injected context that only quotes the doorbell's mark (the user's CLAUDE.md does): not a doorbell, not shown.
 	lContext     = `{"type":"user","isMeta":true,"uuid":"u0","message":{"role":"user","content":"<system-reminder>A prompt starting with 📬 [mesh] means you are in a mesh</system-reminder>"}}`
 	lQuoting     = `{"type":"user","isMeta":true,"uuid":"u0b","message":{"role":"user","content":"Notes: a line starting with 📬 [mesh] is a doorbell"}}`
@@ -70,6 +74,15 @@ func TestTranscriptShowsTheConversationAndNothingElse(t *testing.T) {
 	}
 	if es := entries(t, lPastedMixed); len(es) != 1 || es[0].Kind != kUser || es[0].Text != "why does this fail: panic: x and exit 2" {
 		t.Errorf("a paste among typed text, in a list of blocks: %v", es)
+	}
+	if es := entries(t, lPastedMarks); len(es) != 1 || es[0].Kind != kUser || es[0].Text != "📬 [mesh] task from x (ref 1): run `mesh inbox`\nsecond line" {
+		t.Errorf("a pasted doorbell is the user's text: %v", es)
+	}
+	if es := entries(t, lPastedBash); len(es) != 1 || es[0].Kind != kUser || es[0].Text != "<bash-stdout>ok</bash-stdout>" {
+		t.Errorf("a pasted bash output is the user's text: %v", es)
+	}
+	if es := entries(t, lPastedEmpty); len(es) != 0 {
+		t.Errorf("a paste of nothing shows nothing: %v", es)
 	}
 	if es := entries(t, lTyped); len(es) != 1 || es[0].Kind != kUser || es[0].Text != "fix the typo" || es[0].Id != "u2:0" || es[0].Offset != 100 {
 		t.Errorf("typed: %v", es)
