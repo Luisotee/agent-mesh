@@ -195,7 +195,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - ★ Each turn records the git HEAD before and after, which gives rewind and per-turn diffs (vibe-kanban).
 
 - ★ Toggle between the chat view and the CLI's terminal (O).
-  - Built in the desktop for Claude Code (2026-11-26): `ReadTranscript` and `PromptAgent` (`daemon/README.md`, "Chat view"); the tool calls fold, the composer types into the PTY. The other CLIs show the terminal's note and the composer, until their records are read.
+  - Built in the desktop for Claude Code (2026-11-26): `ReadTranscript` and `PromptAgent` (`daemon/README.md`, "Chat view"); the tool calls fold, the composer types into the PTY. Every built-in CLI has it now: agy's and OpenCode's SQLite records and Copilot's `events.jsonl` are read through their adapters. OpenCode's is read from `opencode.db`, not its HTTP API (two route families side by side in 1.19.6, an unsecured server unless a password is set, and no live prompt could be checked); a CLI without the capability shows the terminal's note and the composer.
 - ★ A streaming timeline: Markdown, diagrams, images, grouped tool calls that expand to their diffs (P, O).
 - ★ Inline cards for plans, questions and permissions (P, O).
 - ★ While a turn runs: interrupt, steer, or queue the message, with an editable queue (P, O).

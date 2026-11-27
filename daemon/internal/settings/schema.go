@@ -377,6 +377,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds an agent idle after a task, with no report to its parent, waits before it is nudged once (and, if it ends another turn the same way, its parent told); 0 turns nudges off"},
 		Leaf{Key: "accountability.wait_max", Type: Seconds, Default: 14400.0,
 			Summary: "seconds a declared wait (a `wait` message to the parent) holds off the nudge, at most"},
+		Leaf{Key: "opencode.stall_after", Type: Seconds, Default: 900.0,
+			Summary: "seconds an OpenCode agent's open reply may go with no new part or token (a stalled stream, or one long tool call) before its parent is told once; 0 never tells"},
 		Leaf{Key: "accountability.input_after", Type: Seconds, Default: 120.0,
 			Summary: "seconds an agent waits at a permission prompt or question with no answer before its parent is told (once per prompt); 0 never tells"},
 		Leaf{Key: "permission.wait", Type: Seconds, Default: 300.0,

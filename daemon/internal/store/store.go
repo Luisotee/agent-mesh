@@ -204,8 +204,24 @@ type queryer interface {
 
 // Reader reads committed state. Store's read methods use it; Tx embeds one over its own transaction.
 type Reader struct {
-	q   queryer
-	ctx context.Context
+	q    queryer
+	ctx  context.Context
+	msgs *runMessages // set by WithMessageCache
+}
+
+// runMessages memoizes whole-run message lists for the Readers made from one WithMessageCache.
+type runMessages struct {
+	mu    sync.Mutex
+	byRun map[string][]*v1.Message
+}
+
+// WithMessageCache returns a Reader that reads a run's whole message list (RunMessages with no `after` and no
+// limit) from the database once and serves later reads of it from memory: a periodic pass that judges many agents
+// of one run reads the run once, not once per agent. It is a snapshot from the first read, for decisions that are
+// re-checked in a write (a Tx's own Reader never caches); the returned lists must not be modified.
+func (r Reader) WithMessageCache() Reader {
+	r.msgs = &runMessages{byRun: map[string][]*v1.Message{}}
+	return r
 }
 
 // Read returns a Reader over the reader pool.
@@ -639,6 +655,22 @@ func (r Reader) Message(toID, id string) (*v1.Message, error) {
 // RunMessages returns a run's messages, oldest first, up to limit, after the message `after` (its id; empty
 // starts at the oldest). An unknown `after` is ErrNotFound.
 func (r Reader) RunMessages(runID, after string, limit int) ([]*v1.Message, error) {
+	if r.msgs != nil && after == "" && limit < 0 {
+		r.msgs.mu.Lock()
+		defer r.msgs.mu.Unlock()
+		if msgs, ok := r.msgs.byRun[runID]; ok {
+			return msgs, nil
+		}
+		msgs, err := r.runMessages(runID, after, limit)
+		if err == nil {
+			r.msgs.byRun[runID] = msgs
+		}
+		return msgs, err
+	}
+	return r.runMessages(runID, after, limit)
+}
+
+func (r Reader) runMessages(runID, after string, limit int) ([]*v1.Message, error) {
 	query := `SELECT data FROM messages WHERE run_id = ? ORDER BY created_at, id LIMIT ?`
 	args := []any{runID, limit}
 	if after != "" {

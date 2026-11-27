@@ -450,9 +450,9 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 
 func (d *Daemon) runBackground(ctx context.Context) {
 	if d.rt.term != nil && !d.rt.cfg.NoTerminalWatch {
-		go d.watchTerminals(ctx)
+		d.goBG(func() { d.watchTerminals(ctx) })
 	}
-	go func() {
+	d.goBG(func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
 		var pruned, retired, limited, accounted, reserved, contextTick, sampled time.Time
@@ -475,16 +475,16 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			d.settleStartingAgents(ctx)
 			if pollingOpenCode.CompareAndSwap(false, true) {
 				// Off this loop: readScreen waits up to 3 s per agent, and the spool and the doorbells must not.
-				go func() {
+				d.goBG(func() {
 					defer pollingOpenCode.Store(false)
 					d.pollOpenCode(ctx)
-				}()
+				})
 			}
 			if pollingCopilot.CompareAndSwap(false, true) {
-				go func() {
+				d.goBG(func() {
 					defer pollingCopilot.Store(false)
 					d.pollCopilot(ctx)
-				}()
+				})
 			}
 			d.retryDoorbells(ctx)
 			if now := d.now(); now.Sub(contextTick) >= orDuration(d.rt.cfg.ContextEvery, contextEvery) {
@@ -494,10 +494,10 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			if now := d.now(); now.Sub(retired) >= retireEvery && retiring.CompareAndSwap(false, true) {
 				retired = now
 				// Off this loop: stopping a process waits for it, and the spool and the doorbells must not.
-				go func() {
+				d.goBG(func() {
 					defer retiring.Store(false)
 					d.retireIdle(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(accounted) >= accountEvery {
 				accounted = now
@@ -507,26 +507,26 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			if now := d.now(); now.Sub(limited) >= retireEvery && limiting.CompareAndSwap(false, true) {
 				limited = now
 				// Off this loop, as the retire pass is: a reopen takes the agent's lock and the store's writer.
-				go func() {
+				d.goBG(func() {
 					defer limiting.Store(false)
 					d.limitPass(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(reserved) >= reserveEvery && alertRunning.CompareAndSwap(false, true) {
 				reserved = now
-				go func() {
+				d.goBG(func() {
 					defer alertRunning.Store(false)
 					d.reserveAlertPass(ctx)
 					d.agyLoginAlertPass(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(sampled) >= orDuration(d.rt.cfg.CapacityEvery, capacityEvery) && sampling.CompareAndSwap(false, true) {
 				sampled = now
 				// Off this loop: it reads /proc for every agent's process tree.
-				go func() {
+				d.goBG(func() {
 					defer sampling.Store(false)
 					d.sampleCapacity(ctx)
-				}()
+				})
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now
@@ -538,7 +538,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 			case <-t.C:
 			}
 		}
-	}()
+	})
 }
 
 // Retention of the idempotency records: a hook's is short (it is retried within minutes, and there is one per

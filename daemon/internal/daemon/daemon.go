@@ -136,6 +136,8 @@ type Daemon struct {
 	streams    map[string]map[uint64]context.CancelFunc
 	nextStream uint64
 	bgWG       sync.WaitGroup
+	bgMu       sync.Mutex // guards bgClosed: no goBG once close() waits
+	bgClosed   bool
 
 	// tailnetErr is why meshd isn't serving on the tailnet (Listen or Serve failed), for TailnetStatus.
 	tailnetErr atomic.Pointer[string]
@@ -447,21 +449,13 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	defer stopBG()
 	d.runBackground(bg)
 	// In bgWG: close() closes the store only once the pusher and its senders, which read it, have stopped.
-	d.bgWG.Add(1)
-	go func() {
-		defer d.bgWG.Done()
-		d.push.run(bg)
-	}()
+	d.goBG(func() { d.push.run(bg) })
 	if d.cfg.Tailnet != nil {
 		d.serveTailnet(bg, tlsSrv)
 	}
 	if d.relay != nil {
 		// In bgWG: close() closes the store only once the connector, which reads it for the token set, has stopped.
-		d.bgWG.Add(1)
-		go func() {
-			defer d.bgWG.Done()
-			_ = d.relay.Run(bg)
-		}()
+		d.goBG(func() { _ = d.relay.Run(bg) })
 		go func() {
 			if err := tlsSrv.ServeTLS(d.relay.Listener(), "", ""); err != nil &&
 				!errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
@@ -503,8 +497,49 @@ func listenLoopback(addr string) (net.Listener, error) {
 	return net.Listen("tcp", addr)
 }
 
+// goBG runs f in a goroutine close() waits for, so nothing the daemon started still reads the store or writes
+// the state dir after Serve returns (the store's close, a test's t.TempDir cleanup). f must return when the
+// daemon stops (d.stopping, or the background context): close() waits for it with no timeout. It reports false,
+// and runs nothing, once close() has begun.
+func (d *Daemon) goBG(f func()) bool {
+	d.bgMu.Lock()
+	if d.bgClosed {
+		d.bgMu.Unlock()
+		return false
+	}
+	d.bgWG.Add(1)
+	d.bgMu.Unlock()
+	go func() {
+		defer d.bgWG.Done()
+		f()
+	}()
+	return true
+}
+
+// stopCtx is a context that ends when the daemon stops, for work that outlives its caller's request.
+func (d *Daemon) stopCtx() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	select {
+	case <-d.stopping:
+		cancel() // already stopped: no watcher, and the context is ended before the caller sees it
+		return ctx, cancel
+	default:
+	}
+	go func() {
+		select {
+		case <-d.stopping:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	return ctx, cancel
+}
+
 func (d *Daemon) close() {
 	d.stopOnce.Do(func() { close(d.stopping) })
+	d.bgMu.Lock()
+	d.bgClosed = true
+	d.bgMu.Unlock()
 	d.bgWG.Wait()
 	if d.cfg.Tailnet != nil {
 		if err := d.cfg.Tailnet.Close(); err != nil {
