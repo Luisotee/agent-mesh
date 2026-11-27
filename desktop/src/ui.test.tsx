@@ -1502,9 +1502,10 @@ describe('ChatView', () => {
     const listPrompts = vi.fn(async (_req: unknown): Promise<{ prompts: QueuedPrompt[] }> => ({ prompts: [] }))
     const withdrawPrompt = vi.fn(async (_req: unknown): Promise<object> => ({}))
     const interruptAgent = vi.fn(async (_req: unknown) => ({ stopped: true }))
-    Object.assign(f.client, { readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent })
+    const sendPromptAnyway = vi.fn(async (_req: unknown): Promise<object> => ({ discarded: '' }))
+    Object.assign(f.client, { readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, sendPromptAnyway })
     const ui = f.wrap(<ChatView host={f.host} agentId="w1" active />)
-    return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, ui }
+    return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, sendPromptAnyway, ui }
   }
 
   it('shows the conversation as blocks, with tool calls folded, the reply as Markdown, and the doorbell until the messages are read', async () => {
@@ -1768,6 +1769,42 @@ describe('ChatView', () => {
     const list = await screen.findByRole('region', { name: 'Queued prompts' })
     await userEvent.click(within(list).getByRole('button', { name: 'Remove the queued prompt' }))
     expect(await screen.findByText(/no longer waiting/)).toBeInTheDocument()
+  })
+
+  it('offers Send anyway on a prompt held by a draft, naming the draft, and drops the prompt once it was sent', async () => {
+    const c = chat({ agent: { state: AgentState.IDLE } })
+    const q = create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'my prompt', held: 'draft', heldText: 'half a thou' })
+    c.listPrompts.mockResolvedValue({ prompts: [q] })
+    render(c.ui)
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    expect(within(list).getByText(/Clear it in the terminal, or send this anyway/)).toBeInTheDocument()
+    await userEvent.click(within(list).getByRole('button', { name: 'Send anyway' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Send over the draft?' })
+    expect(dialog).toHaveTextContent('half a thou')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send anyway' }))
+    await waitFor(() => expect(c.sendPromptAnyway).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', promptId: 'q1', draft: 'half a thou' })))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Queued prompts' })).not.toBeInTheDocument())
+  })
+
+  it('shows the host\'s refusal of Send anyway (the draft changed, someone types) and keeps the prompt queued', async () => {
+    const c = chat({ agent: { state: AgentState.IDLE } })
+    c.listPrompts.mockResolvedValue({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'my prompt', held: 'draft', heldText: 'half a thou' })] })
+    c.sendPromptAnyway.mockRejectedValueOnce(new Error('[failed_precondition] someone is typing in app-fix\'s terminal: try again when they stop'))
+    render(c.ui)
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    await userEvent.click(within(list).getByRole('button', { name: 'Send anyway' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Send over the draft?' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send anyway' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('someone is typing')
+    expect(screen.getByRole('region', { name: 'Queued prompts', hidden: true })).toBeInTheDocument()
+  })
+
+  it('offers no Send anyway for another hold, without the draft text, or to a read-only device', async () => {
+    const c = chat({ agent: { state: AgentState.WORKING } })
+    c.listPrompts.mockResolvedValue({ prompts: [create(QueuedPromptSchema, { id: 'q1', agentId: 'w1', text: 'a', held: 'working' }), create(QueuedPromptSchema, { id: 'q2', agentId: 'w1', text: 'b', held: 'draft' })] })
+    render(c.ui)
+    const list = await screen.findByRole('region', { name: 'Queued prompts' })
+    expect(within(list).queryByRole('button', { name: 'Send anyway' })).not.toBeInTheDocument()
   })
 
   it('tells the user a CLI has no record to read, and still takes prompts', async () => {

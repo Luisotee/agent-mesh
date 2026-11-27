@@ -99,4 +99,26 @@ public interface QueuedPromptOrBuilder extends
    */
   com.google.protobuf.ByteString
       getHeldBytes();
+
+  /**
+   * <pre>
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
+   * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+   * </pre>
+   *
+   * <code>string held_text = 7 [json_name = "heldText"];</code>
+   * @return The heldText.
+   */
+  java.lang.String getHeldText();
+  /**
+   * <pre>
+   * With `held` "draft": the text the daemon read in the agent's box (whitespace squeezed, cut at 300 characters), for the app
+   * to show before it offers `SendPromptAnyway`. Set by ListPrompts and by the answer that queued the prompt.
+   * </pre>
+   *
+   * <code>string held_text = 7 [json_name = "heldText"];</code>
+   * @return The bytes for heldText.
+   */
+  com.google.protobuf.ByteString
+      getHeldTextBytes();
 }

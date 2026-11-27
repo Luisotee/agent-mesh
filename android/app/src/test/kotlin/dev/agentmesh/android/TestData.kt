@@ -92,8 +92,8 @@ fun prChanged(seq: Long, p: dev.agentmesh.gen.agentmesh.v1.PullRequest) =
 fun waiting(kind: dev.agentmesh.gen.agentmesh.v1.WaitingKind, agentId: String, runId: String = "r1", message: Message? = null, detail: String = ""): dev.agentmesh.gen.agentmesh.v1.Waiting =
     dev.agentmesh.gen.agentmesh.v1.Waiting.newBuilder().setKind(kind).setRunId(runId).setAgentId(agentId).setDetail(detail).apply { if (message != null) setMessage(message) }.build()
 
-fun queuedPrompt(id: String, agentId: String, text: String = id, at: Long = 1_000, held: String = ""): dev.agentmesh.gen.agentmesh.v1.QueuedPrompt =
-    dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.newBuilder().setId(id).setAgentId(agentId).setText(text).setCreatedAt(ts(at)).setHeld(held).build()
+fun queuedPrompt(id: String, agentId: String, text: String = id, at: Long = 1_000, held: String = "", heldText: String = ""): dev.agentmesh.gen.agentmesh.v1.QueuedPrompt =
+    dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.newBuilder().setId(id).setAgentId(agentId).setText(text).setCreatedAt(ts(at)).setHeld(held).setHeldText(heldText).build()
 
 fun promptQueued(seq: Long, q: dev.agentmesh.gen.agentmesh.v1.QueuedPrompt) =
     ev(seq, agentId = q.agentId) { setPromptQueued(dev.agentmesh.gen.agentmesh.v1.PromptQueued.newBuilder().setPrompt(q)) }

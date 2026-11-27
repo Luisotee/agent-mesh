@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/chat.proto.
  */
 export const file_agentmesh_v1_chat: GenFile = /*@__PURE__*/
-  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiQQoTUHJvbXB0QWdlbnRSZXNwb25zZRIqCgZxdWV1ZWQYASABKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0IiMKEkxpc3RQcm9tcHRzUmVxdWVzdBINCgVhZ2VudBgBIAEoCSJCChNMaXN0UHJvbXB0c1Jlc3BvbnNlEisKB3Byb21wdHMYASADKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0ImIKFVdpdGhkcmF3UHJvbXB0UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhEKCXByb21wdF9pZBgDIAEoCSJEChZXaXRoZHJhd1Byb21wdFJlc3BvbnNlEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQiTwoVSW50ZXJydXB0QWdlbnRSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDQoFYWdlbnQYAiABKAkiKQoWSW50ZXJydXB0QWdlbnRSZXNwb25zZRIPCgdzdG9wcGVkGAEgASgIKsQBCg5UcmFuc2NyaXB0S2luZBIfChtUUkFOU0NSSVBUX0tJTkRfVU5TUEVDSUZJRUQQABIYChRUUkFOU0NSSVBUX0tJTkRfVVNFUhABEh0KGVRSQU5TQ1JJUFRfS0lORF9BU1NJU1RBTlQQAhIdChlUUkFOU0NSSVBUX0tJTkRfVE9PTF9DQUxMEAMSHwobVFJBTlNDUklQVF9LSU5EX1RPT0xfUkVTVUxUEAQSGAoUVFJBTlNDUklQVF9LSU5EX01FU0gQBWIGcHJvdG8z", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChdhZ2VudG1lc2gvdjEvY2hhdC5wcm90bxIMYWdlbnRtZXNoLnYxIu0BCg9UcmFuc2NyaXB0RW50cnkSCgoCaWQYASABKAkSKAoEdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKgoEa2luZBgDIAEoDjIcLmFnZW50bWVzaC52MS5UcmFuc2NyaXB0S2luZBIMCgR0ZXh0GAQgASgJEgwKBHRvb2wYBSABKAkSEgoKdG9vbF9pbnB1dBgGIAEoCRITCgt0b29sX3VzZV9pZBgHIAEoCRIQCghpc19lcnJvchgIIAEoCBIRCgl0cnVuY2F0ZWQYCSABKAgSDgoGb2Zmc2V0GAogASgDIlsKFVJlYWRUcmFuc2NyaXB0UmVxdWVzdBINCgVhZ2VudBgBIAEoCRIOCgZvZmZzZXQYAiABKAMSEAoIYmFja3dhcmQYAyABKAgSEQoJbWF4X2J5dGVzGAQgASgDIqsBChZSZWFkVHJhbnNjcmlwdFJlc3BvbnNlEhEKCXN1cHBvcnRlZBgBIAEoCBISCgpzZXNzaW9uX2lkGAIgASgJEi4KB2VudHJpZXMYAyADKAsyHS5hZ2VudG1lc2gudjEuVHJhbnNjcmlwdEVudHJ5EhQKDHN0YXJ0X29mZnNldBgEIAEoAxISCgplbmRfb2Zmc2V0GAUgASgDEhAKCGF0X3N0YXJ0GAYgASgIIloKElByb21wdEFnZW50UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEgwKBHRleHQYAyABKAkiQQoTUHJvbXB0QWdlbnRSZXNwb25zZRIqCgZxdWV1ZWQYASABKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0IiMKEkxpc3RQcm9tcHRzUmVxdWVzdBINCgVhZ2VudBgBIAEoCSJCChNMaXN0UHJvbXB0c1Jlc3BvbnNlEisKB3Byb21wdHMYASADKAsyGi5hZ2VudG1lc2gudjEuUXVldWVkUHJvbXB0ImIKFVdpdGhkcmF3UHJvbXB0UmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhEKCXByb21wdF9pZBgDIAEoCSJEChZXaXRoZHJhd1Byb21wdFJlc3BvbnNlEioKBnByb21wdBgBIAEoCzIaLmFnZW50bWVzaC52MS5RdWV1ZWRQcm9tcHQicwoXU2VuZFByb21wdEFueXdheVJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCRIRCglwcm9tcHRfaWQYAyABKAkSDQoFZHJhZnQYBCABKAkiLQoYU2VuZFByb21wdEFueXdheVJlc3BvbnNlEhEKCWRpc2NhcmRlZBgBIAEoCSJPChVJbnRlcnJ1cHRBZ2VudFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRINCgVhZ2VudBgCIAEoCSIpChZJbnRlcnJ1cHRBZ2VudFJlc3BvbnNlEg8KB3N0b3BwZWQYASABKAgqxAEKDlRyYW5zY3JpcHRLaW5kEh8KG1RSQU5TQ1JJUFRfS0lORF9VTlNQRUNJRklFRBAAEhgKFFRSQU5TQ1JJUFRfS0lORF9VU0VSEAESHQoZVFJBTlNDUklQVF9LSU5EX0FTU0lTVEFOVBACEh0KGVRSQU5TQ1JJUFRfS0lORF9UT09MX0NBTEwQAxIfChtUUkFOU0NSSVBUX0tJTkRfVE9PTF9SRVNVTFQQBBIYChRUUkFOU0NSSVBUX0tJTkRfTUVTSBAFYgZwcm90bzM", [file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * One line of the conversation, in the order the CLI wrote it. Thinking, subagents' own turns and the CLI's
@@ -322,6 +322,64 @@ export const WithdrawPromptResponseSchema: GenMessage<WithdrawPromptResponse> = 
   messageDesc(file_agentmesh_v1_chat, 8);
 
 /**
+ * @generated from message agentmesh.v1.SendPromptAnywayRequest
+ */
+export type SendPromptAnywayRequest = Message<"agentmesh.v1.SendPromptAnywayRequest"> & {
+  /**
+   * @generated from field: agentmesh.v1.RequestMeta meta = 1;
+   */
+  meta?: RequestMeta | undefined;
+
+  /**
+   * Agent id or name.
+   *
+   * @generated from field: string agent = 2;
+   */
+  agent: string;
+
+  /**
+   * The queued prompt to type now.
+   *
+   * @generated from field: string prompt_id = 3;
+   */
+  promptId: string;
+
+  /**
+   * The draft the caller was shown (`QueuedPrompt.held_text`) and confirmed to discard. The daemon types only if the box still
+   * holds exactly this text (whitespace aside).
+   *
+   * @generated from field: string draft = 4;
+   */
+  draft: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.SendPromptAnywayRequest.
+ * Use `create(SendPromptAnywayRequestSchema)` to create a new message.
+ */
+export const SendPromptAnywayRequestSchema: GenMessage<SendPromptAnywayRequest> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 9);
+
+/**
+ * @generated from message agentmesh.v1.SendPromptAnywayResponse
+ */
+export type SendPromptAnywayResponse = Message<"agentmesh.v1.SendPromptAnywayResponse"> & {
+  /**
+   * The draft that was cleared out of the box, as it read just before.
+   *
+   * @generated from field: string discarded = 1;
+   */
+  discarded: string;
+};
+
+/**
+ * Describes the message agentmesh.v1.SendPromptAnywayResponse.
+ * Use `create(SendPromptAnywayResponseSchema)` to create a new message.
+ */
+export const SendPromptAnywayResponseSchema: GenMessage<SendPromptAnywayResponse> = /*@__PURE__*/
+  messageDesc(file_agentmesh_v1_chat, 10);
+
+/**
  * @generated from message agentmesh.v1.InterruptAgentRequest
  */
 export type InterruptAgentRequest = Message<"agentmesh.v1.InterruptAgentRequest"> & {
@@ -343,7 +401,7 @@ export type InterruptAgentRequest = Message<"agentmesh.v1.InterruptAgentRequest"
  * Use `create(InterruptAgentRequestSchema)` to create a new message.
  */
 export const InterruptAgentRequestSchema: GenMessage<InterruptAgentRequest> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_chat, 9);
+  messageDesc(file_agentmesh_v1_chat, 11);
 
 /**
  * @generated from message agentmesh.v1.InterruptAgentResponse
@@ -363,7 +421,7 @@ export type InterruptAgentResponse = Message<"agentmesh.v1.InterruptAgentRespons
  * Use `create(InterruptAgentResponseSchema)` to create a new message.
  */
 export const InterruptAgentResponseSchema: GenMessage<InterruptAgentResponse> = /*@__PURE__*/
-  messageDesc(file_agentmesh_v1_chat, 10);
+  messageDesc(file_agentmesh_v1_chat, 12);
 
 /**
  * @generated from enum agentmesh.v1.TranscriptKind
