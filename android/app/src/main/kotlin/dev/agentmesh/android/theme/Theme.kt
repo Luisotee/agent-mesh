@@ -30,7 +30,7 @@ data class ThemeSpec(
 )
 
 @Serializable
-data class ThemeFont(val sans: String = "Inter", val mono: String = "JetBrains Mono")
+data class ThemeFont(val sans: String = "Geist", val mono: String = "JetBrains Mono")
 
 /** The agent states' colours, which Material's scheme has no place for. */
 data class StateColors(
@@ -40,7 +40,20 @@ data class StateColors(
 /** The terminal's screen and its 16 ANSI colours (index 0..15). */
 data class TerminalColors(val background: Color, val foreground: Color, val cursor: Color, val selection: Color, val ansi: List<Color>)
 
-class MeshTheme(val name: String, val dark: Boolean, val scheme: ColorScheme, val states: StateColors, val terminal: TerminalColors)
+/** Each vendor's brand colour in this theme (`vendor-*`: the monochrome brands use the theme's text colour). */
+data class VendorColors(val claude: Color, val gemini: Color, val openai: Color, val copilot: Color, val opencode: Color, val deepseek: Color)
+
+/** How many identity hues a theme has (`hue-1`…`hue-8`): a project's colour is one of them (`ui/Hue.kt`). */
+const val HUES = 8
+
+/**
+ * A resolved theme: Material's scheme, the agent states' colours, the terminal's, and what the desktop's look added
+ * (the identity [hues] a project is drawn in, the [vendors]' brand colours, the needs-you [glow]).
+ */
+class MeshTheme(
+    val name: String, val dark: Boolean, val scheme: ColorScheme, val states: StateColors, val terminal: TerminalColors,
+    val hues: List<Color>, val vendors: VendorColors, val glow: Color,
+)
 
 object Themes {
     const val DEFAULT = "Dracula"
@@ -123,7 +136,12 @@ object Themes {
         val names = listOf("Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White")
         val bright = names.mapIndexed { i, n -> tc("bright$n", if (i == 0) states.idle else lighten(normal[i], 0.2f)) }
         val terminal = TerminalColors(tBg, tFg, tc("cursor", tFg), tc("selection", border), normal + bright)
-        return MeshTheme(spec.name, spec.dark, scheme, states, terminal)
+        val hues = List(HUES) { tok("hue-${it + 1}", "primary") }
+        val vendors = VendorColors(
+            tok("vendor-claude", "primary"), tok("vendor-gemini", "primary"), tok("vendor-openai", "foreground"),
+            tok("vendor-copilot", "foreground"), tok("vendor-opencode", "foreground"), tok("vendor-deepseek", "primary"),
+        )
+        return MeshTheme(spec.name, spec.dark, scheme, states, terminal, hues, vendors, tok("glow", "state-needs", "primary"))
     }
 
     /** Whether a theme is dark, judged by its background, for a file that doesn't say. */

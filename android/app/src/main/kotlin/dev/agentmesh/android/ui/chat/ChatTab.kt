@@ -1,5 +1,13 @@
 package dev.agentmesh.android.ui.chat
 
+import dev.agentmesh.android.ui.motionItem
+import dev.agentmesh.android.ui.SkeletonLines
+import dev.agentmesh.android.ui.Skeleton
+import dev.agentmesh.android.ui.LocalMeshTheme
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import dev.agentmesh.android.derive.hueOf
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -113,6 +121,10 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
     }
 
     val blocks = remember(chat.transcript.entries) { toBlocks(chat.transcript.entries) }
+    // The user's own words are tinted with the project's identity hue (the same colour on the desktop).
+    val s = MaterialTheme.colorScheme
+    val hue = LocalMeshTheme.current.hues[hueOf(agent.repo) - 1]
+    val bubble = remember(s, hue) { androidx.compose.ui.graphics.lerp(s.surfaceContainerHigh, hue, 0.22f) }
     val list = rememberLazyListState()
     // Follow the end while the reader is at it; keep the place when earlier entries come in above (items are keyed).
     var stick by remember { mutableStateOf(true) }
@@ -151,7 +163,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("chat-unsupported"),
                         )
                     } else if (!chat.loaded && chat.error.isEmpty()) {
-                        Text("Loading the conversation…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 24.dp))
+                        SkeletonLines("Loading the conversation", Modifier.fillMaxWidth().padding(vertical = 24.dp).testTag("chat-loading"), lines = 5)
                     }
                     if (chat.error.isNotEmpty()) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("chat-error")) {
@@ -167,7 +179,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
                     }
                 }
             }
-            items(blocks, key = { it.id }) { ChatBlock(it) }
+            items(blocks, key = { it.id }) { Box(motionItem()) { ChatBlock(it, bubble) } }
         }
         Text(
             if (working && agent.stateDetail.isNotEmpty()) "Working: ${agent.stateDetail}" else statusSentence(agent),
@@ -230,10 +242,10 @@ private fun PromptComposer(runtime: HostRuntime, agent: Agent, readOnly: Boolean
 }
 
 @Composable
-private fun ChatBlock(block: Block) {
+private fun ChatBlock(block: Block, bubble: androidx.compose.ui.graphics.Color) {
     when (block) {
         is Block.User -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.padding(start = 40.dp).testTag("chat-user")) {
+            Surface(shape = RoundedCornerShape(12.dp), color = bubble, modifier = Modifier.padding(start = 40.dp).testTag("chat-user")) {
                 SelectionContainer { Text(block.entry.text, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium) }
             }
         }
@@ -258,7 +270,7 @@ private fun ToolsBlock(block: Block.Tools) {
                 Text(if (open) "▾" else "▸", Modifier.padding(end = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(toolsSummary(block.calls), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (open) Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { block.calls.forEach { ToolCallRow(it) } }
+            AnimatedVisibility(open) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { block.calls.forEach { ToolCallRow(it) } } }
         }
     }
 }
@@ -271,7 +283,7 @@ private fun ToolCallRow(call: ToolCall) {
             Text(call.input, style = MonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         val r = call.result
-        if (r == null) Text("Running…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (r == null) Skeleton(Modifier.fillMaxWidth(0.4f).semantics { contentDescription = "Running" }, height = 10.dp)
         else if (r.text.isNotEmpty()) {
             Box(Modifier.fillMaxWidth().heightIn(max = 200.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp)).verticalScroll(rememberScrollState()).padding(8.dp)) {
                 Text(r.text + if (r.truncated) "\n… cut here" else "", style = MonoSmall, color = if (r.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)

@@ -47,6 +47,7 @@ fun ModelLine(runtime: HostRuntime, agent: Agent, canChange: Boolean, modifier: 
     var open by androidx.compose.runtime.saveable.rememberSaveable(agent.id) { mutableStateOf(false) }
     val pending = pendingText(agent)
     Row(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        VendorIcon(agent.kind, agent.model, size = 18.dp, modifier = Modifier.padding(end = 10.dp))
         Column(Modifier.weight(1f)) {
             Text(runsOn(agent).ifEmpty { agent.kind }, Modifier.testTag("runs-on"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (pending.isNotEmpty()) Text(pending, Modifier.testTag("pending-switch"), style = MaterialTheme.typography.bodySmall, color = stateColors.needs)

@@ -1,5 +1,10 @@
 package dev.agentmesh.android.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,7 +66,18 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     LaunchedEffect(pairLink) {
         if (pairLink != null && nav.currentDestination?.route != Routes.PAIR) nav.navigate(Routes.PAIR) { launchSingleTop = true }
     }
-    NavHost(nav, startDestination = Routes.HOSTS) {
+    // One short slide (the old page gives way by a quarter of the width), no crossfade: an alpha over the whole window costs
+    // a full-window layer on the first frame of every push (happy measured 10-18 ms). Still under reduced motion.
+    val reduced = LocalReducedMotion.current
+    val ms = 280
+    val ease = androidx.compose.animation.core.FastOutSlowInEasing
+    NavHost(
+        nav, startDestination = Routes.HOSTS,
+        enterTransition = { if (reduced) EnterTransition.None else slideInHorizontally(tween(ms, easing = ease)) { it } },
+        exitTransition = { if (reduced) ExitTransition.None else slideOutHorizontally(tween(ms, easing = ease)) { -it / 4 } },
+        popEnterTransition = { if (reduced) EnterTransition.None else slideInHorizontally(tween(ms, easing = ease)) { -it / 4 } },
+        popExitTransition = { if (reduced) ExitTransition.None else slideOutHorizontally(tween(ms, easing = ease)) { it } },
+    ) {
         composable(Routes.HOSTS) {
             HostsScreen(
                 onOpen = { nav.navigate(Routes.host(it)) }, onAdd = { nav.navigate(Routes.ADD) }, onPair = { nav.navigate(Routes.PAIR) },
