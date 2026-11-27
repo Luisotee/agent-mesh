@@ -52,6 +52,9 @@ type Reading struct {
 	State State
 	// Text is what is typed (State Typed), with the whitespace squeezed.
 	Text string
+	// Ghost is the grey text of an empty box, whitespace squeezed, for a profile that has suggestions (Profile.Suggests)
+	// and when it isn't one of the CLI's fixed hints (Profile.Hint): Claude Code's predicted next prompt. Empty otherwise.
+	Ghost string
 	// TokenAbove counts the copies of the doorbell's `ref<token>` above the input box, whitespace removed so no
 	// wrap can split it. Zero when no box was found: what can't be told apart from the input box never confirms.
 	TokenAbove int
@@ -93,6 +96,11 @@ type Profile struct {
 	// GhostCursor: when its terminal has the focus the CLI paints its cursor on the ghost text by inverting the text's first
 	// character (Claude's `\x1b[7m` + first char + `\x1b[27m`, then the rest dim). That character is ghost too.
 	GhostCursor bool
+	// Suggests: the CLI draws a prediction of the next prompt as ghost text in an empty box (Claude Code), which Read
+	// returns as Reading.Ghost unless it matches Hint.
+	Suggests bool
+	// Hint matches the CLI's own fixed ghost texts, which are not suggestions (a placeholder, a hint about queued messages).
+	Hint *regexp.Regexp
 }
 
 // The profiles of the CLIs with an adapter.
@@ -100,7 +108,9 @@ var (
 	// Claude: the rules box; its `Try …` placeholder is dim (a coloured slash command isn't, so it counts as typed).
 	// With the terminal focused, Claude Code 2.1.332 inverts the first character of the placeholder or of the suggested
 	// prompt (its `Cr()`: `invert(p[0]) + dim(p.slice(1))`): the cursor, drawn on the ghost text.
-	Claude = Profile{Ghost: GhostDim, GhostCursor: true}
+	// What it draws there besides a suggestion are fixed hints: `Try "…"`, the one about queued messages, `Message @…`.
+	Claude = Profile{Ghost: GhostDim, GhostCursor: true, Suggests: true,
+		Hint: regexp.MustCompile(`^(Try "|Press up to edit queued messages|Message @)`)}
 	// Agy: the rules box; its empty box shows "Auto mode: edits & safe commands …" in colour 8, not dim.
 	Agy = Profile{Ghost: GhostDim | GhostGrey}
 	// OpenCode: a gutter box whose foot is the agent and model, one row or several in a narrow pane with blank ones
@@ -129,7 +139,7 @@ func readRows(rows []row, p Profile, token string) Reading {
 		plain[i] = r.plain()
 	}
 	var above []string
-	var typed string
+	var typed, ghost string
 	var state State
 	if p.Gutter {
 		start, last, ok := gutterBox(plain)
@@ -145,10 +155,16 @@ func readRows(rows []row, p Profile, token string) Reading {
 		}
 		above = plain[:at-1]
 		typed, state = rulesTyped(rows, plain, at, p)
+		if state == Empty && p.Suggests {
+			ghost = rulesGhost(rows, plain, at, p)
+		}
 	}
 	out := Reading{State: state, TokenAbove: strings.Count(strings.Join(strings.Fields(strings.Join(above, "")), ""), "ref"+token)}
 	if state == Typed {
 		out.Text = typed
+	}
+	if state == Empty && ghost != "" && (p.Hint == nil || !p.Hint.MatchString(ghost)) {
+		out.Ghost = ghost
 	}
 	return out
 }
@@ -179,6 +195,23 @@ func rulesTyped(rows []row, plain []string, at int, p Profile) (string, State) {
 		typed = append(typed, rows[n].typed(cells, p))
 	}
 	return "", Unclear
+}
+
+// rulesGhost is the ghost text from the prompt line down to the box's closing rule (what rulesTyped leaves out), the
+// cursor cell included: Claude's suggested next prompt. "" when the box has none.
+func rulesGhost(rows []row, plain []string, at int, p Profile) string {
+	var parts []string
+	for n := at; n < len(rows); n++ {
+		if n > at && ruleRE.MatchString(plain[n]) {
+			break
+		}
+		cells := rows[n].cells
+		if n == at {
+			cells = cells[1:] // the glyph
+		}
+		parts = append(parts, rows[n].ghostText(cells, p))
+	}
+	return squeeze(strings.Join(parts, " "))
 }
 
 func finish(typed []string, p Profile) (string, State) {
@@ -283,24 +316,42 @@ func (p Profile) ghost(c cell) bool {
 // typed is a row's cells as text, ghost text as spaces.
 func (r row) typed(cells []cell, p Profile) string {
 	var b strings.Builder
-	cursor := -1 // the cell of a placeholder's cursor, if this row has one
-	if p.GhostCursor {
-		for i, c := range cells {
-			if c.ch == ' ' || c.ch == '\u00a0' {
-				continue
-			}
-			// The first character that shows: inverted, and followed by ghost text (a draft has none after its first
-			// character: the CLI draws a placeholder only in an empty box).
-			if c.reverse && !p.ghost(c) && i+1 < len(cells) && p.ghost(cells[i+1]) {
-				cursor = i
-			}
-			break
-		}
-	}
+	cursor := cursorAt(cells, p)
 	for i, c := range cells {
 		if i == cursor || p.ghost(c) {
 			b.WriteByte(' ')
 		} else {
+			b.WriteRune(c.ch)
+		}
+	}
+	return b.String()
+}
+
+// cursorAt is the cell of a placeholder's cursor in a row, or -1: with the terminal focused the CLI inverts the first
+// character that shows, when ghost text follows it (a draft has none after its first character: the CLI draws a
+// placeholder only in an empty box).
+func cursorAt(cells []cell, p Profile) int {
+	if !p.GhostCursor {
+		return -1
+	}
+	for i, c := range cells {
+		if c.ch == ' ' || c.ch == '\u00a0' {
+			continue
+		}
+		if c.reverse && !p.ghost(c) && i+1 < len(cells) && p.ghost(cells[i+1]) {
+			return i
+		}
+		return -1
+	}
+	return -1
+}
+
+// ghostText is a row's ghost cells as text (the cursor cell too), what typed leaves out.
+func (r row) ghostText(cells []cell, p Profile) string {
+	var b strings.Builder
+	cursor := cursorAt(cells, p)
+	for i, c := range cells {
+		if i == cursor || p.ghost(c) {
 			b.WriteRune(c.ch)
 		}
 	}

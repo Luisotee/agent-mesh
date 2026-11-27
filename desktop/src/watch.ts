@@ -20,6 +20,7 @@ export function tailLines(entries: TranscriptEntry[], n = 5, width = 140): TailL
   for (const b of toBlocks(entries)) {
     if (b.kind === 'tools') lines.push({ id: b.id, who: 'tools', text: toolsSummary(b.calls) })
     else if (b.entry.kind === TranscriptKind.USER) lines.push({ id: b.id, who: 'you', text: clip(b.entry.text, width) })
+    else if (b.kind === 'output') continue // what a typed command printed: neither the agent's words nor a tool
     else if (b.entry.kind === TranscriptKind.MESH) lines.push({ id: b.id, who: 'mesh', text: clip(b.entry.text, width) })
     else lines.push({ id: b.id, who: 'agent', text: clip(b.entry.text, width) })
   }

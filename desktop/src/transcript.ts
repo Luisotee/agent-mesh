@@ -47,11 +47,12 @@ export function withLater(t: Transcript, res: ReadTranscriptResponse, from: bigi
   return { kind: 'more', transcript: { ...t, entries: [...t.entries, ...res.entries], end: res.endOffset } }
 }
 
-/** What the chat shows, in order: a prompt, a mesh doorbell, a reply, or a run of tool calls with their answers. */
+/** What the chat shows, in order: a prompt, a mesh doorbell, a reply, what a typed command printed, or a run of tool calls with their answers. */
 export type Block =
   | { kind: 'user'; id: string; at: number; entry: TranscriptEntry }
   | { kind: 'mesh'; id: string; at: number; entry: TranscriptEntry }
   | { kind: 'assistant'; id: string; at: number; entry: TranscriptEntry }
+  | { kind: 'output'; id: string; at: number; entry: TranscriptEntry }
   | { kind: 'tools'; id: string; at: number; calls: ToolCall[] }
 
 const ms = (t?: { seconds: bigint; nanos: number }) => (t ? Number(t.seconds) * 1000 + Math.floor(t.nanos / 1e6) : 0)
@@ -100,6 +101,10 @@ export function toBlocks(entries: TranscriptEntry[]): Block[] {
       case TranscriptKind.ASSISTANT:
         run = undefined
         blocks.push({ kind: 'assistant', id: e.id, at: ms(e.time), entry: e })
+        break
+      case TranscriptKind.COMMAND_OUTPUT:
+        run = undefined
+        blocks.push({ kind: 'output', id: e.id, at: ms(e.time), entry: e })
         break
     }
   }

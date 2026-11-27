@@ -77,7 +77,7 @@ describe('what an idle agent waits on', () => {
     expect(statusSentence(idle, wait({ kind: AgentWaitKind.BACKGROUND, detail: 'go test ./...' }))).toBe('Waiting on its background job: go test ./...')
     expect(statusSentence(idle, wait({ kind: AgentWaitKind.DECLARED, detail: 'CI on #12', from: 'lead' }))).toBe('Waiting: CI on #12')
     expect(statusSentence(idle, wait({ kind: AgentWaitKind.ANSWER, from: 'app-lead' }))).toBe('Asked app-lead, waiting for the answer')
-    expect(statusSentence(idle, wait({ kind: AgentWaitKind.ANSWER, from: 'user' }))).toBe('Waiting for your answer')
+    expect(statusSentence(idle, wait({ kind: AgentWaitKind.ANSWER, from: 'lead' }))).toBe('Asked lead, waiting for the answer')
     expect(statusSentence(idle, wait({ kind: AgentWaitKind.REPORTED, from: 'app-lead' }))).toBe('Reported to app-lead, nothing owed')
     expect(statusSentence(idle, wait({ kind: AgentWaitKind.MESSAGE, from: 'app-lead' }))).toBe('Idle, waiting for a task from app-lead')
     expect(statusSentence(idle, wait({ kind: AgentWaitKind.MESSAGE, from: 'user' }))).toBe('Idle, waiting for you')

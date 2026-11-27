@@ -70,16 +70,48 @@ func evalLine(script string) string {
 		return ""
 	}
 	cmd := strings.TrimSpace(script[i+len("eval "):])
-	if n := len(cmd); n >= 2 && (cmd[0] == '\'' || cmd[0] == '"') {
-		if end := strings.LastIndexByte(cmd, cmd[0]); end > 0 {
-			quote := cmd[0]
-			cmd = cmd[1:end]
-			if quote == '\'' { // a quote inside a single-quoted string is written '\''
-				cmd = strings.ReplaceAll(cmd, `'\''`, `'`)
-			}
-		}
+	if len(cmd) >= 2 && (cmd[0] == '\'' || cmd[0] == '"') {
+		cmd = unquoteFirst(cmd)
 	}
 	return strings.TrimSpace(cmd)
+}
+
+// unquoteFirst is the shell word `s` opens with, unquoted: single-quoted parts as they are, double-quoted ones with a
+// backslash escaping a quote or a backslash, and a backslash outside quotes escaping the next character, joined until a
+// space ends the word (what follows, the `< /dev/null` and the cwd plumbing, is left out). Claude Code writes a quote
+// inside a command as `'"'"'` (close, a double-quoted quote, reopen), a shell as `'\”`: both read as a quote. An unclosed
+// quote takes the rest.
+func unquoteFirst(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '\'':
+			j := strings.IndexByte(s[i+1:], '\'')
+			if j < 0 {
+				b.WriteString(s[i+1:])
+				return b.String()
+			}
+			b.WriteString(s[i+1 : i+1+j])
+			i += j + 1
+		case '"':
+			for i++; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
+					i++
+				}
+				b.WriteByte(s[i])
+			}
+		case '\\':
+			if i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+			}
+		case ' ', '\t', '\n':
+			return b.String()
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // backgroundWork reports whether a Claude agent has a background command running.

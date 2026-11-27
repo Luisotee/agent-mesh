@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -64,6 +65,16 @@ type Adapter struct {
 	ManagedDir string
 	// ProcDir is where a process's command line is read from (default /proc); tests point it at a folder of their own.
 	ProcDir string
+	// ProbeDir is where the probe's stub openers are made (internal/probe); empty means the temp dir.
+	ProbeDir string
+	// CommandsTTL and ProbeTimeout tune the command list's probe (commands.go); zero is the default.
+	CommandsTTL  time.Duration
+	ProbeTimeout time.Duration
+
+	cmdMu sync.Mutex
+	cmds  map[string]*cmdEntry
+	// probeSlots bounds the command list's probes running at once.
+	probeSlots chan struct{}
 }
 
 // New returns the adapter.
