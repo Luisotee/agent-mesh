@@ -11,6 +11,7 @@ import (
 	termv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/term/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 )
 
@@ -21,6 +22,18 @@ import (
 // alert) for backgroundGrace from its last activity (at most `accountability.wait_max`, as a declared wait is);
 // after that a command still running is one the agent forgot (a dev server, a watcher), and it is nudged once to
 // declare a wait or stop it, as an agent with nothing running would be.
+
+// An OpenCode agent's shell tool starts each command as `<shell> -c <command>`, a child of its own process (`Shell.create`,
+// `packages/core/src/shell.ts` of anomalyco/opencode: `spawn(shell, args)`, stdin ignored, its own process group but not its
+// own parent), and a command it runs in the background (`background: true`, which notifies the session when it ends) is such a
+// shell that outlives the turn. A foreground command ends within the turn, so a shell with `-c` under an OpenCode agent at its
+// prompt is a command it left running. Its other children are not shells with `-c` (its language servers and MCP servers run
+// their program directly, unless an MCP server is configured as `sh -c …`, or a tool such as `npx` starts one: that would be
+// read as a command left running and hold the nudge for the grace; the walk is of the whole tree under the terminal's process,
+// as a wrapper may stand between it and OpenCode). A job it detached with `&`, `nohup` or `setsid` has no shell to see: it is no longer under the
+// agent, as it is not for Claude. Read from the source and the docs of OpenCode's dev branch, not seen on a live agent: the
+// bash tool of the 1.19.6 installed here has no `background` argument yet, so the check finds nothing there. agy is not
+// covered: nothing of how it runs a command could be read without running it (daemon/CLAUDE.md: never a real agy).
 
 // backgroundGrace is how long a background command is let run, from the agent's last activity, before the agent
 // is nudged about it. A variable for tests.
@@ -62,6 +75,43 @@ func backgroundCommand(table []proc.Info, pid int) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// shellCommand is the command line of an OpenCode command shell (`<shell> -c <command>`, a login or interactive shell
+// too) in the process tree under pid, and whether there is one. The shell's own flags may come before `-c`.
+func shellCommand(table []proc.Info, pid int) (string, bool) {
+	byPID := map[int]proc.Info{}
+	for _, p := range table {
+		byPID[p.PID] = p
+	}
+	for _, id := range proc.Tree(pid, table) {
+		p := byPID[id]
+		if id == pid || len(p.Argv) < 3 {
+			continue
+		}
+		switch p.Argv[0][strings.LastIndex(p.Argv[0], "/")+1:] {
+		case "bash", "sh", "zsh", "dash", "fish", "ksh":
+			// OpenCode starts zsh as `zsh +o nomatch -c <command>`: flags of either sign and the name an `-o`/`+o` takes come first.
+			for i := 1; i < len(p.Argv)-1 && i <= 6; i++ {
+				switch p.Argv[i] {
+				case "-c", "-lc", "-ic", "-cl", "-ci":
+					return strings.TrimSpace(p.Argv[i+1]), true
+				case "-o", "+o":
+					i++ // the option's name
+					continue
+				}
+				if a := p.Argv[i]; !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+") {
+					break // a script's name, not a flag: not a command shell
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// hasBackgroundShape reports whether the daemon can read background commands off the process table of an agent of this kind.
+func hasBackgroundShape(kind string) bool {
+	return kind == claude.Kind || kind == opencode.Kind
 }
 
 // evalLine is what a snapshot shell evaluates: the quoted text after its `eval`, with the quotes taken off.
@@ -115,16 +165,16 @@ func unquoteFirst(s string) string {
 	return b.String()
 }
 
-// backgroundWork reports whether a Claude agent has a background command running.
+// backgroundWork reports whether a Claude or OpenCode agent has a background command running.
 func (d *Daemon) backgroundWork(ctx context.Context, a *v1.Agent) bool {
 	_, ok := d.backgroundCommandOf(ctx, a)
 	return ok
 }
 
-// backgroundCommandOf is the command line of the background command a Claude agent has running, and whether it has one.
+// backgroundCommandOf is the command line of the background command a Claude or OpenCode agent has running, and whether it has one.
 // It reads the terminals and the process table now: the accountability pass asks it.
 func (d *Daemon) backgroundCommandOf(ctx context.Context, a *v1.Agent) (string, bool) {
-	if a.Kind != claude.Kind || a.TerminalId == "" || d.rt.term == nil {
+	if !hasBackgroundShape(a.Kind) || a.TerminalId == "" || d.rt.term == nil {
 		return "", false
 	}
 	snap, ok := d.readProcs(ctx)
@@ -137,7 +187,7 @@ func (d *Daemon) backgroundCommandOf(ctx context.Context, a *v1.Agent) (string, 
 // shownBackgroundCommand is backgroundCommandOf for what an app shows (GetAgentProgress): the apps poll it for every
 // open chat, so it reuses a read of the terminals and the process table up to waitReadTTL old.
 func (d *Daemon) shownBackgroundCommand(ctx context.Context, a *v1.Agent) (string, bool) {
-	if a.Kind != claude.Kind || a.TerminalId == "" || d.rt.term == nil {
+	if !hasBackgroundShape(a.Kind) || a.TerminalId == "" || d.rt.term == nil {
 		return "", false
 	}
 	snap, ok := d.recentProcs(ctx)
@@ -160,6 +210,9 @@ func (s procSnapshot) backgroundCommand(a *v1.Agent) (string, bool) {
 	pid := s.pids[a.TerminalId]
 	if pid <= 0 {
 		return "", false
+	}
+	if a.Kind == opencode.Kind {
+		return shellCommand(s.table, pid)
 	}
 	return backgroundCommand(s.table, pid)
 }

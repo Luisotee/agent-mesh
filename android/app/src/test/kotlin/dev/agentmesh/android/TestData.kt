@@ -49,6 +49,8 @@ fun stateChanged(seq: Long, agentId: String, from: AgentState, to: AgentState, d
     ev(seq, at, agentId) { setAgentStateChanged(AgentStateChanged.newBuilder().setFrom(from).setTo(to).setDetail(detail).setNeedsInput(needs)) }
 fun exited(seq: Long, agentId: String, code: Int, reason: String = "exited") =
     ev(seq, agentId = agentId) { setAgentExited(AgentExited.newBuilder().setExitCode(code).setReason(reason)) }
+fun userNotice(seq: Long, kind: String, agentId: String = "w1", forUser: Boolean = true, tab: String = "chat", title: String = "shop-fix sent a plan", body: String = "Change the typo", tag: String = "", at: Long = 5_000) =
+    ev(seq, at, agentId) { setUserNotice(dev.agentmesh.gen.agentmesh.v1.UserNotice.newBuilder().setKind(kind).setTitle(title).setBody(body).setAgentId(agentId).setTab(tab).setForUser(forUser).setTag(tag)) }
 fun messageSent(seq: Long, m: Message, at: Long = 5_000) = ev(seq, at, runId = m.runId) { setMessageSent(MessageSent.newBuilder().setMessage(m)) }
 
 fun phaseChanged(seq: Long, agentId: String, to: dev.agentmesh.gen.agentmesh.v1.AgentPhase) =
@@ -89,8 +91,8 @@ fun agentPrs(agentId: String, vararg prs: dev.agentmesh.gen.agentmesh.v1.PullReq
 fun prChanged(seq: Long, p: dev.agentmesh.gen.agentmesh.v1.PullRequest) =
     ev(seq, agentId = p.agentId) { setPullRequestChanged(dev.agentmesh.gen.agentmesh.v1.PullRequestChanged.newBuilder().setPullRequest(p)) }
 
-fun waiting(kind: dev.agentmesh.gen.agentmesh.v1.WaitingKind, agentId: String, runId: String = "r1", message: Message? = null, detail: String = ""): dev.agentmesh.gen.agentmesh.v1.Waiting =
-    dev.agentmesh.gen.agentmesh.v1.Waiting.newBuilder().setKind(kind).setRunId(runId).setAgentId(agentId).setDetail(detail).apply { if (message != null) setMessage(message) }.build()
+fun waiting(kind: dev.agentmesh.gen.agentmesh.v1.WaitingKind, agentId: String, runId: String = "r1", message: Message? = null, detail: String = "", forUser: Boolean = true): dev.agentmesh.gen.agentmesh.v1.Waiting =
+    dev.agentmesh.gen.agentmesh.v1.Waiting.newBuilder().setKind(kind).setRunId(runId).setAgentId(agentId).setDetail(detail).setForUser(forUser).apply { if (message != null) setMessage(message) }.build()
 
 fun queuedPrompt(id: String, agentId: String, text: String = id, at: Long = 1_000, held: String = "", heldText: String = ""): dev.agentmesh.gen.agentmesh.v1.QueuedPrompt =
     dev.agentmesh.gen.agentmesh.v1.QueuedPrompt.newBuilder().setId(id).setAgentId(agentId).setText(text).setCreatedAt(ts(at)).setHeld(held).setHeldText(heldText).build()

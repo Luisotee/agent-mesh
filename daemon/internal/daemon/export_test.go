@@ -184,7 +184,7 @@ func (d *Daemon) RecordStopped(ctx context.Context, agentID string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := d.recordStopped(tx, a); err != nil {
+		if _, err := d.recordStopped(tx, a, ""); err != nil {
 			return err
 		}
 		return tx.PutAgent(a)

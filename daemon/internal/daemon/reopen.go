@@ -1499,6 +1499,8 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 	d.log.Error("reopen failed", "agent", agentID, "reason", reason)
 	d.rt.guard.release(agentID)
 	var alert *v1.Message
+	cur, _ := d.store.Read(ctx).GetAgent(agentID)
+	words := d.exitWords(ctx, cur) // read before the write that records the exit
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
@@ -1525,7 +1527,7 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 			AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "reopen failed: " + reason}}}); err != nil {
 			return err
 		}
-		if alert, err = d.alertExitTx(tx, a, lastSaid, -1, 0, "reopen failed: "+reason); err != nil {
+		if alert, err = d.alertExitTx(tx, a, lastSaid, words, -1, 0, "reopen failed: "+reason); err != nil {
 			return err
 		}
 		return tx.RevokeTokens(a.Id)

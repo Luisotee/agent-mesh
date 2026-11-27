@@ -30,6 +30,11 @@ sealed interface ConnState {
 
 data class LogLine(val atMs: Long, val text: String)
 
+/** One entry of the Activity list: a notice the host made, `forUser` or not; [seq] is its event's, [atMs] by the host's clock. */
+data class ActivityItem(val seq: Long, val atMs: Long, val notice: dev.agentmesh.gen.agentmesh.v1.UserNotice)
+
+const val MAX_ACTIVITY = 200
+
 /** One host as the app knows it: what its snapshot and event stream said, and the state of the connection. */
 data class HostState(
     val conn: ConnState = ConnState.Connecting,
@@ -67,6 +72,11 @@ data class HostState(
     val promptsDone: Set<String> = emptySet(),
     /** How many times each agent's queue changed here: a listing asked before a change is older than what we hold. */
     val promptTouch: Map<String, Int> = emptyMap(),
+    /**
+     * What the host decided to tell the user (`UserNotice` events), oldest first, the last [MAX_ACTIVITY]: the Activity list, the ones
+     * that were for the user and the ones that only informed. Kept as they arrive on this connection (a snapshot keeps them).
+     */
+    val activity: List<ActivityItem> = emptyList(),
     /**
      * The host's project shells (`ListShells`, read after a snapshot) kept by `ShellChange` frames: null until the host
      * answered. An ended shell stays, marked exited, until the next listing: a screen showing it keeps its last output.
@@ -210,6 +220,14 @@ private fun applyEvent(s: HostState, e: Event): HostState {
         Event.PayloadCase.RUN_RENAMED -> s.runs[e.runId]?.let { r ->
             next.copy(runs = s.runs + (r.id to r.toBuilder().setTitle(e.runRenamed.title).build()))
         } ?: next
+        // The Activity list. A host's event always has a seq (without one it could not be ordered, keyed or marked seen); a frame
+        // seen twice (a resume replays) is listed once; a later notice with the same tag replaces the earlier (`UserNotice.tag`).
+        Event.PayloadCase.USER_NOTICE -> if (e.seq <= 0 || s.activity.any { it.seq == e.seq }) next
+        else {
+            val tag = e.userNotice.tag
+            val kept = if (tag.isEmpty()) s.activity else s.activity.filter { it.notice.tag != tag }
+            next.copy(activity = (kept + ActivityItem(e.seq, if (e.hasTime()) e.time.toMillis() else 0L, e.userNotice)).takeLast(MAX_ACTIVITY))
+        }
         // The chat's queue: a prompt joins it, and leaves it once typed or taken back.
         Event.PayloadCase.PROMPT_QUEUED -> if (e.promptQueued.hasPrompt()) {
             val q = e.promptQueued.prompt

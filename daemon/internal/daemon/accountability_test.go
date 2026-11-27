@@ -411,6 +411,87 @@ func TestTheExitAlertQuotesWhatTheAgentLastSaid(t *testing.T) {
 	}
 }
 
+// The exit alert quotes the agent's newest reply from its transcript, in preference to its state detail: the detail is
+// a status line ("running the tests"), the reply says what it was doing and why it stopped. A reply on several lines is
+// one line, and a long one is cut.
+func TestTheExitAlertQuotesTheAgentsLastReplyFromItsTranscript(t *testing.T) {
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.Env["FAKECLAUDE_TRANSCRIPT"] = "1" })
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
+	long := "step 2 of the migration " + strings.Repeat("and then some more ", 30)
+	w.typeInto(crasher, long+"\r")
+	waitFor(t, "the reply in the transcript", func() bool {
+		for _, e := range w.transcript(crasher.Id, -1, true).Entries {
+			if e.Kind == v1.TranscriptKind_TRANSCRIPT_KIND_ASSISTANT && strings.HasPrefix(e.Text, "Done: step 2") {
+				return true
+			}
+		}
+		return false
+	})
+	err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent(crasher.Id)
+		if err != nil {
+			return err
+		}
+		a.StateDetail = "a status line"
+		return tx.PutAgent(a)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.typeInto(crasher, "/crash\r")
+	w.waitState(crasher.Id, v1.AgentState_AGENT_STATE_EXITED)
+	head := "[mesh alert exited " + crasher.Id + "]"
+	waitFor(t, "the exit alert", func() bool { return w.alerts(t, lead.Id, head) == 1 })
+	got := w.alertText(t, lead.Id, head)
+	if !strings.Contains(got, "It last said: Done: step 2 of the migration and then some more") || strings.Contains(got, "a status line") {
+		t.Errorf("exit alert %q", got)
+	}
+	if said := got[strings.Index(got, "It last said: ")+len("It last said: "):]; !strings.Contains(said[:min(len(said), 330)], "…") {
+		t.Errorf("a long reply is cut: %q", got)
+	}
+}
+
+// An alert for a parent that is stopped (a retired root) is stored, rings nothing, and is delivered when the parent is
+// resumed: its doorbell rings at its first prompt, so it hears of the worker that crashed while it was away.
+func TestAnAlertForARetiredParentIsRungWhenItIsResumed(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
+	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: lead.Id})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the root stopped", func() bool { return w.agent(lead.Id).State == v1.AgentState_AGENT_STATE_RETIRED })
+	w.typeInto(crasher, "/crash\r")
+	w.waitState(crasher.Id, v1.AgentState_AGENT_STATE_EXITED)
+	head := "[mesh alert exited " + crasher.Id + "]"
+	waitFor(t, "the alert stored", func() bool { return w.alerts(t, lead.Id, head) == 1 })
+	msgs, err := w.d.Store().Read(ctx).Inbox(lead.Id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var alert *v1.Message
+	for _, m := range msgs {
+		if strings.HasPrefix(m.Body, head) {
+			alert = m
+		}
+	}
+	time.Sleep(500 * time.Millisecond) // a stopped agent is rung by nothing
+	if w.delivered(t, lead.Id, alert.Id) || w.agent(lead.Id).State != v1.AgentState_AGENT_STATE_RETIRED {
+		t.Fatalf("the alert was delivered to a stopped root, or the root woke: %v", w.agent(lead.Id).State)
+	}
+	if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Agent: lead.Id})); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the alert rung once the root is back", func() bool { return w.delivered(t, lead.Id, alert.Id) })
+	if n := w.alerts(t, lead.Id, head); n != 1 {
+		t.Errorf("the alert was told %d times", n)
+	}
+}
+
 // A message to its own child is no report to its parent: it neither stops the nudge nor is refused for unread
 // instructions.
 func TestAQuestionToAChildIsNotAReportToTheParent(t *testing.T) {
