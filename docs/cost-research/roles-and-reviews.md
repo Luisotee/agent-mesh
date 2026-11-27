@@ -127,6 +127,49 @@ Caveat: "root-like" sessions were picked by mesh command count, so a user sessio
 
 Not proposed here: root effort `medium` (~$38/wk, "Settled": the user kept high).
 
+## The root's weight per worker task (measured 2026-11-27)
+
+The "Proposals" above (the inbox summary, workers settling their reviews, smaller protocol parts, `mesh check`) have landed. This measures the root again and asks the open question, proposal 6: would an earlier reset (`root_reset.at` 150k → ~120k) cost less per worker task?
+
+**Data:** the four sessions of this run's lead (run `r2lscbp`, the lead's transcripts in `~/.claude/projects/…-agent-mesh-lead/`; the lead is a Claude Code root on Opus 5.5 with `root_reset.at` 150000, which resets it with `/clear`), 2026-11-27 08:41 → 20:07 UTC: 737 calls. `scripts/rootweight.py` (stdlib) reads the transcripts: calls deduplicated by `message.id`, API-equivalent dollars at the prices of `README.md` ("Weighting"), a task counted for each `mesh send --type task`, `mesh spawn --task` and `mesh resume --task` the root ran, an answer for each `mesh send --type answer` (follow-up work), a report for each `done` or `failed` header in what `mesh inbox` printed.
+
+| session | from → to (UTC) | calls | context/call | $ main | $ subagents | tasks | answers | reports read | reviews run |
+|---|---|---|---|---|---|---|---|---|---|
+| 1ea8d9cf | 2026-11-27T08:41 → 2026-11-27T12:01 | 161 | 109k | 7 | 0 | 8 | 1 | 14 | 0 |
+| a3d30d65 | 2026-11-27T12:07 → 2026-11-27T14:56 | 174 | 127k | 7 | 0 | 14 | 8 | 10 | 0 |
+| a808b12f | 2026-11-27T15:01 → 2026-11-27T17:40 | 167 | 110k | 6 | 0 | 5 | 19 | 12 | 0 |
+| 3e7c963f | 2026-11-27T17:46 → 2026-11-27T20:07 | 235 | 139k | 10 | 0 | 17 | 12 | 12 | 5 |
+
+All 4 sessions: 737 calls, $30 (main and subagents), 44 tasks sent, 40 answers, 48 reports read.
+Per task sent: 17 calls, $0.7, 2.0M tokens read, 20k written, 5k output.
+Per piece of work sent to a worker (task or answer): 9 calls, $0.4.
+
+**What a worker task costs the root:** about 17 calls and **$0.7** (**$0.4** per piece of work, counting answers). The lead's four sessions cost **$30** in all, for 44 tasks, 40 answers and 48 reports read; no subagents. The earlier measurement (11-25 → 11-26: the root row of the spend table, $162, over the 2,133 calls of 18 root sessions) was **$9 a session**, 169k tokens of context a call, **$0.076 a call**; now it is **$7.5 a session**, 109–139k a call, **$0.04 a call**. Against the large workers' $3.5 a task (below, measured 11-26, not re-measured) the root is about a fifth of a task's cost.
+
+**Where it goes:**
+
+| session | first call | $ read | $ write | $ output | calls over 120k | tokens read over 120k | over 150k |
+|---|---|---|---|---|---|---|---|
+| 1ea8d9cf | 21k | 3.5 | 2.5 | 1.1 | 42% | 60% | 41% |
+| a3d30d65 | 21k | 4.4 | 1.5 | 1.2 | 59% | 76% | 54% |
+| a808b12f | 21k | 3.7 | 1.3 | 1.0 | 46% | 62% | 38% |
+| 3e7c963f | 21k | 6.5 | 1.8 | 1.5 | 62% | 79% | 60% |
+
+- **Cache reads are 49–66% of the dollars** (the longest session has the most), writes 18–35%, output 15–17%. The first call of every session carries only **21k** tokens (it was ~70k on 11-26: the lean launch and the smaller protocol parts), so the baseline is no longer most of what is read.
+- **The weight is the tail of each session:** 42–62% of the calls are above 120k and hold 60–79% of the tokens read; above 150k, 38–60%. A session runs 107–135 calls from its start to 150k, where it resets.
+
+**Would resetting earlier pay?** A session's cost per call grows with its context, so a session cut sooner costs less per call, and each cut repeats the start of a reset (measured: the first 8 calls of a session cost $0.31–0.36, about $0.1 more than 8 calls from the middle of one; the conversation's own state is what the notes and the brief carry back, and a reset also costs what the root must re-derive, which this does not price):
+
+| reset at | calls per session | $ per call, no reset cost | $ per call with a reset's start | $ per session |
+|---|---|---|---|---|
+| 100k | 66 | 0.0300 | 0.0315 | 2.07 |
+| 120k | 85 | 0.0316 | 0.0325 | 2.77 |
+| 150k | 121 | 0.0363 | 0.0366 | 4.43 |
+
+By this model 120k would cut the root's dollars per call by about **11%** ($0.0366 → $0.0325), 100k by 14%. In a worker task's terms that is $0.07 of the root's $0.7, **about 2% of what a task costs** with its worker, so the saving is small and a reset's other cost is not in it: each one loses working context, and the lead's own sessions show no sign that more resets lower the calls a task takes (7–18 calls a piece of work, in no order by context). Ledger #4 found the same at 200k: context per call fell 18% and $ per task stayed flat. **Keep `root_reset.at` at 150k.** The proposal stands answered unless the root's weight grows again (a larger first call, or calls above 150k holding more than 60% of the tokens).
+
+Caveats: one run, one root (the lead supervises and writes no code; a root that also drives a user's session reads more); dollars are API-equivalent, not what the subscription counts; tasks and reports are counted by the commands and headers of the transcript, so a task sent by another route (a device, the app) is missed; the what-if cuts the sessions that happened to be recorded and assumes the calls of a shorter session cost what the same calls cost inside a longer one.
+
 ## Large workers (measured 2026-11-26)
 
 The data covers 15 large Claude worker sessions since 11-25. They made 5,308 calls, ran 102 tasks and opened 44 PRs.
