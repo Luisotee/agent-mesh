@@ -355,15 +355,18 @@ func (d *Daemon) limitedText(ctx context.Context, a *v1.Agent) string {
 // alertOnce tells the parent about an agent once per stretch of silence: the same alert is not repeated while
 // the agent's last activity is older than it.
 func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kind string, text func(context.Context) string) error {
-	return d.alertOnceSince(ctx, r, a, kind, time.Time{}, text)
+	_, err := d.alertOnceSince(ctx, r, a, kind, time.Time{}, text)
+	return err
 }
 
 // alertOnceSince is alertOnce where an alert already sent counts as told only when it is newer than `floor`, if
 // that is later than the agent's last activity: a stall that ends and starts again in one reply (no event moves the
-// agent's activity) is told again.
-func (d *Daemon) alertOnceSince(ctx context.Context, r store.Reader, a *v1.Agent, kind string, floor time.Time, text func(context.Context) string) error {
+// agent's activity) is told again. It says whether the alert is in the store afterwards (written now, or found
+// already): false when the write's re-check found the agent moved on and left nothing, so a caller that remembers
+// "told" must not.
+func (d *Daemon) alertOnceSince(ctx context.Context, r store.Reader, a *v1.Agent, kind string, floor time.Time, text func(context.Context) string) (bool, error) {
 	if !owesParent(a) {
-		return nil // no parent to tell: nothing to read, build or write
+		return false, nil // no parent to tell: nothing to read, build or write
 	}
 	since := time.Time{}
 	if a.LastActivity != nil {
@@ -374,10 +377,11 @@ func (d *Daemon) alertOnceSince(ctx context.Context, r store.Reader, a *v1.Agent
 	}
 	// Told already? Looked at before the text is built: it can read GitHub, git and the screen.
 	if told, err := toldParent(r, a, a.ParentId, alertHead(kind, a.Id), since); told || err != nil {
-		return err
+		return told, err
 	}
 	body := text(ctx)
 	var ring *v1.Message
+	var inStore bool
 	err := d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(a.Id)
 		if err != nil {
@@ -421,12 +425,16 @@ func (d *Daemon) alertOnceSince(ctx context.Context, r store.Reader, a *v1.Agent
 			since = floor
 		}
 		ring, err = d.alertParentTx(tx, cur, kind, body, since)
+		inStore = err == nil // written, or found told inside the write
 		return err
 	})
-	if err == nil && ring != nil && d.notify != nil {
+	if err != nil {
+		return false, err
+	}
+	if ring != nil && d.notify != nil {
 		d.notify(ring.ToId)
 	}
-	return err
+	return inStore, nil
 }
 
 // checkOwed nudges or reports on an agent at its prompt that owes a report, re-checking inside the write that

@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -308,5 +310,64 @@ func TestAnAlertForARootBuildsNothing(t *testing.T) {
 	g.d.pollOpenCode(ctx)
 	if n := g.alerts(); n != 0 || g.st.Generation() != seq {
 		t.Fatalf("a root's stall: %d alerts", n)
+	}
+}
+
+// The stall alert's text is built before the write, and that takes seconds (git, the screen): the agent can cross
+// UnknownAfter meanwhile, and the write then leaves no alert. That must not count as told: when the terminal draws
+// again the stall is told.
+func TestAStallAlertTheWriteLeftOutIsNotRememberedAsTold(t *testing.T) {
+	g := newStallRig(t, nil)
+	ctx := context.Background()
+	g.clock = g.clock.Add(16 * time.Minute)
+	g.outputAt(g.clock) // drawing: the view says WORKING when the poll looks
+	// The poll reads the screen for a limit first, then the text reads it again: that second read takes 11 minutes,
+	// as a hung host would, and the agent then reads as UNKNOWN when the alert is written.
+	reads := 0
+	g.d.rt.term.HTTP = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		if reads++; reads == 2 {
+			g.clock = g.clock.Add(11 * time.Minute)
+		}
+		return nil, errors.New("no screen")
+	})}
+	g.d.pollOpenCode(ctx)
+	if n := g.alerts(); n != 0 {
+		t.Fatalf("a stall alert written for an agent that became UNKNOWN meanwhile: %d", n)
+	}
+	g.d.rt.openCode.mu.Lock()
+	told := g.d.rt.openCode.polled["a1"].stalledFor
+	g.d.rt.openCode.mu.Unlock()
+	if !told.IsZero() {
+		t.Fatalf("the stretch is remembered as told though nothing was written: %v", told)
+	}
+	if reads < 2 {
+		t.Fatalf("the alert's text read the screen %d times: the clock never moved in the write", reads)
+	}
+	g.d.rt.term.HTTP = nil
+	g.outputAt(g.clock) // it draws again
+	g.d.pollOpenCode(ctx)
+	if n := g.alerts(); n != 1 {
+		t.Fatalf("after it drew again: %d stall alerts, want 1", n)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// stall_after 0 turns the alert off, however long the reply sits.
+func TestStallAfterZeroNeverTells(t *testing.T) {
+	g := newStallRig(t, nil)
+	if err := g.d.store.Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		return tx.PutSetting("opencode.stall_after", "0")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	g.d.pollOpenCode(context.Background())
+	g.clock = g.clock.Add(3 * time.Hour)
+	g.outputAt(g.clock)
+	g.d.pollOpenCode(context.Background())
+	if n := g.alerts(); n != 0 {
+		t.Fatalf("stall alerts with stall_after 0: %d", n)
 	}
 }

@@ -552,7 +552,7 @@ func (d *Daemon) openCodeStalled(ctx context.Context, a *v1.Agent, info opencode
 	if idle := d.now().Sub(info.UpdatedAt); idle < after {
 		return
 	}
-	err := d.alertOnceSince(ctx, r, a, "stalled", info.UpdatedAt, func(ctx context.Context) string {
+	inStore, err := d.alertOnceSince(ctx, r, a, "stalled", info.UpdatedAt, func(ctx context.Context) string {
 		return fmt.Sprintf("%s's OpenCode reply has been open for %s with no new part or token (a stalled or silently failing stream, "+
 			"or one long tool call). Look at its terminal; if it is stuck, interrupt it (esc) and send it a task to go on.",
 			a.Name, ago(d.now().Sub(info.UpdatedAt))) + d.afterwards(ctx, a)
@@ -562,6 +562,9 @@ func (d *Daemon) openCodeStalled(ctx context.Context, a *v1.Agent, info opencode
 			d.log.Warn("opencode stall alert", "agent", a.Name, "err", err)
 		}
 		return
+	}
+	if !inStore {
+		return // the write's re-check found the agent moved on (say, UNKNOWN by then) and left nothing: not told, look again
 	}
 	d.rt.openCode.mu.Lock()
 	if ps := d.rt.openCode.polled[a.Id]; ps != nil {
