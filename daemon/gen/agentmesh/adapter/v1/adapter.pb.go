@@ -869,7 +869,10 @@ type ListCommandsRequest struct {
 	Binary string            `protobuf:"bytes,3,opt,name=binary,proto3" json:"binary,omitempty"`
 	// A read-only agent (an asker or a reviewer) may sit on a PR head nobody trusted: the CLI then reads only the
 	// user's own settings.
-	ReadOnly      bool `protobuf:"varint,4,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	ReadOnly bool `protobuf:"varint,4,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
+	// What the agent's launch leaves out of its CLI (the plugins turned off, the claude.ai skills): the list is the one
+	// the launched CLI has. Only its `off_plugins` and `hide_claudeai_skills` are read.
+	Lean          *LeanLaunch `protobuf:"bytes,5,opt,name=lean,proto3" json:"lean,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -930,6 +933,13 @@ func (x *ListCommandsRequest) GetReadOnly() bool {
 		return x.ReadOnly
 	}
 	return false
+}
+
+func (x *ListCommandsRequest) GetLean() *LeanLaunch {
+	if x != nil {
+		return x.Lean
+	}
+	return nil
 }
 
 type ListCommandsResponse struct {
@@ -2588,12 +2598,13 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1f\n" +
 	"\vtoken_above\x18\x03 \x01(\x05R\n" +
 	"tokenAbove\x12\x14\n" +
-	"\x05ghost\x18\x04 \x01(\tR\x05ghost\"\xda\x01\n" +
+	"\x05ghost\x18\x04 \x01(\tR\x05ghost\"\x90\x02\n" +
 	"\x13ListCommandsRequest\x12\x10\n" +
 	"\x03cwd\x18\x01 \x01(\tR\x03cwd\x12D\n" +
 	"\x03env\x18\x02 \x03(\v22.agentmesh.adapter.v1.ListCommandsRequest.EnvEntryR\x03env\x12\x16\n" +
 	"\x06binary\x18\x03 \x01(\tR\x06binary\x12\x1b\n" +
-	"\tread_only\x18\x04 \x01(\bR\breadOnly\x1a6\n" +
+	"\tread_only\x18\x04 \x01(\bR\breadOnly\x124\n" +
+	"\x04lean\x18\x05 \x01(\v2 .agentmesh.adapter.v1.LeanLaunchR\x04lean\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"N\n" +
@@ -2824,57 +2835,58 @@ var file_agentmesh_adapter_v1_adapter_proto_depIdxs = []int32{
 	47, // 6: agentmesh.adapter.v1.LookupSessionRequest.not_before:type_name -> google.protobuf.Timestamp
 	0,  // 7: agentmesh.adapter.v1.ReadInputBoxResponse.box:type_name -> agentmesh.adapter.v1.InputBox
 	40, // 8: agentmesh.adapter.v1.ListCommandsRequest.env:type_name -> agentmesh.adapter.v1.ListCommandsRequest.EnvEntry
-	48, // 9: agentmesh.adapter.v1.ListCommandsResponse.commands:type_name -> agentmesh.v1.AgentCommand
-	41, // 10: agentmesh.adapter.v1.DeliverNativeRequest.env:type_name -> agentmesh.adapter.v1.DeliverNativeRequest.EnvEntry
-	42, // 11: agentmesh.adapter.v1.MeasureContextRequest.env:type_name -> agentmesh.adapter.v1.MeasureContextRequest.EnvEntry
-	49, // 12: agentmesh.adapter.v1.MeasureContextResponse.usage:type_name -> agentmesh.v1.ContextUsage
-	43, // 13: agentmesh.adapter.v1.ReadTranscriptRequest.env:type_name -> agentmesh.adapter.v1.ReadTranscriptRequest.EnvEntry
-	50, // 14: agentmesh.adapter.v1.ReadTranscriptResponse.entries:type_name -> agentmesh.v1.TranscriptEntry
-	44, // 15: agentmesh.adapter.v1.PlanCompactRequest.env:type_name -> agentmesh.adapter.v1.PlanCompactRequest.EnvEntry
-	4,  // 16: agentmesh.adapter.v1.PlanCompactRequest.lean:type_name -> agentmesh.adapter.v1.LeanLaunch
-	45, // 17: agentmesh.adapter.v1.PlanCompactResponse.env:type_name -> agentmesh.adapter.v1.PlanCompactResponse.EnvEntry
-	47, // 18: agentmesh.adapter.v1.DecodeHookRequest.fired_at:type_name -> google.protobuf.Timestamp
-	25, // 19: agentmesh.adapter.v1.DecodeHookResponse.events:type_name -> agentmesh.adapter.v1.AgentEvent
-	47, // 20: agentmesh.adapter.v1.AgentEvent.time:type_name -> google.protobuf.Timestamp
-	26, // 21: agentmesh.adapter.v1.AgentEvent.session_started:type_name -> agentmesh.adapter.v1.SessionStarted
-	27, // 22: agentmesh.adapter.v1.AgentEvent.turn_started:type_name -> agentmesh.adapter.v1.TurnStarted
-	28, // 23: agentmesh.adapter.v1.AgentEvent.activity:type_name -> agentmesh.adapter.v1.Activity
-	29, // 24: agentmesh.adapter.v1.AgentEvent.needs_input:type_name -> agentmesh.adapter.v1.NeedsInput
-	30, // 25: agentmesh.adapter.v1.AgentEvent.turn_ended:type_name -> agentmesh.adapter.v1.TurnEnded
-	31, // 26: agentmesh.adapter.v1.AgentEvent.compacting:type_name -> agentmesh.adapter.v1.Compacting
-	32, // 27: agentmesh.adapter.v1.AgentEvent.session_ended:type_name -> agentmesh.adapter.v1.SessionEnded
-	33, // 28: agentmesh.adapter.v1.AgentEvent.process_exited:type_name -> agentmesh.adapter.v1.ProcessExited
-	34, // 29: agentmesh.adapter.v1.AgentEvent.decode_error:type_name -> agentmesh.adapter.v1.DecodeError
-	35, // 30: agentmesh.adapter.v1.AgentEvent.rate_limited:type_name -> agentmesh.adapter.v1.RateLimited
-	36, // 31: agentmesh.adapter.v1.AgentEvent.turn_failed:type_name -> agentmesh.adapter.v1.TurnFailed
-	47, // 32: agentmesh.adapter.v1.RateLimited.reset_at:type_name -> google.protobuf.Timestamp
-	1,  // 33: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
-	3,  // 34: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
-	23, // 35: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
-	7,  // 36: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
-	15, // 37: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
-	9,  // 38: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:input_type -> agentmesh.adapter.v1.ReadInputBoxRequest
-	13, // 39: agentmesh.adapter.v1.CliAdapterService.DeliverNative:input_type -> agentmesh.adapter.v1.DeliverNativeRequest
-	17, // 40: agentmesh.adapter.v1.CliAdapterService.MeasureContext:input_type -> agentmesh.adapter.v1.MeasureContextRequest
-	19, // 41: agentmesh.adapter.v1.CliAdapterService.ReadTranscript:input_type -> agentmesh.adapter.v1.ReadTranscriptRequest
-	21, // 42: agentmesh.adapter.v1.CliAdapterService.PlanCompact:input_type -> agentmesh.adapter.v1.PlanCompactRequest
-	11, // 43: agentmesh.adapter.v1.CliAdapterService.ListCommands:input_type -> agentmesh.adapter.v1.ListCommandsRequest
-	2,  // 44: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
-	6,  // 45: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
-	24, // 46: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
-	8,  // 47: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
-	16, // 48: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
-	10, // 49: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:output_type -> agentmesh.adapter.v1.ReadInputBoxResponse
-	14, // 50: agentmesh.adapter.v1.CliAdapterService.DeliverNative:output_type -> agentmesh.adapter.v1.DeliverNativeResponse
-	18, // 51: agentmesh.adapter.v1.CliAdapterService.MeasureContext:output_type -> agentmesh.adapter.v1.MeasureContextResponse
-	20, // 52: agentmesh.adapter.v1.CliAdapterService.ReadTranscript:output_type -> agentmesh.adapter.v1.ReadTranscriptResponse
-	22, // 53: agentmesh.adapter.v1.CliAdapterService.PlanCompact:output_type -> agentmesh.adapter.v1.PlanCompactResponse
-	12, // 54: agentmesh.adapter.v1.CliAdapterService.ListCommands:output_type -> agentmesh.adapter.v1.ListCommandsResponse
-	44, // [44:55] is the sub-list for method output_type
-	33, // [33:44] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	4,  // 9: agentmesh.adapter.v1.ListCommandsRequest.lean:type_name -> agentmesh.adapter.v1.LeanLaunch
+	48, // 10: agentmesh.adapter.v1.ListCommandsResponse.commands:type_name -> agentmesh.v1.AgentCommand
+	41, // 11: agentmesh.adapter.v1.DeliverNativeRequest.env:type_name -> agentmesh.adapter.v1.DeliverNativeRequest.EnvEntry
+	42, // 12: agentmesh.adapter.v1.MeasureContextRequest.env:type_name -> agentmesh.adapter.v1.MeasureContextRequest.EnvEntry
+	49, // 13: agentmesh.adapter.v1.MeasureContextResponse.usage:type_name -> agentmesh.v1.ContextUsage
+	43, // 14: agentmesh.adapter.v1.ReadTranscriptRequest.env:type_name -> agentmesh.adapter.v1.ReadTranscriptRequest.EnvEntry
+	50, // 15: agentmesh.adapter.v1.ReadTranscriptResponse.entries:type_name -> agentmesh.v1.TranscriptEntry
+	44, // 16: agentmesh.adapter.v1.PlanCompactRequest.env:type_name -> agentmesh.adapter.v1.PlanCompactRequest.EnvEntry
+	4,  // 17: agentmesh.adapter.v1.PlanCompactRequest.lean:type_name -> agentmesh.adapter.v1.LeanLaunch
+	45, // 18: agentmesh.adapter.v1.PlanCompactResponse.env:type_name -> agentmesh.adapter.v1.PlanCompactResponse.EnvEntry
+	47, // 19: agentmesh.adapter.v1.DecodeHookRequest.fired_at:type_name -> google.protobuf.Timestamp
+	25, // 20: agentmesh.adapter.v1.DecodeHookResponse.events:type_name -> agentmesh.adapter.v1.AgentEvent
+	47, // 21: agentmesh.adapter.v1.AgentEvent.time:type_name -> google.protobuf.Timestamp
+	26, // 22: agentmesh.adapter.v1.AgentEvent.session_started:type_name -> agentmesh.adapter.v1.SessionStarted
+	27, // 23: agentmesh.adapter.v1.AgentEvent.turn_started:type_name -> agentmesh.adapter.v1.TurnStarted
+	28, // 24: agentmesh.adapter.v1.AgentEvent.activity:type_name -> agentmesh.adapter.v1.Activity
+	29, // 25: agentmesh.adapter.v1.AgentEvent.needs_input:type_name -> agentmesh.adapter.v1.NeedsInput
+	30, // 26: agentmesh.adapter.v1.AgentEvent.turn_ended:type_name -> agentmesh.adapter.v1.TurnEnded
+	31, // 27: agentmesh.adapter.v1.AgentEvent.compacting:type_name -> agentmesh.adapter.v1.Compacting
+	32, // 28: agentmesh.adapter.v1.AgentEvent.session_ended:type_name -> agentmesh.adapter.v1.SessionEnded
+	33, // 29: agentmesh.adapter.v1.AgentEvent.process_exited:type_name -> agentmesh.adapter.v1.ProcessExited
+	34, // 30: agentmesh.adapter.v1.AgentEvent.decode_error:type_name -> agentmesh.adapter.v1.DecodeError
+	35, // 31: agentmesh.adapter.v1.AgentEvent.rate_limited:type_name -> agentmesh.adapter.v1.RateLimited
+	36, // 32: agentmesh.adapter.v1.AgentEvent.turn_failed:type_name -> agentmesh.adapter.v1.TurnFailed
+	47, // 33: agentmesh.adapter.v1.RateLimited.reset_at:type_name -> google.protobuf.Timestamp
+	1,  // 34: agentmesh.adapter.v1.CliAdapterService.Describe:input_type -> agentmesh.adapter.v1.DescribeRequest
+	3,  // 35: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:input_type -> agentmesh.adapter.v1.PlanLaunchRequest
+	23, // 36: agentmesh.adapter.v1.CliAdapterService.DecodeHook:input_type -> agentmesh.adapter.v1.DecodeHookRequest
+	7,  // 37: agentmesh.adapter.v1.CliAdapterService.LookupSession:input_type -> agentmesh.adapter.v1.LookupSessionRequest
+	15, // 38: agentmesh.adapter.v1.CliAdapterService.DescribeModel:input_type -> agentmesh.adapter.v1.DescribeModelRequest
+	9,  // 39: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:input_type -> agentmesh.adapter.v1.ReadInputBoxRequest
+	13, // 40: agentmesh.adapter.v1.CliAdapterService.DeliverNative:input_type -> agentmesh.adapter.v1.DeliverNativeRequest
+	17, // 41: agentmesh.adapter.v1.CliAdapterService.MeasureContext:input_type -> agentmesh.adapter.v1.MeasureContextRequest
+	19, // 42: agentmesh.adapter.v1.CliAdapterService.ReadTranscript:input_type -> agentmesh.adapter.v1.ReadTranscriptRequest
+	21, // 43: agentmesh.adapter.v1.CliAdapterService.PlanCompact:input_type -> agentmesh.adapter.v1.PlanCompactRequest
+	11, // 44: agentmesh.adapter.v1.CliAdapterService.ListCommands:input_type -> agentmesh.adapter.v1.ListCommandsRequest
+	2,  // 45: agentmesh.adapter.v1.CliAdapterService.Describe:output_type -> agentmesh.adapter.v1.DescribeResponse
+	6,  // 46: agentmesh.adapter.v1.CliAdapterService.PlanLaunch:output_type -> agentmesh.adapter.v1.PlanLaunchResponse
+	24, // 47: agentmesh.adapter.v1.CliAdapterService.DecodeHook:output_type -> agentmesh.adapter.v1.DecodeHookResponse
+	8,  // 48: agentmesh.adapter.v1.CliAdapterService.LookupSession:output_type -> agentmesh.adapter.v1.LookupSessionResponse
+	16, // 49: agentmesh.adapter.v1.CliAdapterService.DescribeModel:output_type -> agentmesh.adapter.v1.DescribeModelResponse
+	10, // 50: agentmesh.adapter.v1.CliAdapterService.ReadInputBox:output_type -> agentmesh.adapter.v1.ReadInputBoxResponse
+	14, // 51: agentmesh.adapter.v1.CliAdapterService.DeliverNative:output_type -> agentmesh.adapter.v1.DeliverNativeResponse
+	18, // 52: agentmesh.adapter.v1.CliAdapterService.MeasureContext:output_type -> agentmesh.adapter.v1.MeasureContextResponse
+	20, // 53: agentmesh.adapter.v1.CliAdapterService.ReadTranscript:output_type -> agentmesh.adapter.v1.ReadTranscriptResponse
+	22, // 54: agentmesh.adapter.v1.CliAdapterService.PlanCompact:output_type -> agentmesh.adapter.v1.PlanCompactResponse
+	12, // 55: agentmesh.adapter.v1.CliAdapterService.ListCommands:output_type -> agentmesh.adapter.v1.ListCommandsResponse
+	45, // [45:56] is the sub-list for method output_type
+	34, // [34:45] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_agentmesh_adapter_v1_adapter_proto_init() }

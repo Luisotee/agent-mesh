@@ -308,6 +308,10 @@ func TestTranscriptLeavesOutWhatTheCLIWritesForItselfAndShowsACommandAsTyped(t *
 	if es := entries(t, errOut); len(es) != 1 || !es[0].IsError || es[0].Text != "no such command" {
 		t.Errorf("a command's error output: %v", es)
 	}
+	const osc = `{"type":"user","uuid":"o4","message":{"role":"user","content":"<local-command-stdout>\u001b]0;title\u0007Done\u001b(B</local-command-stdout>"}}`
+	if es := entries(t, osc); len(es) != 1 || es[0].Text != "Done" {
+		t.Errorf("a window title and a charset switch left in the output: %v", es)
+	}
 	if es := entries(t, empty); len(es) != 0 {
 		t.Errorf("an empty output shown: %v", es)
 	}

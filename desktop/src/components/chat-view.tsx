@@ -423,10 +423,13 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     setError('')
     try {
       // `/exit` and the like end the session: ask first. The list may not be here yet (the first probe is slow): wait for it, so the question is never skipped.
-      const known = body.startsWith('/') && assist.commands.length === 0 ? await assist.load() : assist.commands
+      let known = assist.commands
+      if (body.startsWith('/') && known.length === 0) known = await assist.load(true)
       // `/resume` and the pickers open a dialog the chat can't show.
       const cmd = invoked(body, known)
-      if (cmd?.command.danger && confirmedBody === undefined) {
+      // With no list at all (the host can't say, or it failed) the question is still asked for the commands every CLI has that end the session.
+      const unlisted = known.length === 0 && /^\/(exit|quit|logout)(\s|$)/i.test(body)
+      if ((cmd?.command.danger || unlisted) && confirmedBody === undefined) {
         setConfirming(body)
         setBusy(false)
         return

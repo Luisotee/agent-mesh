@@ -210,6 +210,35 @@ describe('the composer\'s suggested prompt', () => {
     await waitFor(() => expect(field()).toHaveAttribute('placeholder', 'run it'))
   })
 
+  it('does not show an earlier turn\'s suggestion when the next idle has none', async () => {
+    const { ui, client, store } = chat({ suggestion: 'run it' })
+    render(ui)
+    await waitFor(() => expect(field()).toHaveAttribute('placeholder', 'run it'))
+    client.getPromptSuggestion.mockResolvedValue(create(GetPromptSuggestionResponseSchema, { text: '' }))
+    act(() => store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } as never } })))
+    act(() => store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } as never } })))
+    await waitFor(() => expect(client.getPromptSuggestion.mock.calls.length).toBeGreaterThan(1))
+    await new Promise((r) => setTimeout(r, 30))
+    expect(field().getAttribute('placeholder')).not.toBe('run it')
+  })
+
+  it('reads again after a read that failed', async () => {
+    suggestionTiming.readsMs = [0, 10]
+    const { ui, client } = chat()
+    client.getPromptSuggestion.mockRejectedValueOnce(new Error('blip')).mockResolvedValue(create(GetPromptSuggestionResponseSchema, { text: 'ship it' }))
+    render(ui)
+    await waitFor(() => expect(field()).toHaveAttribute('placeholder', 'ship it'))
+  })
+
+  it('asks before /exit even when the host could not give the list of commands', async () => {
+    const { ui, client, promptAgent } = chat()
+    client.listAgentCommands.mockRejectedValue(new Error('down'))
+    render(ui)
+    await userEvent.type(field(), '/exit{Enter}')
+    await screen.findByRole('dialog')
+    expect(promptAgent).not.toHaveBeenCalled()
+  })
+
   it('is asked of Claude only, and only while the agent is at its prompt', async () => {
     const other = chat({ kind: 'agy', suggestion: 'x' })
     const { unmount } = render(other.ui)

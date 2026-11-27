@@ -178,6 +178,9 @@ message ListCommandsRequest {
   // A read-only agent (an asker or a reviewer) may sit on a PR head nobody trusted: the CLI then reads only the
   // user's own settings.
   bool read_only = 4;
+  // What the agent's launch leaves out of its CLI (the plugins turned off, the claude.ai skills): the list is the one
+  // the launched CLI has. Only its `off_plugins` and `hide_claudeai_skills` are read.
+  LeanLaunch lean = 5;
 }
 
 message ListCommandsResponse {

@@ -29,8 +29,14 @@ function fetchCommands(host: HostRuntime, agentId: string, force = false): Promi
   return entry.loading
 }
 
+/** The commands of an agent: the kept list, or (empty or `force`) a fresh ask, waited for. */
+async function commandsNow(host: HostRuntime, agentId: string, force: boolean): Promise<AgentCommand[]> {
+  await fetchCommands(host, agentId, force)
+  return cache.get(`${host.info.id}\n${agentId}`)?.commands ?? []
+}
+
 /** The commands of an agent's CLI, asked for on first use and again when they are older than a short while. */
-export function useAgentCommands(host: HostRuntime, agentId: string): { commands: AgentCommand[]; loading: boolean; refresh: () => void; load: () => Promise<AgentCommand[]> } {
+export function useAgentCommands(host: HostRuntime, agentId: string): { commands: AgentCommand[]; loading: boolean; refresh: () => void; load: (force?: boolean) => Promise<AgentCommand[]> } {
   const [, bump] = useState(0)
   const get = useCallback(
     (force: boolean) => {
@@ -41,10 +47,7 @@ export function useAgentCommands(host: HostRuntime, agentId: string): { commands
   )
   useEffect(() => get(false), [get])
   const hit = cache.get(`${host.info.id}\n${agentId}`)
-  const load = useCallback(async () => {
-    await fetchCommands(host, agentId)
-    return cache.get(`${host.info.id}\n${agentId}`)?.commands ?? []
-  }, [host, agentId])
+  const load = useCallback((force = false) => commandsNow(host, agentId, force), [host, agentId])
   return { commands: hit?.commands ?? [], loading: !!hit?.loading, refresh: () => get(false), load }
 }
 
@@ -61,7 +64,10 @@ export function usePromptSuggestion(host: HostRuntime, agentId: string, state: A
   const idle = state === AgentState.IDLE
   // A suggestion dropped with Esc stays dropped for the idle it was shown in: the next one, even the same words, shows.
   useEffect(() => {
-    if (!idle) setDismissed('')
+    if (!idle) {
+      setDismissed('')
+      setFound(undefined) // what was suggested belongs to the idle it was read in
+    }
   }, [idle])
   useEffect(() => {
     if (!enabled || !idle || !boxEmpty) return
@@ -73,9 +79,11 @@ export function usePromptSuggestion(host: HostRuntime, agentId: string, state: A
           const res = await getPromptSuggestion(host.client, agentId)
           if (cancelled) return
           if (res.text) return setFound({ agentId, text: res.text })
+          setFound(undefined) // the CLI shows none now: an earlier one is not shown again
         } catch {
-          return // no suggestion is not an error worth showing
+          // A read that failed is tried again like one that found nothing.
         }
+        if (cancelled) return
         if (i + 1 < suggestionTiming.readsMs.length) read(i + 1)
       }, suggestionTiming.readsMs[i])
     }
@@ -100,7 +108,7 @@ export interface ComposerAssist {
   suggestion: string
   commands: AgentCommand[]
   /** The commands, waiting for the first answer when there is none yet. */
-  load: () => Promise<AgentCommand[]>
+  load: (force?: boolean) => Promise<AgentCommand[]>
 }
 
 /**

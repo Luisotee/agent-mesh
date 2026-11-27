@@ -43,9 +43,10 @@ export function filterCommands(commands: AgentCommand[], typed: string): AgentCo
 /** The box with the command's name written in place of the one being typed (the arguments after it stay), and where the caret goes: after the name and a space. */
 export function complete(value: string, c: AgentCommand): { value: string; caret: number } {
   const rest = value.replace(/^\/\S*/, '')
-  const gap = rest.startsWith(' ') || rest.startsWith('\n') ? '' : ' '
+  const gap = /^\s/.test(rest) ? '' : ' '
   const head = `/${c.name}${gap}`
-  return { value: head + rest, caret: head.length + (gap ? 0 : 1) }
+  // After the name and the one space that follows it (a newline after the name stays where it is: the caret is at the name's end).
+  return { value: head + rest, caret: head.length + (rest.startsWith(' ') ? 1 : 0) }
 }
 
 /** What the box holds when it is a command: the one it names (by name or alias) and what follows it, or undefined for any other text (a path, a `/word` the CLI doesn't know). */

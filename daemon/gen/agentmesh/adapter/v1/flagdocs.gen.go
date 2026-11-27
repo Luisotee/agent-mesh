@@ -19,6 +19,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.adapter.v1.LeanLaunch.mcp_config_path":          "A file of the MCP servers to load (Claude's `--mcp-config` format); only these load (`--strict-mcp-config`), and claude.ai's connectors are off. Empty: the CLI loads every server the user's config has.",
 	"agentmesh.adapter.v1.LeanLaunch.off_plugins":              "Plugins turned off, by name (any marketplace): the ones the user's settings enable.",
 	"agentmesh.adapter.v1.ListCommandsRequest.cwd":             "The agent's worktree and environment (where the CLI keeps its config), and the CLI's binary.",
+	"agentmesh.adapter.v1.ListCommandsRequest.lean":            "What the agent's launch leaves out of its CLI (the plugins turned off, the claude.ai skills): the list is the one the launched CLI has. Only its `off_plugins` and `hide_claudeai_skills` are read.",
 	"agentmesh.adapter.v1.ListCommandsRequest.read_only":       "A read-only agent (an asker or a reviewer) may sit on a PR head nobody trusted: the CLI then reads only the user's own settings.",
 	"agentmesh.adapter.v1.LookupSessionRequest.not_before":     "When the agent was created: a conversation started before it (or untouched since) is someone else's.",
 	"agentmesh.adapter.v1.MeasureContextRequest.env":           "The environment the CLI's records are found by (HOME).",

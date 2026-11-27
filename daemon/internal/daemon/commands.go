@@ -2,12 +2,14 @@ package daemon
 
 import (
 	"context"
+	"slices"
 
 	"connectrpc.com/connect"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 )
 
@@ -25,8 +27,12 @@ func (d *Daemon) ListAgentCommands(ctx context.Context, req *connect.Request[v1.
 	if err != nil {
 		return connect.NewResponse(&v1.ListAgentCommandsResponse{}), nil
 	}
+	lean, err := d.leanForCommands(ctx, a)
+	if err != nil {
+		return nil, err
+	}
 	res, err := ad.ListCommands(ctx, connect.NewRequest(&adapterv1.ListCommandsRequest{
-		Cwd: a.Worktree, Env: d.agentEnv(a, ""), Binary: d.rt.cfg.Binaries[a.Kind], ReadOnly: adapter.ReadOnly(a.Role)}))
+		Cwd: a.Worktree, Env: d.agentEnv(a, ""), Binary: d.rt.cfg.Binaries[a.Kind], ReadOnly: adapter.ReadOnly(a.Role), Lean: lean}))
 	if connect.CodeOf(err) == connect.CodeUnimplemented {
 		return connect.NewResponse(&v1.ListAgentCommandsResponse{}), nil
 	}
@@ -51,4 +57,26 @@ func (d *Daemon) GetPromptSuggestion(ctx context.Context, req *connect.Request[v
 		out.Text = r.Ghost
 	}
 	return connect.NewResponse(out), nil
+}
+
+// leanForCommands is the part of a Claude agent's lean launch that changes which commands it has: the plugins
+// turned off and the claude.ai skills (a hidden skill can still be typed, so those stay in the list). nil for another
+// CLI or with `claude.lean` off.
+func (d *Daemon) leanForCommands(ctx context.Context, a *v1.Agent) (*adapterv1.LeanLaunch, error) {
+	if a.Kind != claude.Kind || !d.leanOn(ctx) {
+		return nil, nil
+	}
+	r := d.store.Read(ctx)
+	plugins, err := d.settingStrings(r, "claude.plugins_off")
+	if err != nil {
+		return nil, err
+	}
+	keepSkills, err := d.Setting(r, "claude.claudeai_skills")
+	if err != nil {
+		return nil, err
+	}
+	return &adapterv1.LeanLaunch{
+		OffPlugins:         filterAddedPlugins(plugins, a.AddedTools),
+		HideClaudeaiSkills: keepSkills != true && !slices.Contains(a.AddedTools, claude.ClaudeAISkills),
+	}, nil
 }

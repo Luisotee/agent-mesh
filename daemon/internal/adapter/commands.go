@@ -55,6 +55,9 @@ func MergeCommands(lists ...[]*v1.AgentCommand) []*v1.AgentCommand {
 				continue
 			}
 			seen[c.Name] = true
+			for _, al := range c.Aliases {
+				seen[al] = true // a later skill named like this one's alias doesn't shadow it
+			}
 			out = append(out, c)
 		}
 	}

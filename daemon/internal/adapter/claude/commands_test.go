@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,7 @@ func TestParseInitializeReadsTheCommandsAndTellsWhereEachComesFrom(t *testing.T)
 // The probe must leave no trace: no session file, no hook (the user's, the repo's or ours), no MCP server from a
 // repo's `.mcp.json`, and for a read-only agent the user's settings only.
 func TestTheCommandProbeLeavesNoTrace(t *testing.T) {
-	argv := commandsArgv("claude", "/share", false)
+	argv := commandsArgv("claude", "/share", false, `{"disableAllHooks":true}`)
 	if !hasPair(argv, "--settings", `{"disableAllHooks":true}`) {
 		t.Errorf("hooks not disabled: %v", argv)
 	}
@@ -73,7 +74,7 @@ func TestTheCommandProbeLeavesNoTrace(t *testing.T) {
 	if !hasPair(argv, "--plugin-dir", "/share") || !hasPair(argv, "--input-format", "stream-json") || contains(argv, "--setting-sources") {
 		t.Errorf("a worker's probe: %v", argv)
 	}
-	if ro := commandsArgv("claude", "", true); !hasPair(ro, "--setting-sources", "user") || contains(ro, "--plugin-dir") {
+	if ro := commandsArgv("claude", "", true, `{"disableAllHooks":true}`); !hasPair(ro, "--setting-sources", "user") || contains(ro, "--plugin-dir") {
 		t.Errorf("a read-only agent's probe: %v", ro)
 	}
 }
@@ -302,5 +303,72 @@ func TestAProbeIsNotKilledWhenTheCallerThatStartedItLeaves(t *testing.T) {
 	}
 	if n := runCount(t, runs); n != 1 {
 		t.Errorf("%d probes", n)
+	}
+}
+
+func TestTheProbeHasWhatTheLeanLaunchLeavesOut(t *testing.T) {
+	m := &adapterv1.ListCommandsRequest{Env: map[string]string{"HOME": t.TempDir()},
+		Lean: &adapterv1.LeanLaunch{OffPlugins: []string{"pr-review-toolkit"}, HideClaudeaiSkills: true, HiddenSkills: []string{"loop"}}}
+	home := m.Env["HOME"]
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{"enabledPlugins":{"pr-review-toolkit@mp":true,"feature-dev@mp":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(probeSettings(m)), &got); err != nil {
+		t.Fatal(err)
+	}
+	plugins, _ := got["enabledPlugins"].(map[string]any)
+	if got["disableAllHooks"] != true || got["syncClaudeAiSkills"] != false || plugins["pr-review-toolkit@mp"] != false || plugins["feature-dev@mp"] != nil {
+		t.Errorf("the probe's settings: %v", got)
+	}
+	// A skill that is only hidden from the model can still be typed: it stays in the list.
+	if got["skillOverrides"] != nil {
+		t.Errorf("hidden skills left out of the list: %v", got["skillOverrides"])
+	}
+	// Another lean policy is another list: it is not served from the first one's cache.
+	if probeSettings(m) == probeSettings(&adapterv1.ListCommandsRequest{Env: m.Env}) {
+		t.Error("the same settings with and without a lean policy")
+	}
+	var plain map[string]any
+	json.Unmarshal([]byte(probeSettings(&adapterv1.ListCommandsRequest{})), &plain)
+	if len(plain) != 1 || plain["disableAllHooks"] != true {
+		t.Errorf("no lean, no share: %v", plain)
+	}
+}
+
+func TestAResponseToAnotherRequestOrAnErrorIsNotTheCommandList(t *testing.T) {
+	other := strings.Replace(initAnswer, `"request_id":"mesh-commands"`, `"request_id":"other"`, 1)
+	if parseInitialize([]byte(other)) != nil {
+		t.Error("another request's answer taken")
+	}
+	failed := strings.Replace(initAnswer, `"subtype":"success"`, `"subtype":"error"`, 1)
+	if parseInitialize([]byte(failed)) != nil {
+		t.Error("an error answer taken")
+	}
+}
+
+func TestACallerThatLeavesWhileWaitingForAProbeSlotGivesItUpAndDoesntPoisonTheEntry(t *testing.T) {
+	bin, runs := fakeProbeClaude(t, initAnswer, false)
+	a := New()
+	// Both slots are taken.
+	a.slots() <- struct{}{}
+	a.slots() <- struct{}{}
+	req := &adapterv1.ListCommandsRequest{Cwd: t.TempDir(), Binary: bin, Env: map[string]string{"PATH": os.Getenv("PATH")}}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	res, err := a.ListCommands(ctx, connect.NewRequest(proto.CloneOf(req)))
+	if err != nil || len(res.Msg.Commands) == 0 {
+		t.Fatalf("the table's commands are still offered: %v %v", res, err)
+	}
+	if n := runCount(t, runs); n != 0 {
+		t.Fatalf("a probe ran without a slot: %d", n)
+	}
+	// A slot frees: the next caller probes (the entry of the one that left was not kept as a failure).
+	<-a.slots()
+	if got := list(t, a, req); got["deploy"] == nil {
+		t.Errorf("the next caller got no probed commands: %d", len(got))
 	}
 }

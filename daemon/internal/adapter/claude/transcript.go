@@ -49,7 +49,7 @@ var (
 	bashOutput  = regexp.MustCompile(`^<bash-(stdout|stderr)>`)
 	localOutput = regexp.MustCompile(`^<local-command-(stdout|stderr|caveat)>`)
 	commandOut  = regexp.MustCompile(`(?s)^<local-command-(stdout|stderr)>(.*?)(?:</local-command-(?:stdout|stderr)>)?\s*$`)
-	ansi        = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
+	ansi        = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\([A-Za-z0-9]`)
 	commandName = regexp.MustCompile(`(?s)<command-name>\s*(.*?)\s*</command-name>`)
 	commandArgs = regexp.MustCompile(`(?s)<command-args>\s*(.*?)\s*</command-args>`)
 )

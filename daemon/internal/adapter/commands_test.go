@@ -48,3 +48,12 @@ func TestMergeCommandsKeepsTheFirstOfAName(t *testing.T) {
 		t.Errorf("%v", out)
 	}
 }
+
+func TestMergeCommandsDoesNotLetALaterNameShadowAnEarlierAlias(t *testing.T) {
+	built := Commands([]Cmd{{Name: "exit", Aliases: []string{"quit"}, Danger: true}})
+	skills := Commands([]Cmd{{Name: "quit", Source: "skill"}, {Name: "other", Source: "skill"}})
+	out := MergeCommands(built, skills)
+	if len(out) != 2 || out[0].Name != "exit" || out[1].Name != "other" {
+		t.Errorf("%v", out)
+	}
+}

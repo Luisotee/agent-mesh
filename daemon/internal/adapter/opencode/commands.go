@@ -57,7 +57,7 @@ func (a *Adapter) ListCommands(ctx context.Context, req *connect.Request[adapter
 	if bin == "" {
 		bin = "opencode"
 	}
-	out, err := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"debug", "config"}, Cwd: m.Cwd, Env: mapToEnv(m.Env),
+	out, err := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"debug", "config"}, Cwd: m.Cwd, Env: mapToEnv(commandsEnv(m)),
 		Dir: a.ProbeDir, Timeout: 10 * time.Second})
 	if err == nil {
 		cmds = adapter.MergeCommands(cmds, adapter.Commands(customCommands(out)))
@@ -100,4 +100,20 @@ func oneLine(s string) string {
 		s = string(r[:120]) + "…"
 	}
 	return s
+}
+
+// commandsEnv is the environment of `opencode debug config`: no mesh identity (the probe is nobody's agent) and, for an
+// asker or a reviewer, no project config: a PR head's `.opencode/` plugins run when the config is read, which the
+// agent's own launch prevents the same way (`OPENCODE_DISABLE_PROJECT_CONFIG`).
+func commandsEnv(m *adapterv1.ListCommandsRequest) map[string]string {
+	env := map[string]string{}
+	for k, v := range m.Env {
+		if !strings.HasPrefix(k, "AGENT_MESH_") {
+			env[k] = v
+		}
+	}
+	if m.ReadOnly {
+		env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
+	}
+	return env
 }

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
 )
 
 func TestCustomCommandsAreReadFromTheConfigAfterLogLines(t *testing.T) {
@@ -44,5 +46,17 @@ func TestADescriptionCutFromALongTemplateIsCutOnACharacter(t *testing.T) {
 	cs := customCommands(out)
 	if len(cs) != 1 || !utf8.ValidString(cs[0].Desc) || !strings.HasSuffix(cs[0].Desc, "…") || len([]rune(cs[0].Desc)) != 121 {
 		t.Errorf("%+v", cs)
+	}
+}
+
+func TestTheConfigProbeOfAReadOnlyAgentLoadsNoProjectConfigAndCarriesNoIdentity(t *testing.T) {
+	m := &adapterv1.ListCommandsRequest{ReadOnly: true, Env: map[string]string{"HOME": "/h", "AGENT_MESH_TOKEN": "x", "AGENT_MESH_AGENT": "a"}}
+	env := commandsEnv(m)
+	if env["OPENCODE_DISABLE_PROJECT_CONFIG"] != "1" || env["HOME"] != "/h" || env["AGENT_MESH_TOKEN"] != "" || env["AGENT_MESH_AGENT"] != "" {
+		t.Errorf("%v", env)
+	}
+	m.ReadOnly = false
+	if env := commandsEnv(m); env["OPENCODE_DISABLE_PROJECT_CONFIG"] != "" {
+		t.Errorf("a worker's own project config is its own: %v", env)
 	}
 }

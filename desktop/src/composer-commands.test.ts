@@ -55,6 +55,7 @@ describe('complete', () => {
     expect(complete('/com', commands[0]!)).toEqual({ value: '/compact ', caret: 9 })
     expect(complete('/com keep the plan', commands[0]!)).toEqual({ value: '/compact keep the plan', caret: 9 })
     expect(complete('/', commands[4]!)).toEqual({ value: '/exit ', caret: 6 })
+    expect(complete('/comp\nnotes', commands[0]!)).toEqual({ value: '/compact\nnotes', caret: 8 })
   })
 })
 

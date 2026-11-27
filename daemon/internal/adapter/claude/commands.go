@@ -135,7 +135,8 @@ type cmdEntry struct {
 // probedCommands is the headless list for a worktree, kept for commandsTTL, one probe at a time per worktree. A
 // probe that fails gives nothing (the table's commands are still offered) and is not kept long.
 func (a *Adapter) probedCommands(ctx context.Context, m *adapterv1.ListCommandsRequest) []*v1.AgentCommand {
-	key := m.Cwd
+	settings := probeSettings(m)
+	key := m.Cwd + "\x00" + settings
 	if m.ReadOnly {
 		key += "\x00ro"
 	}
@@ -160,10 +161,16 @@ func (a *Adapter) probedCommands(ctx context.Context, m *adapterv1.ListCommandsR
 			e = &cmdEntry{ready: make(chan struct{})}
 			a.cmds[key] = e
 			a.cmdMu.Unlock()
-			// The probe belongs to everyone waiting on it, not to the caller that happened to start it: a caller that
-			// leaves must not kill it and cache its cancellation as a failure.
-			cmds, err := a.runCommandsProbe(context.WithoutCancel(ctx), m)
+			// A caller that leaves while the probe runs doesn't kill it (it is everyone's, `runCommandsProbe`); one that
+			// leaves while it waits for a probe slot gives its place up, and the entry goes so the next caller probes.
+			cmds, err := a.runCommandsProbe(ctx, m, settings)
 			a.cmdMu.Lock()
+			if err != nil && ctx.Err() != nil {
+				delete(a.cmds, key)
+				close(e.ready)
+				a.cmdMu.Unlock()
+				return nil
+			}
 			e.cmds, e.at = cmds, time.Now()
 			if err != nil {
 				e.at = time.Now().Add(-ttl + 5*time.Second) // tried again after 5 s, not at every keystroke
@@ -192,9 +199,9 @@ func (a *Adapter) probedCommands(ctx context.Context, m *adapterv1.ListCommandsR
 // hook of the user's, the repo's or the mesh's (`disableAllHooks`), no MCP server started (`--strict-mcp-config`
 // with no config: a repo's `.mcp.json` can't run a program from a probe), and for a read-only agent the user's
 // settings only, as its launch.
-func commandsArgv(bin, share string, readOnly bool) []string {
+func commandsArgv(bin, share string, readOnly bool, settings string) []string {
 	argv := []string{bin, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--no-session-persistence", "--strict-mcp-config", "--settings", `{"disableAllHooks":true}`}
+		"--no-session-persistence", "--strict-mcp-config", "--settings", settings}
 	if readOnly {
 		argv = append(argv, "--setting-sources", "user")
 	}
@@ -204,20 +211,55 @@ func commandsArgv(bin, share string, readOnly bool) []string {
 	return argv
 }
 
+// probeSettings is the probe's `--settings`: hooks off, and what the agent's launch turns off (its plugins, the
+// claude.ai skills) and the share plugin's own copies in the user's plugins (`shadowedPlugins`), so the list is the
+// one the launched CLI has.
+func probeSettings(m *adapterv1.ListCommandsRequest) string {
+	out := map[string]any{"disableAllHooks": true}
+	if m.Lean != nil {
+		for k, v := range leanSettings(m.Env, &adapterv1.LeanLaunch{OffPlugins: m.Lean.OffPlugins, HideClaudeaiSkills: m.Lean.HideClaudeaiSkills}) {
+			out[k] = v
+		}
+	}
+	if share := shareOf(m.Env); share != "" {
+		if off := shadowedPlugins(m.Env, share); len(off) > 0 {
+			merged := map[string]any{}
+			if cur, ok := out["enabledPlugins"].(map[string]bool); ok {
+				for k, v := range cur {
+					merged[k] = v
+				}
+			}
+			for k, v := range off {
+				merged[k] = v
+			}
+			out["enabledPlugins"] = merged
+		}
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
+// shareOf is the share folder of an environment when it is the Claude plugin (`.claude-plugin/plugin.json`).
+func shareOf(env map[string]string) string {
+	if s := env["AGENT_MESH_SHARE"]; s != "" {
+		if _, err := os.Stat(filepath.Join(s, ".claude-plugin", "plugin.json")); err == nil {
+			return s
+		}
+	}
+	return ""
+}
+
 const initializeRequest = `{"type":"control_request","request_id":"mesh-commands","request":{"subtype":"initialize"}}` + "\n"
 
-func (a *Adapter) runCommandsProbe(ctx context.Context, m *adapterv1.ListCommandsRequest) ([]*v1.AgentCommand, error) {
+// runCommandsProbe runs the probe. It belongs to everyone waiting on it, not to the caller that started it: once it
+// has a slot it runs on to its end whether that caller leaves or not (a leaving caller must not kill it and have its
+// cancellation cached as a failure); ctx is only the wait for the slot.
+func (a *Adapter) runCommandsProbe(ctx context.Context, m *adapterv1.ListCommandsRequest, settings string) ([]*v1.AgentCommand, error) {
 	bin := m.Binary
 	if bin == "" {
 		bin = "claude"
 	}
-	share := ""
-	if s := m.Env["AGENT_MESH_SHARE"]; s != "" {
-		if _, err := os.Stat(filepath.Join(s, ".claude-plugin", "plugin.json")); err == nil {
-			share = s
-		}
-	}
-	argv := commandsArgv(bin, share, m.ReadOnly)
+	argv := commandsArgv(bin, shareOf(m.Env), m.ReadOnly, settings)
 	var env []string
 	for k, v := range m.Env {
 		if strings.HasPrefix(k, "AGENT_MESH_") && k != "AGENT_MESH_SHARE" {
@@ -240,7 +282,7 @@ func (a *Adapter) runCommandsProbe(ctx context.Context, m *adapterv1.ListCommand
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	out, err := probe.Run(ctx, probe.Spec{Bin: argv[0], Args: argv[1:], Cwd: m.Cwd, Stdin: []byte(initializeRequest),
+	out, err := probe.Run(context.WithoutCancel(ctx), probe.Spec{Bin: argv[0], Args: argv[1:], Cwd: m.Cwd, Stdin: []byte(initializeRequest),
 		Env: env, Dir: a.ProbeDir, Timeout: timeout})
 	cmds := parseInitialize(out)
 	if len(cmds) == 0 && err == nil {
@@ -279,7 +321,9 @@ func parseInitialize(out []byte) []*v1.AgentCommand {
 		var l struct {
 			Type     string `json:"type"`
 			Response struct {
-				Response struct {
+				Subtype   string `json:"subtype"`
+				RequestID string `json:"request_id"`
+				Response  struct {
 					Commands []struct {
 						Name         string `json:"name"`
 						Description  string `json:"description"`
@@ -288,7 +332,7 @@ func parseInitialize(out []byte) []*v1.AgentCommand {
 				} `json:"response"`
 			} `json:"response"`
 		}
-		if json.Unmarshal(sc.Bytes(), &l) != nil || l.Type != "control_response" {
+		if json.Unmarshal(sc.Bytes(), &l) != nil || l.Type != "control_response" || l.Response.RequestID != "mesh-commands" || l.Response.Subtype != "success" {
 			continue
 		}
 		for _, c := range l.Response.Response.Commands {
