@@ -5,19 +5,21 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Chip, Chips } from '@/components/ui/chip'
 import { useApp, useAppState } from '@/context'
-import { activityMs, ago, dockTiles, sentLabel, type Tile } from '@/dock'
+import { activityMs, ago, dockTiles, sentLabel, treeTiles, type Tile } from '@/dock'
 import { ROLE_LABEL, repoName, statusSentence } from '@/derive'
 import { useHostViews, useNow } from '@/hooks'
 import { cn } from '@/lib/utils'
 import { hueStyle } from '@/hue'
-import { AgentState } from '@/gen/agentmesh/v1/types_pb'
+import { AgentState, type Agent } from '@/gen/agentmesh/v1/types_pb'
+import { helpersLabel } from '@/sidebar'
 import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
 import { Tip } from '@/components/ui/tooltip'
 
 /**
- * The live dock: a tile per live agent of the open runs, on every host, with what it is doing now. A worker that
- * starts pops in marked new, and nothing here takes focus; a click opens the agent as a tab.
+ * The live dock: a tile per live agent of the open agent's tree (with no agent open, the live leads of every host), with
+ * what it is doing now; a reviewer or asker is a chip on the agent it works for. A worker that starts pops in marked
+ * new, and nothing here takes focus; a click opens the agent as a tab. Watch all shows every live agent.
  */
 export function Dock() {
   const app = useApp()
@@ -30,7 +32,10 @@ export function Dock() {
   const agentId = useAppState((s) => s.agentId)
   const views = useHostViews(hosts)
   const now = useNow()
-  const tiles = useMemo(() => dockTiles(views, { newTiles, dismissed }, now), [views, newTiles, dismissed, now])
+  const runId = useMemo(() => views.find((v) => v.hostId === hostId)?.agents[agentId ?? '']?.runId, [views, hostId, agentId])
+  const all = useMemo(() => dockTiles(views, { newTiles, dismissed }, now), [views, newTiles, dismissed, now])
+  const shown = useMemo(() => treeTiles(all, hostId && runId ? { hostId, runId } : undefined), [all, hostId, runId])
+  const tiles = shown.map((t) => t.tile)
   const fresh = tiles.filter((t) => t.isNew).length
   const needs = tiles.filter((t) => t.agent.needsInput > 0).length
   return (
@@ -40,7 +45,7 @@ export function Dock() {
           {open ? <ChevronDown /> : <ChevronUp />}
           <span className="text-[13px] font-semibold">Live</span>
         </Button>
-        <span className="text-xs text-muted-foreground">{tiles.length} {tiles.length === 1 ? 'agent' : 'agents'}</span>
+        <span className="text-xs text-muted-foreground">{tiles.length} {runId ? 'in this run' : tiles.length === 1 ? 'lead' : 'leads'}</span>
         {needs > 0 && <Badge className="border-state-needs text-state-needs">{needs} need you</Badge>}
         {fresh > 0 && <Badge className="border-primary text-primary">{fresh} new</Badge>}
         {!open && badge > 0 && <Badge role="status" className="border-primary text-primary">{badge} started</Badge>}
@@ -50,10 +55,10 @@ export function Dock() {
       </header>
       {open && (
         <ul aria-label="Agents in the dock" className="flex gap-2 overflow-x-auto px-3 pt-1 pb-2.5">
-          {tiles.length === 0 && <li className="list-none py-3 text-xs text-muted-foreground">No live agents in the open runs.</li>}
+          {tiles.length === 0 && <li className="list-none py-3 text-xs text-muted-foreground">{runId ? 'Nothing in this run is live.' : 'No live leads.'}</li>}
           <AnimatePresence initial={false}>
-            {tiles.map((t) => (
-              <DockTile key={t.key} tile={t} now={now} many={hosts.length > 1} selected={t.hostId === hostId && t.agent.id === agentId} />
+            {shown.map(({ tile: t, helpers }) => (
+              <DockTile key={t.key} tile={t} helpers={helpers} now={now} many={hosts.length > 1} selected={t.hostId === hostId && t.agent.id === agentId} />
             ))}
           </AnimatePresence>
         </ul>
@@ -62,7 +67,7 @@ export function Dock() {
   )
 }
 
-function DockTile({ tile, now, many, selected }: { tile: Tile; now: number; many: boolean; selected: boolean }) {
+function DockTile({ tile, helpers, now, many, selected }: { tile: Tile; helpers: Agent[]; now: number; many: boolean; selected: boolean }) {
   const app = useApp()
   const a = tile.agent
   const last = activityMs(a)
@@ -99,6 +104,7 @@ function DockTile({ tile, now, many, selected }: { tile: Tile; now: number; many
           <Chip>{ROLE_LABEL[a.role]}</Chip>
           <Chip>{repoName(a.repo)}</Chip>
           {many && <Chip>{tile.hostName}</Chip>}
+          {helpers.length > 0 && <Chip>{helpersLabel(helpers)}</Chip>}
         </Chips>
         <span className="truncate text-xs">{tile.activity ? `Working: ${tile.activity}` : statusSentence(a)}</span>
         <span className="flex min-w-0 gap-2 truncate text-xs text-muted-foreground">

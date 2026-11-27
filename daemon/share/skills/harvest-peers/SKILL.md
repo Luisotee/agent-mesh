@@ -29,4 +29,4 @@ The value is in the checking: a peer reads its own project well and ours from a 
    - report to the user the surviving findings ranked, most valuable first, in three lists (bugs, improvements, features), each with its label, the cost, and the peer's name; count what was dropped and why in one line; where an answer shows a peer's `about` was wrong, `mesh edit-peer --target <name> --about …`;
    - **on the user's yes** (the root asks in the app), add the chosen findings to the repo's tracker in its own format, each naming the round's answers file and the peer; after a first round, offer to note the group in the repo's `CLAUDE.md` / `AGENTS.md` (which peers exist and what to ask each), so later sessions ask them before designing. A bug the user wants fixed now is ordinary work: a worker's task, never a peer's, which only answers.
    Pass the repo's checkout as `--repo`.
-5. **Tell the user** the run id and the root's name, and that the root reports the checked findings in the app.
+5. **Tell the user** the run id and the root's name, and that the root reports the checked findings in the app (or, to watch it in a terminal, `mesh open <root name>`).

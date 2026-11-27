@@ -1,5 +1,7 @@
 import { approveAgent, renameRun, retireAgent, ringAgent, startRun, stopAgent, switchToNextModel } from './actions'
 import { canPair } from './components/pair-panel'
+import { stepSidebar } from './components/project-sidebar'
+import { TERMINAL_SEARCH } from './keys'
 import { joinWaiting, ROLE_LABEL, statusSentence, type Waiting } from './derive'
 import { AgentRole, AgentState, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
 import type { AgentTab, AppModel, HostRuntime } from './model'
@@ -64,7 +66,7 @@ function hasOpenTerminal(app: AppModel): boolean {
 /** The commands that have a shortcut of their own, by the id of their `app.keys.*` setting. */
 export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
   const st = () => app.store.getState()
-  return {
+  const keyed: Record<KeyedCommand, () => void> = {
     palette: () => app.openPalette(!st().paletteOpen),
     settings: () => app.openSettings(!st().settingsOpen),
     dock: () => app.setDock(!st().dockOpen),
@@ -82,12 +84,58 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
       const t = nextTab(st(), -1)
       if (t) app.selectAgent(t.hostId, t.agentId)
     },
+    tab_next_page: () => keyed.tab_next(),
+    tab_prev_page: () => keyed.tab_prev(),
     tab_close: () => {
       const { hostId, agentId } = st()
       if (hostId && agentId) app.closeTab({ hostId, agentId })
     },
+    tab_new: () => {
+      const { hostId, agentId, hosts } = st()
+      const repo = hostId && agentId ? hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.repo : undefined
+      app.openWorkspace(true, undefined, hostId && repo ? { hostId, repo } : undefined)
+    },
+    tab_reopen: () => app.reopenTab(),
+    tab_1: () => goToTab(app, 0),
+    tab_2: () => goToTab(app, 1),
+    tab_3: () => goToTab(app, 2),
+    tab_4: () => goToTab(app, 3),
+    tab_5: () => goToTab(app, 4),
+    tab_6: () => goToTab(app, 5),
+    tab_7: () => goToTab(app, 6),
+    tab_8: () => goToTab(app, 7),
+    tab_last: () => goToTab(app, st().tabs.length - 1),
     waiting_next: () => goToNextWaiting(app),
+    search: () => app.openPalette(true),
+    sidebar: () => app.setSidebarCollapsed(!st().sidebarCollapsed),
+    sidebar_next: () => stepSidebar(1),
+    sidebar_prev: () => stepSidebar(-1),
+    panel: () => app.setPanel(!st().panelOpen),
+    find: () => {
+      // In a terminal, its own search (the window's find doesn't see xterm's canvas).
+      const el = typeof document === 'undefined' ? null : document.activeElement
+      if (el?.closest('.xterm')) return void el.dispatchEvent(new CustomEvent(TERMINAL_SEARCH, { bubbles: true }))
+      app.openFind(!st().findOpen)
+    },
+    rename: () => {
+      // The focused sidebar row's run, else the open agent's.
+      const row = document.activeElement?.closest<HTMLElement>('[data-sidebar-row="agent"]')
+      const { hostId, agentId } = row?.dataset.agentId ? { hostId: row.dataset.hostId, agentId: row.dataset.agentId } : st()
+      const { hosts } = st()
+      const runId = hostId && agentId ? hosts.find((h) => h.info.id === hostId)?.store.getState().agents[agentId]?.runId : undefined
+      if (hostId && runId) {
+        app.setSidebarCollapsed(false)
+        app.renameRun({ hostId, runId })
+      }
+    },
   }
+  return keyed
+}
+
+/** Opens the open tab at a place in the strip (from 0), when there is one. */
+function goToTab(app: AppModel, at: number): void {
+  const t = app.store.getState().tabs[at]
+  if (t) app.selectAgent(t.hostId, t.agentId)
 }
 
 /** The host's settings by what they are for: a palette command opens the screen filtered to one (the query is a key prefix). */
@@ -117,14 +165,20 @@ export function buildCommands(app: AppModel): Command[] {
   view('tab_next', 'Next tab', s.tabs.length > 1)
   view('tab_prev', 'Previous tab', s.tabs.length > 1)
   view('tab_close', 'Close the open tab', !!s.agentId)
+  view('tab_reopen', 'Open the last closed tab again', s.closedTabs.length > 0)
+  view('tab_new', 'New lead in this project', !!selected)
+  view('sidebar', s.sidebarCollapsed ? 'Unfold the sidebar' : 'Fold the sidebar')
+  view('panel', s.panelOpen ? 'Hide the side panel' : 'Show the side panel')
+  view('find', 'Find in the window')
+  view('rename', 'Rename the open run', !!s.agentId)
   const waiting = waitingTargets(app)
   view('waiting_next', 'Go to the next thing waiting on me', waiting.length > 0)
   out.push({ id: 'watch-all', title: s.watchOpen ? 'Close Watch all' : 'Watch all agents', group: 'View', detail: 'grid every live agent', run: () => app.openWatch(!s.watchOpen) })
-  out.push({ id: 'side-panel', title: s.panelOpen ? 'Hide the side panel' : 'Show the side panel', group: 'View', detail: 'cost pull requests quota', run: () => app.setPanel(!s.panelOpen) })
   if (s.side.length > 0) {
     out.push({ id: 'split-dir', title: s.splitDir === 'row' ? 'Stack the panes' : 'Put the panes side by side', group: 'View', detail: 'split layout', run: () => app.setSplitDir(s.splitDir === 'row' ? 'column' : 'row') })
     out.push({ id: 'split-close', title: 'Close the splits', group: 'View', detail: 'panes beside', run: () => s.side.forEach((p) => app.unsplit(p)) })
   }
+  if (selected) out.push({ id: 'usage', title: s.usageOpen ? 'Close Usage and cost' : 'Usage and cost', group: 'View', detail: 'quota spend tokens', run: () => app.openUsage(!s.usageOpen) })
   if (selected && canPair(selected.store)) out.push({ id: 'pair', title: 'Pair a device', group: 'View', run: () => app.openPairing(true) })
   out.push({ id: 'shortcuts', title: 'Keyboard shortcuts…', group: 'View', detail: 'rebind keys', run: () => app.openSettings(true, 'app.keys') })
   if (selected) {
