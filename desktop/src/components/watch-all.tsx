@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { readTranscript } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Tip } from '@/components/ui/tooltip'
 import { bucketOf, BUCKET_LABEL, waitingIds } from '@/buckets'
 import { useApp, useAppState, useHostState } from '@/context'
 import { ago, activityMs, dockTiles, type Tile } from '@/dock'
@@ -106,9 +107,11 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{a.name}</span>
         <VendorIcon kind={a.kind} model={a.model} />
         <Badge>{ROLE_LABEL[a.role]}</Badge>
-        <Button size="icon" variant="ghost" className="size-6" aria-label={`Pin ${a.name} as a split`} title="Show beside the open agent" onClick={() => app.pinSplit(tile.hostId, a.id)}>
-          <Columns2 className="size-3.5" />
-        </Button>
+        <Tip label="Show beside the open agent">
+          <Button size="icon" variant="ghost" className="size-6" aria-label={`Pin ${a.name} as a split`} onClick={() => app.pinSplit(tile.hostId, a.id)}>
+            <Columns2 className="size-3.5" />
+          </Button>
+        </Tip>
       </header>
       <button
         type="button"

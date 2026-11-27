@@ -12,6 +12,7 @@ import { buildTrees, joinWaiting, repoName, ROLE_LABEL, statusSentence, type Tre
 import { RunStatus, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
 import { cn } from '@/lib/utils'
 import { hueStyle } from '@/hue'
+import { vendorOfKind } from '@/vendor'
 import type { HostRuntime, SidebarGroup } from '@/model'
 import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
@@ -27,7 +28,8 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
   const pullRequests = useHostState(host, (s) => s.pullRequests)
   const group = useAppState((s) => s.sidebarGroup)
   const githubProblem = useHostState(host, (s) => s.githubProblem)
-  const synced = useHostState(host, (s) => s.synced)
+  // Before the first snapshot of a connection that is coming up; a host that is down shows its banner and the empty text.
+  const loading = useHostState(host, (s) => !s.synced && (s.conn.kind === 'connecting' || s.conn.kind === 'ready'))
   const trees = useMemo(() => buildTrees(runs, agents), [runs, agents])
   const ctx = useMemo<BucketContext>(() => ({ waiting: waitingIds(joinWaiting(waiting, runs, agents)), pullRequests }), [waiting, runs, agents, pullRequests])
   const groups = useMemo(() => (group === 'project' ? groupByProject(runs, agents, ctx, repoName) : group === 'state' ? groupByState(runs, agents, ctx) : []), [group, runs, agents, ctx])
@@ -44,7 +46,7 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
       <GroupSwitch />
       {githubNote(githubProblem) && <p role="note" className="mx-3 mb-2 rounded-md border border-dashed px-2 py-1.5 text-xs text-muted-foreground">{githubNote(githubProblem)}</p>}
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        {!synced && trees.length === 0 && (
+        {loading && trees.length === 0 && (
           <div role="status" aria-label="Loading the runs" className="flex flex-col gap-2 px-2 py-2">
             {[0, 1, 2, 3].map((i) => (
               <div key={i} className="flex items-start gap-2 py-1">
@@ -54,7 +56,7 @@ export function RunSidebar({ host }: { host: HostRuntime }) {
             ))}
           </div>
         )}
-        {synced && trees.length === 0 && (
+        {!loading && trees.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-muted-foreground">No runs yet. Start one to give a lead agent its work.</p>
         )}
         {group !== 'run' && groups.map((g) => <GroupSection key={g.key} g={g} host={host} ctx={ctx} by={group} runs={runs} />)}
@@ -226,7 +228,7 @@ function AgentButton({ agent: a, host, meta }: { agent: Agent; host: HostRuntime
         onClick={() => app.selectAgent(host.info.id, a.id)}
         className={cn(
           'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-identity',
-          selected && 'bg-accent shadow-[inset_2px_0_0_var(--color-identity)]',
+          selected && 'bg-accent shadow-[inset_2px_0_0_var(--hue,var(--primary))]',
           a.needsInput > 0 && 'bg-glow/10 ring-1 ring-glow/40',
         )}
       >
@@ -239,7 +241,8 @@ function AgentButton({ agent: a, host, meta }: { agent: Agent; host: HostRuntime
           <span className="block truncate text-xs text-muted-foreground">{statusSentence(a)}</span>
           <Chips className="mt-0.5">
             <VendorIcon kind={a.kind} model={a.model} className="size-3" />
-            {(meta ?? [repoName(a.repo), a.model, a.effort]).filter(Boolean).map((m, i) => <Chip key={i}>{m}</Chip>)}
+            {/* The vendor's mark names a known CLI; an unknown one, or one with no model, is named in a chip. */}
+            {(meta ?? [repoName(a.repo), vendorOfKind(a.kind) === 'other' || !a.model ? a.kind : '', a.model, a.effort]).filter(Boolean).map((m, i) => <Chip key={i}>{m}</Chip>)}
           </Chips>
         </span>
       </button>

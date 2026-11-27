@@ -76,6 +76,26 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
 }
 
 describe('RunSidebar', () => {
+  it('shows skeleton rows until the first snapshot, and the empty text for a host that is down', () => {
+    const { host, wrap } = fixture({ kind: 'connecting' })
+    host.store.setState({ synced: false, runs: {}, agents: {} })
+    const { unmount } = render(wrap(<RunSidebar host={host} />))
+    expect(screen.getByRole('status', { name: 'Loading the runs' })).toBeInTheDocument()
+    unmount()
+    host.store.setState({ conn: { kind: 'stopped', reason: 'auth', message: 'no' } })
+    render(wrap(<RunSidebar host={host} />))
+    expect(screen.queryByRole('status', { name: 'Loading the runs' })).toBeNull()
+    expect(screen.getByText(/No runs yet/)).toBeInTheDocument()
+  })
+
+  it('names the CLI in a chip when its vendor has no mark or the agent no model', () => {
+    const { host, wrap } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, z: agent('z', { role: AgentRole.WORKER, name: 'app-zed', parentId: 'lead', kind: 'zed' }) } }))
+    render(wrap(<RunSidebar host={host} />))
+    expect(within(screen.getByRole('button', { name: /app-zed/ })).getByText('zed')).toBeInTheDocument()
+    expect(within(screen.getByRole('button', { name: /app-fix/ })).queryByText('claude')).toBeNull()
+  })
+
   it('shows each run as a tree with plain status sentences, and opens an agent on click', async () => {
     const { host, wrap, model } = fixture()
     render(wrap(<RunSidebar host={host} />))

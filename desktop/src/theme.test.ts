@@ -85,7 +85,7 @@ describe('themes', () => {
     const root = document.createElement('div')
     applyTheme(themeByName('Nord'), root)
     expect(root.style.getPropertyValue('--primary')).toBe('#88c0d0')
-    expect(root.style.getPropertyValue('--font-code')).toContain('Cascadia Code')
+    expect(root.style.getPropertyValue('--font-code')).toMatch(/^'JetBrains Mono Variable', 'JetBrains Mono', /)
     expect(root.style.getPropertyValue('--ui-text')).toBe('15px')
     expect(root.dataset).toMatchObject({ theme: 'Nord', density: 'comfortable' })
     applyTheme(themeByName('Dracula'), root)

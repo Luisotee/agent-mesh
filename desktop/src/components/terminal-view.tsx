@@ -40,6 +40,8 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
   const term = useRef<Terminal>(null)
   const search = useRef<SearchAddon>(null)
   const fit = useRef<FitAddon>(null)
+  // Fits the terminal to its box and, the first time it has one, attaches it.
+  const refitRef = useRef<() => void>(undefined)
   const [state, setState] = useState<TermState>({ kind: 'connecting' })
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
@@ -92,6 +94,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
         session.start()
       }
     }
+    refitRef.current = refit
     refit()
     const ro = new ResizeObserver(refit)
     ro.observe(el)
@@ -112,7 +115,7 @@ export function TerminalView({ host, agentId, active, panelId, tabId }: { host: 
 
   useEffect(() => {
     if (active) {
-      fit.current?.fit()
+      refitRef.current?.()
       term.current?.focus()
     }
   }, [active])
