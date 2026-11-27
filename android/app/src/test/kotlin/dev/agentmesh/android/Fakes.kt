@@ -96,7 +96,8 @@ class RecordingApi : MeshApi {
 
     override fun connectTerminal(path: String): TerminalSocket = sockets.removeFirstOrNull() ?: FakeSocket()
 
-    override suspend fun listSettings(prefix: String): List<Setting> = emptyList()
+    @Volatile var settings: List<Setting> = emptyList()
+    override suspend fun listSettings(prefix: String): List<Setting> = settings
     override suspend fun setSetting(key: String, value: Value): Setting = error("unused")
     override suspend fun resetSetting(key: String): Setting = error("unused")
 
@@ -127,6 +128,107 @@ class RecordingApi : MeshApi {
         failPush?.let { throw it }
         push += "test"
         return dev.agentmesh.gen.agentmesh.v1.PushRegistration.getDefaultInstance()
+    }
+
+    // ── The chat, the model, the pull requests, the quota: scripted by the test, recorded for it to check ──
+
+    val reads = java.util.Collections.synchronizedList(mutableListOf<Triple<String, Long, Boolean>>())
+    @Volatile var transcript: (String, Long, Boolean) -> dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse = { _, _, _ -> dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse.getDefaultInstance() }
+    @Volatile var failRead: Exception? = null
+
+    override suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse {
+        reads += Triple(agent, offset, backward)
+        failRead?.let { throw it }
+        return transcript(agent, offset, backward)
+    }
+
+    val prompts = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    @Volatile var failPrompt: Exception? = null
+
+    override suspend fun promptAgent(agent: String, text: String) {
+        failPrompt?.let { throw it }
+        prompts += agent to text
+    }
+
+    /** What SwitchAgent calls reached the host: agent, tier, model, effort. */
+    val switches = java.util.Collections.synchronizedList(mutableListOf<List<String>>())
+    @Volatile var failSwitch: Exception? = null
+
+    override suspend fun switchAgent(agent: String, tier: String, model: String, effort: String): dev.agentmesh.gen.agentmesh.v1.SwitchAgentResponse {
+        failSwitch?.let { throw it }
+        switches += listOf(agent, tier, model, effort)
+        return dev.agentmesh.gen.agentmesh.v1.SwitchAgentResponse.getDefaultInstance()
+    }
+
+    @Volatile var models: dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse = dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse.getDefaultInstance()
+    var modelChecks = 0
+
+    override suspend fun checkModels(): dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse {
+        modelChecks++
+        return models
+    }
+
+    @Volatile var agentList: List<dev.agentmesh.gen.agentmesh.v1.Agent> = emptyList()
+    var agentListings = 0
+    @Volatile var failAgents: Exception? = null
+
+    override suspend fun listAgents(): List<dev.agentmesh.gen.agentmesh.v1.Agent> {
+        agentListings++
+        failAgents?.let { throw it }
+        return agentList
+    }
+
+    /** What `ListWaiting` answers; null is a host too old to have the action (the app derives what waits from the messages). */
+    @Volatile var waitingList: List<dev.agentmesh.gen.agentmesh.v1.Waiting>? = null
+    var waitingListings = 0
+    @Volatile var failWaiting: Exception? = null
+
+    override suspend fun listWaiting(): List<dev.agentmesh.gen.agentmesh.v1.Waiting> {
+        waitingListings++
+        failWaiting?.let { throw it }
+        return waitingList ?: throw ApiException(com.connectrpc.Code.UNIMPLEMENTED, "unknown method")
+    }
+
+    /** Pull requests by run id. */
+    @Volatile var pullRequests: Map<String, List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests>> = emptyMap()
+    val prListings = java.util.Collections.synchronizedList(mutableListOf<String>())
+    @Volatile var failPrs: Exception? = null
+
+    override suspend fun listPullRequests(runId: String): List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests> {
+        prListings += runId
+        failPrs?.let { throw it }
+        return pullRequests[runId].orEmpty()
+    }
+
+    val holds = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Boolean>>())
+    @Volatile var failHold: Exception? = null
+
+    override suspend fun holdPullRequest(url: String, release: Boolean): List<dev.agentmesh.gen.agentmesh.v1.PullRequest> {
+        failHold?.let { throw it }
+        holds += url to release
+        return listOf(dev.agentmesh.gen.agentmesh.v1.PullRequest.newBuilder().setUrl(url).setHeld(!release).build())
+    }
+
+    @Volatile var usage: dev.agentmesh.gen.agentmesh.v1.GetUsageResponse = dev.agentmesh.gen.agentmesh.v1.GetUsageResponse.getDefaultInstance()
+    val usageCalls = java.util.Collections.synchronizedList(mutableListOf<Boolean>())
+
+    override suspend fun getUsage(refresh: Boolean): dev.agentmesh.gen.agentmesh.v1.GetUsageResponse {
+        usageCalls += refresh
+        return usage
+    }
+
+    @Volatile var cost: dev.agentmesh.gen.agentmesh.v1.GetCostResponse = dev.agentmesh.gen.agentmesh.v1.GetCostResponse.getDefaultInstance()
+    /** What GetCost asked: run id, since. */
+    val costCalls = java.util.Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    /** Whether each GetCost asked for the per-agent table. */
+    val costAgents = java.util.Collections.synchronizedList(mutableListOf<Boolean>())
+    @Volatile var failCost: Exception? = null
+
+    override suspend fun getCost(runId: String, since: String, agents: Boolean): dev.agentmesh.gen.agentmesh.v1.GetCostResponse {
+        costCalls += runId to since
+        costAgents += agents
+        failCost?.let { throw it }
+        return cost
     }
 }
 

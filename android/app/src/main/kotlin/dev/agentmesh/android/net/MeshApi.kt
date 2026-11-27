@@ -9,6 +9,25 @@ import com.connectrpc.simpleTimeouts
 import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
+import dev.agentmesh.gen.agentmesh.v1.Agent
+import dev.agentmesh.gen.agentmesh.v1.AgentPullRequests
+import dev.agentmesh.gen.agentmesh.v1.CheckModelsRequest
+import dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse
+import dev.agentmesh.gen.agentmesh.v1.GetCostRequest
+import dev.agentmesh.gen.agentmesh.v1.GetCostResponse
+import dev.agentmesh.gen.agentmesh.v1.GetUsageRequest
+import dev.agentmesh.gen.agentmesh.v1.GetUsageResponse
+import dev.agentmesh.gen.agentmesh.v1.HoldPullRequestRequest
+import dev.agentmesh.gen.agentmesh.v1.ListAgentsRequest
+import dev.agentmesh.gen.agentmesh.v1.ListPullRequestsRequest
+import dev.agentmesh.gen.agentmesh.v1.ListWaitingRequest
+import dev.agentmesh.gen.agentmesh.v1.PromptAgentRequest
+import dev.agentmesh.gen.agentmesh.v1.PullRequest
+import dev.agentmesh.gen.agentmesh.v1.ReadTranscriptRequest
+import dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse
+import dev.agentmesh.gen.agentmesh.v1.SwitchAgentRequest
+import dev.agentmesh.gen.agentmesh.v1.SwitchAgentResponse
+import dev.agentmesh.gen.agentmesh.v1.Waiting
 import dev.agentmesh.gen.agentmesh.v1.PushRegistration
 import dev.agentmesh.gen.agentmesh.v1.RegisterPushRequest
 import dev.agentmesh.gen.agentmesh.v1.TestPushRequest
@@ -60,6 +79,7 @@ class ApiException(val code: Code, message: String, cause: Throwable? = null) : 
 val UI_ACTIONS = listOf(
     "hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal",
     "registerPush", "unregisterPush", "testPush", "revokeSelf",
+    "readTranscript", "promptAgent", "switchAgent", "checkModels", "listAgents", "listWaiting", "listPullRequests", "holdPullRequest", "getUsage", "getCost",
 )
 
 /** What a terminal stream delivers: frames, then how it ended. */
@@ -116,6 +136,38 @@ interface MeshApi {
 
     /** Has the host send this device a test push now; throws with the push service's error when it fails. */
     suspend fun testPush(): PushRegistration
+
+    /**
+     * A page of an agent's conversation (its CLI's record). [offset] is a position from a previous answer, -1 the end; with
+     * [backward] the entries before it, else after it.
+     */
+    suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): ReadTranscriptResponse
+
+    /** Types [text] into the running agent as the user would (the host refuses while its input box holds a draft). */
+    suspend fun promptAgent(agent: String, text: String)
+
+    /** Reopens the agent's conversation on another tier, a model, or an effort alone; the host's refusal says why not. */
+    suspend fun switchAgent(agent: String, tier: String = "", model: String = "", effort: String = ""): SwitchAgentResponse
+
+    /** The model families each CLI lists on the host (a day-old answer unless the host checks again). */
+    suspend fun checkModels(): CheckModelsResponse
+
+    /** Every agent as the host derives it now (a quiet agent shows as unknown only here). */
+    suspend fun listAgents(): List<Agent>
+
+    /** What waits on the user, as the host says (`mesh waiting`). */
+    suspend fun listWaiting(): List<Waiting>
+
+    /** The pull requests of the change workers of [runId], from GitHub (the host caches two minutes). */
+    suspend fun listPullRequests(runId: String): List<AgentPullRequests>
+
+    /** Holds a PR's merge (or with [release] lets it go); the PR as recorded now, once for each agent that owns it. */
+    suspend fun holdPullRequest(url: String, release: Boolean): List<PullRequest>
+
+    suspend fun getUsage(refresh: Boolean = false): GetUsageResponse
+
+    /** What `mesh cost` prints: for a run, or (with [since], a span back from now such as `7d`) a window. */
+    suspend fun getCost(runId: String = "", since: String = "", agents: Boolean = false): GetCostResponse
 }
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
@@ -154,7 +206,8 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
     override fun subscribe(cursor: Cursor?): Flow<SubscribeEventsResponse> = flow {
         val stream = service.subscribeEvents()
         try {
-            val req = SubscribeEventsRequest.newBuilder().apply { if (cursor != null) setCursor(cursor) }.build()
+            // Also the ephemeral activity frames (the tool an agent runs now), which the live dock and the rows show.
+            val req = SubscribeEventsRequest.newBuilder().setActivity(true).apply { if (cursor != null) setCursor(cursor) }.build()
             stream.sendAndClose(req).exceptionOrNull()?.let { throw it.asApiException() }
             try {
                 for (frame in stream.responseChannel()) emit(frame)
@@ -201,6 +254,34 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
 
     override suspend fun testPush(): PushRegistration =
         service.testPush(TestPushRequest.newBuilder().setMeta(newMeta()).build()).ok().registration
+
+    override suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): ReadTranscriptResponse =
+        service.readTranscript(ReadTranscriptRequest.newBuilder().setAgent(agent).setOffset(offset).setBackward(backward).build()).ok()
+
+    override suspend fun promptAgent(agent: String, text: String) {
+        service.promptAgent(PromptAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).setText(text).build()).ok()
+    }
+
+    override suspend fun switchAgent(agent: String, tier: String, model: String, effort: String): SwitchAgentResponse =
+        service.switchAgent(SwitchAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).setTier(tier).setModel(model).setEffort(effort).build()).ok()
+
+    override suspend fun checkModels(): CheckModelsResponse =
+        service.checkModels(CheckModelsRequest.newBuilder().setMeta(newMeta()).build()).ok()
+
+    override suspend fun listAgents(): List<Agent> = service.listAgents(ListAgentsRequest.getDefaultInstance()).ok().agentsList
+
+    override suspend fun listWaiting(): List<Waiting> = service.listWaiting(ListWaitingRequest.getDefaultInstance()).ok().waitingList
+
+    override suspend fun listPullRequests(runId: String): List<AgentPullRequests> =
+        service.listPullRequests(ListPullRequestsRequest.newBuilder().setRunId(runId).build()).ok().agentsList
+
+    override suspend fun holdPullRequest(url: String, release: Boolean): List<PullRequest> =
+        service.holdPullRequest(HoldPullRequestRequest.newBuilder().setMeta(newMeta()).setUrl(url).setRelease(release).build()).ok().pullRequestsList
+
+    override suspend fun getUsage(refresh: Boolean): GetUsageResponse = service.getUsage(GetUsageRequest.newBuilder().setRefresh(refresh).build()).ok()
+
+    override suspend fun getCost(runId: String, since: String, agents: Boolean): GetCostResponse =
+        service.getCost(GetCostRequest.newBuilder().setRunId(runId).setSince(since).setAgents(agents).build()).ok()
 
     private fun Throwable.asApiException(): ApiException = when (this) {
         is ApiException -> this

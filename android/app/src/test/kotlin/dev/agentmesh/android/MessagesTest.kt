@@ -98,17 +98,50 @@ class MessagesTest {
         assertEquals(Triple("w1", MessageType.MESSAGE_TYPE_ANSWER, "changes: rename it"), api.sent.single())
     }
 
-    @Test fun `approve calls ApproveAgent for a planning worker and a plain answer otherwise`() = runBlocking {
+    @Test fun `approve calls ApproveAgent for any plan, planning worker or not, so the host's own guard decides`() = runBlocking {
         val rt = runtime()
         sync(rt, listOf(lead, worker, agent("w2", parent = "lead", name = "other")))
         rt.onFrame(messageSent(1, plan, at = 10_000))
         rt.onFrame(messageSent(2, message("m2", from = "w2", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "plan", at = 10_001), at = 10_001))
         rt.approve("w1")
         rt.approve("w2")
-        assertEquals(listOf("w1"), api.approved)
-        assertEquals(listOf(Triple("w2", MessageType.MESSAGE_TYPE_ANSWER, "approved")), api.sent)
+        assertEquals(listOf("w1", "w2"), api.approved)
+        assertEquals(emptyList<Triple<String, MessageType, String>>(), api.sent)
         // The stored answer joined the state at once, so the plan stops waiting before the event arrives.
-        assertEquals(setOf("m1", "m2", "approved-1", "sent-1"), rt.state.value.messages.keys)
+        assertEquals(setOf("m1", "m2", "approved-1", "approved-2"), rt.state.value.messages.keys)
+    }
+
+    @Test fun `an answer is bound to the plan the user read, not to a newer one the author sent since`() = runBlocking {
+        val rt = runtime()
+        sync(rt, listOf(lead, worker))
+        rt.onFrame(messageSent(1, plan, at = 10_000))
+        // The user opened the plan m1; the worker sent a revised plan before they tapped.
+        rt.onFrame(messageSent(2, message("m2", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "revised plan", at = 12_000), at = 12_000))
+        val e = runCatching { rt.approve("w1", "m1") }.exceptionOrNull()
+        assertTrue("got $e", e is AlreadyAnswered && "newer" in e.message!!)
+        assertEquals(emptyList<String>(), api.approved)
+        val e2 = runCatching { rt.requestChanges("w1", "rename", "m1") }.exceptionOrNull()
+        assertTrue(e2 is AlreadyAnswered)
+        assertEquals(emptyList<Triple<String, MessageType, String>>(), api.sent)
+        // The plan that does wait can be approved.
+        rt.approve("w1", "m2")
+        assertEquals(listOf("w1"), api.approved)
+    }
+
+    @Test fun `a row of the host's own list is answered before the history has loaded`() = runBlocking {
+        api.waitingList = listOf(waiting(dev.agentmesh.gen.agentmesh.v1.WaitingKind.WAITING_KIND_PLAN, "w1", message = plan))
+        val rt = runtime()
+        // The snapshot is in; the run's stored messages are not (no loadMessages): the host's list still says what waits.
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        assertTrue(rt.state.value.waiting != null)
+        assertTrue("r1" !in rt.state.value.messagesLoaded)
+        rt.approve("w1", "m1")
+        assertEquals(listOf("w1"), api.approved)
+        // A row the host no longer lists is stale.
+        api.waitingList = emptyList()
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(lead, worker)))
+        val e = runCatching { rt.approve("w1", "m1") }.exceptionOrNull()
+        assertTrue("got $e", e is AlreadyAnswered)
     }
 
     @Test fun `a stale Approve sends nothing once the plan was answered elsewhere`() = runBlocking {

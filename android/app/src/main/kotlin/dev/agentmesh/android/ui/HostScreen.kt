@@ -15,6 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -40,6 +43,11 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.derive.AgentRow
 import dev.agentmesh.android.notify.Tab
+import dev.agentmesh.android.ui.chat.isReadOnlyDevice
+import dev.agentmesh.android.ui.messages.AnswerForm
+import dev.agentmesh.android.ui.messages.MarkdownText
+import dev.agentmesh.android.ui.messages.isLong
+import dev.agentmesh.android.ui.messages.preview
 import dev.agentmesh.android.derive.RunRow
 import dev.agentmesh.android.derive.Waiting
 import dev.agentmesh.android.derive.WaitingKind
@@ -48,17 +56,25 @@ import dev.agentmesh.android.derive.flatten
 import dev.agentmesh.android.derive.repoName
 import dev.agentmesh.android.derive.roleLabel
 import dev.agentmesh.android.derive.statusSentence
-import dev.agentmesh.android.derive.waitingOnYou
+import dev.agentmesh.android.derive.BucketContext
+import dev.agentmesh.android.derive.groupByState
+import dev.agentmesh.android.derive.waitingFor
 import dev.agentmesh.gen.agentmesh.v1.Agent
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
 
 /** A host's home: its connection, what waits on the user, and each run as a tree from its lead. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) -> Unit, onLog: () -> Unit, onSettings: () -> Unit) {
+fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) -> Unit, onLog: () -> Unit, onSettings: () -> Unit, onDock: () -> Unit = {}, onUsage: () -> Unit = {}) {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val trees = remember(state.runs, state.agents) { buildTrees(state.runs, state.agents) }
-    val waiting = remember(state.runs, state.agents, state.messages) { waitingOnYou(state.runs, state.agents, state.messages) }
+    val waiting = remember(state.waiting, state.runs, state.agents, state.messages) { waitingFor(state) }
+    // Runs as trees, or the agents of the open runs by what they need: the user's choice, kept across rotation.
+    var byStatus by rememberSaveable { mutableStateOf(false) }
+    val buckets = remember(state.runs, state.agents, waiting, state.pullRequests) {
+        groupByState(state.runs, state.agents, BucketContext(waiting.mapTo(HashSet()) { it.agent.id }, state.pullRequests))
+    }
+    val readOnly = isReadOnlyDevice(state)
     // Closed runs start collapsed and open ones expanded; the ids the user flipped are kept across rotation.
     var flipped by rememberSaveable(stateSaver = listSaver<List<String>, String>(save = { it }, restore = { it })) { mutableStateOf(emptyList<String>()) }
     val rows = remember(trees, flipped) { flatten(trees) { r -> (r.status == RunStatus.RUN_STATUS_OPEN) != (r.id in flipped) } }
@@ -66,7 +82,11 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
         TopAppBar(
             title = { Text(runtime.host?.name ?: "Host") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-            actions = { IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Host settings") } },
+            actions = {
+                TextButton(onClick = onDock, modifier = Modifier.testTag("open-dock")) { Text("Live") }
+                TextButton(onClick = onUsage, modifier = Modifier.testTag("open-usage")) { Text("Usage") }
+                IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Host settings") }
+            },
         )
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
@@ -75,7 +95,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
                 if (waiting.isNotEmpty()) {
                     item(key = "waiting-header") { SectionHeader("Waiting on you (${waiting.size})") }
                     items(waiting, key = { "wait:${it.kind}:${it.message?.id ?: it.agent.id}" }, contentType = { "waiting" }) { w ->
-                        WaitingRow(w) { onAgent(w.agent.id, if (w.kind == WaitingKind.Input) Tab.Terminal else Tab.Messages) }
+                        WaitingRow(runtime, w, canAct = !readOnly) { onAgent(w.agent.id, if (w.kind == WaitingKind.Input) Tab.Terminal else Tab.Messages) }
                     }
                     item(key = "waiting-divider") { HorizontalDivider(Modifier.padding(top = 8.dp)) }
                 }
@@ -84,7 +104,20 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
                         Text("No runs yet. Start one from the desktop app or the host's CLI.", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                items(rows, key = { it.key }, contentType = { if (it is RunRow) "run" else "agent" }) { row ->
+                item(key = "view") {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !byStatus, onClick = { byStatus = false }, label = { Text("Runs") }, modifier = Modifier.testTag("view-runs"))
+                        FilterChip(selected = byStatus, onClick = { byStatus = true }, label = { Text("By status") }, modifier = Modifier.testTag("view-status"))
+                    }
+                }
+                if (byStatus) {
+                    buckets.forEach { g ->
+                        item(key = "bucket:${g.bucket}") { SectionHeader("${g.bucket.label} (${g.agents.size})", Modifier.testTag("bucket-${g.bucket.name}")) }
+                        items(g.agents, key = { "b:${g.bucket}:${it.id}" }, contentType = { "agent" }) { a ->
+                            AgentLine(AgentRow(a, 0, emptyList(), true)) { onAgent(a.id, Tab.Overview) }
+                        }
+                    }
+                } else items(rows, key = { it.key }, contentType = { if (it is RunRow) "run" else "agent" }) { row ->
                     when (row) {
                         is RunRow -> RunHeader(row) {
                             val id = row.run.id
@@ -98,18 +131,41 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
     }
 }
 
+/**
+ * One thing that waits on the user. A plan or a question opens in place (what it says, and the Approve or the answer),
+ * so the user needn't leave the list; a prompt in a terminal opens the agent's terminal.
+ */
 @Composable
-private fun WaitingRow(w: Waiting, onClick: () -> Unit) {
+private fun WaitingRow(runtime: HostRuntime, w: Waiting, canAct: Boolean, onOpen: () -> Unit) {
     val what = when (w.kind) {
         WaitingKind.Plan -> "sent a plan"
         WaitingKind.Question -> "asked a question"
         WaitingKind.Input -> "needs you in its terminal"
     }
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        StateIcon(w.agent.state, w.agent.exitCode, w.agent.stateDetail, "needs you")
-        Column(Modifier.padding(start = 12.dp)) {
-            Text("${w.agent.name} $what", maxLines = 1, overflow = TextOverflow.Ellipsis)
-            w.run?.let { Text(it.title.ifEmpty { it.id }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    val answerable = w.kind != WaitingKind.Input && w.message != null
+    var open by rememberSaveable(w.message?.id ?: w.agent.id) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().testTag("waiting-row")) {
+        Row(
+            Modifier.fillMaxWidth().clickable(onClick = { if (answerable) open = !open else onOpen() }).padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            StateIcon(w.agent.state, w.agent.exitCode, w.agent.stateDetail, "needs you")
+            Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                Text("${w.agent.name} $what", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                w.run?.let { Text(it.title.ifEmpty { it.id }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            if (answerable) Text(if (open) "▾" else "▸", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (answerable && open) {
+            val m = w.message!!
+            Column(Modifier.padding(start = 52.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                var all by rememberSaveable(m.id) { mutableStateOf(false) }
+                val long = isLong(m.body)
+                MarkdownText(if (long && !all) preview(m.body) else m.body, large = long && all)
+                if (long) TextButton(onClick = { all = !all }) { Text(if (all) "Show less" else "Show all") }
+                if (canAct) AnswerForm(runtime, m) else Text("This device is read-only: it can read, not answer.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = onOpen) { Text("Open the conversation") }
+            }
         }
     }
 }
