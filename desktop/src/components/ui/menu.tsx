@@ -16,21 +16,37 @@ const ITEM =
   'flex cursor-default items-center gap-3 rounded-sm px-2 py-1.5 outline-none select-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground'
 
 function Items({ entries }: { entries: MenuEntry[] }) {
-  return entries.map((e, i) =>
-    e === 'separator' ? (
-      <Base.Separator key={i} className="my-1 h-px bg-border" />
-    ) : 'heading' in e ? (
-      <Base.Group key={i}>
-        <Base.GroupLabel className="px-2 pt-1.5 pb-0.5 text-xs font-medium text-muted-foreground">{e.heading}</Base.GroupLabel>
-      </Base.Group>
-    ) : (
-      <Base.Item key={i} disabled={e.disabled} onClick={e.onSelect} aria-current={e.checked ? 'true' : undefined} className={cn(ITEM, e.destructive && 'text-destructive')}>
-        <span className="flex-1">{e.label}</span>
-        {e.hint && <span className="text-xs text-muted-foreground">{e.hint}</span>}
-        {e.checked && <Check aria-hidden className="size-3.5" />}
-      </Base.Item>
-    ),
-  )
+  // A heading and the entries after it (to the next heading or line) are one labelled group.
+  const out: React.ReactNode[] = []
+  let group: React.ReactNode[] | undefined
+  let label = ''
+  const flush = (key: number) => {
+    if (group) out.push(<Base.Group key={`g${key}`}><Base.GroupLabel className="px-2 pt-1.5 pb-0.5 text-xs font-medium text-muted-foreground">{label}</Base.GroupLabel>{group}</Base.Group>)
+    group = undefined
+  }
+  entries.forEach((e, i) => {
+    if (e === 'separator') {
+      flush(i)
+      out.push(<Base.Separator key={i} className="my-1 h-px bg-border" />)
+    } else if ('heading' in e) {
+      flush(i)
+      group = []
+      label = e.heading
+    } else {
+      const radio = e.checked !== undefined
+      const item = (
+        <Base.Item key={i} disabled={e.disabled} onClick={e.onSelect} {...(radio ? { role: 'menuitemradio', 'aria-checked': e.checked } : {})} className={cn(ITEM, e.destructive && 'text-destructive')}>
+          <span className="flex-1">{e.label}</span>
+          {e.hint && <span className="text-xs text-muted-foreground">{e.hint}</span>}
+          {e.checked && <Check aria-hidden className="size-3.5" />}
+        </Base.Item>
+      )
+      if (group) group.push(item)
+      else out.push(item)
+    }
+  })
+  flush(entries.length)
+  return out
 }
 
 /** A menu behind a button (the ⋯ on a row, the footer's + and Hosts). */
