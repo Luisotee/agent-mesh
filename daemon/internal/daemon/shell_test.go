@@ -352,7 +352,10 @@ func TestShellsSurviveADaemonRestart(t *testing.T) {
 }
 
 // Ending a shell is like closing a terminal window: its background jobs get the hangup, so a server started with `&` does not
-// outlive the shell holding its port; a closed shell's retry is not "no such shell".
+// outlive the shell holding its port; a closed shell's retry is not "no such shell". The close here comes as soon as the job's
+// line has been answered, and a bash that gets SIGHUP then can exit without passing it on (the job was found alive under
+// init in about a third of the runs, more under load), so the terminal host hangs the shell's session up itself
+// (proc.SignalSession), before it signals the shell.
 func TestEndingAShellHangsUpItsBackgroundJobs(t *testing.T) {
 	w := startShells(t)
 	ctx := context.Background()
@@ -373,6 +376,12 @@ func TestEndingAShellHangsUpItsBackgroundJobs(t *testing.T) {
 	if pid <= 1 {
 		t.Fatalf("job pid %q", raw)
 	}
+	// Whatever the test finds, it leaves no `sleep 4242` behind: the job is killed at the end if it is still our sleep.
+	t.Cleanup(func() {
+		if cmd, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline"); err == nil && strings.HasPrefix(string(cmd), "sleep\x004242") {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
 	// Gone, or a zombie waiting for its parent to reap it (a stopped process is not a running job).
 	alive := func() bool {
 		if syscall.Kill(pid, 0) != nil {

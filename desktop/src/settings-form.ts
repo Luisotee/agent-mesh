@@ -101,8 +101,75 @@ function autoOrNumber(type: string): boolean {
   return type === 'mb_or_auto' || type === 'int_or_auto'
 }
 
-/** The group a key is shown under: its first segment (`tiers`, `review`, `app`), or "general" for a lone word. */
-export function groupOf(key: string): string {
-  const i = key.indexOf('.')
-  return i < 0 ? 'general' : key.slice(0, i)
+/** The groups of the settings screen, in its order (the daemon's `settings.Groups`); a setting of a group not listed here goes last, under "Other". */
+export const GROUPS = ['Appearance', 'Notifications', 'Shortcuts', 'Agents and models', 'Reviews', 'Projects and autonomy', 'Limits and quota', 'Delivery'] as const
+export const OTHER_GROUP = 'Other'
+
+/** What the screen needs of a setting: its key and where it was set, and what the host's schema says of it. */
+export interface Listed {
+  key: string
+  isSet: boolean
+  schema?: { label: string; group: string; advanced: boolean; summary: string }
+}
+
+/** The name a setting is listed under: the host's label, or the key for a host that sends none. */
+export const labelOf = (s: Listed): string => s.schema?.label || s.key
+
+/** The group a setting is under: the host's, or "Other" for a host that sends none (or one this app doesn't know). */
+export function groupOf(s: Listed): string {
+  const g = s.schema?.group ?? ''
+  return (GROUPS as readonly string[]).includes(g) ? g : OTHER_GROUP
+}
+
+/** Whether a search matches a setting: every word of it is in the label, the description or the key. */
+export function matches(s: Listed, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const hay = `${labelOf(s)}\n${s.schema?.summary ?? ''}\n${s.key}`.toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+
+const natural = { numeric: true } as const
+/** A group's order: by label, the shortcuts by key (which keeps "tab 1 … tab 8" in order). */
+const inGroup = (group: string) => (a: Listed, b: Listed): number =>
+  group === 'Shortcuts' ? a.key.localeCompare(b.key, undefined, natural) : labelOf(a).localeCompare(labelOf(b), undefined, natural) || a.key.localeCompare(b.key, undefined, natural)
+
+/** The per-repo lists: the screen shows them as one row of links to each project's settings, not as rows of their own. */
+export const PER_PROJECT = new Set(['repos.user_merges', 'repos.user_approves_plans', 'repos.no_free_models'])
+
+export interface Section<T extends Listed> {
+  group: string
+  /** What is listed in the open part: everything, or without the advanced ones while they are folded. */
+  shown: T[]
+  /** The advanced settings of the group, folded until asked for (listed with the rest while searching). */
+  advanced: T[]
+  /** How many rows the group has under this search (the per-repo lists count as the one row of links). */
+  count: number
+}
+
+/**
+ * The screen's sections: the settings that pass the search (and, when asked, were set), by group, each in the order of
+ * its label. A search lists the advanced ones with the rest, since the user asked for them by name.
+ */
+export function sectionsOf<T extends Listed>(all: T[], query: string, changedOnly: boolean): Array<Section<T>> {
+  const q = query.trim()
+  const by = new Map<string, T[]>()
+  for (const s of all) {
+    if (changedOnly && !s.isSet) continue
+    if (q && !matches(s, q)) continue
+    const g = groupOf(s)
+    by.set(g, [...(by.get(g) ?? []), s])
+  }
+  const order = [...GROUPS, OTHER_GROUP] as string[]
+  return order
+    .filter((g) => by.has(g))
+    .map((g) => {
+      const list = by.get(g)!.sort(inGroup(g))
+      const folded = !q && !changedOnly
+      let shown = folded ? list.filter((s) => !s.schema?.advanced) : list
+      let advanced = folded ? list.filter((s) => s.schema?.advanced) : []
+      // A group with nothing but advanced settings opens with them listed, not to an empty list over a closed fold.
+      if (shown.length === 0) [shown, advanced] = [advanced, []]
+      const links = list.some((s) => PER_PROJECT.has(s.key))
+      return { group: g, shown, advanced, count: list.filter((s) => !PER_PROJECT.has(s.key)).length + (links ? 1 : 0) }
+    })
 }
