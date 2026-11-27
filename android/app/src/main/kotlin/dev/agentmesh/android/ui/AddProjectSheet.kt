@@ -40,7 +40,7 @@ fun AddProjectSheet(runtime: HostRuntime, onDismiss: () -> Unit) {
     var projects by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
     var error by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
-        try { projects = runtime.awaitApi().listProjects().map { it.path to it.name.ifEmpty { repoName(it.path) } } } catch (e: CancellationException) { throw e } catch (e: Exception) { error = say(e) }
+        try { projects = runtime.awaitApi().listProjects().map { it.path to it.name.ifEmpty { repoName(it.path) } }.distinctBy { it.first } } catch (e: CancellationException) { throw e } catch (e: Exception) { error = say(e) }
     }
     val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
     val shown = projects.filter { (path, name) -> path !in pinned && words.all { it in name.lowercase() || it in path.lowercase() } }.take(30)
@@ -51,7 +51,7 @@ fun AddProjectSheet(runtime: HostRuntime, onDismiss: () -> Unit) {
             Text("It stays in the drawer, pinned, before any run works in it.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().testTag("project-query"), singleLine = true, label = { Text("A name, or a path on the host") })
             if (error.isNotEmpty() && projects.isEmpty()) Text("Couldn't list the host's projects: $error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-            if (query.startsWith("/") && query.trim() !in pinned) Text("Add ${query.trim()}", Modifier.fillMaxWidth().clickable { add(query.trim()) }.padding(vertical = 12.dp).testTag("add-typed-path"), color = MaterialTheme.colorScheme.primary)
+            if ((query.contains('/') || query.contains('\\') || query.startsWith("~")) && query.trim() !in pinned) Text("Add ${query.trim()}", Modifier.fillMaxWidth().clickable { add(query.trim()) }.padding(vertical = 12.dp).testTag("add-typed-path"), color = MaterialTheme.colorScheme.primary)
             LazyColumn(Modifier.padding(top = 8.dp)) {
                 items(shown, key = { it.first }) { (path, name) ->
                     Column(Modifier.fillMaxWidth().clickable { add(path) }.padding(vertical = 8.dp).testTag("project-option")) {

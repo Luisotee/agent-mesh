@@ -64,6 +64,18 @@ class DevicePrefs(context: Context) {
         out
     }.getOrDefault(emptyMap())
 
+    /** Forgets a removed host's pins and hides, so a host paired again starts clean. */
+    fun forgetHost(hostId: String) {
+        if (hostId in _pins.value) {
+            _pins.value = _pins.value - hostId
+            val arr = org.json.JSONArray()
+            for ((h, repos) in _pins.value) for (r in repos) arr.put(org.json.JSONArray().put(h).put(r))
+            prefs.edit().putString(PINS, arr.toString()).apply()
+        }
+        val keep = _hidden.value.filterTo(HashSet()) { !it.startsWith("$hostId\n") }
+        if (keep.size != _hidden.value.size) { prefs.edit().putStringSet(HIDDEN, keep).apply(); _hidden.value = keep }
+    }
+
     private val _hidden = MutableStateFlow(prefs.getStringSet(HIDDEN, null).orEmpty().toSet())
 
     /** The projects hidden from the drawer (`hostId`, a newline, the repo path: `projectKey`); one comes back while something in it waits on the user. */

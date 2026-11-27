@@ -257,5 +257,10 @@ class SidebarTest {
         assertEquals(setOf("h1\n/p/c"), again.hidden.value)
         again.togglePin("h1", "/p/a")
         assertEquals(listOf("/p/b"), again.pins.value["h1"])
+        // A removed host's are forgotten.
+        again.forgetHost("h1")
+        assertEquals(mapOf("h2" to listOf("/p/a")), again.pins.value)
+        assertTrue(again.hidden.value.isEmpty())
+        assertEquals(mapOf("h2" to listOf("/p/a")), dev.agentmesh.android.DevicePrefs(ApplicationProvider.getApplicationContext<Application>()).pins.value)
     }
 }

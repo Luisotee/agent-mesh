@@ -109,7 +109,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     fun closeDrawer(then: () -> Unit) { scope.launch { drawer.close() }; then() }
     val actions = SidebarActions(
         openAgent = { h, a, t -> closeDrawer { openAgent(h, a, t) } },
-        home = { closeDrawer { nav.navigate(Routes.HOME) { popUpTo(Routes.HOME) } } },
+        home = { closeDrawer { nav.popBackStack(Routes.HOME, inclusive = false) } },
         settings = { closeDrawer { nav.navigate(Routes.SETTINGS) } },
         live = { closeDrawer { nav.navigate(Routes.DOCK_ALL) { launchSingleTop = true } } },
         usage = { h -> closeDrawer { nav.navigate(Routes.usage(h)) } },
@@ -125,7 +125,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         PermanentNavigationDrawer(drawerContent = { if (hasDrawer) PermanentDrawerSheet(Modifier.width(320.dp)) { sheet() } }, content = content)
     } else {
         // Swipe opens it from home only: elsewhere a horizontal drag belongs to the screen (a terminal, a code block).
-        ModalNavigationDrawer(drawerContent = { ModalDrawerSheet { sheet() } }, drawerState = drawer, gesturesEnabled = route == Routes.HOME, content = content)
+        ModalNavigationDrawer(drawerContent = { ModalDrawerSheet { sheet() } }, drawerState = drawer, gesturesEnabled = route == Routes.HOME || drawer.isOpen, content = content)
     }
     spawn?.split('\n')?.let { (host, repo, run) -> runtimes[host]?.let { rt -> SpawnSheet(rt, runId = run.ifEmpty { null }, onDismiss = { spawn = null }, repo = repo) } }
     adding?.let { host -> runtimes[host]?.let { rt -> AddProjectSheet(rt) { adding = null } } }
@@ -166,7 +166,7 @@ private fun Routed(
             // The screen takes a waiting link (and any that arrives while it is up) itself, once.
             PairScreen(
                 null, onBack = { nav.popBackStack() },
-                onPaired = { nav.navigate(Routes.HOME) { popUpTo(Routes.HOME) } },
+                onPaired = { nav.popBackStack(Routes.HOME, inclusive = false) },
             )
         }
         composable(Routes.ADD) { HostFormScreen(null) { nav.popBackStack() } }
@@ -184,7 +184,8 @@ private fun Routed(
         ) { e ->
             val tab = runCatching { Tab.valueOf(e.arguments?.getString("tab").orEmpty()) }.getOrDefault(Tab.Overview)
             // A host removed while this was open (or a tile that was tapped as it went) has nothing to show.
-            runtimes[e.arguments!!.getString("id")!!]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!, { nav.popBackStack() }, tab, onMenu = openDrawer) } ?: Gone { nav.popBackStack() }
+            runtimes[e.arguments!!.getString("id")!!]?.let { AgentScreen(it, e.arguments!!.getString("agent")!!, { nav.popBackStack() }, tab, // Opened from Live, the agent keeps its Back arrow to it: the menu is for an agent opened from home or the drawer.
+                onMenu = openDrawer.takeIf { nav.previousBackStackEntry?.destination?.route == Routes.HOME }) } ?: Gone { nav.popBackStack() }
         }
     }
     // The new-lead sheet of Home's button (the drawer's own is at the app's root).

@@ -167,7 +167,7 @@ fun SidebarContent(model: SidebarModel, current: Pair<String, String>?, a: Sideb
     var showHidden by rememberSaveable { mutableStateOf(false) }
     Column(modifier.fillMaxHeight().testTag("sidebar")) {
         Row(Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("agent-mesh", Modifier.weight(1f).clickable(onClick = a.home), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("agent-mesh", Modifier.weight(1f).clickable(onClick = a.home).testTag("sidebar-title"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         OutlinedTextField(
             query, { query = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).testTag("sidebar-search"), singleLine = true,
@@ -396,9 +396,10 @@ private fun QuotaFooter(model: SidebarModel, onUsage: (String) -> Unit) {
         val rt = runtimes[h.hostId]
         androidx.compose.runtime.key(h.hostId) {
             LaunchedEffect(h.hostId, h.up, rt) {
-                if (!h.up || rt == null) return@LaunchedEffect
+                // A host that is down has no reading to show: a frozen figure would pass for the current one.
+                if (!h.up || rt == null) { quotas.remove(h.hostId); return@LaunchedEffect }
                 while (true) {
-                    try { quotas[h.hostId] = quotaLines(usageView(rt.awaitApi().getUsage(refresh = false))) } catch (e: CancellationException) { throw e } catch (e: Exception) { }
+                    try { quotas[h.hostId] = quotaLines(usageView(rt.awaitApi().getUsage(refresh = false))) } catch (e: CancellationException) { throw e } catch (e: Exception) { quotas.remove(h.hostId) }
                     delay(60_000)
                 }
             }

@@ -79,6 +79,11 @@ class WideDrawerNavTest : DrawerNavBase() {
         // Replaced, not stacked: Back from any agent is home.
         assertEquals(listOf("home", agentRoute), stack())
         assertEquals("w2", nav!!.currentBackStackEntry!!.arguments!!.getString("agent"))
+        // The drawer's title goes home: one home on the stack, not two.
+        open("sidebar-title")
+        assertEquals(listOf("home"), stack())
+        open("sidebar-title")
+        assertEquals(listOf("home"), stack())
     }
 
     @Test fun `settings use the whole window`() {

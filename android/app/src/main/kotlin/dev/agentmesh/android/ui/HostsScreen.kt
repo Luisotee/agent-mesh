@@ -91,7 +91,7 @@ fun HostsScreen(
             hostName = h.name,
             canUnpair = ready,
             unpair = { retry -> unpairFromHost(runtime?.api(), afterFailedTry = retry) },
-            onRemove = { container.hosts.remove(h.id); removing = null },
+            onRemove = { container.hosts.remove(h.id); container.prefs.forgetHost(h.id); removing = null },
             onDismiss = { removing = null },
         )
     }
