@@ -5514,7 +5514,11 @@ type RegisterPushRequest struct {
 	// The device's P-256 public key, uncompressed, base64url (RFC 8291 `p256dh`).
 	P256Dh string `protobuf:"bytes,3,opt,name=p256dh,proto3" json:"p256dh,omitempty"`
 	// The 16-byte authentication secret, base64url (RFC 8291 `auth`).
-	Auth          string `protobuf:"bytes,4,opt,name=auth,proto3" json:"auth,omitempty"`
+	Auth string `protobuf:"bytes,4,opt,name=auth,proto3" json:"auth,omitempty"`
+	// What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+	// exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+	// push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+	Events        []string `protobuf:"bytes,5,rep,name=events,proto3" json:"events,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -5575,6 +5579,13 @@ func (x *RegisterPushRequest) GetAuth() string {
 		return x.Auth
 	}
 	return ""
+}
+
+func (x *RegisterPushRequest) GetEvents() []string {
+	if x != nil {
+		return x.Events
+	}
+	return nil
 }
 
 type RegisterPushResponse struct {
@@ -7986,12 +7997,13 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x11RevokeSelfRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\"B\n" +
 	"\x12RevokeSelfResponse\x12,\n" +
-	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\"\x8c\x01\n" +
+	"\x06device\x18\x01 \x01(\v2\x14.agentmesh.v1.DeviceR\x06device\"\xa4\x01\n" +
 	"\x13RegisterPushRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12\x16\n" +
 	"\x06p256dh\x18\x03 \x01(\tR\x06p256dh\x12\x12\n" +
-	"\x04auth\x18\x04 \x01(\tR\x04auth\"Z\n" +
+	"\x04auth\x18\x04 \x01(\tR\x04auth\x12\x16\n" +
+	"\x06events\x18\x05 \x03(\tR\x06events\"Z\n" +
 	"\x14RegisterPushResponse\x12B\n" +
 	"\fregistration\x18\x01 \x01(\v2\x1e.agentmesh.v1.PushRegistrationR\fregistration\"c\n" +
 	"\x15UnregisterPushRequest\x12-\n" +

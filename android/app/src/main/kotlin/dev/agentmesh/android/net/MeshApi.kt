@@ -10,6 +10,13 @@ import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
 import dev.agentmesh.gen.agentmesh.v1.Agent
+import dev.agentmesh.gen.agentmesh.v1.AgentRole
+import dev.agentmesh.gen.agentmesh.v1.ListProjectsRequest
+import dev.agentmesh.gen.agentmesh.v1.Project
+import dev.agentmesh.gen.agentmesh.v1.Run
+import dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest
+import dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse
+import dev.agentmesh.gen.agentmesh.v1.StartRunRequest
 import dev.agentmesh.gen.agentmesh.v1.AgentPullRequests
 import dev.agentmesh.gen.agentmesh.v1.CheckModelsRequest
 import dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse
@@ -80,6 +87,7 @@ val UI_ACTIONS = listOf(
     "hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal",
     "registerPush", "unregisterPush", "testPush", "revokeSelf",
     "readTranscript", "promptAgent", "switchAgent", "checkModels", "listAgents", "listWaiting", "listPullRequests", "holdPullRequest", "getUsage", "getCost",
+    "startRun", "spawnAgent", "listProjects",
 )
 
 /** What a terminal stream delivers: frames, then how it ended. */
@@ -115,8 +123,11 @@ interface MeshApi {
     /** Approves an agent's plan: it moves to its execution model in the same conversation. Returns the stored answer. */
     suspend fun approveAgent(agent: String): Message
 
-    /** A one-time ticket for an agent's terminal stream: the path to open on the host (read only: this app asks for no input right). */
-    suspend fun openTerminal(agent: String): String
+    /**
+     * A one-time ticket for an agent's terminal stream: the path to open on the host. With [input] it asks for the input right
+     * (the host grants it only to a device that may type, and says so in the attach answer); without, the stream only watches.
+     */
+    suspend fun openTerminal(agent: String, input: Boolean = false): String
 
     /** The terminal stream at [path] (from [openTerminal]): a WebSocket of binary `TermFrame`s, both ways. */
     fun connectTerminal(path: String): TerminalSocket
@@ -128,8 +139,8 @@ interface MeshApi {
     suspend fun setSetting(key: String, value: Value): Setting
     suspend fun resetSetting(key: String): Setting
 
-    /** Gives the host this device's UnifiedPush endpoint and its WebPush keys (base64url), so it pushes here. */
-    suspend fun registerPush(endpoint: String, p256dh: String, auth: String): PushRegistration
+    /** Gives the host this device's UnifiedPush endpoint and its WebPush keys (base64url), so it pushes here, and the kinds of notice this device chose to be pushed ([events]; none follows the host's list). */
+    suspend fun registerPush(endpoint: String, p256dh: String, auth: String, events: List<String> = emptyList()): PushRegistration
 
     /** Tells the host to stop pushing to this device. Returns whether it had an endpoint. */
     suspend fun unregisterPush(): Boolean
@@ -165,6 +176,18 @@ interface MeshApi {
     suspend fun holdPullRequest(url: String, release: Boolean): List<PullRequest>
 
     suspend fun getUsage(refresh: Boolean = false): GetUsageResponse
+
+    /** Opens a run with a title (a device may start one; its lead is spawned into it next). */
+    suspend fun startRun(title: String): Run
+
+    /**
+     * Starts an agent in a new git worktree of [repo] on a branch of [runId]: a lead or a worker, of [kind] (a CLI), on a [tier]
+     * or a named [model] (a worker always has one of the two), given [task] as its first message once ready.
+     */
+    suspend fun spawnAgent(runId: String, repo: String, slug: String, role: AgentRole, kind: String, tier: String, model: String, task: String): SpawnAgentResponse
+
+    /** The repos the host knows (its `repos.dir` folders and where agents worked), with their branches. */
+    suspend fun listProjects(): List<Project>
 
     /** What `mesh cost` prints: for a run, or (with [since], a span back from now such as `7d`) a window. */
     suspend fun getCost(runId: String = "", since: String = "", agents: Boolean = false): GetCostResponse
@@ -228,8 +251,8 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
     override suspend fun approveAgent(agent: String): Message =
         service.approveAgent(ApproveAgentRequest.newBuilder().setMeta(newMeta()).setAgent(agent).build()).ok().message
 
-    override suspend fun openTerminal(agent: String): String =
-        service.openTerminal(OpenTerminalRequest.newBuilder().setAgent(agent).setInput(false).build()).ok().path
+    override suspend fun openTerminal(agent: String, input: Boolean): String =
+        service.openTerminal(OpenTerminalRequest.newBuilder().setAgent(agent).setInput(input).build()).ok().path
 
     override fun connectTerminal(path: String): TerminalSocket = OkHttpTerminalSocket(connection, path)
 
@@ -246,8 +269,8 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
     override suspend fun resetSetting(key: String): Setting =
         service.resetSetting(ResetSettingRequest.newBuilder().setMeta(newMeta()).setKey(key).build()).ok().setting
 
-    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): PushRegistration =
-        service.registerPush(RegisterPushRequest.newBuilder().setMeta(newMeta()).setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()).ok().registration
+    override suspend fun registerPush(endpoint: String, p256dh: String, auth: String, events: List<String>): PushRegistration =
+        service.registerPush(RegisterPushRequest.newBuilder().setMeta(newMeta()).setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).addAllEvents(events).build()).ok().registration
 
     override suspend fun unregisterPush(): Boolean =
         service.unregisterPush(UnregisterPushRequest.newBuilder().setMeta(newMeta()).build()).ok().removed
@@ -282,6 +305,16 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
 
     override suspend fun getCost(runId: String, since: String, agents: Boolean): GetCostResponse =
         service.getCost(GetCostRequest.newBuilder().setRunId(runId).setSince(since).setAgents(agents).build()).ok()
+
+    override suspend fun startRun(title: String): Run = service.startRun(StartRunRequest.newBuilder().setMeta(newMeta()).setTitle(title).build()).ok().run
+
+    override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: AgentRole, kind: String, tier: String, model: String, task: String): SpawnAgentResponse =
+        service.spawnAgent(
+            SpawnAgentRequest.newBuilder().setMeta(newMeta()).setRunId(runId).setRepo(repo).setSlug(slug).setRole(role).setKind(kind)
+                .setTier(tier).setModel(model).setTask(task).build(),
+        ).ok()
+
+    override suspend fun listProjects(): List<Project> = service.listProjects(ListProjectsRequest.getDefaultInstance()).ok().projectsList
 
     private fun Throwable.asApiException(): ApiException = when (this) {
         is ApiException -> this

@@ -22,6 +22,11 @@ class PushPayloadTest {
         assertFalse(p.isTest)
     }
 
+    @Test fun `the limit and error kinds are ones this app knows`() {
+        assertEquals(NoticeKind.Limited, parse("{\"v\":1,\"kind\":\"limited\",\"title\":\"shop-fix hit its usage limit\",\"agent\":\"w1\",\"tab\":\"terminal\"}")!!.toNotice()!!.kind)
+        assertEquals(Tab.Terminal, parse("{\"v\":1,\"kind\":\"error\",\"agent\":\"w1\",\"tab\":\"terminal\"}")!!.toNotice()!!.tab)
+    }
+
     @Test fun `a test push, an unknown kind and what isn't ours`() {
         assertTrue(parse("""{"v":1,"kind":"test","title":"agent-mesh","body":"works"}""")!!.isTest)
         assertNull(parse("""{"v":1,"kind":"party","agent":"w1"}""")!!.toNotice())

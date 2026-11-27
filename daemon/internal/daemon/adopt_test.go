@@ -19,6 +19,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/proc"
 	"github.com/Luisotee/agent-mesh/daemon/internal/statedir"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // userSession is a Claude Code session the user started by hand: a process of its own (the fake claude, outside the
@@ -35,7 +36,7 @@ type userSession struct {
 // startUserSession starts one; sub, when given, is the folder under the repo the session runs in.
 func startUserSession(t *testing.T, cfg string, settings string, sub ...string) *userSession {
 	t.Helper()
-	inbox, err := os.MkdirTemp("", "adopt")
+	inbox, err := shortdir.Make("adopt")
 	if err != nil {
 		t.Fatal(err)
 	}

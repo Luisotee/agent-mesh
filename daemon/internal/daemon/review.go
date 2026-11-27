@@ -266,9 +266,10 @@ func (d *Daemon) openCodeAvailable(r store.Reader, tier, top, freeOff string) (b
 	return true, ""
 }
 
-// prAuthorKind is the CLI kind of the agent that wrote the PR: the newest agent on the host whose branch is
-// the PR's head ref in this repo. A reviewer of another CLI is worth more, so it goes last in a slot's choices.
-func prAuthorKind(r store.Reader, top, headRef string) string {
+// prAuthorKind is the CLI kind of the agent that wrote the PR: the newest worker of this repo whose branch is
+// the PR's head ref, else the newest whose worktree has it checked out (it opened its PR from a branch it moved to).
+// A reviewer of another CLI is worth more, so it goes last in a slot's choices.
+func prAuthorKind(ctx context.Context, r store.Reader, top, headRef string) string {
 	if headRef == "" {
 		return ""
 	}
@@ -277,8 +278,13 @@ func prAuthorKind(r store.Reader, top, headRef string) string {
 		return ""
 	}
 	for i := len(agents) - 1; i >= 0; i-- {
-		if agents[i].Repo == top && agents[i].Branch == headRef && agents[i].Role == v1.AgentRole_AGENT_ROLE_WORKER {
+		if sameDir(agents[i].Repo, top) && agents[i].Branch == headRef && agents[i].Role == v1.AgentRole_AGENT_ROLE_WORKER {
 			return agents[i].Kind
+		}
+	}
+	for i := len(agents) - 1; i >= 0; i-- {
+		if a := agents[i]; sameDir(a.Repo, top) && a.Role == v1.AgentRole_AGENT_ROLE_WORKER && worktreeBranch(ctx, a) == headRef {
+			return a.Kind
 		}
 	}
 	return ""

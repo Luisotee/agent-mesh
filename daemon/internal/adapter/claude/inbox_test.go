@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 
 	adapterv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/adapter/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // inbox is a fake Claude session: a socket under a short path and the record Claude keeps of itself.
@@ -24,7 +25,7 @@ type inbox struct {
 
 func startInbox(t *testing.T, pid int, ticks uint64) *inbox {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ib")
+	dir, err := shortdir.Make("ib")
 	if err != nil {
 		t.Fatal(err)
 	}

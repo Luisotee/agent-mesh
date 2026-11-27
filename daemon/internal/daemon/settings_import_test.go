@@ -12,6 +12,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 const ownerPolicy = `{
@@ -41,7 +42,7 @@ func raw(s *v1.Setting) string { return s.Value.String() }
 
 func TestMeshdImportsThePolicyFileOnItsFirstStartOnly(t *testing.T) {
 	file := writePolicy(t, ownerPolicy)
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := startWith(t, state, withPolicy(file))
 	if s := setting(t, h, "compact.claude"); !s.IsSet || s.Value.GetNumberValue() != 250000 {
 		t.Errorf("compact.claude %v", s)
@@ -94,7 +95,7 @@ func TestMeshdWithNoPolicyFileOrABrokenOneStartsAnyway(t *testing.T) {
 
 func TestMeshdLogsAChangedPolicyFile(t *testing.T) {
 	file := writePolicy(t, `{"compact": {"agy": 5}}`)
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	startWith(t, state, withPolicy(file)).stop()
 	os.WriteFile(file, []byte(`{"compact": {"agy": 6}}`), 0o644)
 	logs := &syncBuffer{}

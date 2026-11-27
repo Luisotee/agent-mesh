@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/url"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -22,11 +23,13 @@ type PushRecord struct {
 	LastOKAt     time.Time // zero: never
 	LastError    string
 	FailingSince time.Time // zero: not failing
+	// Events is what the device chose to be pushed (migration 0014): notice kinds; empty follows the host's list.
+	Events []string
 }
 
 // Proto is the record as `mesh devices` shows it: the endpoint's host only, since its URL is a capability.
 func (p PushRecord) Proto() *v1.PushRegistration {
-	out := &v1.PushRegistration{DeviceId: p.DeviceID, RegisteredAt: timestamppb.New(p.UpdatedAt), LastError: p.LastError}
+	out := &v1.PushRegistration{DeviceId: p.DeviceID, RegisteredAt: timestamppb.New(p.UpdatedAt), LastError: p.LastError, Events: p.Events}
 	if u, err := url.Parse(p.Endpoint); err == nil {
 		out.EndpointHost = u.Host
 	}
@@ -42,19 +45,20 @@ func (p PushRecord) Proto() *v1.PushRegistration {
 // PutPush sets a device's endpoint. An endpoint another device held moves to this one (a phone paired again has a
 // new device id but the same endpoint: without the move every push would arrive twice). A changed endpoint starts
 // with no error; the same one keeps its history.
-func (t *Tx) PutPush(deviceID, endpoint string, p256dh, auth []byte) error {
+func (t *Tx) PutPush(deviceID, endpoint string, p256dh, auth []byte, events []string) error {
 	if _, err := t.tx.ExecContext(t.ctx, `DELETE FROM push_endpoints WHERE endpoint = ? AND device_id != ?`, endpoint, deviceID); err != nil {
 		return err
 	}
 	now := nanos(t.now)
-	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO push_endpoints (device_id, endpoint, p256dh, auth, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+	_, err := t.tx.ExecContext(t.ctx, `INSERT INTO push_endpoints (device_id, endpoint, p256dh, auth, created_at, updated_at, events)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (device_id) DO UPDATE SET
 		  last_error    = CASE WHEN endpoint = excluded.endpoint THEN last_error ELSE '' END,
 		  failing_since = CASE WHEN endpoint = excluded.endpoint THEN failing_since ELSE NULL END,
 		  last_ok_at    = CASE WHEN endpoint = excluded.endpoint THEN last_ok_at ELSE NULL END,
-		  endpoint = excluded.endpoint, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at`,
-		deviceID, endpoint, p256dh, auth, now, now)
+		  endpoint = excluded.endpoint, p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at,
+		  events = excluded.events`,
+		deviceID, endpoint, p256dh, auth, now, now, strings.Join(events, ","))
 	return err
 }
 
@@ -95,7 +99,7 @@ func (t *Tx) NotePush(deviceID, endpoint, errText string) error {
 	return err
 }
 
-const pushCols = `device_id, endpoint, p256dh, auth, created_at, updated_at, last_ok_at, last_error, failing_since`
+const pushCols = `device_id, endpoint, p256dh, auth, created_at, updated_at, last_ok_at, last_error, failing_since, events`
 
 // Push returns a device's endpoint, or ErrNotFound.
 func (r Reader) Push(deviceID string) (PushRecord, error) {
@@ -130,8 +134,12 @@ func scanPush(sc interface{ Scan(...any) error }) (PushRecord, error) {
 	var p PushRecord
 	var created, updated int64
 	var ok, failing sql.NullInt64
-	if err := sc.Scan(&p.DeviceID, &p.Endpoint, &p.P256dh, &p.Auth, &created, &updated, &ok, &p.LastError, &failing); err != nil {
+	var events string
+	if err := sc.Scan(&p.DeviceID, &p.Endpoint, &p.P256dh, &p.Auth, &created, &updated, &ok, &p.LastError, &failing, &events); err != nil {
 		return PushRecord{}, err
+	}
+	if events != "" {
+		p.Events = strings.Split(events, ",")
 	}
 	p.CreatedAt, p.UpdatedAt = time.Unix(0, created), time.Unix(0, updated)
 	if ok.Valid {

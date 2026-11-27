@@ -153,12 +153,12 @@ function Palette({ onDone }: { onDone: () => void }) {
               onClick={() => choose(c)}
               className={cn('flex cursor-pointer items-baseline gap-2 px-3 py-1.5 text-[13px]', i === at && 'bg-accent text-accent-foreground')}
             >
-              <span className="w-24 shrink-0 text-[11px] tracking-wide text-muted-foreground uppercase">{c.group}</span>
+              <span className="w-24 shrink-0 text-xs text-muted-foreground">{c.group}</span>
               <span className="min-w-0 flex-1 truncate">
                 {c.title}
                 {c.detail && <span className="ml-2 text-xs text-muted-foreground">{c.detail}</span>}
               </span>
-              {chord && <kbd className="shrink-0 rounded border px-1 font-mono text-[11px] text-muted-foreground">{displayChord(chord)}</kbd>}
+              {chord && <kbd className="shrink-0 rounded border px-1 font-mono text-xs text-muted-foreground">{displayChord(chord)}</kbd>}
             </li>
           )
         })}

@@ -551,6 +551,8 @@ message PushRegistration {
   string last_error = 5;
   // Since when every push has failed; unset while pushes go through.
   google.protobuf.Timestamp failing_since = 6;
+  // What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+  repeated string events = 7;
 }
 
 message DevicePaired {

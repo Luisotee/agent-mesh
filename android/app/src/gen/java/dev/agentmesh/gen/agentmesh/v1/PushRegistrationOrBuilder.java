@@ -102,4 +102,45 @@ public interface PushRegistrationOrBuilder extends
    * @return The failingSince.
    */
   com.google.protobuf.Timestamp getFailingSince();
+
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @return A list containing the events.
+   */
+  java.util.List<java.lang.String>
+      getEventsList();
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @return The count of events.
+   */
+  int getEventsCount();
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param index The index of the element to return.
+   * @return The events at the given index.
+   */
+  java.lang.String getEvents(int index);
+  /**
+   * <pre>
+   * What the device chose to be pushed (RegisterPushRequest.events); empty follows the host's list.
+   * </pre>
+   *
+   * <code>repeated string events = 7 [json_name = "events"];</code>
+   * @param index The index of the element to return.
+   * @return The events at the given index.
+   */
+  com.google.protobuf.ByteString
+      getEventsBytes(int index);
 }

@@ -160,6 +160,14 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
 
         fun bin(name: String) = File(bins, name)
 
-        fun create(): DaemonHarness = DaemonHarness(Files.createTempDirectory("amd").toFile()).also { it.state.parentFile.mkdirs() }
+        /**
+         * A state dir under /tmp, not java.io.tmpdir: a unix socket path holds about 107 bytes and meshd refuses a longer
+         * one, so a long TMPDIR would keep the daemon from starting ("timed out waiting for meshd.json").
+         */
+        fun create(): DaemonHarness {
+            val tmp = File("/tmp")
+            val root = if (tmp.isDirectory && tmp.canWrite()) Files.createTempDirectory(tmp.toPath(), "am") else Files.createTempDirectory("am")
+            return DaemonHarness(root.toFile()).also { it.state.parentFile.mkdirs() }
+        }
     }
 }

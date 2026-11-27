@@ -2,6 +2,7 @@ import { ChevronRight, Clock, Pencil, Send, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
 import { Button } from '@/components/ui/button'
+import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/input'
 import { useApp, useAppState, useHostState } from '@/context'
 import { statusSentence } from '@/derive'
@@ -15,6 +16,8 @@ import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { emptyTranscript, fromTail, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { Markdown } from './markdown'
+import { hueStyle } from '@/hue'
+import { Tip } from '@/components/ui/tooltip'
 
 const say = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
 
@@ -185,7 +188,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
 
   if (!agent) return null
   return (
-    <div id={panelId} role="tabpanel" aria-labelledby={tabId} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
+    <div id={panelId} role="tabpanel" aria-labelledby={tabId} style={hueStyle(agent.repo)} className="flex min-h-0 flex-1 flex-col gap-2" hidden={!active}>
       <div
         ref={scroller}
         data-testid="chat"
@@ -200,7 +203,13 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
             The host reads no record of a {agent.kind} conversation for the chat view. Its terminal shows the whole of it, and what you send here is typed into it.
           </p>
         )}
-        {transcript.supported && !loaded && !error && <p role="status" className="py-6 text-center text-xs text-muted-foreground">Loading the conversation…</p>}
+        {transcript.supported && !loaded && !error && (
+          <div role="status" aria-label="Loading the conversation" className="flex flex-col gap-4 py-2"><span className="sr-only">Loading the conversation</span>
+            <Skeleton className="h-8 w-1/2 self-end rounded-lg" />
+            <SkeletonLines lines={3} className="w-5/6" />
+            <Skeleton className="h-8 w-1/3 self-end rounded-lg" />
+          </div>
+        )}
         {error && (
           <div role="alert" className="flex items-center gap-2 text-xs text-destructive">
             <span>Couldn't read the conversation: {error}</span>
@@ -289,17 +298,21 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
       {prompts.map((p) => (
         <div key={p.id} data-kind="queued" className="group flex max-w-[85%] flex-col items-end gap-0.5">
           <div className="w-fit rounded-lg border border-dashed bg-accent/50 px-3 py-2 text-[13px] break-words whitespace-pre-wrap opacity-80">{p.text}</div>
-          <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             <span>{HELD[p.held] ?? 'Queued: sent when it is idle'}</span>
             {!readOnly && (
               <>
-                <button type="button" aria-label="Edit the queued prompt" title="Take it back to edit" onClick={() => void take(p, true)} className="grid size-5 place-items-center rounded hover:bg-muted">
-                  <Pencil className="size-3" />
-                </button>
-                <button type="button" aria-label="Remove the queued prompt" title="Take it back" onClick={() => void take(p, false)} className="grid size-5 place-items-center rounded hover:bg-muted">
-                  <X className="size-3" />
-                </button>
+                <Tip label="Take it back to edit">
+                  <button type="button" aria-label="Edit the queued prompt" onClick={() => void take(p, true)} className="grid size-5 place-items-center rounded hover:bg-muted">
+                    <Pencil className="size-3" />
+                  </button>
+                </Tip>
+                <Tip label="Take it back">
+                  <button type="button" aria-label="Remove the queued prompt" onClick={() => void take(p, false)} className="grid size-5 place-items-center rounded hover:bg-muted">
+                    <X className="size-3" />
+                  </button>
+                </Tip>
               </>
             )}
           </p>
@@ -415,7 +428,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal }: { host: Hos
       <div className="flex items-end gap-2">
         <Textarea
           aria-label="Prompt"
-          className="max-h-40 min-h-9 flex-1 resize-none"
+          className="max-h-40 min-h-9 flex-1 resize-none text-sm focus-visible:ring-identity"
           rows={Math.min(6, Math.max(1, text.split('\n').length))}
           value={text}
           disabled={!!why}
@@ -460,21 +473,21 @@ function ChatBlock({ block }: { block: Block }) {
   switch (block.kind) {
     case 'user':
       return (
-        <div className="ml-auto w-fit max-w-[85%] rounded-lg bg-accent px-3 py-2 text-[13px] break-words whitespace-pre-wrap" data-kind="user">
+        <div className="ml-auto w-fit max-w-[min(85%,72ch)] rounded-lg border border-identity/25 bg-identity/12 px-3 py-2 text-[15px] leading-relaxed break-words whitespace-pre-wrap" data-kind="user">
           {block.entry.text}
         </div>
       )
     case 'mesh':
       return (
-        <p className="text-center text-[11px] text-muted-foreground" data-kind="mesh">
+        <p className="text-center text-xs text-muted-foreground" data-kind="mesh">
           From the mesh: {block.entry.text.replace(/^📬\s*\[mesh\]\s*/, '')}
         </p>
       )
     case 'assistant':
       return (
         <div data-kind="assistant">
-          <Markdown>{block.entry.text}</Markdown>
-          {block.entry.truncated && <p className="text-[11px] text-muted-foreground">… cut here</p>}
+          <Markdown className="max-w-[72ch] text-[15px] leading-[1.6]">{block.entry.text}</Markdown>
+          {block.entry.truncated && <p className="text-xs text-muted-foreground">… cut here</p>}
         </div>
       )
     case 'tools':
@@ -506,7 +519,7 @@ function ToolCallRow({ call }: { call: ToolCall }) {
       </p>
       {r ? (
         r.text && (
-          <pre className={`max-h-48 overflow-auto rounded border bg-surface p-2 font-mono text-[11px] whitespace-pre-wrap ${r.isError ? 'border-destructive text-destructive' : ''}`}>
+          <pre className={`max-h-48 overflow-auto rounded border bg-surface p-2 font-mono text-xs whitespace-pre-wrap ${r.isError ? 'border-destructive text-destructive' : ''}`}>
             {r.text}
             {r.truncated ? '\n… cut here' : ''}
           </pre>

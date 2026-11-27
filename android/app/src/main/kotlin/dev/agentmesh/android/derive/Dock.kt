@@ -17,6 +17,11 @@ class Tile(
     val activity: String,
     /** The last message the agent sent that the app has seen. */
     val lastSent: Message?,
+    /** The host it works on: set by [dockTilesAcross] (the all-hosts dock names it on each tile), empty in one host's dock. */
+    val hostId: String = "",
+    val hostName: String = "",
+    /** How far that host's clock is ahead of ours (ms). */
+    val skewMs: Long = 0,
 )
 
 private fun alive(a: Agent) = a.state != AgentState.AGENT_STATE_EXITED && a.state != AgentState.AGENT_STATE_RETIRED
@@ -34,6 +39,20 @@ fun activityAgo(a: Agent, skewMs: Long, now: Long): String {
 
 /** How long ago a message was sent, or nothing when it has no time. */
 fun sentAgo(m: Message, skewMs: Long, now: Long): String = if (m.hasCreatedAt()) ago(m.createdAt.toMillis() - skewMs, now) else ""
+
+/** One host as the all-hosts dock needs it: its runs, agents and the messages the app has seen. */
+class DockHost(val hostId: String, val hostName: String, val skewMs: Long, val runs: Map<String, Run>, val agents: Map<String, Agent>, val messages: Map<String, Message>)
+
+/**
+ * The dock of every host: the tiles of each, the ones that need the user first, then the rest by latest activity on the
+ * phone's clock (each host's own is corrected by how far it is ahead), the host's name on each tile.
+ */
+fun dockTilesAcross(hosts: List<DockHost>): List<Tile> {
+    val all = hosts.flatMap { h -> dockTiles(h.runs, h.agents, h.messages).map { Tile(it.agent, it.run, it.activity, it.lastSent, h.hostId, h.hostName, h.skewMs) } }
+    return all.sortedWith(
+        compareBy<Tile> { if (attention(it.agent)) 0 else 1 }.thenByDescending { at(it.agent).let { t -> if (t > 0) t - it.skewMs else 0L } }.thenBy { it.agent.name }.thenBy { it.hostName },
+    )
+}
 
 /** A tile per live agent of the open runs: those that need the user first, then the rest by latest activity. */
 fun dockTiles(runs: Map<String, Run>, agents: Map<String, Agent>, messages: Map<String, Message>): List<Tile> {

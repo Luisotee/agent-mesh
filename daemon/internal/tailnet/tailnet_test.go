@@ -22,6 +22,7 @@ import (
 	"tailscale.com/tstest/integration/testcontrol"
 	"tailscale.com/types/logger"
 
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 	"github.com/Luisotee/agent-mesh/daemon/internal/tlsutil"
 )
 
@@ -69,7 +70,7 @@ type statusOf struct {
 
 func shortDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("", "tn")
+	d, err := shortdir.Make("tn")
 	if err != nil {
 		t.Fatal(err)
 	}

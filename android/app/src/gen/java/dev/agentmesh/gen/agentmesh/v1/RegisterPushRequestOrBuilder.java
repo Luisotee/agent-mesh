@@ -80,4 +80,53 @@ public interface RegisterPushRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAuthBytes();
+
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @return A list containing the events.
+   */
+  java.util.List<java.lang.String>
+      getEventsList();
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @return The count of events.
+   */
+  int getEventsCount();
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param index The index of the element to return.
+   * @return The events at the given index.
+   */
+  java.lang.String getEvents(int index);
+  /**
+   * <pre>
+   * What this device is pushed: kinds from the app.notify.events choices (input, plan, question, report, failed,
+   * exited, limited, error). Empty follows the host's app.notify.events; app.notify.enabled still switches every
+   * push off. A registration replaces the earlier one's list, so an app sends its current choice each time.
+   * </pre>
+   *
+   * <code>repeated string events = 5 [json_name = "events"];</code>
+   * @param index The index of the element to return.
+   * @return The events at the given index.
+   */
+  com.google.protobuf.ByteString
+      getEventsBytes(int index);
 }

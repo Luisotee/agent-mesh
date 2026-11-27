@@ -2,8 +2,8 @@
   "name": "Catppuccin Mocha",
   "dark": true,
   "font": {
-    "sans": "Inter",
-    "mono": "Fira Code"
+    "sans": "Geist",
+    "mono": "JetBrains Mono"
   },
   "density": "compact",
   "tokens": {
@@ -30,7 +30,22 @@
     "state-idle": "#6c7086",
     "state-done": "#a6e3a1",
     "state-failed": "#f38ba8",
-    "state-unknown": "#f9e2af"
+    "state-unknown": "#f9e2af",
+    "hue-1": "#cba6f7",
+    "hue-2": "#f5c2e7",
+    "hue-3": "#fab387",
+    "hue-4": "#f9e2af",
+    "hue-5": "#a6e3a1",
+    "hue-6": "#94e2d5",
+    "hue-7": "#89b4fa",
+    "hue-8": "#b4befe",
+    "vendor-claude": "#d97757",
+    "vendor-gemini": "#a58be0",
+    "vendor-openai": "#cdd6f4",
+    "vendor-copilot": "#cdd6f4",
+    "vendor-opencode": "#cdd6f4",
+    "vendor-deepseek": "#6b84ff",
+    "glow": "#fab387"
   },
   "terminal": {
     "background": "#181825",

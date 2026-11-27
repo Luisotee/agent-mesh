@@ -9,6 +9,8 @@ import dev.agentmesh.android.net.isFinalRouteFailure
 import dev.agentmesh.android.net.relayRefusal
 import dev.agentmesh.gen.agentmesh.term.v1.Attach
 import dev.agentmesh.gen.agentmesh.term.v1.AttachMode
+import dev.agentmesh.gen.agentmesh.term.v1.Input
+import dev.agentmesh.gen.agentmesh.term.v1.Ready
 import dev.agentmesh.gen.agentmesh.term.v1.TermFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -53,7 +55,9 @@ object CloseCode {
  *  - a different epoch on live output means somebody resized: reattach with a repaint, which carries the new size;
  *  - a slow client (close 4001) reattaches by offset at once, any other drop after a growing wait, and each
  *    attach asks for a fresh one-time ticket;
- *  - it never sends input, so the host answers terminal queries and nothing the screen replies reaches the program.
+ *  - it sends input only when [input] is on (the keyboard is up) and the host granted it: the user's typing and pastes,
+ *    after `Ready`; never the emulator's replies to queries, and never a size (it stays 0, so a phone that types
+ *    doesn't resize the terminal the desktop uses). With [input] off it sends nothing, so the host answers the queries.
  */
 class TermClient(
     private val scope: CoroutineScope,
@@ -64,9 +68,23 @@ class TermClient(
     private val maxMs: Long = 10_000,
     /** False while the host's connection isn't ready, which [api] waits for: the status line says so. */
     private val hostReady: () -> Boolean = { true },
+    /** Ask the host for the input right: for a keyboard that is up, on a device that may type. */
+    private val input: Boolean = false,
 ) {
     private val _state = MutableStateFlow<TermState>(TermState.Attaching)
     val state: StateFlow<TermState> get() = _state
+
+    private val _typing = MutableStateFlow(false)
+
+    /** True while typing reaches the program: the host granted the input right and the replay is done. */
+    val typing: StateFlow<Boolean> get() = _typing
+
+    /** Typed or pasted bytes to the program, or false when they can't go (not granted yet, not attached, replay not done). */
+    fun type(data: ByteArray): Boolean {
+        val sock = socket ?: return false
+        if (!_typing.value || data.isEmpty()) return false
+        return sock.send(TermFrame.newBuilder().setInput(Input.newBuilder().setData(com.google.protobuf.ByteString.copyFrom(data))).build())
+    }
 
     private var job: Job? = null
     private var socket: TerminalSocket? = null
@@ -76,6 +94,7 @@ class TermClient(
     private var offset = 0L
     private var haveScreen = false
     private var repaint = true
+    private var granted = false
 
     fun start() {
         if (job?.isActive == true) return
@@ -91,6 +110,7 @@ class TermClient(
     }
 
     fun stop() {
+        _typing.value = false
         job?.cancel()
         job = null
         socket?.close()
@@ -148,7 +168,8 @@ class TermClient(
         if (!hostReady()) _state.value = TermState.WaitingForHost
         val client = api()
         if (_state.value == TermState.WaitingForHost) _state.value = TermState.Attaching
-        val path = client.openTerminal(agentId)
+        _typing.value = false
+        val path = client.openTerminal(agentId, input)
         val sock = client.connectTerminal(path)
         socket = sock
         try {
@@ -174,6 +195,8 @@ class TermClient(
         } finally {
             sock.close()
             if (socket === sock) socket = null
+            _typing.value = false
+            granted = false
         }
     }
 
@@ -182,6 +205,7 @@ class TermClient(
         when (f.frameCase) {
             TermFrame.FrameCase.ATTACHED -> {
                 val a = f.attached
+                granted = input && a.input
                 val fresh = a.mode == AttachMode.ATTACH_MODE_REPAINT || a.mode == AttachMode.ATTACH_MODE_TAIL || a.reanchored || !haveScreen
                 if (fresh) screen.reset(a.cols.toInt(), a.rows.toInt())
                 else if (screen.cols != a.cols.toInt() || screen.rows != a.rows.toInt()) screen.reset(a.cols.toInt(), a.rows.toInt())
@@ -223,6 +247,11 @@ class TermClient(
             }
             TermFrame.FrameCase.REPLAY_DONE -> {
                 _state.value = TermState.Live
+                // Ready: the host drops input before it (what answered the replay's queries), and takes it after.
+                if (granted) {
+                    socket?.send(TermFrame.newBuilder().setReady(Ready.getDefaultInstance()).build())
+                    _typing.value = true
+                }
                 onLive()
             }
             TermFrame.FrameCase.EXITED -> {

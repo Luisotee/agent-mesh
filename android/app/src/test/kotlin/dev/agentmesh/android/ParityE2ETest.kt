@@ -4,6 +4,10 @@ import dev.agentmesh.android.net.ConnectMeshApi
 import dev.agentmesh.android.net.DefaultRouteConnector
 import dev.agentmesh.android.net.Route
 import dev.agentmesh.android.chat.fromTail
+import dev.agentmesh.android.term.TermClient
+import dev.agentmesh.android.term.TermScreen
+import dev.agentmesh.android.term.TermState
+import kotlinx.coroutines.CoroutineScope
 import dev.agentmesh.android.chat.toBlocks
 import dev.agentmesh.gen.agentmesh.v1.TranscriptKind
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +70,49 @@ class ParityE2ETest {
         val cost = api.getCost(since = "24h")
         assertTrue(cost.scope.isNotEmpty())
         api.getCost(runId = run)
+        Unit
+    }
+
+    @Test fun `typing from the phone reaches a real agent's terminal, without ever resizing it`() = runBlocking {
+        val d = daemon!!
+        val repo = d.repo("shop-api")
+        val run = d.ctl("start-run", "--title", "typing").getValue("run").jsonObject.getValue("id").jsonPrimitive.content
+        val agent = withContext(Dispatchers.IO) {
+            d.ctl("spawn", "--run-id", run, "--repo", repo.path, "--slug", "fix", "--kind", "claude", "--role", "worker", "--model", "haiku")
+                .getValue("agent").jsonObject.getValue("id").jsonPrimitive.content
+        }
+        withTimeout(30_000) {
+            while (withContext(Dispatchers.IO) { d.ctl("agent", "--agent", agent).getValue("agent").jsonObject.getValue("state").jsonPrimitive.content } != "AGENT_STATE_IDLE") delay(100)
+        }
+        val dispatcher = Dispatchers.Default.limitedParallelism(1)
+        val screen = TermScreen()
+        val client = TermClient(CoroutineScope(dispatcher), agent, { api() }, screen, input = true)
+        client.start()
+        try {
+            withTimeout(30_000) { while (!client.typing.value) delay(50) }
+            val before = withContext(dispatcher) { screen.cols to screen.rows }
+            assertTrue(client.type("typed from the phone".toByteArray()))
+            withTimeout(20_000) { while ("typed from the phone" !in withContext(dispatcher) { screen.visibleText() }) delay(50) }
+            // The terminal is the size it was: a phone that attaches with no size never moves it.
+            assertEquals(before, withContext(dispatcher) { screen.cols to screen.rows })
+            assertEquals(TermState.Live, client.state.value)
+        } finally {
+            client.stop()
+        }
+    }
+
+    @Test fun `a run and its agent started from the phone's calls appear on the real host`() = runBlocking {
+        val d = daemon!!
+        val repo = d.repo("shop-api")
+        val api = api()
+        val run = api.startRun("from the phone")
+        assertEquals("from the phone", run.title)
+        val spawned = api.spawnAgent(run.id, repo.path, "fix", dev.agentmesh.gen.agentmesh.v1.AgentRole.AGENT_ROLE_WORKER, "claude", tier = "", model = "haiku", task = "")
+        assertEquals(run.id, spawned.agent.runId)
+        assertEquals("fix", spawned.agent.name.substringAfterLast('-'))
+        // The host lists it, and the repo is one it knows now.
+        assertTrue(api.listAgents().any { it.id == spawned.agent.id })
+        assertTrue(api.listProjects().any { it.path.endsWith("shop-api") })
         Unit
     }
 }

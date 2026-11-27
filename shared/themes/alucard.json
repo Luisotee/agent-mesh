@@ -2,7 +2,7 @@
   "name": "Alucard",
   "dark": false,
   "font": {
-    "sans": "Inter",
+    "sans": "Geist",
     "mono": "JetBrains Mono"
   },
   "density": "compact",
@@ -30,7 +30,22 @@
     "state-idle": "#6c664b",
     "state-done": "#14710a",
     "state-failed": "#cb3a2a",
-    "state-unknown": "#846e15"
+    "state-unknown": "#846e15",
+    "hue-1": "#a3144d",
+    "hue-2": "#644ac9",
+    "hue-3": "#036a96",
+    "hue-4": "#14710a",
+    "hue-5": "#a34d14",
+    "hue-6": "#846e15",
+    "hue-7": "#cb3a2a",
+    "hue-8": "#3c5dbd",
+    "vendor-claude": "#c15f3c",
+    "vendor-gemini": "#6b4fbb",
+    "vendor-openai": "#1f1f1f",
+    "vendor-copilot": "#1f1f1f",
+    "vendor-opencode": "#1f1f1f",
+    "vendor-deepseek": "#3756e8",
+    "glow": "#a34d14"
   },
   "terminal": {
     "background": "#fffbeb",

@@ -75,10 +75,14 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
         groupByState(state.runs, state.agents, BucketContext(waiting.mapTo(HashSet()) { it.agent.id }, state.pullRequests))
     }
     val readOnly = isReadOnlyDevice(state)
+    // A new run, or an agent added to a run: only for a device that may act.
+    var sheet by rememberSaveable { mutableStateOf<String?>(null) } // "" a new run, else the run to add an agent to
     // Closed runs start collapsed and open ones expanded; the ids the user flipped are kept across rotation.
     var flipped by rememberSaveable(stateSaver = listSaver<List<String>, String>(save = { it }, restore = { it })) { mutableStateOf(emptyList<String>()) }
     val rows = remember(trees, flipped) { flatten(trees) { r -> (r.status == RunStatus.RUN_STATUS_OPEN) != (r.id in flipped) } }
-    Scaffold(topBar = {
+    Scaffold(floatingActionButton = {
+        if (!readOnly) androidx.compose.material3.ExtendedFloatingActionButton(onClick = { sheet = "" }, modifier = Modifier.testTag("new-run")) { Text("New run") }
+    }, topBar = {
         TopAppBar(
             title = { Text(runtime.host?.name ?: "Host") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
@@ -119,7 +123,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
                     }
                 } else items(rows, key = { it.key }, contentType = { if (it is RunRow) "run" else "agent" }) { row ->
                     when (row) {
-                        is RunRow -> RunHeader(row) {
+                        is RunRow -> RunHeader(row, onAddAgent = if (!readOnly && row.run.status == RunStatus.RUN_STATUS_OPEN) ({ sheet = row.run.id }) else null) {
                             val id = row.run.id
                             flipped = if (id in flipped) flipped - id else flipped + id
                         }
@@ -129,6 +133,7 @@ fun HostScreen(runtime: HostRuntime, onBack: () -> Unit, onAgent: (String, Tab) 
             }
         }
     }
+    sheet?.let { target -> SpawnSheet(runtime, runId = target.ifEmpty { null }, onDismiss = { sheet = null }) }
 }
 
 /**
@@ -171,7 +176,7 @@ private fun WaitingRow(runtime: HostRuntime, w: Waiting, canAct: Boolean, onOpen
 }
 
 @Composable
-private fun RunHeader(row: RunRow, onToggle: () -> Unit) {
+private fun RunHeader(row: RunRow, onAddAgent: (() -> Unit)?, onToggle: () -> Unit) {
     val closed = row.run.status == RunStatus.RUN_STATUS_CLOSED
     Row(Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(if (row.expanded) "▾" else "▸", Modifier.width(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -185,6 +190,7 @@ private fun RunHeader(row: RunRow, onToggle: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall, color = if (row.needsInput > 0) stateColors.needs else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        if (onAddAgent != null) androidx.compose.material3.TextButton(onClick = onAddAgent, modifier = Modifier.testTag("add-agent-${row.run.id}")) { Text("+ Agent") }
     }
 }
 

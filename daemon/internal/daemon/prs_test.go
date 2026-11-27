@@ -19,6 +19,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/client"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 // prWorld is a seeded run (a root and a worker with no processes) on a repo with a GitHub remote, and a fake `gh`
@@ -44,7 +45,7 @@ type prWorld struct {
 func startPR(t *testing.T) *prWorld {
 	t.Helper()
 	w := &prWorld{views: map[string]map[string]any{}}
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	d, err := daemon.New(daemon.Config{StateDir: state, TCP: "127.0.0.1:0", Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Now: func() time.Time { w.clockMu.Lock(); defer w.clockMu.Unlock(); return time.Now().Add(w.skew) },
 		Agents: daemon.AgentConfig{Usage: &daemon.UsageOps{DisableClaudeNetwork: true,
