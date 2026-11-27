@@ -411,7 +411,7 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 		}
 	}
 	d.warmOpenCodeModels(ctx, "opencode")
-	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, prAuthorKind(ctx, r, top, pr.HeadRef), earlierKinds, top)
+	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, d.reviewAuthorKind(ctx, r, actor, top, pr.HeadRef), earlierKinds, top)
 	if err != nil {
 		return nil, err
 	}
@@ -846,9 +846,8 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 	if m.Agree < 0 || m.Other < 0 || m.Disagree < 0 || m.Blocking < 0 || m.DeclinedBlocking < 0 {
 		return nil, invalid("counts can't be negative")
 	}
-	if m.Agree == 0 && m.Other == 0 && m.Disagree == 0 {
-		return nil, invalid("give at least one of agree, other and disagree: how many of the reviewer's findings you agreed with, found otherwise useful, and disagreed with")
-	}
+	// All zero is a verdict too: a reviewer that answered with no findings is judged, and the PR is not left at "answered
+	// and has no verdict recorded".
 	if m.DeclinedBlocking > m.Disagree+m.Other {
 		return nil, invalid("declined_blocking (%d) can't be more than disagree + other (%d): a declined finding is one you disagreed with or found otherwise useful but did not fix", m.DeclinedBlocking, m.Disagree+m.Other)
 	}

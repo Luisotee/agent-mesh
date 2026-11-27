@@ -217,11 +217,15 @@ func (d *Daemon) view(a *v1.Agent) *v1.Agent {
 	out := d.rt.lastOutput[a.TerminalId]
 	d.rt.mu.Unlock()
 	shown := reducer.Display(reducer.Of(a), d.now(), out, d.rt.cfg.UnknownAfter)
-	if shown == a.State {
+	moved := movedBranch(a)
+	if shown == a.State && moved == "" {
 		return a
 	}
 	a = proto.Clone(a).(*v1.Agent)
 	a.State = shown
+	if moved != "" {
+		a.Branch = moved // the branch it is on now, not the one it was spawned on (branch.go)
+	}
 	return a
 }
 
@@ -904,6 +908,30 @@ func (d *Daemon) ensureRunDir(run string) error {
 	return nil
 }
 
+// plainSlug is the slug a plain agent is made with: the one asked for, else it with `-2`, `-3` … the first that no other
+// plain agent of the repo that is still open (not retired) has in its name. Its name is what its tab shows.
+func plainSlug(r store.Reader, repo, slug string) (string, error) {
+	all, err := r.AllAgents()
+	if err != nil {
+		return "", err
+	}
+	taken := map[string]bool{}
+	for _, a := range all {
+		if a.Plain && a.Repo == repo && a.State != v1.AgentState_AGENT_STATE_RETIRED {
+			taken[a.Name] = true
+		}
+	}
+	for n := 1; ; n++ {
+		cand := slug
+		if n > 1 {
+			cand = fmt.Sprintf("%s-%d", slug, n)
+		}
+		if !taken[filepath.Base(repo)+"-"+cand] {
+			return cand, nil
+		}
+	}
+}
+
 // SpawnAgent starts an agent in a new worktree of a repo, in a terminal of the host.
 func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAgentRequest]) (*connect.Response[v1.SpawnAgentResponse], error) {
 	actor := auth.ActorFrom(ctx)
@@ -1036,7 +1064,18 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err := d.checkMCPLease(r, mcpNames, "", auth.ActorFrom(ctx)); err != nil {
 		return nil, err
 	}
-	name := filepath.Base(top) + "-" + m.Slug
+	slug := m.Slug
+	if m.Plain {
+		// Each plain agent is a run of its own, so the run's check for a name taken would let two of a CLI in one repo
+		// share a name, and a tab: the second takes `-2`, the third `-3`. Plain spawns go one at a time from here to the
+		// store write, so two at once do not both take the same slug (`New agent` clicked twice).
+		d.plainSpawn.Lock()
+		defer d.plainSpawn.Unlock()
+		if slug, err = plainSlug(d.store.Read(ctx), top, m.Slug); err != nil {
+			return nil, err
+		}
+	}
+	name := filepath.Base(top) + "-" + slug
 	if same, err := r.AgentsNamed(runID, name); err != nil {
 		return nil, err
 	} else if len(same) > 0 {
@@ -1052,7 +1091,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err := d.ensureRunDir(runID); err != nil {
 		return nil, err
 	}
-	branch := "mesh/" + runID + "/" + m.Slug
+	branch := "mesh/" + runID + "/" + slug
 	worktree := filepath.Join(d.worktrees(), runID, name)
 	if err := os.MkdirAll(filepath.Dir(worktree), 0o700); err != nil {
 		return nil, err
