@@ -1,4 +1,4 @@
-import { AnimatePresence, LazyMotion, MotionConfig, domAnimation, m } from 'motion/react'
+import { AnimatePresence, LazyMotion, MotionConfig, domAnimation, m, useReducedMotion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -131,11 +131,12 @@ function WorkspaceSlot({ host }: { host: HostRuntime }) {
 function PanelSlot({ host }: { host: HostRuntime }) {
   const open = useAppState((s) => s.panelOpen)
   const agentId = useAppState((s) => (s.hostId === host.info.id ? s.agentId : undefined))
+  const still = !!useReducedMotion()
   // It slides open and shut; the panel inside keeps its own width, so its content never reflows while the strip moves.
   return (
     <AnimatePresence initial={false}>
       {open && (
-        <m.div key="panel" initial={{ width: 0, opacity: 0 }} animate={{ width: 'auto', opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="flex shrink-0 overflow-hidden">
+        <m.div key="panel" initial={{ width: 0, opacity: 0 }} animate={{ width: 'auto', opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ duration: still ? 0 : 0.18, ease: 'easeOut' }} className="flex shrink-0 overflow-hidden">
           <SidePanel host={host} agentId={agentId} />
         </m.div>
       )}

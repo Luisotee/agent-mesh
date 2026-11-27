@@ -1548,9 +1548,15 @@ describe('ModelControl and vendor icons', () => {
     const { model } = control()
     const box = document.createElement('textarea')
     box.setAttribute('data-composer', '')
-    document.body.append(box)
+    // A chat whose pane shows the terminal is hidden, and comes first in the page.
+    const hidden = document.createElement('section')
+    hidden.hidden = true
+    const behind = hidden.appendChild(document.createElement('textarea'))
+    behind.setAttribute('data-composer', '')
+    document.body.append(hidden, box)
     keyedCommands(model).composer()
     expect(document.activeElement).toBe(box)
+    hidden.remove()
     box.blur()
     box.disabled = true
     keyedCommands(model).composer()
@@ -1783,7 +1789,8 @@ describe('ChatView', () => {
     expect(screen.getByText('question number 90')).toBeInTheDocument()
     expect(screen.queryByText('question number 89')).toBeNull()
     const scroller = screen.getByTestId('chat')
-    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 3000 })
+    // Each drawn block is 40 px tall.
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => 200 + scroller.querySelectorAll('ol[aria-label="Conversation"] > li').length * 40 })
     scroller.scrollTop = 100
     fireEvent.scroll(scroller)
     await userEvent.click(screen.getByRole('button', { name: 'Show earlier (90 more)' }))
@@ -1791,11 +1798,42 @@ describe('ChatView', () => {
     expect(screen.queryByText('question number 29')).toBeNull()
     // No page is asked of the host for what it already holds; the reader is not taken to the end.
     expect(readTranscript).toHaveBeenCalledTimes(1)
-    expect(scroller.scrollTop).toBe(100)
+    // 60 blocks came in above the reader: the place moves down by their height, so what was read stays under the eye.
+    expect(scroller.scrollTop).toBe(100 + 60 * 40)
     await userEvent.click(screen.getByRole('button', { name: 'Show earlier (30 more)' }))
     expect(screen.getByText('question number 0')).toBeInTheDocument()
     // It all is on screen, and the host has no earlier page: the button is gone.
     expect(screen.queryByRole('button', { name: /earlier/i })).toBeNull()
+  })
+
+  it('always draws a plan waiting on the user, however old, and keeps what was drawn when a card goes', async () => {
+    const stamped = Array.from({ length: 150 }, (_, n) => create(TranscriptEntrySchema, { id: `q${n}`, kind: TranscriptKind.USER, text: `question number ${n}`, time: timestampFromMs(10_000 + n) }))
+    const { ui, host } = chat({ read: vi.fn(async () => res(stamped, { atStart: false })) })
+    const plan = msg('p1', MessageType.PLAN, 'w1', 'lead', 5000, 'the old plan')
+    putMessages(host, plan)
+    waitOn(host, plan)
+    render(ui)
+    // The plan is older than all 150 blocks: it is drawn, and so is what is between it and the end.
+    expect(await screen.findByRole('article', { name: 'Plan from w1' })).toBeInTheDocument()
+    expect(screen.getByText('question number 0')).toBeInTheDocument()
+    // It is answered and goes: the reader's drawn blocks stay.
+    act(() => waitOn(host))
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Plan from w1' })).toBeNull())
+    expect(screen.getByText('question number 0')).toBeInTheDocument()
+  })
+
+  it('does not send the composer\'s draft when "Other model…" is confirmed from inside it', async () => {
+    const { ui, promptAgent, client } = chat()
+    const switchAgent = vi.fn(async (_req: unknown) => ({}))
+    Object.assign(client, { switchAgent, checkModels: vi.fn(async () => create(CheckModelsResponseSchema, { kinds: [] })) })
+    render(ui)
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Prompt' }), 'a draft')
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Other model…' }))
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Model' }), 'claude-opus-5-5{Enter}')
+    await waitFor(() => expect(switchAgent).toHaveBeenCalledTimes(1))
+    expect(promptAgent).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveValue('a draft')
   })
 
   it('shows a sent prompt at once as a bubble marked sending, until the record has it, and goes to the end for it', async () => {

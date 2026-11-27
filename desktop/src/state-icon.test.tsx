@@ -6,6 +6,18 @@ import { AgentSchema, AgentState } from './gen/agentmesh/v1/types_pb'
 
 const exited = (exitCode: number, stateDetail: string) => create(AgentSchema, { id: 'a', name: 'a', state: AgentState.EXITED, exitCode, stateDetail })
 
+describe('StateIcon motion', () => {
+  it('keeps the working spinner spinning (the fade-in of a changed state would override it) and fades the others in', () => {
+    const { unmount } = render(<StateIcon agent={create(AgentSchema, { id: 'a', name: 'a', state: AgentState.WORKING })} />)
+    const spin = screen.getByLabelText('working')
+    expect(spin).toHaveClass('animate-spin')
+    expect(spin).not.toHaveClass('animate-state-in')
+    unmount()
+    render(<StateIcon agent={create(AgentSchema, { id: 'a', name: 'a', state: AgentState.IDLE })} />)
+    expect(screen.getByLabelText('idle')).toHaveClass('animate-state-in')
+  })
+})
+
 describe('StateIcon for an exited agent', () => {
   it('tells a lost terminal, as the host stores it, from a stop and a clean exit', () => {
     const label = (a: ReturnType<typeof exited>) => {

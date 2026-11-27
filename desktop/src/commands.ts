@@ -120,9 +120,9 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
       app.openFind(!st().findOpen)
     },
     composer: () => {
-      // The open agent's message box (the main pane's first, else a split pane's).
-      const box = typeof document === 'undefined' ? null : document.querySelector<HTMLTextAreaElement>('textarea[data-composer]:not(:disabled)')
-      box?.focus()
+      // The first message box on screen: the main pane's, else a split pane's (a chat whose pane shows the terminal is hidden).
+      const boxes = typeof document === 'undefined' ? [] : [...document.querySelectorAll<HTMLTextAreaElement>('textarea[data-composer]:not(:disabled)')]
+      boxes.find((b) => !b.closest('[hidden]'))?.focus()
     },
     rename: () => {
       // The focused sidebar row's run, else the open agent's.

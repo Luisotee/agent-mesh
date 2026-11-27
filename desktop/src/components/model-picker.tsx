@@ -94,6 +94,8 @@ export function ModelPicker({ host, agent, disabled }: { host: HostRuntime; agen
             className="flex flex-col gap-3"
             onSubmit={(e) => {
               e.preventDefault()
+              // The dialog is a portal inside the composer's form in the React tree: its submit must not send the draft.
+              e.stopPropagation()
               const model = other.trim()
               if (!model) return
               setOther(undefined)

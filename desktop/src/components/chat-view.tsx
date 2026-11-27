@@ -199,11 +199,16 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   // Only the newest of a long conversation is drawn at first (a page the host reads holds hundreds of blocks, and drawing
   // them all is what a tab switch waited for); "Show earlier" draws more of what is held, and once all is drawn "Load earlier"
   // asks the host for an earlier page (drawn whole).
-  const win = useRef<{ session: string; top?: string; all: boolean }>({ session: '', all: false })
+  const win = useRef<{ session: string; top?: string; index?: number; all: boolean }>({ session: '', all: false })
   if (win.current.session !== (agent?.sessionId ?? '')) win.current = { session: agent?.sessionId ?? '', all: false }
   let from = win.current.all ? 0 : win.current.top ? items.findIndex((i) => i.id === win.current.top) : -1
-  if (from < 0) from = Math.max(0, items.length - WINDOW)
+  // The first block's item left (a card answered): the window stays where it was, not back to the newest 60.
+  if (from < 0) from = Math.min(win.current.index ?? Math.max(0, items.length - WINDOW), items.length)
+  // A plan or question waiting on the user, or one an agent asked to show, is always drawn: it is what the chat is for.
+  const pinned = items.findIndex((i) => i.kind === 'message' && shown.has(i.message.id))
+  if (pinned >= 0 && pinned < from) from = pinned
   win.current.top = items[from]?.id
+  if (items.length > 0) win.current.index = from
   const hidden = from
   const revealed = useRef<{ height: number; top: number }>(undefined)
   const [reveals, setReveals] = useState(0)

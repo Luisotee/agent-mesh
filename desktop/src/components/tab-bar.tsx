@@ -1,4 +1,4 @@
-import { AnimatePresence, m } from 'motion/react'
+import { AnimatePresence, m, useReducedMotion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { Columns2, MoreHorizontal, PanelRight, Plus, Rows2, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -55,6 +55,8 @@ export function TabBar() {
   const closed = useAppState((s) => s.closedTabs.length)
   const views = useHostViews(hosts)
   const keys = useKeys(hosts)
+  // Width and opacity are not covered by `MotionConfig`'s reduced motion (only transforms are): they stop here.
+  const still = !!useReducedMotion()
   const many = hosts.length > 1
   // This project's tabs: those of the open agent's project (with none open, all of them).
   const open = hostId && agentId ? { hostId, agentId } : undefined
@@ -159,8 +161,8 @@ export function TabBar() {
               key={tabKey(t)}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, width: 0, minWidth: 0, overflow: 'hidden' }}
-              transition={{ duration: 0.14 }}
+              exit={{ opacity: 0, width: 0, minWidth: 0, overflow: 'hidden', pointerEvents: 'none' }}
+              transition={{ duration: still ? 0 : 0.14 }}
               className="flex w-48 min-w-28 shrink self-end"
             >
             <RowContextMenu entries={entriesOf(t, agent, label)} className="flex w-full min-w-0 self-end">

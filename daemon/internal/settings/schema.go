@@ -656,7 +656,7 @@ func AppLeaves() []Leaf {
 		{Key: "app.keys.sidebar_prev", Label: "Previous agent in the sidebar", Group: GroupShortcuts, Type: Shortcut, Default: "Alt+ArrowUp", Summary: "shortcut: open the previous agent in the sidebar"},
 		{Key: "app.keys.panel", Label: "Side panel", Group: GroupShortcuts, Type: Shortcut, Default: "Ctrl+Alt+B", Summary: "shortcut: show or hide the side panel beside the open agent"},
 		{Key: "app.keys.find", Label: "Find in the window", Group: GroupShortcuts, Type: Shortcut, Default: "Mod+F", Summary: "shortcut: find text in the window (a terminal keeps its own search)"},
-		{Key: "app.keys.composer", Label: "Focus the message box", Group: GroupShortcuts, Type: Shortcut, Default: "Mod+L", Summary: "shortcut: put the cursor in the open agent's message box (in a focused terminal Mod+L is the shell's clear-screen: Mod+Shift+L there)"},
+		{Key: "app.keys.composer", Label: "Focus the message box", Group: GroupShortcuts, Type: Shortcut, Default: "Mod+L", Summary: "shortcut: put the cursor in the open agent's message box (in a focused terminal on Windows and Linux Ctrl+L is the shell's clear-screen: Ctrl+Shift+L there)"},
 		{Key: "app.keys.rename", Label: "Rename the open run", Group: GroupShortcuts, Type: Shortcut, Default: "F2", Summary: "shortcut: rename the open agent's run"},
 		{Key: "app.tray.close_to_tray", Label: "Keep running in the tray", Group: GroupAppearance, Type: Bool, Default: false,
 			Summary: "Closing the desktop window keeps the app running in the tray. Off by default: a desktop with no tray would leave no way back to the window."},
