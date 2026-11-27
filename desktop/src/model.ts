@@ -568,7 +568,7 @@ export function createAppModel(api: DesktopApi): AppModel {
     },
     newAgent: async (hostId, repo, kind) => {
       const h = store.getState().hosts.find((x) => x.info.id === hostId)
-      if (!h) return
+      if (!h) throw new Error('That host is gone')
       const run = await startRun(h.client, `${kind} in ${repoName(repo)}`)
       if (!run.run) throw new Error('the host started no run')
       try {

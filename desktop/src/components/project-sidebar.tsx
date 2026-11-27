@@ -103,7 +103,7 @@ export function ProjectSidebar() {
           {hosts.map((h) => <GithubNote key={h.info.id} host={h} many={many} />)}
           <div className="flex items-center justify-between pr-2 pl-3">
             <h2 className="pt-2.5 pb-1 text-xs font-semibold text-muted-foreground">Projects</h2>
-            <Tip label="Add a project">
+            <Tip label={many && addHost ? `Add a project on ${addHost.info.name}` : 'Add a project'}>
               <Button size="icon" variant="ghost" className="mt-1.5 size-6" aria-label="Add a project" disabled={!addHost} onClick={() => setAdding(true)}><Plus className="size-4" /></Button>
             </Tip>
           </div>

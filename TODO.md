@@ -25,6 +25,8 @@ Open work, kept short on purpose: whoever picks a task up works out the details.
 
 - [ ] Plain agents (`SpawnAgent.plain`, the desktop's "New agent") each make a run, a worktree and a branch `mesh/<run>/<slug>` that nothing sweeps (`sweepable` never takes a root's worktree): let the sweeper take a plain root's worktree when it is clean and merged, and have the app name two plain agents of one CLI apart on their tabs. A plain agent is still a lead in `waiting.go`, `cost.go` and `view.go` (it never sends a plan or a done, so nothing waits): audit those if a rollup shows it.
 
+- [ ] The desktop's "New agent" lists every CLI the host has tiers for (`tiers.<cli>.*` exist for all four), installed or not: the daemon could say which are installed (`HelloResponse`, or a field of `ListProjects`' host) so the + menu leaves out one that cannot launch. Also, "Add a project" checks a typed path with `ListProjects{repo}`, which fetches and reads open PRs (up to 15 s): a cheaper "is this a repo" check would make Enter instant.
+
 ## From the Orca / Paseo comparison (2026-11-24)
 
 Ideas from comparing agent-mesh with stablyai/orca and getpaseo/paseo. Paseo was trialled and dropped (design, "Alternatives considered"): agent-mesh gets its own apps instead.

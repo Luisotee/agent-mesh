@@ -68,7 +68,8 @@ export function TabBar() {
   // A new lead goes in the open project (its host and the repo its run is led from).
   const openShellRow = open && shellOf(open)
   const project = open && openAgent ? { hostId: open.hostId, repo: leadRepo(runs, openAgent) } : open && openShellRow ? { hostId: open.hostId, repo: openShellRow.repo } : undefined
-  const [stopping, setStopping] = useState<Agent>()
+  // The agent to stop with the host of its tab, which is not always the open one's.
+  const [stopping, setStopping] = useState<{ hostId: string; agent: Agent }>()
   const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true, undefined, project)
 
   /** A tab's menu: the same list for the right-click and the ⋯ of the open one. */
@@ -87,7 +88,7 @@ export function TabBar() {
       { label: 'Close to the right', onSelect: () => closeAll(tabs.slice(at + 1)), disabled: at < 0 || at === tabs.length - 1 },
       { label: 'Reopen closed tab', onSelect: () => app.reopenTab(), disabled: closed === 0 },
       { label: 'Copy name', onSelect: () => void navigator.clipboard?.writeText(label) },
-      ...(agent ? (['separator', { label: 'Stop…', onSelect: () => setStopping(agent), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
+      ...(agent ? (['separator', { label: 'Stop…', onSelect: () => setStopping({ hostId: t.hostId, agent }), disabled: !live(agent), destructive: true }] as MenuEntry[]) : []),
     ]
   }
 
@@ -200,10 +201,14 @@ export function TabBar() {
       <ConfirmDialog
         open={!!stopping}
         onOpenChange={(o) => !o && setStopping(undefined)}
-        title={`Stop ${stopping?.name ?? ''}?`}
-        description="Its CLI exits. A task or an answer to it later brings it back in the same conversation."
-        action={`Stop ${stopping?.name ?? ''}`}
-        run={() => stopAgent(runs!.client, stopping!.id)}
+        title={`Stop ${stopping?.agent.name ?? ''}?`}
+        description={stopping?.agent.plain ? 'Its CLI exits. Its conversation is kept.' : 'Its CLI exits. A task or an answer to it later brings it back in the same conversation.'}
+        action={`Stop ${stopping?.agent.name ?? ''}`}
+        run={async () => {
+          const h = hosts.find((x) => x.info.id === stopping?.hostId)
+          if (!h || !stopping) throw new Error('That host is gone')
+          await stopAgent(h.client, stopping.agent.id)
+        }}
       />
     </div>
   )

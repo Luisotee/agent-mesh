@@ -1068,6 +1068,19 @@ describe('SidebarFooter', () => {
     expect(model.store.getState().pins).toEqual({ h1: ['/p/app'] })
   })
 
+  it('says a name already in the sidebar is there, and that a ~ path is not taken', async () => {
+    const { wrap, model, client } = fixture()
+    client.listProjects.mockResolvedValue(create(ListProjectsResponseSchema, { projects: [create(ProjectSchema, { path: '/p/app', name: 'app' })] }))
+    model.togglePin('h1', '/p/app')
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
+    await userEvent.type(await screen.findByRole('textbox'), 'app{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('app is in the sidebar already')
+    await userEvent.clear(screen.getByRole('textbox'))
+    await userEvent.type(screen.getByRole('textbox'), '~/projects/foo{Enter}')
+    expect(await screen.findByRole('alert')).toHaveTextContent('starting with /')
+  })
+
   it('says so when a typed name matches no project', async () => {
     const { wrap, model } = fixture()
     render(wrap(<ProjectSidebar />))
