@@ -86,7 +86,7 @@ func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeR
 		Kind:             Kind,
 		DisplayName:      "Antigravity (agy)",
 		VerifiedVersions: VerifiedVersions,
-		Capabilities:     []string{"hooks", "session-lookup", "context"},
+		Capabilities:     []string{"hooks", "session-lookup", "context", capTranscript},
 	}), nil
 }
 
@@ -1021,6 +1021,9 @@ type TokenCall struct {
 	Input  int64
 	Read   int64
 	Output int64
+	// Model is the model id that served the step (`claude-opus-5-5-high`), from the conversation's `gen_metadata`;
+	// empty when the file doesn't say.
+	Model string
 }
 
 // ConversationsDir returns the folder holding agy `<session>.db` files for env.
@@ -1082,24 +1085,94 @@ func ConversationCalls(convDir, session string) []TokenCall {
 		return nil
 	}
 	defer db.Close()
-	rows, err := db.Query(`SELECT metadata FROM steps ORDER BY idx`)
+	rows, err := db.Query(`SELECT idx, metadata FROM steps ORDER BY idx`)
 	if err != nil {
 		return nil
 	}
 	defer rows.Close()
+	models := generationModels(db)
 	var calls []TokenCall
 	for rows.Next() {
+		var idx int64
 		var meta []byte
-		if err := rows.Scan(&meta); err != nil || len(meta) == 0 {
+		if err := rows.Scan(&idx, &meta); err != nil || len(meta) == 0 {
 			continue
 		}
 		if c, ok := decodeStepMetadata(meta); ok {
+			c.Model = models.at(idx)
 			calls = append(calls, c)
 		}
 	}
 	return calls
 }
 
+// stepModels is the model of each generation, by the index of the step it ended on.
+type stepModels struct {
+	idx   []int64 // ascending
+	model []string
+}
+
+// at is the model of the generation that produced step idx: the last one that had seen only steps before it (its
+// `last_step_index` is the newest step it was given), else the first one, else "".
+func (m stepModels) at(idx int64) string {
+	if len(m.idx) == 0 {
+		return ""
+	}
+	i := sort.Search(len(m.idx), func(i int) bool { return m.idx[i] >= idx })
+	return m.model[max(i-1, 0)]
+}
+
+// generationModels reads `gen_metadata`: one row per model call, holding the model id (field 1.19) and, among its
+// key/value labels (field 1.20), `last_step_index`. A file without the table (an older agy) has none.
+func generationModels(db *sql.DB) stepModels {
+	rows, err := db.Query(`SELECT idx, data FROM gen_metadata ORDER BY idx`)
+	if err != nil {
+		return stepModels{}
+	}
+	defer rows.Close()
+	var out stepModels
+	for rows.Next() {
+		var rowIdx int64
+		var data []byte
+		if rows.Scan(&rowIdx, &data) != nil {
+			continue
+		}
+		model, last := "", rowIdx
+		for body := bytesAt(data, 1); len(body) > 0; {
+			num, typ, n := protowire.ConsumeTag(body)
+			if n < 0 {
+				break
+			}
+			body = body[n:]
+			vn := protowire.ConsumeFieldValue(num, typ, body)
+			if vn < 0 {
+				break
+			}
+			if typ == protowire.BytesType {
+				v, _ := protowire.ConsumeBytes(body)
+				switch num {
+				case 19:
+					model = string(v)
+				case 20:
+					if string(bytesAt(v, 1)) == "last_step_index" {
+						if i, err := strconv.ParseInt(string(bytesAt(v, 2)), 10, 64); err == nil {
+							last = i
+						}
+					}
+				}
+			}
+			body = body[vn:]
+		}
+		if model == "" {
+			continue
+		}
+		if n := len(out.idx); n > 0 && last < out.idx[n-1] {
+			last = out.idx[n-1]
+		}
+		out.idx, out.model = append(out.idx, last), append(out.model, model)
+	}
+	return out
+}
 func decodeStepMetadata(meta []byte) (TokenCall, bool) {
 	var stampBytes, usageBytes []byte
 	for len(meta) > 0 {

@@ -93,7 +93,7 @@ func (a *Adapter) Describe(context.Context, *connect.Request[adapterv1.DescribeR
 		Kind:             Kind,
 		DisplayName:      "OpenCode",
 		VerifiedVersions: VerifiedVersions,
-		Capabilities:     []string{"session-lookup"},
+		Capabilities:     []string{"session-lookup", capTranscript},
 	}), nil
 }
 
@@ -418,6 +418,21 @@ func marshalOrderedStringMap(pairs []orderedKV) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// sharePermission is the config's `permission` that lets an agent read the installed share folder (the protocol and
+// skills its first doorbell names), which sits outside its worktree: without it OpenCode stops at an "Access external
+// directory" dialog nobody answers. Reads only: the folder's edits are denied, and nothing else is opened. Nil when
+// the daemon has no absolute share path.
+func sharePermission(share string) map[string]any {
+	if !filepath.IsAbs(share) {
+		return nil
+	}
+	share = filepath.ToSlash(filepath.Clean(share))
+	return map[string]any{
+		"external_directory": map[string]string{share + "/*": "allow", share + "/**": "allow"},
+		"edit":               map[string]string{share + "/*": "deny", share + "/**": "deny"},
+	}
+}
+
 // PermissionJSON builds `OPENCODE_PERMISSION` for a read-only or planning agent: edits denied in the worktree
 // (`*`) and main checkout (`<rel>/*`) with `../*` (`$(mesh dir)`) allowed, and publish commands denied in bash.
 func PermissionJSON(cwd, repo string) (string, error) {
@@ -496,9 +511,11 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 			}
 		}
 	}
-	cfgBytes, err := json.Marshal(map[string]any{
-		"agent": map[string]any{agentName: agentCfg},
-	})
+	cfg := map[string]any{"agent": map[string]any{agentName: agentCfg}}
+	if perm := sharePermission(env["AGENT_MESH_SHARE"]); perm != nil {
+		cfg["permission"] = perm
+	}
+	cfgBytes, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -414,3 +414,43 @@ func TestPlanLaunchStandalone(t *testing.T) {
 		t.Error("expected error when resume_session_id is empty")
 	}
 }
+
+func TestPlanLaunchAllowsReadingTheShareFolderAndNothingWider(t *testing.T) {
+	a := New()
+	share := "/opt/mesh/share"
+	launch := func(env map[string]string, role agentmeshv1.AgentRole) map[string]any {
+		res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+			AgentId: "w1", Role: role, Cwd: t.TempDir(), Binary: "/opt/opencode", Env: env}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg map[string]any
+		if err := json.Unmarshal([]byte(res.Msg.Env["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+	for _, role := range []agentmeshv1.AgentRole{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER} {
+		cfg := launch(map[string]string{"AGENT_MESH_SHARE": share + "/"}, role)
+		perm, _ := cfg["permission"].(map[string]any)
+		want := func(key, action string) {
+			got, _ := perm[key].(map[string]any)
+			if len(got) != 2 || got[share+"/*"] != action || got[share+"/**"] != action {
+				t.Errorf("%v: permission.%s = %v, want %s on %s/* and %s/** only", role, key, perm[key], action, share, share)
+			}
+		}
+		// The protocol and skills outside the worktree can be read (OpenCode's dialog for it is never answered)...
+		want("external_directory", "allow")
+		// ...but not edited, and no other permission key is set.
+		want("edit", "deny")
+		if len(perm) != 2 {
+			t.Errorf("%v: permission = %v, want only external_directory and edit", role, perm)
+		}
+	}
+	// A daemon with no absolute share path adds nothing.
+	for _, env := range []map[string]string{nil, {"AGENT_MESH_SHARE": "share"}} {
+		if cfg := launch(env, agentmeshv1.AgentRole_AGENT_ROLE_WORKER); cfg["permission"] != nil {
+			t.Errorf("env %v: permission = %v, want none", env, cfg["permission"])
+		}
+	}
+}
