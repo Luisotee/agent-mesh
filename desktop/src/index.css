@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/jetbrains-mono';
+@source '../node_modules/streamdown/dist/*.js';
 
 /* Tailwind's setup and nothing else: the theme's tokens (src/theme.ts) become utilities, the bundled fonts load from the app's own files, and two animations (the skeleton's shimmer, the working pulse) are named here. */
 @theme inline {
