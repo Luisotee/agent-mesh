@@ -238,9 +238,10 @@ const retireQuiet = 10 * time.Second
 
 // retireIdle retires the agents that reported done or failed and then stayed idle `idle_retire` seconds (0 never), a
 // reviewer or an asker after `idle_retire.review` instead when that is the shorter (nothing comes back for it: a
-// re-review or a follow-up ask resumes the same conversation). Not: a root; one with a reopen pending; one with unread mail (work is coming, or a doorbell was lost); one whose
-// newest report since its last task or answer isn't done or failed (a plan or question waits on its parent); or
-// one a client with input rights is attached to (the viewer rule: someone is looking).
+// re-review or a follow-up ask resumes the same conversation). Not: a root; one with a reopen pending; one with
+// unread mail (work is coming, or a doorbell was lost); one whose newest report since its last task or answer isn't
+// done or failed (a plan or question waits on its parent); or one a client with input rights is attached to (the
+// viewer rule: someone is looking).
 func (d *Daemon) retireIdle(ctx context.Context) {
 	if d.rt.term == nil {
 		return
