@@ -17,6 +17,8 @@ import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.testTag
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -55,11 +57,13 @@ object Routes {
     const val USAGE = "host/{id}/usage"
     const val AGENT = "host/{id}/agent/{agent}?tab={tab}"
     const val SETTINGS = "settings"
+    const val SHELL = "host/{id}/shell/{shell}"
 
     fun edit(id: String) = "host/$id/edit"
     fun log(id: String) = "host/$id/log"
     fun hostSettings(id: String) = "host/$id/settings"
     fun usage(id: String) = "host/$id/usage"
+    fun shell(id: String, shell: String) = "host/$id/shell/$shell"
     fun agent(id: String, agent: String, tab: Tab = Tab.Chat) = "host/$id/agent/$agent?tab=${tab.name}"
 }
 
@@ -78,6 +82,9 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     val runtimes by container.runtimes.collectAsStateWithLifecycleCompat()
     fun openAgent(host: String, agent: String, tab: Tab) {
         nav.navigate(Routes.agent(host, agent, tab)) { popUpTo(Routes.HOME) }
+    }
+    fun openShell(host: String, shell: String) {
+        nav.navigate(Routes.shell(host, shell)) { popUpTo(Routes.HOME) }
     }
     // A tapped notification: home, then the agent on top of it, so Back goes home.
     val link by container.deepLink.collectAsStateWithLifecycleCompat()
@@ -98,9 +105,13 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
-    val current = if (route == Routes.AGENT) entry?.arguments?.let { it.getString("id").orEmpty() to it.getString("agent").orEmpty() } else null
+    val current = when (route) {
+        Routes.AGENT -> entry?.arguments?.let { it.getString("id").orEmpty() to it.getString("agent").orEmpty() }
+        Routes.SHELL -> entry?.arguments?.let { it.getString("id").orEmpty() to shellScreenId(it.getString("shell").orEmpty()) }
+        else -> null
+    }
     // The drawer is on the screens that are about the work; settings and forms use the whole window.
-    val hasDrawer = route == Routes.HOME || route == Routes.AGENT || route == Routes.DOCK_ALL || route == Routes.USAGE
+    val hasDrawer = route == Routes.HOME || route == Routes.AGENT || route == Routes.SHELL || route == Routes.DOCK_ALL || route == Routes.USAGE
     val wide = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() } >= WIDE_DP.dp
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -108,6 +119,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     // What the sheet starts: `host`, `repo` and `run` (empty for a new run) joined by newlines (saved across rotation).
     var spawn by rememberSaveable { mutableStateOf<String?>(null) }
     var adding by rememberSaveable { mutableStateOf<String?>(null) }
+    var shellProblem by remember { mutableStateOf<String?>(null) }
     val reduced = LocalReducedMotion.current
     // The slide stands still under reduced motion.
     fun closeDrawer(then: () -> Unit) { scope.launch { if (reduced) drawer.snapTo(DrawerValue.Closed) else drawer.close() }; then() }
@@ -120,6 +132,17 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         newLead = { h, repo -> closeDrawer { spawn = "$h\n$repo\n" } },
         addAgent = { h, run -> closeDrawer { spawn = "$h\n\n$run" } },
         addProject = { h -> closeDrawer { adding = h } },
+        openShell = { h, s -> closeDrawer { openShell(h, s) } },
+        // A terminal in the project's folder: started on the host, then its screen. A refusal (an unknown folder, a device that may not) is said.
+        newShell = { h, repo ->
+            scope.launch {
+                try {
+                    val sh = runtimes[h]?.openShell(repo) ?: return@launch
+                    container.prefs.markPhoneShell(h, sh.id)
+                    closeDrawer { openShell(h, sh.id) }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { shellProblem = dev.agentmesh.android.chat.say(e) }
+            }
+        },
     )
     val sheet: @Composable () -> Unit = { SidebarContent(model, current, actions, Modifier.statusBarsPadding(), active = wide || drawer.isOpen) }
     // One scrim dim and a slide; no alpha over the window. The menu button of a screen opens it.
@@ -138,6 +161,12 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
     }
     spawn?.split('\n')?.let { (host, repo, run) -> runtimes[host]?.let { rt -> SpawnSheet(rt, runId = run.ifEmpty { null }, onDismiss = { spawn = null }, repo = repo) } }
     adding?.let { host -> runtimes[host]?.let { rt -> AddProjectSheet(rt) { adding = null } } }
+    shellProblem?.let { why ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { shellProblem = null }, title = { Text("Couldn't open a terminal") }, text = { Text(why, Modifier.testTag("shell-problem")) },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { shellProblem = null }) { Text("OK") } },
+        )
+    }
 }
 
 @Composable
@@ -188,6 +217,10 @@ private fun Routed(
         composable(Routes.DOCK_ALL) { AllHostsDockScreen({ nav.popBackStack() }) { host, agent, tab -> nav.navigate(Routes.agent(host, agent, tab)) } }
         composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it, onBack = { nav.popBackStack() }, onLog = { nav.navigate(Routes.log(e.arguments!!.getString("id")!!)) }) } ?: Gone { nav.popBackStack() } }
         composable(Routes.HOST_SETTINGS) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { HostSettingsScreen(it) { nav.popBackStack() } } ?: Gone { nav.popBackStack() } }
+        composable(Routes.SHELL) { e ->
+            val host = e.arguments!!.getString("id")!!
+            runtimes[host]?.let { ShellScreen(it, e.arguments!!.getString("shell")!!, { nav.popBackStack() }, onMenu = openDrawer.takeIf { nav.previousBackStackEntry?.destination?.route == Routes.HOME }) } ?: Gone { nav.popBackStack() }
+        }
         composable(
             Routes.AGENT,
             arguments = listOf(

@@ -36,6 +36,7 @@ import dev.agentmesh.android.store.HostRefresher
 import dev.agentmesh.android.store.LogLine
 import dev.agentmesh.android.store.MAX_LOG
 import dev.agentmesh.android.store.applyFrame
+import dev.agentmesh.android.store.applyShell
 import dev.agentmesh.android.store.withSettings
 import dev.agentmesh.gen.agentmesh.v1.Cursor
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
@@ -164,6 +165,41 @@ class HostRuntime(
             val list = try { awaitApi().listPrompts(agentId) } catch (e: CancellationException) { throw e } catch (e: Exception) { return }
             if ((_state.value.promptTouch[agentId] ?: 0) == asked) { _state.update { withPrompts(it, agentId, list, asked) }; return }
         }
+    }
+
+    /**
+     * Reads the host's project shells (`ListShells`). A `ShellChange` frame that arrives while the answer is out makes it older
+     * than what is held, so it is asked again (a few times), and the last answer stands.
+     */
+    suspend fun refreshShells(again: Boolean = true, tries: Int = 3) {
+        repeat(tries) { attempt ->
+            val asked = _state.value.shellTouch
+            val list = try { awaitApi().listShells() } catch (e: CancellationException) { throw e } catch (e: Exception) { log("couldn't list the host's shells: ${e.message ?: e.javaClass.simpleName}"); _state.update { it.copy(shellsFailed = true) }; return }
+            if (_state.value.shellTouch == asked || attempt == tries - 1) {
+                _state.update { it.copy(shells = list, shellsFailed = false) }
+                // The last try is kept even if a frame came meanwhile, and the list is read once more behind it.
+                if (again && _state.value.shellTouch != asked) scope.launch { refreshShells(again = false, tries = 1) }
+                return
+            }
+        }
+    }
+
+    /** Starts a shell in [repo] and shows it at once (its `ShellChange` frame brings it too, and is the same shell). */
+    suspend fun openShell(repo: String): dev.agentmesh.gen.agentmesh.v1.Shell {
+        val shell = connectedApi().openShell(repo)
+        val unread = _state.value.shells == null
+        _state.update { s -> applyShell(s, dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder().setShell(shell).build()).let { if (it.shells == null) it.copy(shells = listOf(shell)) else it } }
+        // A list never read (the read after the snapshot failed): this shell shows at once (its screen must not say the list can't be read),
+        // and the host's others are read now, the failure staying until a read succeeds.
+        if (unread) scope.launch { refreshShells() }
+        return shell
+    }
+
+    /** Ends a shell: gone from the list at once. */
+    suspend fun closeShell(id: String) {
+        connectedApi().closeShell(id)
+        // Counted as a change: a list that was out meanwhile may still hold it, and is asked for again.
+        _state.update { s -> s.copy(shells = s.shells?.filter { it.id != id }, shellTouch = s.shellTouch + 1) }
     }
 
     /**
@@ -361,6 +397,8 @@ class HostRuntime(
         if (frame.hasSnapshot() || frame.hasResumed()) {
             refresher.synced()
             _synced.tryEmit(Unit)
+            // The shells are the host's to list (a frame for one is never replayed).
+            scope.launch { refreshShells() }
         }
     }
 

@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -71,7 +72,10 @@ class SidebarTest {
     private val actions = SidebarActions(
         openAgent = { h, ag, t -> opened += Triple(h, ag, t) }, home = {}, settings = {}, live = {}, usage = { opened += Triple("usage", it, Tab.Overview) },
         newLead = { _, _ -> }, addAgent = { _, _ -> }, addProject = {},
+        openShell = { h, s -> shellsOpened += h to s }, newShell = { h, r -> shellsStarted += h to r },
     )
+    private val shellsOpened = mutableListOf<Pair<String, String>>()
+    private val shellsStarted = mutableListOf<Pair<String, String>>()
 
     private fun drawer(current: Pair<String, String>? = null) = compose.setContent {
         CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { SidebarContent(rememberSidebar(), current, actions) } }
@@ -308,5 +312,46 @@ class SidebarTest {
         waitForText("shop-api")
         compose.onNodeWithContentDescription("Menu of shop-api").performClick()
         compose.onNodeWithText("Show again").assertIsDisplayed()
+    }
+
+    private fun shell(id: String, repo: String) = dev.agentmesh.gen.agentmesh.v1.Shell.newBuilder().setId(id).setRepo(repo).build()
+
+    @Test fun `a project's shells are rows under it, a tap opens one and the project's terminal button starts another`() {
+        api = RecordingApi(); NotificationsTest.api = api
+        api.shells = listOf(shell("sh1", shop), shell("sh9", "/home/u/elsewhere"))
+        val rt = host("wsl", runs, team)
+        drawer()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("shell-sh1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithText("1 terminal", substring = true).assertCountEquals(2)
+        // A shell in a folder no run is in makes its project appear.
+        compose.onNodeWithTag("shell-sh9").assertExists()
+        compose.onNodeWithTag("shell-sh1").performClick()
+        assertEquals(listOf(rt.hostId to "sh1"), shellsOpened)
+        compose.onNodeWithTag("new-shell-shop-api").performClick()
+        assertEquals(listOf(rt.hostId to shop), shellsStarted)
+    }
+
+    @Test fun `ending a terminal from the drawer asks first, then ends it on the host`() {
+        api = RecordingApi(); NotificationsTest.api = api
+        api.shells = listOf(shell("sh1", shop))
+        host("wsl", runs, team)
+        drawer()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("shell-sh1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Menu of the terminal").performClick()
+        compose.onNodeWithTag("shell-end-sh1").performClick()
+        compose.onNodeWithText("End the terminal in shop-api?").assertExists()
+        assertTrue(api.closed.isEmpty())
+        compose.onNodeWithTag("action-confirm").performClick()
+        compose.waitUntil(5_000) { api.closed == listOf("sh1") }
+    }
+
+    @Test fun `a read-only device sees the shells but cannot start or end one`() {
+        api = RecordingApi(); NotificationsTest.api = api
+        api.shells = listOf(shell("sh1", shop))
+        host("wsl", runs, team, conn = ConnState.Ready(HelloResponse.newBuilder().setActor(dev.agentmesh.gen.agentmesh.v1.Actor.newBuilder().setClass_(dev.agentmesh.gen.agentmesh.v1.ActorClass.ACTOR_CLASS_READ_ONLY_DEVICE)).build()))
+        drawer()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("shell-sh1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithTag("new-shell-shop-api").assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("Menu of the terminal").assertCountEquals(0)
     }
 }

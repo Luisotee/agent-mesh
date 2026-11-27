@@ -26,6 +26,8 @@ sealed interface AgentAction {
     data class RetireAgent(val agentId: String, val name: String) : AgentAction
     data class StopRun(val runId: String, val title: String) : AgentAction
     data class RenameRun(val runId: String, val title: String) : AgentAction
+    /** A project shell: ending it hangs up its programs, as closing a terminal window does. */
+    data class EndShell(val shellId: String, val project: String) : AgentAction
 }
 
 /**
@@ -38,11 +40,13 @@ fun AgentActionDialog(runtime: HostRuntime, action: AgentAction, onDone: (succee
     var error by remember { mutableStateOf("") }
     var title by remember(action) { mutableStateOf((action as? AgentAction.RenameRun)?.title.orEmpty()) }
     val scope = rememberCoroutineScope()
+    val prefs = LocalContainer.current.prefs
     val (head, body, verb) = when (action) {
         is AgentAction.StopAgent -> Triple("Stop ${action.name}?", "Its process ends now. Its worktree and branch stay.", "Stop")
         is AgentAction.RetireAgent -> Triple("Retire ${action.name}?", "It stops on purpose and keeps its branch. A message to it brings it back.", "Retire")
         is AgentAction.StopRun -> Triple("Stop ${action.title}?", "Every agent in the run is retired and the finished worktrees go. A worktree with changes stays.", "Stop the run")
         is AgentAction.RenameRun -> Triple("Rename the run", "", "Rename")
+        is AgentAction.EndShell -> Triple("End the terminal in ${action.project}?", "What runs in it gets a hangup, as when a terminal window is closed. Leaving the screen instead keeps it running.", "End it")
     }
     val connected = runtime.state.collectAsStateWithLifecycleCompat().value.conn is dev.agentmesh.android.store.ConnState.Ready
     fun confirm() {
@@ -57,6 +61,7 @@ fun AgentActionDialog(runtime: HostRuntime, action: AgentAction, onDone: (succee
                     is AgentAction.RetireAgent -> api.retireAgent(action.agentId)
                     is AgentAction.StopRun -> api.stopRun(action.runId)
                     is AgentAction.RenameRun -> api.renameRun(action.runId, title.trim())
+                    is AgentAction.EndShell -> { runtime.closeShell(action.shellId); prefs.forgetPhoneShell(runtime.hostId, action.shellId) }
                 }
                 onDone(true)
             } catch (e: CancellationException) {

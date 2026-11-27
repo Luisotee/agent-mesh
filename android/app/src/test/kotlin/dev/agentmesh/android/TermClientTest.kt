@@ -298,10 +298,10 @@ class TermClientTest {
 
     // ── Typing ──
 
-    private class TypingRig(scope: TestScope, input: Boolean = true) {
+    private class TypingRig(scope: TestScope, input: Boolean = true, answer: Boolean = false) {
         val api = RecordingApi()
         val screen = TermScreen()
-        val client = TermClient(scope.backgroundScope, "a1", { api }, screen, baseMs = 500, maxMs = 10_000, input = input)
+        val client = TermClient(scope.backgroundScope, "a1", { api }, screen, baseMs = 500, maxMs = 10_000, input = input, answerQueries = answer)
         fun socket() = FakeSocket().also { api.sockets += it }
     }
 
@@ -338,15 +338,45 @@ class TermClientTest {
         assertTrue(s.sent.none { it.frameCase == TermFrame.FrameCase.RESIZE })
     }
 
-    @Test fun `the emulator's replies to the program's queries are never sent, typing or not`() = runTest {
+    @Test fun `a client that is the only one that types answers the program's queries once the replay is done, a viewer and the replay never do`() = runTest {
+        val r = TypingRig(this, answer = true); val s = r.socket()
+        r.client.start(); runCurrent()
+        // The replay itself holds a query (the program asked before this client came): its answer is dropped, as the host's input is before Ready.
+        s.host(TermFrame.newBuilder().setAttached(Frames.attached(AttachMode.ATTACH_MODE_REPAINT, epoch = 1, offset = 5, cols = 40, rows = 10).attached.toBuilder().setInput(true)).build())
+        s.host(Frames.screen("hello\u001B[c", epoch = 1, offset = 5)); s.host(Frames.replayDone(5)); runCurrent()
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH, TermFrame.FrameCase.READY), s.sent.map { it.frameCase })
+        // Live: device attributes (ESC [ c) and a cursor position report (ESC [ 6 n). With a client that types attached the host's own emulator
+        // does not answer, so this one does, as the terminal it is.
+        s.host(Frames.output("\u001B[c\u001B[6n", 5)); runCurrent()
+        val answers = s.sent.filter { it.hasInput() }.joinToString("") { it.input.data.toStringUtf8() }
+        assertTrue("got ${answers.replace("\u001B", "ESC")}", answers.contains("\u001B[?") && answers.contains("R"))
+        // What the user types goes too.
+        r.client.type("q".toByteArray())
+        assertEquals("q", s.sent.last().input.data.toStringUtf8())
+    }
+
+    @Test fun `a typing client of an agent's terminal leaves the program's queries to the host and the desktop`() = runTest {
         val r = TypingRig(this); val s = r.socket()
         r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
-        // Device attributes (ESC [ c), a cursor position report (ESC [ 6 n) and a status report (ESC [ 5 n): the emulator would answer each.
-        s.host(Frames.output("\u001B[c\u001B[6n\u001B[5n", 5)); runCurrent()
+        s.host(Frames.output("\u001B[c\u001B[6n", 5)); runCurrent()
+        // A second answer from here would reach the program as typed input beside the desktop's own.
         assertEquals(listOf(TermFrame.FrameCase.ATTACH, TermFrame.FrameCase.READY), s.sent.map { it.frameCase })
-        // What the user types still goes.
-        r.client.type("q".toByteArray())
-        assertEquals(TermFrame.FrameCase.INPUT, s.sent.last().frameCase)
+    }
+
+    @Test fun `a viewer sends nothing but the attach, whatever the program asks`() = runTest {
+        val r = TypingRig(this, input = false); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s, input = false); s.host(Frames.replayDone(5)); runCurrent()
+        s.host(Frames.output("\u001B[c\u001B[6n\u001B[5n", 5)); runCurrent()
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH), s.sent.map { it.frameCase })
+    }
+
+    @Test fun `a resize to the size already sent is not sent again`() = runTest {
+        val r = ShellRig(this) { 52 to 30 }; val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(!r.client.resize(52, 30))
+        assertTrue(r.client.resize(52, 20))
+        assertTrue(!r.client.resize(52, 20))
+        assertEquals(1, s.sent.count { it.hasResize() })
     }
 
     @Test fun `a host that did not grant the input right gets no input, and Ready is not sent`() = runTest {
@@ -454,5 +484,33 @@ class TermClientTest {
         assertEquals("世界b", screen.selectedText(Selection(CellPos(5, r), CellPos(2, r))))
         // Starting on a left half takes it as well.
         assertEquals("界b", screen.selectedText(Selection(CellPos(3, r), CellPos(5, r))))
+    }
+
+    private class ShellRig(scope: TestScope, size: (() -> Pair<Int, Int>?)?) {
+        val api = RecordingApi()
+        val screen = TermScreen()
+        val client = TermClient(scope.backgroundScope, "sh1", { api }, screen, baseMs = 500, maxMs = 10_000, input = true, shell = true, size = size)
+        fun socket() = FakeSocket().also { api.sockets += it }
+    }
+
+    @Test fun `a shell takes its own ticket, and the phone's size when it sized the shell`() = runTest {
+        val r = ShellRig(this) { 52 to 30 }; val s = r.socket()
+        r.client.start(); runCurrent()
+        assertEquals(listOf("sh1"), r.api.shellTickets); assertTrue(r.api.tickets.isEmpty())
+        assertEquals(listOf(true), r.api.shellTicketInputs)
+        assertEquals(52, s.sent.first().attach.cols); assertEquals(30, s.sent.first().attach.rows)
+        // A resize is only for a client that types, once it does.
+        assertTrue(!r.client.resize(50, 20))
+        granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(r.client.resize(50, 20))
+        assertEquals(50, s.sent.last().resize.cols); assertEquals(20, s.sent.last().resize.rows)
+    }
+
+    @Test fun `a shell the phone did not size attaches at size 0 and never resizes, like an agent's terminal`() = runTest {
+        val r = ShellRig(this, null); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertEquals(0, s.sent.first().attach.cols); assertEquals(0, s.sent.first().attach.rows)
+        assertTrue(!r.client.resize(50, 20))
+        assertTrue(s.sent.none { it.frameCase == TermFrame.FrameCase.RESIZE })
     }
 }

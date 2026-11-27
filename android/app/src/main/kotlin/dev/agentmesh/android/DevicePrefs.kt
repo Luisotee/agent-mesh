@@ -82,9 +82,24 @@ class DevicePrefs(context: Context) {
         else if (drafts.getString(key, null) != text.take(MAX_DRAFT)) drafts.edit().putString(key, text.take(MAX_DRAFT)).apply()
     }
 
+    /** The shells this phone opened (`hostId/shellId`, oldest first): their terminal is sized to the phone's view, also after the app was restarted. Bounded: the oldest are forgotten. */
+    private fun phoneShells(): List<String> = prefs.getString(PHONE_SHELLS, null).orEmpty().split('\n').filter { it.isNotEmpty() }
+
+    private fun savePhoneShells(list: List<String>) { prefs.edit().putString(PHONE_SHELLS, list.joinToString("\n")).apply() }
+
+    fun isPhoneShell(hostId: String, shellId: String): Boolean = "$hostId/$shellId" in phoneShells()
+
+    fun markPhoneShell(hostId: String, shellId: String) = savePhoneShells((phoneShells() - "$hostId/$shellId" + "$hostId/$shellId").takeLast(MAX_PHONE_SHELLS))
+
+    fun forgetPhoneShell(hostId: String, shellId: String) {
+        val now = phoneShells()
+        if ("$hostId/$shellId" in now) savePhoneShells(now - "$hostId/$shellId")
+    }
+
     /** Forgets a removed host's pins, hides and drafts, so a host paired again starts clean. */
     fun forgetHost(hostId: String) {
         drafts.edit().also { e -> drafts.all.keys.filter { it.startsWith("$hostId/") }.forEach(e::remove) }.apply()
+        phoneShells().let { s -> val keep = s.filter { !it.startsWith("$hostId/") }; if (keep.size != s.size) savePhoneShells(keep) }
         if (hostId in _pins.value) {
             _pins.value = _pins.value - hostId
             val arr = org.json.JSONArray()
@@ -122,6 +137,8 @@ class DevicePrefs(context: Context) {
         const val EVENTS = "notify_events"
         const val PINS = "pins"
         const val HIDDEN = "hidden_projects"
+        const val PHONE_SHELLS = "phone_shell_marks"
+        const val MAX_PHONE_SHELLS = 60
         const val MAX_DRAFT = 50_000
     }
 }
