@@ -15,6 +15,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.agentmesh.android.ui.chat.MarkdownField
+import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,7 +91,8 @@ private fun stamp(m: Message, skewMs: Long): String =
 fun AnswerForm(runtime: HostRuntime, m: Message) {
     val author = m.from.id
     val isPlan = m.type == MessageType.MESSAGE_TYPE_PLAN
-    var text by rememberSaveable(m.id) { mutableStateOf("") }
+    val box = rememberTextFieldState()
+    val text = box.text.toString()
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -95,16 +100,13 @@ fun AnswerForm(runtime: HostRuntime, m: Message) {
         if (busy) return
         busy = true; error = null
         scope.launch {
-            try { block(); text = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: e.javaClass.simpleName }
+            try { block(); box.clearText() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { error = e.message ?: e.javaClass.simpleName }
             busy = false
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            text, { text = it }, Modifier.fillMaxWidth().testTag("answer"),
-            label = { Text(if (isPlan) "What should change?" else "Your answer") },
-            supportingText = { if (isPlan) Text("To approve, leave this empty.") },
-        )
+        MarkdownField(box, Modifier.fillMaxWidth(), tag = "answer", placeholder = if (isPlan) "What should change?" else "Your answer", minLines = 2, shape = RoundedCornerShape(12.dp))
+        if (isPlan) Text("To approve, leave this empty.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (isPlan) {
                 // Typed changes are not an approval: they go with Request changes.

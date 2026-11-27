@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 /** This device's own preferences that aren't the theme: none of them is on a host. */
 class DevicePrefs(context: Context) {
     private val prefs = context.getSharedPreferences("prefs", Context.MODE_PRIVATE)
+    /** The unsent text of each agent's chat, in a file of its own so a draft never rewrites the other preferences. */
+    private val drafts = context.getSharedPreferences("drafts", Context.MODE_PRIVATE)
 
     private val _background = MutableStateFlow(prefs.getBoolean(BACKGROUND, true))
 
@@ -70,8 +72,19 @@ class DevicePrefs(context: Context) {
         out
     }.getOrDefault(emptyMap())
 
-    /** Forgets a removed host's pins and hides, so a host paired again starts clean. */
+    /** The text typed in an agent's chat and not sent, kept across navigation and restarts (device-local: no host sees it). */
+    fun draft(hostId: String, agentId: String): String = drafts.getString("$hostId/$agentId", null).orEmpty()
+
+    /** Keeps [text] as the agent's draft; blank forgets it (it was sent, or cleared). */
+    fun setDraft(hostId: String, agentId: String, text: String) {
+        val key = "$hostId/$agentId"
+        if (text.isBlank()) { if (drafts.contains(key)) drafts.edit().remove(key).apply() }
+        else if (drafts.getString(key, null) != text.take(MAX_DRAFT)) drafts.edit().putString(key, text.take(MAX_DRAFT)).apply()
+    }
+
+    /** Forgets a removed host's pins, hides and drafts, so a host paired again starts clean. */
     fun forgetHost(hostId: String) {
+        drafts.edit().also { e -> drafts.all.keys.filter { it.startsWith("$hostId/") }.forEach(e::remove) }.apply()
         if (hostId in _pins.value) {
             _pins.value = _pins.value - hostId
             val arr = org.json.JSONArray()
@@ -109,5 +122,6 @@ class DevicePrefs(context: Context) {
         const val EVENTS = "notify_events"
         const val PINS = "pins"
         const val HIDDEN = "hidden_projects"
+        const val MAX_DRAFT = 50_000
     }
 }
