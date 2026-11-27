@@ -334,6 +334,22 @@ public interface MeshServiceClientInterface {
   public suspend fun addTools(request: AddToolsRequest, headers: Headers = emptyMap()): ResponseMessage<AddToolsResponse>
 
   /**
+   *  An agent's hook asks for the answer to a permission prompt its CLI is about to show: held until the agent's
+   *  parent decides (`mesh permission`) or the wait runs out, which leaves the prompt to the person at the terminal.
+   */
+  public suspend fun requestPermission(request: RequestPermissionRequest, headers: Headers = emptyMap()): ResponseMessage<RequestPermissionResponse>
+
+  /**
+   *  Answer a worker's pending permission prompt: allow it, or deny it with a reason the worker reads.
+   */
+  public suspend fun decidePermission(request: DecidePermissionRequest, headers: Headers = emptyMap()): ResponseMessage<DecidePermissionResponse>
+
+  /**
+   *  The permission prompts waiting for an answer: the caller's own agents' (a device: every run's).
+   */
+  public suspend fun listPermissions(request: ListPermissionsRequest, headers: Headers = emptyMap()): ResponseMessage<ListPermissionsResponse>
+
+  /**
    *  List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
    */
   public suspend fun listMCPServers(request: ListMCPServersRequest, headers: Headers = emptyMap()): ResponseMessage<ListMCPServersResponse>

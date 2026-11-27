@@ -96,7 +96,11 @@ func TestPlanLaunch(t *testing.T) {
 	}
 	for _, ev := range hookEvents {
 		groups := settings.Hooks[ev.name]
-		if len(groups) != 1 || groups[0].Matcher != ev.matcher || groups[0].Hooks[0].Timeout != HookTimeout {
+		wantTimeout := HookTimeout
+		if ev.name == "PermissionRequest" { // held while the agent's parent decides
+			wantTimeout = PermissionTimeout
+		}
+		if len(groups) != 1 || groups[0].Matcher != ev.matcher || groups[0].Hooks[0].Timeout != wantTimeout {
 			t.Errorf("%s: %+v", ev.name, groups)
 			continue
 		}
@@ -249,6 +253,37 @@ func TestPlanLaunchStandalone(t *testing.T) {
 	}
 	if _, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Standalone: true})); err == nil {
 		t.Error("expected error when resume_session_id is empty")
+	}
+}
+
+// The decision a PermissionRequest hook prints is the one Claude Code documents; any other prints nothing.
+func TestPermissionJSON(t *testing.T) {
+	for _, tc := range []struct{ decision, reason, want string }{
+		{"allow", "", `{"hookSpecificOutput":{"decision":{"behavior":"allow"},"hookEventName":"PermissionRequest"}}` + "\n"},
+		{"deny", "use a PR", `{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"use a PR"},"hookEventName":"PermissionRequest"}}` + "\n"},
+		{"", "", ""},
+		{"maybe", "", ""},
+	} {
+		if got := string(PermissionJSON(tc.decision, tc.reason)); got != tc.want {
+			t.Errorf("PermissionJSON(%q, %q) = %q, want %q", tc.decision, tc.reason, got, tc.want)
+		}
+	}
+}
+
+// What a parent is told of a prompt is a command or a path, never what an Edit or a Write would put in a file.
+func TestPermissionSummaryIsACommandOrAPathNeverContents(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{`{"command":"rm -rf build","description":"x"}`, "rm -rf build"},
+		{`{"file_path":"/repo/a.go","old_string":"SECRET","new_string":"SECRET2"}`, "/repo/a.go"},
+		{`{"file_path":"/repo/b.go","content":"SECRET"}`, "/repo/b.go"},
+		{`{"notebook_path":"/repo/n.ipynb","new_source":"SECRET"}`, "/repo/n.ipynb"},
+		{`{"content":"SECRET","body":"SECRET"}`, ""},
+		{`{"command":42}`, ""},
+		{`not json`, ""},
+	} {
+		if got := PermissionSummary(json.RawMessage(tc.input)); got != tc.want {
+			t.Errorf("PermissionSummary(%s) = %q, want %q", tc.input, got, tc.want)
+		}
 	}
 }
 

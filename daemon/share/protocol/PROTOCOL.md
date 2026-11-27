@@ -44,7 +44,11 @@ The message is stored when `mesh send` returns, and your parent's doorbell rings
 
 **Waiting on purpose:** before you end your turn to wait for something long you started (a background test suite that will wake you), declare it: `mesh send parent --type wait --body "<what you wait for>"`. The daemon then holds its nudge for up to `accountability.wait_max` (4 h) or until your next task or answer. A wait is not a report and rings no doorbell: when it is over, report as usual. Without it, a turn that ends waiting is nudged like any other.
 
+Claude Code: a background command you started and that is still running counts as a wait, declared or not (the daemon sees it), for 30 minutes from your last activity; after that you get one nudge to declare a wait or stop it. Declare one anyway for anything else you wait on, and always on the other CLIs.
+
 A wait ends at your next wake: a background job's notification, a monitor event, a message. If you end that turn still waiting (another job is running), **declare a fresh wait first**, every time. A turn that ends waiting with no fresh wait is nudged, and after a nudge you did not answer with a wait or a report, your parent is told you went silent.
+
+**A permission prompt** (Claude Code): when your CLI is about to ask for a permission, your parent is told what and answers (`allow`, or `deny` with a reason you read and act on: do what it says instead, or ask with a `question`). Wait for it; don't retry the same call. If nobody answers in time, the prompt shows in your terminal for the person there. Never try to answer it yourself.
 
 1. **Asking:** when the plan is ambiguous or wrong, or you're stuck after two honest attempts, send a `question` and **end your turn**. Don't sleep, poll or guess: the answer arrives as a new doorbell. A good question states what you tried, what you see, and the options you're choosing between.
 2. **Finishing:** every task ends with exactly **one** `done` or `failed` to your parent.

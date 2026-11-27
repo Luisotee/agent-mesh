@@ -60,7 +60,7 @@ func matchPublishDepth(cmdline string, depth int) string {
 	}
 	// Also inspect subshells $(...) and `...` (which run inside double quotes too) by turning them into segment
 	// boundaries, and the (…) and { …; } groups outside quotes, so that `grep "(git push)"` stays a read.
-	expanded := strings.NewReplacer("$(", ";", ")", ";", "`", ";").Replace(splitGroups(cmdline))
+	expanded := strings.NewReplacer("$(", ";", ")", ";", "`", ";").Replace(splitGroups(noRedirectAmp(cmdline)))
 	for _, seg := range segmentSplitRE.Split(expanded, -1) {
 		fields := shellWords(seg)
 		if len(fields) == 0 {
@@ -99,6 +99,37 @@ func splitGroups(s string) string {
 
 var assignmentRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
+// noRedirectAmp replaces the `&` of a redirection (`2>&1`, `>&2`, `&>file`), which is not a command separator: it is
+// replaced by a letter so the line is not split there.
+var (
+	redirectDupRE  = regexp.MustCompile(`([0-9]*[<>]+)&`)
+	redirectBothRE = regexp.MustCompile(`&>`)
+)
+
+func noRedirectAmp(s string) string {
+	return redirectBothRE.ReplaceAllString(redirectDupRE.ReplaceAllString(s, "${1}_FD"), "_FD>")
+}
+
+// redirectRE is a word that is a redirection: an operator, with its target attached or not.
+var redirectRE = regexp.MustCompile(`^(?:[0-9]*|_FD)(?:>>|>\||<<<|<<|>|<)(.*)$`)
+
+// shellKeywords are the words that lead a command in a compound command (`if …; then git push; fi`).
+var shellKeywords = map[string]bool{"if": true, "then": true, "elif": true, "else": true, "do": true, "while": true,
+	"until": true, "!": true}
+
+// leadingRedirect says how many words a redirection at the head of a command takes: 0 if the first word is none,
+// 1 with its target attached (`</dev/null`, `2>_FD1`), 2 with the target a word of its own (`> out`).
+func leadingRedirect(first string) int {
+	m := redirectRE.FindStringSubmatch(first)
+	switch {
+	case m == nil:
+		return 0
+	case m[1] == "":
+		return 2
+	}
+	return 1
+}
+
 // wrapperValueFlags are, per command wrapper, the flags that take the next word as their value.
 var wrapperValueFlags = map[string]map[string]bool{
 	"command": {}, "builtin": {}, "nohup": {}, "time": {}, "stdbuf": {}, "setsid": {},
@@ -117,8 +148,12 @@ var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true
 
 func matchPublishTokens(tokens []string, depth int) string {
 	for len(tokens) > 0 {
-		if assignmentRE.MatchString(tokens[0]) {
+		if assignmentRE.MatchString(tokens[0]) || shellKeywords[tokens[0]] {
 			tokens = tokens[1:]
+			continue
+		}
+		if n := leadingRedirect(tokens[0]); n > 0 {
+			tokens = tokens[min(n, len(tokens)):]
 			continue
 		}
 		name := filepath.Base(tokens[0])

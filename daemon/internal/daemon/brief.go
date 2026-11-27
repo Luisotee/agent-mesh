@@ -155,6 +155,9 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 		out = append(out, "", d.rootCard(), "")
 	}
 	out = append(out, "policy (tiers, reviewers, rounds, reserve): `mesh settings`")
+	if isRoot {
+		out = append(out, d.tierLeanLine(r))
+	}
 	if isRoot { // the user's brakes: repos they merge or approve plans in, and what to ask before
 		out = append(out, d.autonomyBrief(r)...)
 	}
@@ -331,4 +334,25 @@ func (d *Daemon) rootCard() string {
 		return "(the root card is not available: " + path + " is unreadable)"
 	}
 	return strings.TrimRight(string(b), " \t\r\n")
+}
+
+// tierLeans say what each `tier_lean` means for the root's tier and effort picks (ORCHESTRATE, "Tiers").
+var tierLeans = map[string]string{
+	"quality": "when a task could go either way, take the stronger tier or the higher effort: a redo costs more than the difference. " +
+		"Small tasks still don't run on `strong`.",
+	"balanced": "no lean either way: for each task, judge whether it needs a big model or a small one will do, and pick the tier " +
+		"and effort to fit.",
+	"thrifty": "when a task could go either way, take the cheaper tier and raise it (`mesh switch --effort`, then `--tier`) when the " +
+		"work shows it needs more. Planning, risky work and a bug of unknown cause stay on `strong`.",
+}
+
+// tierLeanLine is the brief's line on the `tier_lean` setting.
+func (d *Daemon) tierLeanLine(r store.Reader) string {
+	lean := "balanced"
+	if v, err := d.Setting(r, "tier_lean"); err == nil {
+		if s, ok := v.(string); ok && tierLeans[s] != "" {
+			lean = s
+		}
+	}
+	return "tier lean (`tier_lean`: quality, balanced, thrifty): " + lean + ": " + tierLeans[lean]
 }

@@ -14,7 +14,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -31,6 +30,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
+	"github.com/Luisotee/agent-mesh/daemon/internal/probe"
 )
 
 // Kind is the adapter's kind.
@@ -63,6 +63,8 @@ var publishCommands = []string{
 // Adapter is the OpenCode CLI (`opencode`) adapter.
 type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
+	// ProbeDir is where the probe's stub openers are made (internal/probe); empty means the temp dir.
+	ProbeDir string
 	// ListModels overrides `opencode models --verbose` in tests.
 	ListModels func(ctx context.Context, binary string, env map[string]string) (string, error)
 	// UserHome returns the home directory used when env sets neither HOME nor XDG_*_HOME; nil defaults to
@@ -318,13 +320,8 @@ func (a *Adapter) listModelsDirect(ctx context.Context, bin string, env map[stri
 			}
 		}
 	}
-	cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, bin, "models", "--verbose")
-	if len(env) > 0 {
-		cmd.Env = mapToEnv(env)
-	}
-	out, err := cmd.Output()
+	// A probe: it can't open a login (internal/probe).
+	out, err := probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"models", "--verbose"}, Env: mapToEnv(env), Dir: a.ProbeDir, Timeout: 60 * time.Second})
 	if err == nil {
 		models := ParseModels(string(out))
 		if len(models) > 0 {

@@ -34,6 +34,10 @@ const Kind = "claude"
 // warning in the apps.
 var VerifiedVersions = []string{"2.1.332"}
 
+// PermissionTimeout is the seconds Claude Code gives a PermissionRequest hook: it is held while the agent's parent
+// decides (`permission.wait`, at most 540).
+const PermissionTimeout = 600
+
 // HookTimeout is the seconds Claude Code gives each hook. The hook command never waits on a down daemon: it
 // spools within about 3 seconds.
 const HookTimeout = 10
@@ -48,7 +52,7 @@ var SessionVars = []string{"CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_
 // hookEvents are the hooks every launch registers, with their matcher ("*" for tool events).
 var hookEvents = []struct{ name, matcher string }{
 	{"SessionStart", ""}, {"UserPromptSubmit", ""}, {"PreToolUse", "*"}, {"PostToolUse", "*"},
-	{"Notification", ""}, {"Stop", ""}, {"StopFailure", ""}, {"SubagentStop", ""}, {"PreCompact", ""}, {"SessionEnd", ""},
+	{"Notification", ""}, {"PermissionRequest", "*"}, {"Stop", ""}, {"StopFailure", ""}, {"SubagentStop", ""}, {"PreCompact", ""}, {"SessionEnd", ""},
 }
 
 // Adapter is the Claude Code adapter.
@@ -107,7 +111,11 @@ func settingsWith(hookArgv []string, denyPublish bool, extra map[string]any) (st
 			argv = append(argv, "--deny-publish")
 		}
 		cmd := adapter.ShellQuote(append(argv, ev.name)...)
-		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: HookTimeout}}}}
+		timeout := HookTimeout
+		if ev.name == "PermissionRequest" {
+			timeout = PermissionTimeout
+		}
+		hooks[ev.name] = []hookGroup{{Matcher: ev.matcher, Hooks: []hookCommand{{Type: "command", Command: cmd, Timeout: timeout}}}}
 	}
 	// Every launch takes cross-session messages unprompted (the daemon writes its doorbells into the inbox socket),
 	// which beats the user's own value; only managed policy or a tightening repo overrides it (inboundSetting).
@@ -557,6 +565,37 @@ func DenyJSON(reason string) []byte {
 	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PreToolUse",
 		"permissionDecision": "deny", "permissionDecisionReason": reason}})
 	return append(b, '\n')
+}
+
+// PermissionJSON is what a Claude PermissionRequest hook prints to answer a prompt: `allow`, or `deny` with the
+// reason Claude reads. Any other decision prints nothing (the prompt stays).
+func PermissionJSON(decision, reason string) []byte {
+	d := map[string]any{"behavior": decision}
+	switch decision {
+	case "allow":
+	case "deny":
+		d["message"] = reason
+	default:
+		return nil
+	}
+	b, _ := json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": d}})
+	return append(b, '\n')
+}
+
+// PermissionSummary is what a parent is told of a prompt: the tool's command or path, never what it would write
+// (an Edit's new text, a Write's content). Tools whose input has neither give an empty summary.
+func PermissionSummary(input json.RawMessage) string {
+	var in map[string]json.RawMessage
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	for _, k := range []string{"command", "file_path", "notebook_path", "path", "url", "pattern", "query"} {
+		var s string
+		if raw, ok := in[k]; ok && json.Unmarshal(raw, &s) == nil && s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // ReadInputBox reads the input box from a repaint: Claude's rules box, its `Try …` placeholder dim.

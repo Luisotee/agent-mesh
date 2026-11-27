@@ -338,6 +338,50 @@ func run(line string, next func() string) {
 		}
 		prompt()
 		return
+	case line == "/bg":
+		// A background command, as Claude Code starts one: `bash -c` that sources a shell snapshot, a child of this
+		// process that outlives the turn. It ends when the file FAKECLAUDE_BG_STOP exists.
+		hook("UserPromptSubmit", map[string]any{"prompt": line})
+		stop := os.Getenv("FAKECLAUDE_BG_STOP")
+		job := exec.Command("bash", "-c", "source ~/.claude/shell-snapshots/snapshot-bash-1.sh 2>/dev/null || true && "+
+			"while [ ! -e '"+stop+"' ]; do sleep 0.2; done")
+		if err := job.Start(); err == nil {
+			go job.Wait()
+		}
+		say("background command started\r\n")
+		hook("Stop", map[string]any{"stop_hook_active": false})
+		prompt()
+		return
+	case strings.HasPrefix(line, "/perm "):
+		// `/perm <Tool> <command or path>`: a tool call that needs a permission prompt. The PermissionRequest hook
+		// answers it (allow, deny with a reason) or leaves it to the person at the terminal (shown as `permission: pane`).
+		tool, arg, _ := strings.Cut(strings.TrimPrefix(line, "/perm "), " ")
+		hook("UserPromptSubmit", map[string]any{"prompt": line})
+		input := map[string]any{"command": arg}
+		if tool == "Edit" || tool == "Write" {
+			input = map[string]any{"file_path": arg, "new_string": "SECRET FILE CONTENTS"}
+		}
+		out := hook("PermissionRequest", map[string]any{"tool_name": tool, "tool_input": input})
+		var d struct {
+			H struct {
+				Decision struct {
+					Behavior string `json:"behavior"`
+					Message  string `json:"message"`
+				} `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		switch _ = json.Unmarshal(out, &d); d.H.Decision.Behavior {
+		case "allow":
+			say("permission: allow\r\nran\r\n")
+			hook("PostToolUse", map[string]any{"tool_name": tool})
+		case "deny":
+			say("permission: deny %s\r\n", d.H.Decision.Message)
+		default:
+			say("permission: pane\r\n")
+		}
+		hook("Stop", map[string]any{"stop_hook_active": false})
+		prompt()
+		return
 	case strings.HasPrefix(line, "/bash "):
 		hook("UserPromptSubmit", map[string]any{"prompt": line})
 		out := hook("PreToolUse", map[string]any{"tool_name": "Bash",

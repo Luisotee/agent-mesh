@@ -908,6 +908,52 @@ public class MeshServiceClient(
 
 
   /**
+   *  An agent's hook asks for the answer to a permission prompt its CLI is about to show: held until the agent's
+   *  parent decides (`mesh permission`) or the wait runs out, which leaves the prompt to the person at the terminal.
+   */
+  override suspend fun requestPermission(request: RequestPermissionRequest, headers: Headers): ResponseMessage<RequestPermissionResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RequestPermission",
+      dev.agentmesh.gen.agentmesh.v1.RequestPermissionRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RequestPermissionResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Answer a worker's pending permission prompt: allow it, or deny it with a reason the worker reads.
+   */
+  override suspend fun decidePermission(request: DecidePermissionRequest, headers: Headers): ResponseMessage<DecidePermissionResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/DecidePermission",
+      dev.agentmesh.gen.agentmesh.v1.DecidePermissionRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.DecidePermissionResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  The permission prompts waiting for an answer: the caller's own agents' (a device: every run's).
+   */
+  override suspend fun listPermissions(request: ListPermissionsRequest, headers: Headers): ResponseMessage<ListPermissionsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListPermissions",
+      dev.agentmesh.gen.agentmesh.v1.ListPermissionsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListPermissionsResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
    */
   override suspend fun listMCPServers(request: ListMCPServersRequest, headers: Headers): ResponseMessage<ListMCPServersResponse> = client.unary(

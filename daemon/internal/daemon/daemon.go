@@ -23,6 +23,8 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/events"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -140,6 +142,7 @@ type Daemon struct {
 
 	waits waitTracker // declared waits the accountability pass has seen over (accountability.go)
 	prs   prTracker   // when each agent's pull requests were last read from GitHub (prs.go)
+	perms permTable   // permission prompts waiting for an answer (permission.go)
 }
 
 // New opens a state dir: takes its lock, opens (or migrates) the database, and makes the daemon's id and the
@@ -195,6 +198,7 @@ func New(cfg Config) (*Daemon, error) {
 	if d.rt, err = newRuntime(cfg.Agents); err != nil {
 		return nil, err
 	}
+	d.wireProbes()
 	d.notify = d.deliverSoon
 	d.bus.AgentView = d.view
 	d.mux.HandleFunc("/v1/term/{agent}", d.serveTerminal)
@@ -523,3 +527,21 @@ func tsOf(t time.Time) *timestamppb.Timestamp {
 
 // RunFolders are the folders every run's dir holds.
 var RunFolders = statedir.RunFolders
+
+// wireProbes tells the adapters that probe a CLI (internal/probe) where their stubs go, when a probe of agy found
+// it wants a login, and when agy is left alone (agyHeld).
+func (d *Daemon) wireProbes() {
+	if a, err := d.rt.adapters.Get(agy.Kind); err == nil {
+		if ag, ok := a.(*agy.Adapter); ok {
+			ag.LoginNeeded = d.noteAgyLogin   // a probe of agy that tried to open a login is recorded
+			ag.LoginCleared = d.clearAgyLogin // and a `agy models` that answered clears it
+			ag.ProbeDir = d.paths.Probe()
+			ag.Hold = d.agyHeld // and agy is not run while it needs a login, or while an agy on PATH has no token file
+		}
+	}
+	if a, err := d.rt.adapters.Get(opencode.Kind); err == nil {
+		if oc, ok := a.(*opencode.Adapter); ok {
+			oc.ProbeDir = d.paths.Probe()
+		}
+	}
+}

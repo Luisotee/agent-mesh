@@ -231,7 +231,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
 - ★ Agents spawn agents within roles: the root starts change workers, and a worker starts its own PR's reviewers and askers on other repos, never change workers. Linked as parent and child, with status rolled up the tree and caps a child can't raise (P, O; "Architecture").
 - ★ When an agent's process dies, its parent gets a message with the reason and its last message (AionUi).
 - Wake an agent on a terminal's output matching a pattern, or on its process exiting, for shells and builds, never agent TUIs (omnara).
-- ★ The root answers its workers' permission prompts, or escalates them to the user (O, P).
+- ★ The root answers its workers' permission prompts, or escalates them to the user (O, P). **Done for Claude** (a `PermissionRequest` hook held for the parent: `mesh permission`, `permission.wait`; README, "Permission prompts"); the apps list and answer pending prompts (`ListPermissions`, `DecidePermission`) and the `tier_lean` setting (`quality`, `balanced`, `thrifty`) come with the settings screens.
 - Schedules by cron or preset, with run history (P, O).
 - Event triggers: GitHub, webhooks (O).
 - Heartbeats that re-prompt the same agent (P).
@@ -388,4 +388,5 @@ Settled for step 4, the Android app's first version (2026-11-25, run mfb6a):
 ## Open decisions
 
 - Tailcat (a Tailscale-compatible library with no account and your own relay server, per happy) instead of `tsnet`, later.
+- agy's and the other CLIs' permission prompts reaching the root the way Claude's do (a hook held for the parent), and Plan mode through the same hook (`ExitPlanMode` is a `PermissionRequest` whose allow needs `updatedInput`; design in `TODO.md`).
 - Interactive `agy` permission-prompt handling when `--dangerously-skip-permissions` is off: gate tool calls through a daemon `PreToolUse` hook vs switch `agy` to its ACP server's permission requests vs require `--dangerously-skip-permissions`.

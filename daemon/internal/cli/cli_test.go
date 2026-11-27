@@ -855,6 +855,30 @@ func TestRenderLogAndRing(t *testing.T) {
 	}
 }
 
+func TestRenderPermissionsAndUsageNotes(t *testing.T) {
+	var out strings.Builder
+	renderPermissions(&v1.ListPermissionsResponse{Permissions: []*v1.PendingPermission{
+		{Id: "p1", AgentName: "repo-wk", Tool: "Bash", Summary: "rm -rf build"}, {Id: "p2", AgentName: "repo-w2", Tool: "Write"}}}, &out)
+	for _, want := range []string{`p1  repo-wk  Bash: "rm -rf build"`, "p2  repo-w2  Write\n"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("renderPermissions missing %q in:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	renderPermissions(&v1.ListPermissionsResponse{}, &out)
+	if !strings.Contains(out.String(), "no permission prompts waiting") {
+		t.Errorf("an empty list: %q", out.String())
+	}
+	out.Reset()
+	renderUsage(&v1.GetUsageResponse{Notes: []string{"agy needs `/login`"}}, &out)
+	if !strings.Contains(out.String(), "agy needs `/login`") || strings.Contains(out.String(), "gave no quota rows") {
+		t.Errorf("renderUsage with a note:\n%s", out.String())
+	}
+	if !hasText("permissions") || !hasText("permission") {
+		t.Error("permissions and permission have text renderers")
+	}
+}
+
 // renderPair draws the link as a QR code of half blocks above the link itself.
 func TestRenderPairDrawsAQRCodeAndTheLink(t *testing.T) {
 	uri := "agentmesh://pair?v=1&h=host&t=tok"

@@ -34,6 +34,8 @@ var renderers = map[string]struct {
 	"brief":           {func() proto.Message { return &v1.GetBriefResponse{} }, renderBrief},
 	"reset":           {func() proto.Message { return &v1.ResetRootResponse{} }, renderReset},
 	"ring":            {func() proto.Message { return &v1.RingAgentResponse{} }, renderRing},
+	"permissions":     {func() proto.Message { return &v1.ListPermissionsResponse{} }, renderPermissions},
+	"permission":      {func() proto.Message { return &v1.DecidePermissionResponse{} }, renderPermission},
 	"check":           {func() proto.Message { return &v1.CheckAgentResponse{} }, renderCheck},
 	"pair":            {func() proto.Message { return &v1.CreatePairingResponse{} }, renderPair},
 }
@@ -166,8 +168,11 @@ func renderUsage(m proto.Message, w io.Writer) {
 		for _, r := range u.AgyRows {
 			fmt.Fprintf(w, "  %-24s %-16s %3d%% left  (%s)\n", r.Group, r.Label, r.Left, r.Resets)
 		}
-	} else {
+	} else if len(u.Notes) == 0 {
 		fmt.Fprintln(w, "agy: `agy -p /usage` gave no quota rows")
+	}
+	for _, n := range u.Notes {
+		fmt.Fprintln(w, n)
 	}
 	if len(u.AgyTiers) > 0 {
 		fmt.Fprintln(w)
@@ -558,6 +563,27 @@ func renderRing(m proto.Message, w io.Writer) {
 		fmt.Fprintf(w, "not rung %s (%d unread): %s\n", name, r.Unread, r.Error)
 	default:
 		fmt.Fprintf(w, "not rung %s (%d unread)\n", name, r.Unread)
+	}
+}
+
+func renderPermissions(m proto.Message, w io.Writer) {
+	ps := m.(*v1.ListPermissionsResponse).Permissions
+	if len(ps) == 0 {
+		fmt.Fprintln(w, "no permission prompts waiting")
+		return
+	}
+	for _, p := range ps {
+		fmt.Fprintf(w, "%s  %s  %s", p.Id, p.AgentName, p.Tool)
+		if p.Summary != "" {
+			fmt.Fprintf(w, ": %q", p.Summary) // the agent's text, quoted: it is not for the reader to obey
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func renderPermission(m proto.Message, w io.Writer) {
+	if p := m.(*v1.DecidePermissionResponse).Permission; p != nil {
+		fmt.Fprintf(w, "answered %s (%s: %s)\n", p.Id, p.AgentName, p.Tool)
 	}
 }
 

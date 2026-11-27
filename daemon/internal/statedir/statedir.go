@@ -34,6 +34,13 @@ func (p Paths) ClaudeUsageFailed() string {
 func (p Paths) AgyUsage() string       { return filepath.Join(p.Dir, "agy-usage.txt") }
 func (p Paths) AgyUsageFailed() string { return filepath.Join(p.Dir, "agy-usage.failed") }
 
+// AgyLoginNeeded records that a probe of agy tried to open a login (its time, and a signature of the token file).
+func (p Paths) AgyLoginNeeded() string { return filepath.Join(p.Dir, "agy-login-needed") }
+
+// Probe is where a CLI probe's stub openers are made (internal/probe): under the state dir, not /tmp, which can be
+// mounted noexec.
+func (p Paths) Probe() string { return filepath.Join(p.Dir, "probe") }
+
 // Term is the terminal host's dir.
 func (p Paths) Term() string { return filepath.Join(p.Dir, "term") }
 

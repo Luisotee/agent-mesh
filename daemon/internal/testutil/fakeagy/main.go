@@ -73,6 +73,18 @@ func main() {
 	}
 	for i := 0; i+1 < len(args); i++ {
 		if args[i] == "-p" && args[i+1] == "/usage" {
+			if os.Getenv("FAKEAGY_LOGIN") != "" {
+				// A logged-out agy: it opens the login in a browser and waits for the callback.
+				if log := os.Getenv("FAKEAGY_PROBE_LOG"); log != "" {
+					if f, err := os.OpenFile(log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+						f.WriteString("login\n")
+						f.Close()
+					}
+				}
+				_ = exec.Command("xdg-open", "https://example.invalid/login").Run()
+				time.Sleep(time.Minute)
+				return
+			}
 			if p := os.Getenv("FAKEAGY_USAGE_FILE"); p != "" {
 				b, _ := os.ReadFile(p)
 				fmt.Print(string(b))

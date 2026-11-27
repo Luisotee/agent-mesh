@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -31,6 +30,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 	"github.com/Luisotee/agent-mesh/daemon/internal/inputbox"
+	"github.com/Luisotee/agent-mesh/daemon/internal/probe"
 	"github.com/Luisotee/agent-mesh/daemon/internal/shellmatch"
 )
 
@@ -62,6 +62,14 @@ var SessionVars = []string{
 // Adapter is the Antigravity CLI (`agy`) adapter.
 type Adapter struct {
 	adapterv1connect.UnimplementedCliAdapterServiceHandler
+	// LoginNeeded is called when a probe of the CLI found it wants a login (the daemon records it).
+	LoginNeeded func()
+	// LoginCleared is called when `agy models` ran and answered: agy is logged in (the daemon forgets a login record).
+	LoginCleared func()
+	// Hold, when it says true, keeps `agy models` from being run (the daemon: an agy found on PATH whose token file is missing).
+	Hold func() bool
+	// ProbeDir is where the probe's stub openers are made (internal/probe); empty means the temp dir.
+	ProbeDir string
 	// ListModels overrides `agy models` in tests.
 	ListModels func(ctx context.Context, binary string, env map[string]string) (string, error)
 }
@@ -366,14 +374,21 @@ func (a *Adapter) listModelsDirect(ctx context.Context, bin string, env map[stri
 			}
 		}
 	}
-	cctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, bin, "models")
-	if len(env) > 0 {
-		cmd.Env = mapToEnv(env)
+	// A probe: it can't open a login (internal/probe), and a CLI that tries says so.
+	var out []byte
+	var err error
+	if a.Hold != nil && a.Hold() {
+		err = probe.ErrLoginNeeded // not run: the cache below answers, if there is one
+	} else {
+		out, err = probe.Run(ctx, probe.Spec{Bin: bin, Args: []string{"models"}, Env: mapToEnv(env), Dir: a.ProbeDir, Timeout: 45 * time.Second})
+		if errors.Is(err, probe.ErrLoginNeeded) && a.LoginNeeded != nil {
+			a.LoginNeeded()
+		}
 	}
-	out, err := cmd.Output()
 	if err == nil && hasParsedID(string(out)) {
+		if a.LoginCleared != nil {
+			a.LoginCleared()
+		}
 		if cacheFile != "" {
 			_ = os.MkdirAll(filepath.Dir(cacheFile), 0o700)
 			_ = fsutil.WriteAtomic(cacheFile, out, 0o600)

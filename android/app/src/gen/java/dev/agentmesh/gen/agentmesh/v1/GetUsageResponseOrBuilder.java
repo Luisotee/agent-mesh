@@ -60,4 +60,45 @@ public interface GetUsageResponseOrBuilder extends
    * @return The minQuota.
    */
   int getMinQuota();
+
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @return A list containing the notes.
+   */
+  java.util.List<java.lang.String>
+      getNotesList();
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @return The count of notes.
+   */
+  int getNotesCount();
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param index The index of the element to return.
+   * @return The notes at the given index.
+   */
+  java.lang.String getNotes(int index);
+  /**
+   * <pre>
+   * What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
+   * </pre>
+   *
+   * <code>repeated string notes = 6 [json_name = "notes"];</code>
+   * @param index The index of the element to return.
+   * @return The notes at the given index.
+   */
+  com.google.protobuf.ByteString
+      getNotesBytes(int index);
 }

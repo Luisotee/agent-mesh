@@ -24,6 +24,9 @@ func OnSpawnCommitted(f func(string)) { spawnCommittedHook = f }
 func OnStopRunLocked(f func())        { stopRunLockedHook = f }
 func OnStopAgentLocked(f func())      { stopAgentLockedHook = f }
 
+// OnPermissionPlanned sets RequestPermission's test seam (nil clears it).
+func OnPermissionPlanned(f func()) { permissionPlannedHook = f }
+
 // Reserve and Reserved put and read an agent's memory reservation, as a resume that passed the guard leaves it.
 func (d *Daemon) Reserve(agentID string) {
 	d.rt.guard.mu.Lock()
@@ -152,6 +155,14 @@ func OnPushLeave(f func()) { onPushLeave = f }
 // TailnetURL is the URL a pairing link carries for a tailnet node with these addresses.
 func TailnetURL(addresses []string, port uint16) string { return tailnetURL(addresses, port) }
 
+// SetBackgroundGrace sets how long a background command is let run before its agent is nudged (until the test ends
+// is the caller's to restore: it returns the old one).
+func SetBackgroundGrace(d time.Duration) time.Duration {
+	old := backgroundGrace
+	backgroundGrace = d
+	return old
+}
+
 // ReminderText is what a session of agent a that started again (source: compact, clear or resume) is told.
 func (d *Daemon) ReminderText(ctx context.Context, a *v1.Agent, source string) string {
 	return d.reminderText(ctx, a, source)
@@ -170,3 +181,6 @@ func (d *Daemon) RecordStopped(ctx context.Context, agentID string) error {
 		return tx.PutAgent(a)
 	})
 }
+
+// RunDirForTest is a run's dir (reports, plans, notes).
+func (d *Daemon) RunDirForTest(run string) string { return d.paths.RunDir(run) }

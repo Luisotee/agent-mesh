@@ -167,6 +167,15 @@ const (
 	MeshServiceListToolsProcedure = "/agentmesh.v1.MeshService/ListTools"
 	// MeshServiceAddToolsProcedure is the fully-qualified name of the MeshService's AddTools RPC.
 	MeshServiceAddToolsProcedure = "/agentmesh.v1.MeshService/AddTools"
+	// MeshServiceRequestPermissionProcedure is the fully-qualified name of the MeshService's
+	// RequestPermission RPC.
+	MeshServiceRequestPermissionProcedure = "/agentmesh.v1.MeshService/RequestPermission"
+	// MeshServiceDecidePermissionProcedure is the fully-qualified name of the MeshService's
+	// DecidePermission RPC.
+	MeshServiceDecidePermissionProcedure = "/agentmesh.v1.MeshService/DecidePermission"
+	// MeshServiceListPermissionsProcedure is the fully-qualified name of the MeshService's
+	// ListPermissions RPC.
+	MeshServiceListPermissionsProcedure = "/agentmesh.v1.MeshService/ListPermissions"
 	// MeshServiceListMCPServersProcedure is the fully-qualified name of the MeshService's
 	// ListMCPServers RPC.
 	MeshServiceListMCPServersProcedure = "/agentmesh.v1.MeshService/ListMCPServers"
@@ -340,6 +349,13 @@ type MeshServiceClient interface {
 	// Add cut tools, skills, plugins, MCP servers, `anthropic-skills`, or `claude.ai` connectors back to a lean
 	// Claude session by reopening the same conversation at its next idle.
 	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
+	// An agent's hook asks for the answer to a permission prompt its CLI is about to show: held until the agent's
+	// parent decides (`mesh permission`) or the wait runs out, which leaves the prompt to the person at the terminal.
+	RequestPermission(context.Context, *connect.Request[v1.RequestPermissionRequest]) (*connect.Response[v1.RequestPermissionResponse], error)
+	// Answer a worker's pending permission prompt: allow it, or deny it with a reason the worker reads.
+	DecidePermission(context.Context, *connect.Request[v1.DecidePermissionRequest]) (*connect.Response[v1.DecidePermissionResponse], error)
+	// The permission prompts waiting for an answer: the caller's own agents' (a device: every run's).
+	ListPermissions(context.Context, *connect.Request[v1.ListPermissionsRequest]) (*connect.Response[v1.ListPermissionsResponse], error)
 	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
 	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
 	// Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
@@ -707,6 +723,24 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("AddTools")),
 			connect.WithClientOptions(opts...),
 		),
+		requestPermission: connect.NewClient[v1.RequestPermissionRequest, v1.RequestPermissionResponse](
+			httpClient,
+			baseURL+MeshServiceRequestPermissionProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RequestPermission")),
+			connect.WithClientOptions(opts...),
+		),
+		decidePermission: connect.NewClient[v1.DecidePermissionRequest, v1.DecidePermissionResponse](
+			httpClient,
+			baseURL+MeshServiceDecidePermissionProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("DecidePermission")),
+			connect.WithClientOptions(opts...),
+		),
+		listPermissions: connect.NewClient[v1.ListPermissionsRequest, v1.ListPermissionsResponse](
+			httpClient,
+			baseURL+MeshServiceListPermissionsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListPermissions")),
+			connect.WithClientOptions(opts...),
+		),
 		listMCPServers: connect.NewClient[v1.ListMCPServersRequest, v1.ListMCPServersResponse](
 			httpClient,
 			baseURL+MeshServiceListMCPServersProcedure,
@@ -742,68 +776,71 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // meshServiceClient implements MeshServiceClient.
 type meshServiceClient struct {
-	hello            *connect.Client[v1.HelloRequest, v1.HelloResponse]
-	startRun         *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
-	listRuns         *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
-	spawnAgent       *connect.Client[v1.SpawnAgentRequest, v1.SpawnAgentResponse]
-	listAgents       *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
-	getAgent         *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
-	stopAgent        *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
-	approveAgent     *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
-	switchAgent      *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
-	resumeAgent      *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
-	retireAgent      *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
-	stopRun          *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
-	sendMessage      *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
-	readInbox        *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
-	adoptSession     *connect.Client[v1.AdoptSessionRequest, v1.AdoptSessionResponse]
-	checkAgent       *connect.Client[v1.CheckAgentRequest, v1.CheckAgentResponse]
-	listMessages     *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
-	listWaiting      *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
-	subscribeEvents  *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
-	listSettings     *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
-	setSetting       *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
-	importSettings   *connect.Client[v1.ImportSettingsRequest, v1.ImportSettingsResponse]
-	resetSetting     *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
-	resetRoot        *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
-	listPullRequests *connect.Client[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse]
-	holdPullRequest  *connect.Client[v1.HoldPullRequestRequest, v1.HoldPullRequestResponse]
-	listProjects     *connect.Client[v1.ListProjectsRequest, v1.ListProjectsResponse]
-	getBrief         *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
-	reportHook       *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
-	openTerminal     *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
-	readTranscript   *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
-	promptAgent      *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
-	createPairing    *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
-	listDevices      *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
-	revokeDevice     *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
-	revokeSelf       *connect.Client[v1.RevokeSelfRequest, v1.RevokeSelfResponse]
-	registerPush     *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
-	unregisterPush   *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
-	testPush         *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
-	startSetup       *connect.Client[v1.StartSetupRequest, v1.StartSetupResponse]
-	tailnetStatus    *connect.Client[v1.TailnetStatusRequest, v1.TailnetStatusResponse]
-	getUsage         *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
-	setReserve       *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
-	ask              *connect.Client[v1.AskRequest, v1.AskResponse]
-	recordVerdict    *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
-	listAsks         *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
-	listPeers        *connect.Client[v1.ListPeersRequest, v1.ListPeersResponse]
-	addPeer          *connect.Client[v1.AddPeerRequest, v1.AddPeerResponse]
-	editPeer         *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
-	removePeer       *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
-	importPeers      *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
-	getCost          *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
-	checkModels      *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
-	resolveModel     *connect.Client[v1.ResolveModelRequest, v1.ResolveModelResponse]
-	checkConflicts   *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
-	listTools        *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
-	addTools         *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
-	listMCPServers   *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
-	createWorktree   *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
-	streamLog        *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
-	ringAgent        *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
-	openAgent        *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
+	hello             *connect.Client[v1.HelloRequest, v1.HelloResponse]
+	startRun          *connect.Client[v1.StartRunRequest, v1.StartRunResponse]
+	listRuns          *connect.Client[v1.ListRunsRequest, v1.ListRunsResponse]
+	spawnAgent        *connect.Client[v1.SpawnAgentRequest, v1.SpawnAgentResponse]
+	listAgents        *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	getAgent          *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
+	stopAgent         *connect.Client[v1.StopAgentRequest, v1.StopAgentResponse]
+	approveAgent      *connect.Client[v1.ApproveAgentRequest, v1.ApproveAgentResponse]
+	switchAgent       *connect.Client[v1.SwitchAgentRequest, v1.SwitchAgentResponse]
+	resumeAgent       *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
+	retireAgent       *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
+	stopRun           *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
+	sendMessage       *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	readInbox         *connect.Client[v1.ReadInboxRequest, v1.ReadInboxResponse]
+	adoptSession      *connect.Client[v1.AdoptSessionRequest, v1.AdoptSessionResponse]
+	checkAgent        *connect.Client[v1.CheckAgentRequest, v1.CheckAgentResponse]
+	listMessages      *connect.Client[v1.ListMessagesRequest, v1.ListMessagesResponse]
+	listWaiting       *connect.Client[v1.ListWaitingRequest, v1.ListWaitingResponse]
+	subscribeEvents   *connect.Client[v1.SubscribeEventsRequest, v1.SubscribeEventsResponse]
+	listSettings      *connect.Client[v1.ListSettingsRequest, v1.ListSettingsResponse]
+	setSetting        *connect.Client[v1.SetSettingRequest, v1.SetSettingResponse]
+	importSettings    *connect.Client[v1.ImportSettingsRequest, v1.ImportSettingsResponse]
+	resetSetting      *connect.Client[v1.ResetSettingRequest, v1.ResetSettingResponse]
+	resetRoot         *connect.Client[v1.ResetRootRequest, v1.ResetRootResponse]
+	listPullRequests  *connect.Client[v1.ListPullRequestsRequest, v1.ListPullRequestsResponse]
+	holdPullRequest   *connect.Client[v1.HoldPullRequestRequest, v1.HoldPullRequestResponse]
+	listProjects      *connect.Client[v1.ListProjectsRequest, v1.ListProjectsResponse]
+	getBrief          *connect.Client[v1.GetBriefRequest, v1.GetBriefResponse]
+	reportHook        *connect.Client[v1.ReportHookRequest, v1.ReportHookResponse]
+	openTerminal      *connect.Client[v1.OpenTerminalRequest, v1.OpenTerminalResponse]
+	readTranscript    *connect.Client[v1.ReadTranscriptRequest, v1.ReadTranscriptResponse]
+	promptAgent       *connect.Client[v1.PromptAgentRequest, v1.PromptAgentResponse]
+	createPairing     *connect.Client[v1.CreatePairingRequest, v1.CreatePairingResponse]
+	listDevices       *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
+	revokeDevice      *connect.Client[v1.RevokeDeviceRequest, v1.RevokeDeviceResponse]
+	revokeSelf        *connect.Client[v1.RevokeSelfRequest, v1.RevokeSelfResponse]
+	registerPush      *connect.Client[v1.RegisterPushRequest, v1.RegisterPushResponse]
+	unregisterPush    *connect.Client[v1.UnregisterPushRequest, v1.UnregisterPushResponse]
+	testPush          *connect.Client[v1.TestPushRequest, v1.TestPushResponse]
+	startSetup        *connect.Client[v1.StartSetupRequest, v1.StartSetupResponse]
+	tailnetStatus     *connect.Client[v1.TailnetStatusRequest, v1.TailnetStatusResponse]
+	getUsage          *connect.Client[v1.GetUsageRequest, v1.GetUsageResponse]
+	setReserve        *connect.Client[v1.SetReserveRequest, v1.SetReserveResponse]
+	ask               *connect.Client[v1.AskRequest, v1.AskResponse]
+	recordVerdict     *connect.Client[v1.RecordVerdictRequest, v1.RecordVerdictResponse]
+	listAsks          *connect.Client[v1.ListAsksRequest, v1.ListAsksResponse]
+	listPeers         *connect.Client[v1.ListPeersRequest, v1.ListPeersResponse]
+	addPeer           *connect.Client[v1.AddPeerRequest, v1.AddPeerResponse]
+	editPeer          *connect.Client[v1.EditPeerRequest, v1.EditPeerResponse]
+	removePeer        *connect.Client[v1.RemovePeerRequest, v1.RemovePeerResponse]
+	importPeers       *connect.Client[v1.ImportPeersRequest, v1.ImportPeersResponse]
+	getCost           *connect.Client[v1.GetCostRequest, v1.GetCostResponse]
+	checkModels       *connect.Client[v1.CheckModelsRequest, v1.CheckModelsResponse]
+	resolveModel      *connect.Client[v1.ResolveModelRequest, v1.ResolveModelResponse]
+	checkConflicts    *connect.Client[v1.CheckConflictsRequest, v1.CheckConflictsResponse]
+	listTools         *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
+	addTools          *connect.Client[v1.AddToolsRequest, v1.AddToolsResponse]
+	requestPermission *connect.Client[v1.RequestPermissionRequest, v1.RequestPermissionResponse]
+	decidePermission  *connect.Client[v1.DecidePermissionRequest, v1.DecidePermissionResponse]
+	listPermissions   *connect.Client[v1.ListPermissionsRequest, v1.ListPermissionsResponse]
+	listMCPServers    *connect.Client[v1.ListMCPServersRequest, v1.ListMCPServersResponse]
+	createWorktree    *connect.Client[v1.CreateWorktreeRequest, v1.CreateWorktreeResponse]
+	streamLog         *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
+	ringAgent         *connect.Client[v1.RingAgentRequest, v1.RingAgentResponse]
+	openAgent         *connect.Client[v1.OpenAgentRequest, v1.OpenAgentResponse]
 }
 
 // Hello calls agentmesh.v1.MeshService.Hello.
@@ -1091,6 +1128,21 @@ func (c *meshServiceClient) AddTools(ctx context.Context, req *connect.Request[v
 	return c.addTools.CallUnary(ctx, req)
 }
 
+// RequestPermission calls agentmesh.v1.MeshService.RequestPermission.
+func (c *meshServiceClient) RequestPermission(ctx context.Context, req *connect.Request[v1.RequestPermissionRequest]) (*connect.Response[v1.RequestPermissionResponse], error) {
+	return c.requestPermission.CallUnary(ctx, req)
+}
+
+// DecidePermission calls agentmesh.v1.MeshService.DecidePermission.
+func (c *meshServiceClient) DecidePermission(ctx context.Context, req *connect.Request[v1.DecidePermissionRequest]) (*connect.Response[v1.DecidePermissionResponse], error) {
+	return c.decidePermission.CallUnary(ctx, req)
+}
+
+// ListPermissions calls agentmesh.v1.MeshService.ListPermissions.
+func (c *meshServiceClient) ListPermissions(ctx context.Context, req *connect.Request[v1.ListPermissionsRequest]) (*connect.Response[v1.ListPermissionsResponse], error) {
+	return c.listPermissions.CallUnary(ctx, req)
+}
+
 // ListMCPServers calls agentmesh.v1.MeshService.ListMCPServers.
 func (c *meshServiceClient) ListMCPServers(ctx context.Context, req *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
 	return c.listMCPServers.CallUnary(ctx, req)
@@ -1275,6 +1327,13 @@ type MeshServiceHandler interface {
 	// Add cut tools, skills, plugins, MCP servers, `anthropic-skills`, or `claude.ai` connectors back to a lean
 	// Claude session by reopening the same conversation at its next idle.
 	AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error)
+	// An agent's hook asks for the answer to a permission prompt its CLI is about to show: held until the agent's
+	// parent decides (`mesh permission`) or the wait runs out, which leaves the prompt to the person at the terminal.
+	RequestPermission(context.Context, *connect.Request[v1.RequestPermissionRequest]) (*connect.Response[v1.RequestPermissionResponse], error)
+	// Answer a worker's pending permission prompt: allow it, or deny it with a reason the worker reads.
+	DecidePermission(context.Context, *connect.Request[v1.DecidePermissionRequest]) (*connect.Response[v1.DecidePermissionResponse], error)
+	// The permission prompts waiting for an answer: the caller's own agents' (a device: every run's).
+	ListPermissions(context.Context, *connect.Request[v1.ListPermissionsRequest]) (*connect.Response[v1.ListPermissionsResponse], error)
 	// List the user's MCP servers, which load always, which are exclusive, and who currently holds each exclusive one.
 	ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error)
 	// Create a run worktree with no agent in it (e.g. for integration), cleaned up when the run stops.
@@ -1638,6 +1697,24 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("AddTools")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceRequestPermissionHandler := connect.NewUnaryHandler(
+		MeshServiceRequestPermissionProcedure,
+		svc.RequestPermission,
+		connect.WithSchema(meshServiceMethods.ByName("RequestPermission")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceDecidePermissionHandler := connect.NewUnaryHandler(
+		MeshServiceDecidePermissionProcedure,
+		svc.DecidePermission,
+		connect.WithSchema(meshServiceMethods.ByName("DecidePermission")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceListPermissionsHandler := connect.NewUnaryHandler(
+		MeshServiceListPermissionsProcedure,
+		svc.ListPermissions,
+		connect.WithSchema(meshServiceMethods.ByName("ListPermissions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceListMCPServersHandler := connect.NewUnaryHandler(
 		MeshServiceListMCPServersProcedure,
 		svc.ListMCPServers,
@@ -1784,6 +1861,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceListToolsHandler.ServeHTTP(w, r)
 		case MeshServiceAddToolsProcedure:
 			meshServiceAddToolsHandler.ServeHTTP(w, r)
+		case MeshServiceRequestPermissionProcedure:
+			meshServiceRequestPermissionHandler.ServeHTTP(w, r)
+		case MeshServiceDecidePermissionProcedure:
+			meshServiceDecidePermissionHandler.ServeHTTP(w, r)
+		case MeshServiceListPermissionsProcedure:
+			meshServiceListPermissionsHandler.ServeHTTP(w, r)
 		case MeshServiceListMCPServersProcedure:
 			meshServiceListMCPServersHandler.ServeHTTP(w, r)
 		case MeshServiceCreateWorktreeProcedure:
@@ -2029,6 +2112,18 @@ func (UnimplementedMeshServiceHandler) ListTools(context.Context, *connect.Reque
 
 func (UnimplementedMeshServiceHandler) AddTools(context.Context, *connect.Request[v1.AddToolsRequest]) (*connect.Response[v1.AddToolsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.AddTools is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RequestPermission(context.Context, *connect.Request[v1.RequestPermissionRequest]) (*connect.Response[v1.RequestPermissionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RequestPermission is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) DecidePermission(context.Context, *connect.Request[v1.DecidePermissionRequest]) (*connect.Response[v1.DecidePermissionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.DecidePermission is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListPermissions(context.Context, *connect.Request[v1.ListPermissionsRequest]) (*connect.Response[v1.ListPermissionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListPermissions is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) ListMCPServers(context.Context, *connect.Request[v1.ListMCPServersRequest]) (*connect.Response[v1.ListMCPServersResponse], error) {
