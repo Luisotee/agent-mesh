@@ -33,6 +33,7 @@ import dev.agentmesh.android.term.Selection
 import dev.agentmesh.android.term.TermScreen
 import dev.agentmesh.android.term.absoluteRow
 import dev.agentmesh.android.term.externalRow
+import dev.agentmesh.android.term.wordRange
 import dev.agentmesh.android.theme.TerminalColors
 import kotlin.math.ceil
 import kotlin.math.max
@@ -141,7 +142,7 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
                 detectDragGesturesAfterLongPress(
                     onDragStart = { o ->
                         val c = cellAt(o)
-                        val word = Selection.wordAt(screen.rowText(screen.externalRow(c.row)), c.col)
+                        val word = screen.wordRange(screen.externalRow(c.row), c.col)
                         anchor = CellPos(word.first, c.row)
                         onSelection(Selection(anchor!!, CellPos(word.last, c.row)))
                     },

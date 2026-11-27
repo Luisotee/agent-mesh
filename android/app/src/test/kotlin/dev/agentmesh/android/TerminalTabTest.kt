@@ -7,6 +7,8 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
@@ -237,5 +239,27 @@ class TerminalTabTest {
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("The host didn't let this device type")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("key-Esc").assertIsNotEnabled()
         assertTrue(second.sent.none { it.hasInput() })
+    }
+
+    @OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
+    @Test fun `the keyboard's Enter and Backspace take the sticky Alt like every other key`() {
+        val rt = runtime(dev.agentmesh.gen.agentmesh.v1.ActorClass.ACTOR_CLASS_DEVICE)
+        val first = FakeSocket().also { api.sockets += it }
+        show(rt)
+        compose.waitUntil(5_000) { api.tickets.isNotEmpty() }
+        live(first, input = false)
+        val second = FakeSocket().also { api.sockets += it }
+        compose.onNodeWithTag("keyboard-toggle").performClick()
+        compose.waitUntil(5_000) { api.tickets.size >= 2 }
+        live(second, input = true)
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Live · typing")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("key-alt").performClick()
+        compose.onNodeWithTag("ime-capture").performKeyInput { pressKey(androidx.compose.ui.input.key.Key.Enter) }
+        compose.waitUntil(5_000) { second.sent.any { it.hasInput() } }
+        assertEquals("\u001B\r", second.sent.first { it.hasInput() }.input.data.toStringUtf8())
+        // The modifier was used up by that key.
+        compose.onNodeWithTag("ime-capture").performKeyInput { pressKey(androidx.compose.ui.input.key.Key.Backspace) }
+        compose.waitUntil(5_000) { second.sent.count { it.hasInput() } >= 2 }
+        assertEquals("\u007f", second.sent.filter { it.hasInput() }[1].input.data.toStringUtf8())
     }
 }

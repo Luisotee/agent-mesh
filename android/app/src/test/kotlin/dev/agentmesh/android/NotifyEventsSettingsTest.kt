@@ -2,6 +2,7 @@ package dev.agentmesh.android
 
 import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -47,6 +48,8 @@ class NotifyEventsSettingsTest {
         assertNull(container.prefs.notifyEvents.value)
         compose.onNodeWithTag("choose-events").performClick()
         assertEquals(setOf("input", "plan", "question", "report", "failed", "error"), container.prefs.notifyEvents.value)
+        // Why the last one can't be turned off is said.
+        compose.onNodeWithTag("events-note").performScrollTo().assertIsDisplayed()
         // The usage-limit kind is on request, as on the desktop.
         compose.onNodeWithTag("event-limited").performScrollTo().assertIsOff().performClick()
         assertTrue("limited" in container.prefs.notifyEvents.value!!)
@@ -85,5 +88,28 @@ class NotifyEventsSettingsTest {
     private fun waitUntil(cond: () -> Boolean) {
         val deadline = System.currentTimeMillis() + 5_000
         while (!cond()) { check(System.currentTimeMillis() < deadline) { "timed out" }; org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle(); Thread.sleep(20) }
+    }
+
+    @Test fun `a host that is slow to take the new list doesn't hold another host's back`() {
+        val api = RecordingApi()
+        NotificationsTest.api = api
+        container.prefs.setNotifyEvents(null)
+        val hosts = listOf("Home", "Work").map { name ->
+            val host = container.hosts.add(name, listOf(Route.Direct("http://127.0.0.1:1")), "t")
+            val deadline = System.currentTimeMillis() + 5_000
+            var r: HostRuntime? = null
+            while (r == null && System.currentTimeMillis() < deadline) { r = container.runtimes.value[host.id]; Thread.sleep(20) }
+            r!!.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+            host
+        }
+        container.prefs.setPush(true)
+        hosts.forEach { container.pushRegistrar.onEndpoint(it.id, SavedEndpoint("https://ntfy.example/${it.name}?up=1", "pub", "auth")) }
+        waitUntil { api.registerCalls.get() >= 2 }
+        val before = api.registerCalls.get()
+        // Every registration hangs from here: both hosts must have begun theirs, not the second queued behind the first.
+        api.registerGate = kotlinx.coroutines.CompletableDeferred()
+        container.prefs.setNotifyEvents(setOf("plan"))
+        waitUntil { api.registerCalls.get() >= before + 2 }
+        api.registerGate!!.complete(Unit)
     }
 }

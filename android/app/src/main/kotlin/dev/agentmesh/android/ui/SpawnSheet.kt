@@ -68,6 +68,8 @@ fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onSt
     var projects by remember { mutableStateOf(emptyList<Pair<String, String>>()) }
     var error by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    // The run a first press made: a retry after the agent was refused adds to it, and doesn't open another.
+    var startedRun by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val connected = state.conn is ConnState.Ready
 
@@ -87,7 +89,7 @@ fun SpawnSheet(runtime: HostRuntime, runId: String?, onDismiss: () -> Unit, onSt
         scope.launch {
             try {
                 val api = runtime.connectedApi()
-                val run = runId ?: api.startRun(title.trim()).id
+                val run = runId ?: startedRun ?: api.startRun(title.trim()).id.also { startedRun = it }
                 if (runId != null || withAgent) {
                     val r = api.spawnAgent(run, current.repo.trim(), current.slug.trim(), current.role, current.kind.trim(), current.tier, current.model.trim(), current.task.trim())
                     onStarted(r.agent.id)

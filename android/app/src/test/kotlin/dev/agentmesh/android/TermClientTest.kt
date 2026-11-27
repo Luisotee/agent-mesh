@@ -9,6 +9,7 @@ import dev.agentmesh.android.term.TermScreen
 import dev.agentmesh.android.term.TermState
 import dev.agentmesh.android.term.pasteBytes
 import dev.agentmesh.android.term.selectedText
+import dev.agentmesh.android.term.wordRange
 import dev.agentmesh.android.term.CellPos
 import dev.agentmesh.android.term.Selection
 import dev.agentmesh.android.term.absoluteRow
@@ -395,5 +396,21 @@ class TermClientTest {
         assertEquals("beta\ngamma", screen.selectedText(sel))
         // A selection of just a word.
         assertEquals("delta", screen.selectedText(Selection(CellPos(6, sel.end.row), CellPos(10, sel.end.row))))
+    }
+
+    @Test fun `a word is found by cells, so wide characters before it don't move the selection`() {
+        val screen = TermScreen(); screen.reset(30, 3)
+        // Two wide characters take four columns, then a blank, then two words; an emoji takes two columns and two chars of text.
+        screen.write("世界 abc def 😀x".toByteArray())
+        assertEquals(5..7, screen.wordRange(0, 6))
+        assertEquals(9..11, screen.wordRange(0, 9))
+        assertEquals(0..3, screen.wordRange(0, 2))
+        assertEquals(4..4, screen.wordRange(0, 4))
+        assertEquals(13..15, screen.wordRange(0, 14))
+        assertEquals(29..29, screen.wordRange(0, 29))
+        // Plain text is as it was.
+        val plain = TermScreen(); plain.reset(20, 2)
+        plain.write("git commit -m fix".toByteArray())
+        assertEquals(4..9, plain.wordRange(0, 6)); assertEquals(0..2, plain.wordRange(0, 0))
     }
 }

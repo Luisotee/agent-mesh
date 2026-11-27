@@ -132,8 +132,8 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
         }
         if (typingOn) {
             ImeCapture(
-                onBackspace = { send(KeyEncoder.key(Key.Backspace)) },
-                onEnter = { send(KeyEncoder.key(Key.Enter)) },
+                onBackspace = { send(KeyEncoder.key(Key.Backspace, ctrl = ctrl, alt = alt)) },
+                onEnter = { send(KeyEncoder.key(Key.Enter, ctrl = ctrl, alt = alt)) },
                 ime = { old, new -> ImeBuffer.change(old, new, ctrl, alt).first.also { if (it.isNotEmpty()) send(it) } },
             )
             TerminalKeyRow(

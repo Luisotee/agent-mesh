@@ -176,4 +176,23 @@ class SpawnSheetTest {
         compose.onNodeWithTag("spawn-go").performScrollTo().assertIsNotEnabled()
         assertEquals(emptyList<String>(), api.runsStarted.toList())
     }
+
+    @Test fun `a retry after the agent was refused adds to the run the first press made, not another`() {
+        api = RecordingApi().apply { failSpawn = ApiException(Code.RESOURCE_EXHAUSTED, "[resource_exhausted] no room for another agent") }
+        NotificationsTest.api = api
+        val rt = host(ActorClass.ACTOR_CLASS_DEVICE)
+        show(rt)
+        compose.onNodeWithTag("new-run").performClick()
+        compose.onNodeWithTag("run-title").performTextInput("Once")
+        compose.onNodeWithTag("repo").performScrollTo().performTextInput("/home/u/app")
+        compose.onNodeWithTag("spawn-go").performScrollTo().performClick()
+        waitUntil { compose.onAllNodesWithTag("spawn-error").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(listOf("Once"), api.runsStarted.toList())
+        // The host has room now: the second press spawns into the same run.
+        api.failSpawn = null
+        compose.onNodeWithTag("spawn-go").performScrollTo().performClick()
+        waitUntil { api.spawns.isNotEmpty() }
+        assertEquals(listOf("Once"), api.runsStarted.toList())
+        assertEquals("run-1", api.spawns.single()[0])
+    }
 }

@@ -139,3 +139,44 @@ fun TermScreen.pasteBytes(text: String): ByteArray {
     try { emu.paste(text) } finally { output.capture = null }
     return out.toByteArray()
 }
+
+/**
+ * The columns of the word at [col] on row [ext] of the screen (a run of non-blank characters), found on the emulator's own
+ * cells: a wide character (CJK, an emoji) takes two columns and a surrogate pair two chars of the row's text, so a column is
+ * not an index into the text. A blank cell, or a column past the line, is a one-cell range.
+ */
+fun TermScreen.wordRange(ext: Int, col: Int): IntRange {
+    val emu = emulator ?: return col..col
+    val buf = emu.screen
+    if (ext < -buf.activeTranscriptRows || ext >= emu.mRows) return col..col
+    val line = buf.allocateFullLineIfNecessary(buf.externalToInternalRow(ext))
+    val text = line.mText
+    val used = line.spaceUsed
+    // Each character of the row: its first column, its width in columns, whether it is blank.
+    val starts = ArrayList<Int>()
+    val widths = ArrayList<Int>()
+    val blank = ArrayList<Boolean>()
+    var c = 0
+    var i = 0
+    while (c < emu.mColumns) {
+        var cp = ' '.code
+        var chars = 0
+        if (i < used) {
+            val ch = text[i]
+            if (Character.isHighSurrogate(ch) && i + 1 < used) { cp = Character.toCodePoint(ch, text[i + 1]); chars = 2 } else { cp = ch.code; chars = 1 }
+        }
+        val w = if (chars == 0) 1 else maxOf(com.termux.terminal.WcWidth.width(cp), 0)
+        if (w > 0) {
+            starts.add(c); widths.add(w); blank.add(Character.isWhitespace(cp) || chars == 0)
+            c += w
+        }
+        i += chars
+    }
+    val at = starts.indexOfLast { it <= col }
+    if (at < 0 || col >= starts[at] + widths[at] || blank[at]) return col..col
+    var a = at
+    var b = at
+    while (a > 0 && !blank[a - 1]) a--
+    while (b < starts.size - 1 && !blank[b + 1]) b++
+    return starts[a]..(starts[b] + widths[b] - 1)
+}

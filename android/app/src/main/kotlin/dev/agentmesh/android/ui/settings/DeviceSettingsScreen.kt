@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.theme.ThemeStore
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.LocalContainer
+import dev.agentmesh.android.notify.DEFAULT_EVENTS
 import dev.agentmesh.android.ui.SectionHeader
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
 import kotlinx.coroutines.launch
@@ -151,10 +152,14 @@ private fun NotifyKindsSettings() {
     }
     if (!follow) {
         val set = chosen.orEmpty()
+        Text(
+            "At least one kind stays on. To hear nothing, turn notifications off on the host (its app.notify.enabled setting).",
+            Modifier.padding(horizontal = 32.dp).testTag("events-note"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         NOTICE_LABELS.forEach { (key, label) ->
             Row(Modifier.fillMaxWidth().padding(horizontal = 32.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                // At least one stays on: none at all is the host's own "notifications off" switch, not a list.
+                // At least one stays on: none at all is the host's own "notifications off" switch, not a list (said below).
                 androidx.compose.material3.Switch(
                     key in set, { on -> container.prefs.setNotifyEvents(if (on) set + key else if (set.size > 1) set - key else set) },
                     enabled = !(key in set && set.size == 1), modifier = Modifier.testTag("event-$key"),
@@ -164,8 +169,8 @@ private fun NotifyKindsSettings() {
     }
 }
 
-/** What turning the choice on starts with: the daemon's own default list. */
-private val DEFAULT_CHOICE = setOf("input", "plan", "question", "report", "failed", "error")
+/** What turning the choice on starts with: the default list (the daemon's `DefaultNotifyEvents`, which `DEFAULT_EVENTS` mirrors). */
+private val DEFAULT_CHOICE = DEFAULT_EVENTS.map { it.key }.toSet()
 
 /**
  * Notifications with the app closed, through UnifiedPush: a switch, what it runs through (or that a distributor
