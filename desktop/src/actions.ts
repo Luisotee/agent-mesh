@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'interruptAgent', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -83,6 +83,14 @@ export const sendMessage = (c: MeshClient, to: string, type: MessageType, body: 
 
 /** A one-time ticket for an agent's terminal stream; `input` asks for the right to type (the host decides). */
 export const openTerminal = (c: MeshClient, agent: string, input: boolean) => c.openTerminal({ agent, input })
+
+/** A project shell: a login shell in the project's folder on the host. `repo` must be a project the host lists. */
+export const openShell = (c: MeshClient, repo: string) => c.openShell({ meta: meta(), repo })
+export const listShells = (c: MeshClient) => c.listShells({})
+/** Ends the shell (the host stops it and forgets it). */
+export const closeShell = (c: MeshClient, id: string) => c.closeShell({ meta: meta(), id })
+/** A one-time ticket for a shell's terminal stream, the same stream as an agent's. */
+export const openShellTerminal = (c: MeshClient, shell: string, input: boolean) => c.openTerminal({ shell, input })
 
 /** One page of a run's messages, oldest first, after the message with `afterId` (empty: from the start). */
 export const listMessages = (c: MeshClient, runId: string, afterId: string) => c.listMessages({ runId, afterId, limit: 500 })
