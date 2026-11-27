@@ -46,7 +46,7 @@ fun AddProjectSheet(runtime: HostRuntime, onDismiss: () -> Unit) {
     val shown = projects.filter { (path, name) -> path !in pinned && words.all { it in name.lowercase() || it in path.lowercase() } }.take(30)
     // Only an absolute path: a project is matched to its runs by the exact path, and the host doesn't expand `~`.
     val typed = normalPath(query.trim()).takeIf { it.startsWith("/") || Regex("^[A-Za-z]:[\\\\/].*").matches(it) }
-    fun add(path: String) { prefs.togglePin(runtime.hostId, path); onDismiss() }
+    fun add(path: String) { prefs.pin(runtime.hostId, path); prefs.unhide(dev.agentmesh.android.derive.projectKey(runtime.hostId, path)); onDismiss() }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).navigationBarsPadding().testTag("add-project")) {
             Text("Add a project on ${runtime.host?.name ?: "the host"}", style = MaterialTheme.typography.titleMedium)
@@ -66,6 +66,7 @@ fun AddProjectSheet(runtime: HostRuntime, onDismiss: () -> Unit) {
     }
 }
 
-/** A typed path as the runs name it: no trailing separator, no doubled one, no `.` segment (a drive path is only trimmed). */
-internal fun normalPath(p: String): String =
+/** A typed path as the runs name it: trimmed first, no trailing separator, no doubled one, no `.` segment (a drive path is only trimmed). */
+internal fun normalPath(typed: String): String = typed.trim().let { p ->
     if (p.startsWith("/")) "/" + p.split('/').filter { it.isNotEmpty() && it != "." }.joinToString("/") else p.trimEnd('/', '\\')
+}

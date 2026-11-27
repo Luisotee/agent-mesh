@@ -1,5 +1,6 @@
 package dev.agentmesh.android.chat
 
+import dev.agentmesh.android.store.toMillis
 import dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse
 import dev.agentmesh.gen.agentmesh.v1.TranscriptEntry
 import dev.agentmesh.gen.agentmesh.v1.TranscriptKind
@@ -61,11 +62,16 @@ fun withLater(t: Transcript, res: ReadTranscriptResponse, from: Long = t.end): F
 sealed interface Block {
     val id: String
 
-    data class User(override val id: String, val entry: TranscriptEntry) : Block
-    data class Mesh(override val id: String, val entry: TranscriptEntry) : Block
-    data class Assistant(override val id: String, val entry: TranscriptEntry) : Block
-    data class Tools(override val id: String, val calls: List<ToolCall>) : Block
+    /** When it happened, in ms by the host's clock; 0 when the record gave no time. */
+    val at: Long
+
+    data class User(override val id: String, val entry: TranscriptEntry) : Block { override val at get() = entry.timeMs() }
+    data class Mesh(override val id: String, val entry: TranscriptEntry) : Block { override val at get() = entry.timeMs() }
+    data class Assistant(override val id: String, val entry: TranscriptEntry) : Block { override val at get() = entry.timeMs() }
+    data class Tools(override val id: String, val calls: List<ToolCall>) : Block { override val at get() = calls.firstOrNull()?.at ?: 0L }
 }
+
+private fun TranscriptEntry.timeMs(): Long = if (hasTime()) time.toMillis() else 0L
 
 class ToolCall(
     val id: String,
@@ -73,6 +79,8 @@ class ToolCall(
     val input: String,
     /** What the tool answered; null until it did. */
     var result: TranscriptEntry? = null,
+    /** When it was asked, in ms by the host's clock; 0 when unknown. */
+    val at: Long = 0,
 )
 
 /** Entries as blocks: consecutive tool calls fold into one block, each call with the result that carries its id. */
@@ -91,14 +99,14 @@ fun toBlocks(entries: List<TranscriptEntry>): List<Block> {
     for (e in entries) {
         when (e.kind) {
             TranscriptKind.TRANSCRIPT_KIND_TOOL_CALL -> {
-                val call = ToolCall(e.id, e.tool, e.toolInput)
+                val call = ToolCall(e.id, e.tool, e.toolInput, at = e.timeMs())
                 calls[e.toolUseId] = call
                 tools(e.id).add(call)
             }
             TranscriptKind.TRANSCRIPT_KIND_TOOL_RESULT -> {
                 val call = calls[e.toolUseId]
                 // A result whose call is before the window we hold: shown on its own, as a call we can't name.
-                if (call != null) call.result = e else tools(e.id).add(ToolCall(e.id, "tool", "", e))
+                if (call != null) call.result = e else tools(e.id).add(ToolCall(e.id, "tool", "", e, e.timeMs()))
             }
             TranscriptKind.TRANSCRIPT_KIND_USER -> { run = null; blocks.add(Block.User(e.id, e)) }
             TranscriptKind.TRANSCRIPT_KIND_MESH -> { run = null; blocks.add(Block.Mesh(e.id, e)) }
