@@ -382,7 +382,24 @@ func (h *Host) KillTerminal(_ context.Context, req *connect.Request[termv1.KillT
 	if err != nil && !errors.Is(err, proc.ErrGone) {
 		return nil, err
 	}
+	if sig == syscall.SIGHUP {
+		go t.resignalSession(sig)
+	}
 	return connect.NewResponse(&termv1.KillTerminalResponse{}), nil
+}
+
+// resignalSession sends a hangup again, three times in the next second, to what is left of the terminal's session. A
+// job that was between fork and exec when it first came ran its shell's handler, which took the HUP and let the job go
+// on as a stray under init (TestEndingAShellHangsUpItsBackgroundJobs, on a loaded host); once it has exec'd the signal
+// ends it. Only the hangup: that is the signal of a closed terminal, which every process of the session may expect
+// more than once; a TERM sent again could read as a second, forcing one.
+func (t *Terminal) resignalSession(sig syscall.Signal) {
+	for _, wait := range []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond} {
+		time.Sleep(wait)
+		if proc.SignalSessionMembers(t.pid, t.startTicks, sig) == 0 {
+			return
+		}
+	}
 }
 
 // WriteTerminal types into a terminal for the daemon (a doorbell).

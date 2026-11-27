@@ -35,6 +35,7 @@ var bins string
 
 func TestMain(m *testing.M) {
 	cleanenv.Agent()
+	shortdir.Sweep(3 * time.Hour) // what a killed or timed-out run left: its cleanups never ran
 	dir, err := os.MkdirTemp("", "meshd-bins-")
 	if err != nil {
 		panic(err)
