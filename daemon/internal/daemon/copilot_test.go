@@ -113,7 +113,7 @@ func TestCopilotEveryReportReachesTheRootAndRingsItsDoorbell(t *testing.T) {
 
 	launches := copilotLaunches(t, argvLog)
 	if len(launches) != 2 || launches[1].Session == "" || launches[1].Model != "auto" ||
-		!slices.Contains(launches[1].Argv, "--auto-tier") || len(launches[1].Deny) != 0 {
+		!slices.Contains(launches[1].Argv, "--auto-tier") || slices.Contains(launches[1].Deny, "write") || !slices.Contains(launches[1].Deny, "shell(pkill:*)") {
 		t.Fatalf("copilot worker launch: %+v", launches)
 	}
 
@@ -266,7 +266,8 @@ func TestCopilotKeepsItsSessionAndLiftsDenyToolOnApprove(t *testing.T) {
 	if plan1.Session != sid || exec1.Session != sid {
 		t.Fatalf("the session changed across reopens: %q -> %q (want %q)", plan1.Session, exec1.Session, sid)
 	}
-	if !slices.Contains(plan1.Deny, "write") || !slices.Contains(plan1.Deny, "shell(git push:*)") || len(exec1.Deny) != 0 {
+	if !slices.Contains(plan1.Deny, "write") || !slices.Contains(plan1.Deny, "shell(git push:*)") || slices.Contains(exec1.Deny, "write") || slices.Contains(exec1.Deny, "shell(git push:*)") ||
+		!slices.Contains(exec1.Deny, "shell(pkill:*)") {
 		t.Fatalf("deny rules: planning=%v executing=%v", plan1.Deny, exec1.Deny)
 	}
 	for _, a := range plan1.Argv {
