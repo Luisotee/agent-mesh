@@ -618,9 +618,14 @@ func writeAnswers(a *v1.Ask) error {
 	return os.WriteFile(a.AnswersPath, []byte(b.String()), 0o600)
 }
 
-// lostLine says of a member whose process ended before it answered that its answer is not coming, and what to do.
+// lostLine says of a member whose process ended before it answered that its answer is not coming, then what the exit alert
+// said (a resume by hand, or the work to someone else).
 func lostLine(m *v1.AskMember) string {
-	return fmt.Sprintf("LOST, its answer is not coming: %s `mesh resume %s` brings it back, or ask again", m.Line, m.Name)
+	line := "LOST, its answer is not coming: " + m.Line
+	if !strings.Contains(m.Line, "mesh resume") { // the exit alert's own line says it; a long reason cuts that off (lineOf)
+		line += " (`mesh resume " + m.Name + "` brings it back, or ask again)"
+	}
+	return line
 }
 
 // summary is the one message the caller gets when a collected ask finishes.
