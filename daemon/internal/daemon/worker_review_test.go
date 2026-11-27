@@ -197,7 +197,7 @@ func TestAWorkersDoneCarriesItsRoundsAndVerdictsAndTheRootsVerdictStands(t *test
 	// A done naming the PR before any round: the footer says no round was asked.
 	a.commit(t)
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" opened")
-	if got := a.doneBody(t); !strings.Contains(got, "[mesh reviews] PR #7: "+a.worker.Name+" asked no review round") {
+	if got := a.doneBody(t); !strings.Contains(got, "[mesh reviews] PR #7: NEEDS YOU: "+a.worker.Name+" asked no review round") {
 		t.Errorf("done without a round: %q", got)
 	}
 	// A done with no PR link gets no footer.
@@ -222,7 +222,7 @@ func TestAWorkersDoneCarriesItsRoundsAndVerdictsAndTheRootsVerdictStands(t *test
 	}
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" fixed")
 	got := a.doneBody(t)
-	for _, want := range []string{"[mesh reviews] PR #7", "round 1 (small, mid)", reviewer.Name + " answered", "answers " + res.Ask.AnswersPath, reviewer.Name + " no verdict recorded"} {
+	for _, want := range []string{"[mesh reviews] PR #7: NEEDS YOU", reviewer.Name + " answered and has no verdict recorded", "Answers: " + res.Ask.AnswersPath} {
 		if !strings.Contains(got, want) {
 			t.Errorf("footer lacks %q: %s", want, got)
 		}
@@ -233,7 +233,7 @@ func TestAWorkersDoneCarriesItsRoundsAndVerdictsAndTheRootsVerdictStands(t *test
 		t.Fatal(err)
 	}
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" settled")
-	if got := a.doneBody(t); !strings.Contains(got, reviewer.Name+" 2/0/1/0 by author") {
+	if got := a.doneBody(t); !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 3 finding(s): 2 agreed, 1 declined (0 blocking); checks none") {
 		t.Errorf("footer after the author's verdict: %s", got)
 	}
 	byAuthor := func() (n int64) {
@@ -341,19 +341,19 @@ func TestTheFooterNamesASingleReviewerAskedAloneAndItsMissingVerdict(t *testing.
 	a.say(t, reviewer.Id, v1.MessageType_MESSAGE_TYPE_DONE, "a.go:3")
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" fixed")
 	got := a.doneBody(t)
-	for _, want := range []string{"one reviewer (small, mid)", reviewer.Name + " asked alone (its done went to " + a.worker.Name + ")", reviewer.Name + " no verdict recorded"} {
+	for _, want := range []string{"PR #7: NEEDS YOU", reviewer.Name + " answered and has no verdict recorded"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("footer lacks %q: %s", want, got)
 		}
 	}
-	if strings.Contains(got, "no answer") {
+	if strings.Contains(got, "did not answer") {
 		t.Errorf("a single reviewer reported unanswered: %s", got)
 	}
 	if err := a.verdict(t, a.asWorker, reviewer.Name, 1, 0); err != nil {
 		t.Fatal(err)
 	}
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" settled")
-	if got := a.doneBody(t); strings.Contains(got, "no verdict recorded") || !strings.Contains(got, reviewer.Name+" 1/0/0/0 by author") {
+	if got := a.doneBody(t); strings.Contains(got, "no verdict recorded") || !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 1 finding(s): 1 agreed, 0 declined (0 blocking)") {
 		t.Errorf("footer after the verdict: %s", got)
 	}
 }
@@ -491,7 +491,7 @@ func TestTheFooterNamesWhoAskedTheRoundsOfAPRTheWorkerDidNot(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+strings.TrimSuffix(a.pr.url(), "7")+"8 opened")
-	if got := a.doneBody(t); !strings.Contains(got, "PR #8: "+a.worker.Name+" asked no review round: ask it why") {
+	if got := a.doneBody(t); !strings.Contains(got, "PR #8: NEEDS YOU: "+a.worker.Name+" asked no review round: ask it why") {
 		t.Errorf("a new PR beside a stale recorded one: %s", got)
 	}
 }
@@ -516,7 +516,7 @@ func TestTheFooterTellsTheWorkersOwnPRByItsHeadBranch(t *testing.T) {
 	record(7, a.pr.url(), a.worker.Branch)
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "built on "+base+"9, PR "+a.pr.url()+" opened")
 	got := a.doneBody(t)
-	if !strings.Contains(got, "PR #7: "+a.worker.Name+" asked no review round") || strings.Contains(got, "PR #9") {
+	if !strings.Contains(got, "PR #7: NEEDS YOU: "+a.worker.Name+" asked no review round") || strings.Contains(got, "PR #9") {
 		t.Errorf("a foreign PR named first:\n%s", got)
 	}
 	// A link a done once named, recorded before GitHub gave its head branch, is not taken for the worker's own.
@@ -525,9 +525,10 @@ func TestTheFooterTellsTheWorkersOwnPRByItsHeadBranch(t *testing.T) {
 	if got := a.doneBody(t); !strings.Contains(got, "PR #7: ") || strings.Contains(got, "PR #5") {
 		t.Errorf("an old link with no head branch:\n%s", got)
 	}
-	// Only another branch's PR named: no line, though the branch has commits and the link is the first.
+	// Only another branch's PR named: no line for it, though the branch has commits and the link is the first; the
+	// worker's own open PR with no round is still not settled, and says so (an unknown is not a pass).
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "see "+base+"9")
-	if got := a.doneBody(t); strings.Contains(got, "asked no review round") {
+	if got := a.doneBody(t); strings.Contains(got, "PR #9") || !strings.Contains(got, "PR #7: NEEDS YOU: "+a.worker.Name+" asked no review round") {
 		t.Errorf("a foreign PR only:\n%s", got)
 	}
 }
