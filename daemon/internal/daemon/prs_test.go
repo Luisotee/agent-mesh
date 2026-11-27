@@ -592,3 +592,15 @@ func TestMeshLogShowsAPRChange(t *testing.T) {
 		t.Errorf("log entries: %q", details)
 	}
 }
+
+// A failed check run that ran no job is not named among the failing checks a worker is told (as checksWord).
+func TestFailingChecksLeaveOutARunThatRanNoJob(t *testing.T) {
+	timed := func(name, start, end string) map[string]any {
+		return map[string]any{"__typename": "CheckRun", "name": name, "status": "COMPLETED", "conclusion": "FAILURE",
+			"startedAt": "2026-11-27T" + start, "completedAt": "2026-11-27T" + end}
+	}
+	got := daemon.FailingChecks([]map[string]any{timed("billing", "09:17:19Z", "09:17:21Z"), timed("tests", "09:17:19Z", "09:19:21Z")})
+	if len(got) != 1 || !strings.HasPrefix(got[0], "tests failure") {
+		t.Errorf("%v", got)
+	}
+}

@@ -210,6 +210,9 @@ func failingChecks(rollup []map[string]any) []string {
 			if !strings.EqualFold(str(c, "status"), "COMPLETED") {
 				continue
 			}
+			if neverRan(c) {
+				continue // no job ran: no result to tell (checksWord)
+			}
 			name, outcome, link = str(c, "name"), str(c, "conclusion"), str(c, "detailsUrl")
 		} else {
 			name, outcome, link = str(c, "context"), str(c, "state"), str(c, "targetUrl")
