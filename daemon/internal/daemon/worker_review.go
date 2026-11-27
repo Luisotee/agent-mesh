@@ -260,15 +260,8 @@ func inSeriesOf(registered, head string) bool {
 
 // worktreeBranch is the branch checked out in a worker's own worktree (read-only), or "" when it has none, the
 // worktree is gone or HEAD is detached: then only the registered branch counts.
-func worktreeBranch(ctx context.Context, a *v1.Agent) string {
-	if a.Worktree == "" {
-		return ""
-	}
-	b, err := gitRO(ctx, a.Worktree, "symbolic-ref", "--quiet", "--short", "HEAD")
-	if err != nil {
-		return ""
-	}
-	return b
+func worktreeBranch(_ context.Context, a *v1.Agent) string {
+	return headBranch(a.Worktree) // the HEAD file: one reader for this, the agents list, check and the stack (branch.go)
 }
 
 // workerRoundsUsed is how many reviews of the PR count against a worker's ceiling: the answered rounds (any

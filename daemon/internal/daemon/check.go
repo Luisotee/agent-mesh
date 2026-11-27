@@ -32,6 +32,7 @@ func (d *Daemon) CheckAgent(ctx context.Context, req *connect.Request[v1.CheckAg
 }
 
 func (d *Daemon) checkText(ctx context.Context, a *v1.Agent) string {
+	a = onItsBranch(ctx, a)
 	out := []string{fmt.Sprintf("%s (%s, %s)", a.Name, strings.ToLower(strings.TrimPrefix(a.Role.String(), "AGENT_ROLE_")),
 		strings.ToLower(strings.TrimPrefix(a.State.String(), "AGENT_STATE_")))}
 	if !ownsPRs(a) {
