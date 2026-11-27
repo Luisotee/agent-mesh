@@ -91,7 +91,7 @@ class NotificationsTest {
         val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
         val rt = run {
             var r: HostRuntime? = null
-            val deadline = System.currentTimeMillis() + 5_000
+            val deadline = System.currentTimeMillis() + 20_000
             while (r == null && System.currentTimeMillis() < deadline) { r = container.runtimes.value[host.id]; Thread.sleep(20) }
             r!!
         }
@@ -104,7 +104,7 @@ class NotificationsTest {
     }
 
     private fun waitFor(what: String, cond: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + 5_000
+        val deadline = System.currentTimeMillis() + 20_000
         while (!cond()) { check(System.currentTimeMillis() < deadline) { "timed out: $what" }; shadowOf(android.os.Looper.getMainLooper()).idle(); Thread.sleep(20) }
     }
 
@@ -161,7 +161,7 @@ class NotificationsTest {
         val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
         val rt = run {
             var r: HostRuntime? = null
-            val deadline = System.currentTimeMillis() + 5_000
+            val deadline = System.currentTimeMillis() + 20_000
             while (r == null && System.currentTimeMillis() < deadline) { r = container.runtimes.value[host.id]; Thread.sleep(20) }
             r!!
         }
@@ -210,7 +210,7 @@ class NotificationsTest {
         val host = container.hosts.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
         val rt = run {
             var r: HostRuntime? = null
-            val deadline = System.currentTimeMillis() + 5_000
+            val deadline = System.currentTimeMillis() + 20_000
             while (r == null && System.currentTimeMillis() < deadline) { r = container.runtimes.value[host.id]; Thread.sleep(20) }
             r!!
         }

@@ -36,6 +36,7 @@ type openCodePollState struct {
 	since         time.Time
 	lastMsgID     string
 	lastMsgStatus string
+	stallChecked  time.Time // the last time a quiet terminal's open reply was looked at for a stall
 }
 
 type openCodeEvidenceKey struct {
@@ -354,7 +355,24 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 			d.clearOpenCodeEvidenceLocked(a.Id)
 		}
 		if !lastOut.After(ps.lastOutput) {
+			// A terminal with nothing new on it can still be a stalled reply: look at the DB now and then, once the
+			// screen has been quiet as long as a stall takes.
+			quiet := ps.lastMsgStatus == "working" && a.State == v1.AgentState_AGENT_STATE_WORKING &&
+				d.now().Sub(lastOut) >= openCodeStallRecheck && d.now().Sub(ps.stallChecked) >= openCodeStallRecheck
+			if quiet {
+				ps.stallChecked = d.now()
+			}
+			since := ps.since
 			d.rt.openCode.mu.Unlock()
+			if quiet {
+				var notBefore time.Time
+				if a.CreatedAt != nil {
+					notBefore = a.CreatedAt.AsTime()
+				}
+				if info, err := opencode.InspectSession(oc.DBPath(d.agentEnv(a, "")), a.SessionId, a.Worktree, a.Repo, a.Model, since, notBefore); err == nil {
+					d.openCodeStalled(ctx, a, info)
+				}
+			}
 			continue
 		}
 		since, prevMsgID, prevMsgStatus := ps.since, ps.lastMsgID, ps.lastMsgStatus
@@ -456,6 +474,9 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 			}
 		}
 
+		if !paneHit && dbErr == nil {
+			d.openCodeStalled(ctx, a, info)
+		}
 		var applyErr error
 		if len(events) > 0 {
 			applyErr = d.applyOpenCodeEvents(ctx, a.Id, a.TerminalId, events)
@@ -500,4 +521,35 @@ func (d *Daemon) applyOpenCodeEvents(ctx context.Context, agentID, terminalID st
 		d.deliverSoon(agentID)
 	}
 	return nil
+}
+
+// openCodeStallRecheck is how often a quiet terminal's open reply is looked at again (a spinner that draws makes
+// the poll look at every change instead).
+const openCodeStallRecheck = time.Minute
+
+// openCodeStalled tells the agent's parent, once per stretch, that its open reply has not changed for
+// `opencode.stall_after` seconds: no new part and no token. A stream that fails silently looks like this, and
+// without it the agent stays WORKING until the ask times out (a limit is read from the DB or the screen before
+// this). One long tool call looks the same, which the text says.
+func (d *Daemon) openCodeStalled(ctx context.Context, a *v1.Agent, info opencode.SessionInfo) {
+	if info.Status != "working" || info.UpdatedAt.IsZero() || a.State != v1.AgentState_AGENT_STATE_WORKING {
+		return
+	}
+	r := d.store.Read(ctx)
+	v, err := d.Setting(r, "opencode.stall_after")
+	if err != nil || v.(float64) <= 0 {
+		return
+	}
+	after := time.Duration(v.(float64) * float64(time.Second))
+	if idle := d.now().Sub(info.UpdatedAt); idle < after {
+		return
+	}
+	err = d.alertOnce(ctx, r, a, "stalled", func(ctx context.Context) string {
+		return fmt.Sprintf("%s's OpenCode reply has been open for %s with no new part or token (a stalled or silently failing stream, "+
+			"or one long tool call). Look at its terminal; if it is stuck, interrupt it (esc) and send it a task to go on.",
+			a.Name, ago(d.now().Sub(info.UpdatedAt))) + d.afterwards(ctx, a)
+	})
+	if err != nil && ctx.Err() == nil {
+		d.log.Warn("opencode stall alert", "agent", a.Name, "err", err)
+	}
 }

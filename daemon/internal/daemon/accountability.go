@@ -387,6 +387,10 @@ func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kin
 			if cur.State != v1.AgentState_AGENT_STATE_NEEDS_INPUT {
 				return nil
 			}
+		case "stalled":
+			if cur.State != v1.AgentState_AGENT_STATE_WORKING {
+				return nil
+			}
 		case "error":
 			if cur.State != v1.AgentState_AGENT_STATE_ERROR {
 				return nil
