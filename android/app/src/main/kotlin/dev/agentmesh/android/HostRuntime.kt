@@ -37,10 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
@@ -89,6 +86,10 @@ class HostRuntime(
     /** Once per connection that became ready (a state flow would fold a quick reconnect into "still ready"). */
     val connected: SharedFlow<Unit> get() = _connected
 
+    // One per snapshot or resume: what is loaded for a connection is loaded for each one, however quickly a drop and a
+    // return follow each other (a state flow of "synced" would fold them into "still synced").
+    private val _synced = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
     private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log, messageRetryMs)
 
     val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs, routeCount = { host?.routes?.size ?: 1 })
@@ -125,7 +126,7 @@ class HostRuntime(
         refresher.start()
         // The host's settings come once a connection is synced.
         watcher = scope.launch {
-            _state.map { it.synced && it.conn is ConnState.Ready }.distinctUntilChanged().filter { it }.collect {
+            _synced.collect {
                 loadMessages()
                 loadSettings()
             }
@@ -321,7 +322,10 @@ class HostRuntime(
         _state.update { applyFrame(it, frame) }
         if (frame.hasEvent()) refresher.event(frame.event)
         // Straight from the frame, as the desktop does: a quick reconnect would be folded away in a state flow.
-        if (frame.hasSnapshot() || frame.hasResumed()) refresher.synced()
+        if (frame.hasSnapshot() || frame.hasResumed()) {
+            refresher.synced()
+            _synced.tryEmit(Unit)
+        }
     }
 
     override fun cursor(): Cursor? = _state.value.cursor

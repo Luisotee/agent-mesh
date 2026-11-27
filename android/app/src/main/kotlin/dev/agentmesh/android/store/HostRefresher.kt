@@ -83,14 +83,16 @@ class HostRefresher(
 
     private suspend fun loadWaiting() {
         if (stopped) return
-        val e0 = epoch.get()
-        synchronized(lock) {
-            if (waitingLoading == e0) {
+        // The epoch is read with the flag, under the lock a new epoch is made under: a call can't take the flag with an epoch that was replaced meanwhile.
+        val e0 = synchronized(lock) {
+            val e = epoch.get()
+            if (waitingLoading == e) {
                 // One call at a time; what changed meanwhile is asked for after the pause.
                 schedule()
                 return
             }
-            waitingLoading = e0
+            waitingLoading = e
+            e
         }
         val api = api()
         try {
@@ -131,10 +133,11 @@ class HostRefresher(
 
     private suspend fun loadPullRequests() {
         if (stopped || !ready) return
-        val e0 = epoch.get()
-        synchronized(lock) {
-            if (prsLoading == e0) return
-            prsLoading = e0
+        val e0 = synchronized(lock) {
+            val e = epoch.get()
+            if (prsLoading == e) return
+            prsLoading = e
+            e
         }
         val api = api()
         var again = false
@@ -178,12 +181,13 @@ class HostRefresher(
             waitingTouches.incrementAndGet()
             launch { loadWaiting() }
         }
-        val e0 = epoch.get()
+        val e0 = synchronized(lock) { epoch.get() }
         val seen = agentTouches.get()
         try {
             val list = api.listAgents()
+            if (stopped || epoch.get() != e0) return
             agentsComplained.set(false)
-            if (stopped || epoch.get() != e0 || seen != agentTouches.get()) return
+            if (seen != agentTouches.get()) return
             var changed = false
             update { s ->
                 // The update may run again if another writer won (a compare and set): count afresh each time.
@@ -200,7 +204,7 @@ class HostRefresher(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            complain(agentsComplained, "refresh the agents", e)
+            if (epoch.get() == e0) complain(agentsComplained, "refresh the agents", e)
         }
     }
 
@@ -252,14 +256,18 @@ class HostRefresher(
     }
 
     private fun newEpoch() {
-        epoch.incrementAndGet()
-        waitingTouches.incrementAndGet()
-        agentTouches.incrementAndGet()
-        prTouches.incrementAndGet()
-        synchronized(lock) { pause?.cancel(); pause = null }
+        synchronized(lock) {
+            epoch.incrementAndGet()
+            waitingTouches.incrementAndGet()
+            agentTouches.incrementAndGet()
+            prTouches.incrementAndGet()
+            pause?.cancel()
+            pause = null
+        }
     }
 
     fun start() {
+        // All under the lock: two starts make one pair of tickers, and a stop can't land between launching them and keeping them.
         synchronized(lock) {
             if (tickers.isNotEmpty()) return
             if (stopped) {
@@ -267,17 +275,19 @@ class HostRefresher(
                 stopped = false
                 life = SupervisorJob(scope.coroutineContext[Job])
             }
+            tickers = listOfNotNull(
+                launch { while (isActive) { delay(agentsEveryMs); loadAgents() } },
+                launch { while (isActive) { delay(prsEveryMs); loadPullRequests() } },
+            )
         }
-        tickers = listOfNotNull(
-            launch { while (isActive) { delay(agentsEveryMs); loadAgents() } },
-            launch { while (isActive) { delay(prsEveryMs); loadPullRequests() } },
-        )
     }
 
     /** Nothing more is asked after this, and what was on its way is cancelled. */
     fun stop() {
         synchronized(lock) {
             stopped = true
+            // A new epoch too: whatever was out when this was stopped doesn't count for a start that follows.
+            epoch.incrementAndGet()
             life.cancel()
             pause = null
             tickers = emptyList()

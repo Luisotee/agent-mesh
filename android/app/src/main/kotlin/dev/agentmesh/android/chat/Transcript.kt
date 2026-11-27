@@ -116,3 +116,11 @@ fun toolsSummary(calls: List<ToolCall>): String {
     val names = counts.entries.joinToString(", ") { (t, n) -> if (n > 1) "$t ×$n" else t }
     return "Ran ${calls.size} ${if (calls.size == 1) "tool" else "tools"}: $names"
 }
+
+/**
+ * Where the block that was on screen is now: by its own id, or, for a run of tool calls, by any of its calls' ids: earlier
+ * entries joined to the run (a page that ends with a tool call before a run that begins with one) give the whole run the
+ * id of its new first call. -1 when it isn't there.
+ */
+fun indexOfBlock(blocks: List<Block>, key: String): Int =
+    blocks.indexOfFirst { it.id == key || (it is Block.Tools && it.calls.any { c -> c.id == key }) }

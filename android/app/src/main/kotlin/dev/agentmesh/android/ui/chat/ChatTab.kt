@@ -48,6 +48,7 @@ import dev.agentmesh.android.chat.ChatSync
 import dev.agentmesh.android.chat.POLL_MS
 import dev.agentmesh.android.chat.SETTLE_MS
 import dev.agentmesh.android.chat.ToolCall
+import dev.agentmesh.android.chat.indexOfBlock
 import dev.agentmesh.android.chat.say
 import dev.agentmesh.android.chat.toBlocks
 import dev.agentmesh.android.chat.toolsSummary
@@ -130,7 +131,7 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
     var anchor by remember { mutableStateOf<Pair<String, Int>?>(null) }
     LaunchedEffect(blocks.firstOrNull()?.id) {
         val a = anchor ?: return@LaunchedEffect
-        val i = blocks.indexOfFirst { it.id == a.first }
+        val i = indexOfBlock(blocks, a.first)
         if (i >= 0) list.scrollToItem(i + 1, a.second)
         anchor = null
     }

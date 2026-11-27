@@ -4,6 +4,7 @@ import dev.agentmesh.android.chat.Block
 import dev.agentmesh.android.chat.Followed
 import dev.agentmesh.android.chat.Transcript
 import dev.agentmesh.android.chat.fromTail
+import dev.agentmesh.android.chat.indexOfBlock
 import dev.agentmesh.android.chat.toBlocks
 import dev.agentmesh.android.chat.toolsSummary
 import dev.agentmesh.android.chat.withEarlier
@@ -81,5 +82,17 @@ class TranscriptTest {
         val b = toBlocks(listOf(entry("r", TranscriptKind.TRANSCRIPT_KIND_TOOL_RESULT, "late", toolUseId = "gone"), entry("c", TranscriptKind.TRANSCRIPT_KIND_TOOL_CALL, tool = "Bash", toolUseId = "open")))[0] as Block.Tools
         assertEquals(listOf("tool" to "late", "Bash" to null), b.calls.map { it.tool to it.result?.text })
         assertEquals("Ran 1 tool: Bash", toolsSummary(b.calls.drop(1)))
+    }
+
+    @Test fun `the block that was on screen is found by any call of a run of tool calls that earlier entries were joined to`() {
+        // Held: [call B, user]. Earlier page ends with call A: the two calls are now one run, with A's id.
+        val held = listOf(entry("B", TranscriptKind.TRANSCRIPT_KIND_TOOL_CALL, tool = "Read", toolUseId = "tb"), entry("u", TranscriptKind.TRANSCRIPT_KIND_USER, "go"))
+        val joined = listOf(entry("A", TranscriptKind.TRANSCRIPT_KIND_TOOL_CALL, tool = "Bash", toolUseId = "ta")) + held
+        val blocks = toBlocks(joined)
+        // The anchor was the run's old id, B: it is the run (index 0) now, though the run's id is A.
+        assertEquals("A", blocks[0].id)
+        assertEquals(0, indexOfBlock(blocks, "B"))
+        assertEquals(1, indexOfBlock(blocks, "u"))
+        assertEquals(-1, indexOfBlock(blocks, "gone"))
     }
 }

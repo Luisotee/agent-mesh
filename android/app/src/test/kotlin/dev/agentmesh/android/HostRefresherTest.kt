@@ -194,4 +194,38 @@ class HostRefresherTest {
         gate.complete(Unit); runCurrent()
         assertNull(rig.state.waiting)
     }
+
+    @Test fun `stopped and started again, the refresher ticks again, and two starts make one pair of tickers`() = runTest {
+        val api = RecordingApi()
+        val rig = Rig(api, backgroundScope, agents = listOf(agent("w1")))
+        rig.refresher.start(); rig.refresher.start(); runCurrent()
+        advanceTimeBy(30_100); runCurrent()
+        assertEquals(1, api.agentListings)
+        rig.refresher.stop()
+        advanceTimeBy(60_000); runCurrent()
+        assertEquals(1, api.agentListings)
+        rig.refresher.start(); runCurrent()
+        advanceTimeBy(30_100); runCurrent()
+        assertEquals(2, api.agentListings)
+        rig.refresher.stop()
+    }
+
+    @Test fun `a failure of an old epoch's agent listing is not complained about`() = runTest {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val api = RecordingApi()
+        val failing = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun listAgents(): List<dev.agentmesh.gen.agentmesh.v1.Agent> {
+                gate.await()
+                throw dev.agentmesh.android.net.ApiException(com.connectrpc.Code.UNAVAILABLE, "down")
+            }
+        }
+        val rig = Rig(failing, backgroundScope, agents = listOf(agent("w1")))
+        rig.refresher.start(); runCurrent()
+        advanceTimeBy(30_100); runCurrent()
+        // The connection syncs again while that listing is out; it fails after that.
+        rig.refresher.synced(); runCurrent()
+        gate.complete(Unit); runCurrent()
+        assertEquals(0, rig.logs.count { "agents" in it })
+        rig.refresher.stop()
+    }
 }
