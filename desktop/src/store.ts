@@ -30,6 +30,8 @@ export interface HostState {
   settings: Record<string, Setting>
   /** What the host says waits on the user (ListWaiting), kept up to date by `refresh.ts`; empty until it first answers. */
   waiting: WaitingRow[]
+  /** Every row the host listed, `for_user` or not: a plan or question the lead decides is still the user's to answer from its author's chat. */
+  waitingAll: WaitingRow[]
   /** Each change worker's pull requests (ListPullRequests), by agent id: read at connect and every minute by `refresh.ts`, and kept by PullRequestChanged events; empty until the host first answers. */
   pullRequests: Record<string, AgentPullRequests>
   /** Why GitHub can't be read on the host (`no_gh`, `not_logged_in`), from the last ListPullRequests; empty when it can. */
@@ -70,7 +72,7 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 export type HostStore = StoreApi<HostState>
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], waitingAll: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
 }
 
 const MAX_LOG = 200
@@ -298,7 +300,7 @@ export function setDevices(devices: Device[]): Partial<HostState> {
 
 /** The host's answer to ListWaiting, which replaces the last one. */
 export function setWaiting(waiting: WaitingRow[]): Partial<HostState> {
-  return { waiting }
+  return { waiting: waiting.filter((w) => w.forUser), waitingAll: waiting }
 }
 
 /** The host's answer to ListPullRequests, which replaces the last one. */

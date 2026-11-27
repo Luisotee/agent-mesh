@@ -85,13 +85,18 @@ func (d *Daemon) autonomyBrief(r store.Reader, run *v1.Run) []string {
 	return out
 }
 
-// inRepoList reports whether repo is in list: an entry is a path, or a bare name of a repo's folder.
+// inRepoList reports whether repo is in list: an entry is a path (a leading ~ is the daemon's home), or a bare name
+// of a repo's folder.
 func inRepoList(list []string, repo string) bool {
 	if repo == "" {
 		return false
 	}
 	for _, e := range list {
-		if filepath.Clean(e) == filepath.Clean(repo) || e == filepath.Base(repo) {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if sameDir(expandHome(e), repo) || filepath.Clean(e) == filepath.Base(repo) {
 			return true
 		}
 	}

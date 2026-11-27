@@ -532,8 +532,10 @@ const msg = (id: string, type: MessageType, from: string, to: string, ms: number
 const putMessages = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => host.store.setState((s) => ({ messages: { ...s.messages, ...Object.fromEntries(ms.map((m) => [m.id, m])) } }))
 
 /** What the host says waits: a row per plan or question, as ListWaiting returns them. */
-const waitOn = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) =>
-  host.store.setState({ waiting: ms.map((m) => create(WaitingSchema, { kind: m.type === MessageType.PLAN ? WaitingKind.PLAN : WaitingKind.QUESTION, runId: 'r1', agentId: m.from!.id, message: m })) })
+const waitOn = (host: HostRuntime, ...ms: ReturnType<typeof msg>[]) => {
+  const waiting = ms.map((m) => create(WaitingSchema, { kind: m.type === MessageType.PLAN ? WaitingKind.PLAN : WaitingKind.QUESTION, runId: 'r1', agentId: m.from!.id, message: m, forUser: true }))
+  host.store.setState({ waiting, waitingAll: waiting })
+}
 
 /** The agent's message cards, as its chat shows them (without the conversation around them). */
 function Cards({ host, agentId }: { host: HostRuntime; agentId: string }) {

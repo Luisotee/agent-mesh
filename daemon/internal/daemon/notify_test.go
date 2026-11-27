@@ -130,6 +130,9 @@ func TestALeadAsksTheUserAndTheAnswerClosesIt(t *testing.T) {
 	if _, err := lead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "user", Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "x"})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		t.Fatalf("a task to the user: %v", err)
 	}
+	if _, err := lead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "user", Type: v1.MessageType_MESSAGE_TYPE_QUESTION, Body: "x", Until: "10m"})); connect.CodeOf(err) != connect.CodeInvalidArgument {
+		t.Fatalf("a wait on a message to the user: %v", err)
+	}
 	askUser(t, &lead, v1.MessageType_MESSAGE_TYPE_QUESTION, "ship it?")
 	n := noticeOf(t, h, run.Id, "question", "u-root")
 	if !n.ForUser || n.Body != "ship it?" || n.Title != "lead asks you" {

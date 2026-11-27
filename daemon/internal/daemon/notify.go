@@ -331,6 +331,9 @@ func (d *Daemon) sendToUser(ctx context.Context, req *connect.Request[v1.SendMes
 	if strings.TrimSpace(req.Msg.Body) == "" {
 		return nil, invalid("a message to the user needs a body")
 	}
+	if req.Msg.Until != "" || req.Msg.Re != "" {
+		return nil, invalid("a message to the user takes no --until or --re")
+	}
 	out := &v1.SendMessageResponse{}
 	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceSendMessageProcedure, out, func(t *store.Tx) error {
 		if !IsAgent(t.Actor.Class) {

@@ -2995,8 +2995,8 @@ type Waiting struct {
 	Message *Message `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
 	// For a prompt, why the agent is stopped (its state detail).
 	Detail string `protobuf:"bytes,5,opt,name=detail,proto3" json:"detail,omitempty"`
-	// The user is the one to act on it: a plan or question where the user approves plans or that was sent to the
-	// user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+	// The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+	// the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
 	// view and Activity still show it.
 	ForUser       bool `protobuf:"varint,6,opt,name=for_user,json=forUser,proto3" json:"for_user,omitempty"`
 	unknownFields protoimpl.UnknownFields

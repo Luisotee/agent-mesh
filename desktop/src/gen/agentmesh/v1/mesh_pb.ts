@@ -1516,8 +1516,8 @@ export type Waiting = Message<"agentmesh.v1.Waiting"> & {
   detail: string;
 
   /**
-   * The user is the one to act on it: a plan or question where the user approves plans or that was sent to the
-   * user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
+   * The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to
+   * the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own
    * view and Activity still show it.
    *
    * @generated from field: bool for_user = 6;

@@ -503,7 +503,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.ViewRequest.message_id":                   "For \"plan\": the plan message to show (`target` is its author's id).",
 	"agentmesh.v1.Waiting.agent_id":                         "The agent that wrote the plan or question, or is stopped at a prompt.",
 	"agentmesh.v1.Waiting.detail":                           "For a prompt, why the agent is stopped (its state detail).",
-	"agentmesh.v1.Waiting.for_user":                         "The user is the one to act on it: a plan or question where the user approves plans or that was sent to the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own view and Activity still show it.",
+	"agentmesh.v1.Waiting.for_user":                         "The user is the one to act on it: a plan where the user approves plans, a question or plan the lead sent to the user, or an agent at a prompt. Not set for a worker's plan or question to a root that decides it: the run's own view and Activity still show it.",
 	"agentmesh.v1.Waiting.message":                          "The plan or question; unset for a prompt.",
 	"agentmesh.v1.WithdrawPromptRequest.agent":              "Agent id or name.",
 	"agentmesh.v1.WithdrawPromptRequest.prompt_id":          "The prompt to take back; empty takes the newest one queued.",
