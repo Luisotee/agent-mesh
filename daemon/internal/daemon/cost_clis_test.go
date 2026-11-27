@@ -23,7 +23,7 @@ func genMetadata(model string, lastStep int) []byte {
 	return pbBytes(1, append(pbBytes(19, []byte(model)), label...))
 }
 
-func TestCostCountsCopilotCallsAndNamesAnAgyWorkersModelFromItsFile(t *testing.T) {
+func TestCostCountsCopilotAndNamesAnAgyModel(t *testing.T) {
 	home := t.TempDir()
 	h := startCostHarness(t, home)
 	ctx := context.Background()
