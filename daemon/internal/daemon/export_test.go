@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -51,6 +52,14 @@ func SameRelayURL(a, b string) bool { return sameRelayURL(a, b) }
 func (d *Daemon) Accountability(ctx context.Context) { d.accountability(ctx) }
 
 // Release, Refresh, and Seed expose guard methods for tests.
+// HoldDeliveries keeps the retry tick's delivery to an agent (and so a stored reopen's launch or cancel) from
+// running until the returned release is called, once any delivery already running has ended.
+func (d *Daemon) HoldDeliveries(agentID string) (release func()) {
+	mu := d.agentLock(agentID)
+	mu.Lock()
+	return sync.OnceFunc(mu.Unlock)
+}
+
 func (d *Daemon) Release(agentID string) { d.rt.guard.release(agentID) }
 func (d *Daemon) Refresh(agentID string) { d.rt.guard.refresh(agentID, d.now()) }
 func (d *Daemon) Seed(agentID string, startedAt time.Time) {

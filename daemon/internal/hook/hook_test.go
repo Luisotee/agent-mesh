@@ -439,6 +439,10 @@ func TestAPatternKillIsDeniedForEveryAgent(t *testing.T) {
 		if c.want == "" && out.Len() != 0 || c.want != "" && !strings.Contains(out.String(), c.want) {
 			t.Errorf("%s: printed %q, want %q", c.name, out.String(), c.want)
 		}
+		// agy's writer hook script passes on only a denial that starts like this (adapter/agy, HooksJSON).
+		if c.kind == "agy" && c.want != "" && !strings.HasPrefix(out.String(), `{"decision":"deny"`) {
+			t.Errorf("%s: the denial does not start with the prefix the agy hook script looks for: %q", c.name, out.String())
+		}
 	}
 	// An oversized payload is let through, as the check can't read it (the read-only rules would deny it).
 	var out bytes.Buffer

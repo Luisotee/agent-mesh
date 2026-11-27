@@ -118,6 +118,8 @@ func Run(o Options) error {
 		if o.Kind == claude.Kind {
 			o.Stdout.Write(claude.DenyJSON(reason))
 		} else {
+			// Decision stays the first field: a writer's agy hook (adapter/agy HooksJSON) passes on only an output that
+			// starts with `{"decision":"deny"`.
 			b, _ := json.Marshal(struct {
 				Decision string `json:"decision"`
 				Reason   string `json:"reason"`

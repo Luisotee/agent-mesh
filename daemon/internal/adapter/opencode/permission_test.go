@@ -446,9 +446,15 @@ func TestTheKillGuardRefusesAKillByPattern(t *testing.T) {
 	}
 	refused := []string{`pkill -f "sleep 30"`, `killall node`, `echo x; pkill sleep`, `sudo pkill x`, `timeout 5 pkill x`,
 		`bash -c "pkill x"`, `/usr/bin/killall5 -9`, `kill $(pgrep -f sleep)`, "kill `pidof node`", `pgrep -f x | xargs kill`,
-		`ps aux | grep sleep | awk '{print $2}' | xargs kill`, `(pkill x)`, `kill $(ps aux | grep sleep | awk '{print $2}')`}
+		`ps aux | grep sleep | awk '{print $2}' | xargs kill`, `(pkill x)`, `kill $(ps aux | grep sleep | awk '{print $2}')`,
+		`if true; then pkill x; fi`, `for p in a; do pkill $p; done`, `FOO=1 pkill x`, `! pkill x`, `echo x | xargs pkill`,
+		`kill $(pgrep -G 1000)`, `pid=$(pgrep -f sleep); kill $pid`, `for p in $(pgrep node); do kill $p; done`,
+		`pgrep node | while read p; do kill $p; done`, `kill -9 $(/usr/bin/pgrep -f sleep)`, `kill $(command pgrep -f sleep)`}
 	passed := []string{`kill 1234`, `kill -9 $!`, `kill $(cat pidfile)`, `kill $(pgrep -P $$)`, `pgrep -P 5 | xargs kill`,
-		`pgrep -f sleep`, `kill $(cat pidfile) && pgrep -f sleep`, `grep pkill notes.md`, `echo "no pkill"`, `man killall`, `ls -la`, `go test ./...`}
+		`pgrep -f sleep`, `kill $(cat pidfile) && pgrep -f sleep`, `grep pkill notes.md`, `echo "no pkill"`, `man killall`,
+		`ls -la`, `go test ./...`, `grep -rn time pkill notes.md`, `echo see exec pkill docs`, `kill $(pgrep -P1234)`,
+		`kill -0 $(pgrep foo)`, `pgrep -P $$ | xargs kill; pgrep -f server`, `pid=$(cat pidfile); kill $pid`,
+		`for p in $(pgrep -P $$); do kill $p; done`}
 	script := `import(process.argv[1]).then(async (m) => {
   const hook = (await m.KillGuard())["tool.execute.before"]
   const refused = async (tool, args) => { try { await hook({ tool }, { args }); return false } catch { return true } }
