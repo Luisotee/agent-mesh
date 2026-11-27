@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { imageName, imageProblem, imageRef, imagesUnsupported, rewindUnsupported, splitImages } from './attachments'
+import { MAX_THUMBS, imageName, imageProblem, imageRef, imagesUnsupported, keepThumb, rewindUnsupported, splitImages, thumbs } from './attachments'
 
 describe('attachments', () => {
   it('takes PNG, JPEG, GIF and WebP up to 10 MB', () => {
@@ -28,5 +28,13 @@ describe('attachments', () => {
     expect(imagesUnsupported('copilot')).toMatch(/isn't checked/)
     expect(rewindUnsupported('claude')).toBe('')
     expect(rewindUnsupported('agy')).toMatch(/use its terminal/)
+  })
+
+  it('keeps the newest thumbnails only', () => {
+    thumbs.clear()
+    for (let i = 0; i < MAX_THUMBS + 5; i++) keepThumb(`/p${i}`, `data:${i}`)
+    expect(thumbs.size).toBe(MAX_THUMBS)
+    expect(thumbs.has('/p0')).toBe(false)
+    expect(thumbs.get(`/p${MAX_THUMBS + 4}`)).toBe(`data:${MAX_THUMBS + 4}`)
   })
 })

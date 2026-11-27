@@ -36,14 +36,16 @@ export function RewindDialog({ host, agentId, blocks, messages }: { host: HostRu
     setError('')
   }
   const prompts = blocks.filter((b): b is Prompt => b.kind === 'user').reverse()
-  const since = picked ? messages.filter((m) => m.from?.id === agentId && ms(m.createdAt) >= picked.at) : []
+  // With no time on the prompt (an entry without one) nothing can be said to be since it.
+  const since = picked && picked.at > 0 ? messages.filter((m) => m.from?.id === agentId && ms(m.createdAt) >= picked.at) : []
   async function rewind(p: Prompt) {
     if (busy) return
     setBusy(true)
     setError('')
     try {
       const res = await rewindAgent(host.client, agentId, p.entry.id)
-      app.store.setState({ composerFill: { agentId, text: res.text } })
+      const back = splitImages(res.text)
+      app.store.setState({ composerFill: { agentId, text: back.text, images: back.paths } })
       close()
     } catch (e) {
       setError(say(e))

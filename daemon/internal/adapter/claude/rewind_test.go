@@ -14,7 +14,7 @@ func TestCutSessionKeepsWhatCameBeforeThePrompt(t *testing.T) {
 	src := filepath.Join(dir, "old.jsonl")
 	lines := []string{
 		`{"type":"session-owner","sessionId":"old"}`,
-		`{"type":"user","uuid":"u1","sessionId":"old","message":{"role":"user","content":"remember ALPHA"}}`,
+		`{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"old","message":{"role":"user","content":"remember ALPHA"}}`,
 		`{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"old","message":{"content":[{"type":"text","text":"OK"}]}}`,
 		`{"type":"queue-operation","sessionId":"old"}`,
 		`{"type":"user","uuid":"u2","parentUuid":"a1","sessionId":"old","message":{"role":"user","content":[{"type":"text","text":"remember"},{"type":"image"},{"type":"text","text":"BETA"}]}}`,
@@ -73,5 +73,44 @@ func TestCutSessionRefusesALineThatIsNotAPrompt(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "new.jsonl")); !os.IsNotExist(err) {
 		t.Error("a refused cut wrote a file")
+	}
+}
+
+func TestCutSessionFollowsThePromptsChainPastAnAbandonedBranch(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "old.jsonl")
+	// P2 was rewound once in the terminal: P2b's parent is A1, and P2/A2 are a branch nobody resumes.
+	lines := []string{
+		`{"type":"user","uuid":"p1","parentUuid":null,"sessionId":"old","message":{"content":"one"}}`,
+		`{"type":"assistant","uuid":"a1","parentUuid":"p1","sessionId":"old","message":{"content":[]}}`,
+		`{"type":"user","uuid":"p2","parentUuid":"a1","sessionId":"old","message":{"content":"two"}}`,
+		`{"type":"assistant","uuid":"a2","parentUuid":"p2","sessionId":"old","message":{"content":[]}}`,
+		`{"type":"last-prompt","sessionId":"old"}`,
+		`{"type":"user","uuid":"p2b","parentUuid":"a1","sessionId":"old","message":{"content":"two again"}}`,
+		`{"type":"user","uuid":"r1","parentUuid":"p2b","sessionId":"old","message":{"content":[{"type":"tool_result","content":"x"}]}}`,
+	}
+	if err := os.WriteFile(src, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CutSession(src, "r1", "x"); !errors.Is(err, ErrNotAPrompt) {
+		t.Errorf("a tool result line: %v, want ErrNotAPrompt", err)
+	}
+	if _, err := CutSession(src, "p2b", "new"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "new.jsonl"))
+	var uuids []string
+	for _, l := range strings.Split(strings.TrimSpace(string(got)), "\n") {
+		var o map[string]any
+		_ = json.Unmarshal([]byte(l), &o)
+		if u, _ := o["uuid"].(string); u != "" {
+			uuids = append(uuids, u)
+		}
+	}
+	if strings.Join(uuids, ",") != "p1,a1" {
+		t.Errorf("kept %v, want p1,a1 (the branch p2/a2 dropped)", uuids)
+	}
+	if !strings.Contains(string(got), "last-prompt") {
+		t.Error("a line on no chain was dropped")
 	}
 }

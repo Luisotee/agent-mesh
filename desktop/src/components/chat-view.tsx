@@ -1,7 +1,7 @@
 import { Check, ChevronRight, Clock, Copy, ImagePlus, Pencil, Quote, Send, Square, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, withdrawPrompt } from '@/actions'
-import { imageName, imageProblem, imageRef, imagesUnsupported, rewindUnsupported, splitImages, thumbs } from '@/attachments'
+import { imageName, imageProblem, imageRef, imagesUnsupported, keepThumb, rewindUnsupported, splitImages, thumbs } from '@/attachments'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
 import { MarkdownField } from '@/components/ui/markdown-field'
@@ -389,6 +389,13 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     [host, agentId],
   )
   useEffect(() => setTextNow(loadDraft(host.info.id, agentId)), [host, agentId])
+  // The images are this agent's: another agent shown here starts with none, and an upload that ends after the switch
+  // is dropped (`forAgent`).
+  const forAgent = useRef(`${host.info.id}/${agentId}`)
+  useEffect(() => {
+    forAgent.current = `${host.info.id}/${agentId}`
+    setImages([])
+  }, [host, agentId])
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
   // Refs, not state: a second key press before the first's re-render must see the call in flight.
@@ -405,6 +412,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
     if (fill && fill.agentId === agentId) {
       // Never over what is being written: the taken-back prompt goes after it.
       setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${fill.text}` : fill.text))
+      const back = fill.images ?? []
+      if (back.length > 0) setImages((cur) => [...cur, ...back.map((p) => ({ key: `back-${p}`, name: p.split(/[\\/]/).pop() ?? p, url: thumbs.get(p) ?? '', path: p }))])
       app.store.setState({ composerFill: undefined })
     }
   }, [fill, agentId, app, setText])
@@ -433,6 +442,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
         continue
       }
       const key = `${f.name}-${f.size}-${Math.random()}`
+      const owner = forAgent.current
       const url = await new Promise<string>((resolve) => {
         const r = new FileReader()
         r.onload = () => resolve(String(r.result))
@@ -442,7 +452,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       setImages((cur) => [...cur, { key, name: f.name, url }])
       try {
         const res = await addAttachment(host.client, agentId, imageName(f), new Uint8Array(await f.arrayBuffer()))
-        if (url) thumbs.set(res.path, url)
+        if (url) keepThumb(res.path, url)
+        if (forAgent.current !== owner) continue
         setImages((cur) => cur.map((i) => (i.key === key ? { ...i, path: res.path } : i)))
       } catch (e) {
         setImages((cur) => cur.filter((i) => i.key !== key))
@@ -452,7 +463,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
   }
   async function send() {
     const typed = text.trim()
-    const refs = images.flatMap((i) => (i.path ? [imageRef(i.path)] : []))
+    const sent = images.filter((i) => i.path)
+    const refs = sent.map((i) => imageRef(i.path!))
     const body = [...refs, typed].filter(Boolean).join('\n')
     if (!body || busy || uploading) return
     setBusy(true)
@@ -468,7 +480,9 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       }
       saveDraft(host.info.id, agentId, left(loadDraft(host.info.id, agentId)))
       setText(left)
-      setImages([])
+      // Only the images sent go: one added while the prompt was in flight stays for the next.
+      const gone = new Set(sent.map((i) => i.key))
+      setImages((cur) => cur.filter((i) => !gone.has(i.key)))
       onSent()
     } catch (e) {
       setError(say(e))

@@ -20,6 +20,7 @@ import { VendorIcon } from './vendor-icon'
 import { ChatView } from './chat-view'
 import { TerminalView } from './terminal-view'
 import { rewindUnsupported } from '@/attachments'
+import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
 
 const live = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
 
@@ -32,6 +33,7 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
   const agent = useHostState(host, (s) => s.agents[agentId])
   const synced = useHostState(host, (s) => s.synced)
   const canTerminal = useHostState(host, (s) => !!s.daemon?.capabilities.includes('terminals'))
+  const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
   const app = useApp()
   const mainTab = useAppState((s) => s.tab)
   const hosts = useAppState((s) => s.hosts)
@@ -65,11 +67,10 @@ export function AgentPanel({ host, agentId, view }: { host: HostRuntime; agentId
       label: 'Rewind…',
       // Back to before one of its prompts: Claude Code only, the conversation only.
       onSelect: () => {
-        app.setTab('chat')
-        if (view) view.setTab('chat')
+        setTab('chat')
         app.openRewind({ hostId: host.info.id, agentId: agent.id })
       },
-      disabled: !!rewindUnsupported(agent.kind) || !synced,
+      disabled: !!rewindUnsupported(agent.kind) || !synced || readOnly,
       hint: 'Esc Esc',
     },
     { label: 'Stop…', onSelect: () => setStopping(true), disabled: !live(agent), destructive: true },

@@ -1531,6 +1531,21 @@ describe('ChatView', () => {
     await waitFor(() => expect(box).toHaveValue('fix the typo'))
   })
 
+  it('puts a rewound prompt\'s images back in the strip, not as text', async () => {
+    const { ui, rewindAgent } = chat()
+    rewindAgent.mockResolvedValueOnce({ text: '[image: /state/runs/r1/attachments/w1/i9.png]\nfix the typo', sessionId: 's2' })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await screen.findByRole('list', { name: 'Conversation' })
+    box.focus()
+    await userEvent.keyboard('{Escape}{Escape}')
+    const dialog = await screen.findByRole('dialog', { name: 'Rewind app-fix' })
+    await userEvent.click(within(dialog).getByRole('button', { name: /fix the typo/ }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Rewind' }))
+    await waitFor(() => expect(box).toHaveValue('fix the typo'))
+    expect(within(screen.getByRole('list', { name: 'Images' })).getByText('i9.png')).toBeInTheDocument()
+  })
+
   it('shows the conversation as blocks, with tool calls folded, the reply as Markdown, and the doorbell until the messages are read', async () => {
     const { ui, readTranscript, host } = chat()
     host.store.setState({ messageLoad: {} })

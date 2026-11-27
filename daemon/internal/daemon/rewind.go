@@ -42,6 +42,8 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 	mu.Lock()
 	defer mu.Unlock()
 	out := &v1.RewindAgentResponse{}
+	// The copy cut in a transaction that then fails (a revive refused at the host's cap) is removed again.
+	var cutFrom, cutID string
 	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRewindAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := tx.GetAgent(found.Id)
 		if err != nil {
@@ -67,6 +69,7 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 		case err != nil:
 			return err
 		}
+		cutFrom, cutID = path, next
 		a.SessionId = next
 		if stopped(a) {
 			if _, err := d.revive(tx, a, reviveSpec{why: "rewound"}); err != nil {
@@ -81,6 +84,9 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 		out.Text, out.SessionId = text, next
 		return tx.PutAgent(a)
 	}); err != nil {
+		if cutID != "" {
+			claude.RemoveCut(cutFrom, cutID)
+		}
 		return nil, err
 	}
 	d.deliverSoon(found.Id)

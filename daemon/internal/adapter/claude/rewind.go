@@ -24,10 +24,12 @@ var ErrNotAPrompt = errors.New("not a prompt of this conversation")
 const maxSessionLine = 64 << 20
 
 // CutSession writes a copy of the session at path cut before the user prompt whose line has the uuid given, as
-// session newID beside it, and returns that prompt's text. Every line kept is the original's, with its sessionId
-// set to newID; Claude Code resumes a conversation from its last line back up the parentUuid chain, which a cut at
-// a line boundary keeps whole (checked live with Claude Code 2.1.332: the copy resumes without what was cut). The
-// original is left as it was.
+// session newID beside it, and returns that prompt's text. Claude Code resumes a conversation from its last line back
+// up the parentUuid chain, so the copy keeps, of the lines before the prompt, those on the prompt's own chain (its
+// parent and up, through a compaction's logicalParentUuid) and the lines that are on no chain (the session's
+// bookkeeping): a branch left by an earlier rewind, or a sidechain, is not resumed. Each line kept has its sessionId
+// set to newID (checked live with Claude Code 2.1.332: the copy resumes without what was cut). The original is left
+// as it was.
 func CutSession(path, uuid, newID string) (text string, err error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -36,30 +38,41 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), maxSessionLine)
-	var out bytes.Buffer
-	found := false
+	type line struct {
+		raw  []byte
+		uuid string
+	}
+	var before []line
+	parents := map[string]string{}
+	parent, found, linear := "", false, false
 	for sc.Scan() {
-		line := sc.Bytes()
+		raw := append([]byte(nil), sc.Bytes()...)
 		var l struct {
-			Type    string          `json:"type"`
-			UUID    string          `json:"uuid"`
-			IsMeta  bool            `json:"isMeta"`
-			Message json.RawMessage `json:"message"`
+			Type          string          `json:"type"`
+			UUID          string          `json:"uuid"`
+			Parent        json.RawMessage `json:"parentUuid"`
+			LogicalParent json.RawMessage `json:"logicalParentUuid"`
+			IsMeta        bool            `json:"isMeta"`
+			Message       json.RawMessage `json:"message"`
 		}
-		if json.Unmarshal(line, &l) == nil && l.UUID == uuid {
-			if l.Type != "user" || l.IsMeta {
+		_ = json.Unmarshal(raw, &l)
+		var p string
+		if json.Unmarshal(l.Parent, &p) != nil || p == "" {
+			_ = json.Unmarshal(l.LogicalParent, &p)
+		}
+		if l.UUID != "" && l.UUID == uuid {
+			var ok bool
+			if text, ok = promptText(l.Message); l.Type != "user" || l.IsMeta || !ok {
 				return "", ErrNotAPrompt
 			}
-			text = promptText(l.Message)
-			found = true
+			// A record with no parentUuid at all is read in file order (a CLI that keeps no chain).
+			parent, found, linear = p, true, len(l.Parent) == 0
 			break
 		}
-		kept, err := withSession(line, newID)
-		if err != nil {
-			return "", err
+		if l.UUID != "" {
+			parents[l.UUID] = p
 		}
-		out.Write(kept)
-		out.WriteByte('\n')
+		before = append(before, line{raw: raw, uuid: l.UUID})
 	}
 	if err := sc.Err(); err != nil {
 		return "", err
@@ -67,11 +80,32 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 	if !found {
 		return "", ErrNotAPrompt
 	}
+	chain := map[string]bool{}
+	for at := parent; at != "" && !chain[at]; at = parents[at] {
+		chain[at] = true
+	}
+	var out bytes.Buffer
+	for _, l := range before {
+		if !linear && l.uuid != "" && !chain[l.uuid] {
+			continue
+		}
+		kept, err := withSession(l.raw, newID)
+		if err != nil {
+			return "", err
+		}
+		out.Write(kept)
+		out.WriteByte('\n')
+	}
 	dst := filepath.Join(filepath.Dir(path), newID+".jsonl")
 	if err := fsutil.WriteAtomic(dst, out.Bytes(), 0o600); err != nil {
 		return "", fmt.Errorf("writing the rewound conversation: %w", err)
 	}
 	return text, nil
+}
+
+// RemoveCut removes the copy CutSession wrote for newID beside path (a rewind that was refused after the cut).
+func RemoveCut(path, newID string) {
+	_ = os.Remove(filepath.Join(filepath.Dir(path), newID+".jsonl"))
 }
 
 // withSession is a session line with its sessionId set to id; a line that isn't a JSON object, or has no
@@ -89,30 +123,38 @@ func withSession(line []byte, id string) ([]byte, error) {
 	return json.Marshal(o)
 }
 
-// promptText is what the user typed: a string content, or its text blocks joined.
-func promptText(msg json.RawMessage) string {
+// promptText is what the user typed, and whether the line is one: a string content, or text blocks (a line of
+// tool results alone answers a tool call, not the user).
+func promptText(msg json.RawMessage) (string, bool) {
 	var m struct {
 		Content json.RawMessage `json:"content"`
 	}
 	if json.Unmarshal(msg, &m) != nil {
-		return ""
+		return "", false
 	}
 	var s string
 	if json.Unmarshal(m.Content, &s) == nil {
-		return s
+		return s, true
 	}
 	var blocks []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	}
 	if json.Unmarshal(m.Content, &blocks) != nil {
-		return ""
+		return "", false
 	}
 	var parts []string
+	typed := false
 	for _, b := range blocks {
-		if b.Type == "text" && b.Text != "" {
-			parts = append(parts, b.Text)
+		switch b.Type {
+		case "text":
+			typed = true
+			if b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		case "image":
+			typed = true
 		}
 	}
-	return strings.Join(parts, "\n")
+	return strings.Join(parts, "\n"), typed
 }

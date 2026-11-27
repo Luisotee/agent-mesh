@@ -41,6 +41,16 @@ export function splitImages(text: string): { paths: string[]; text: string } {
 /** The thumbnails of the images this device sent, by their host path (data URLs: the page's CSP allows them). */
 export const thumbs = new Map<string, string>()
 
+/** At most this many thumbnails are kept, the oldest dropped first (each may be megabytes). */
+export const MAX_THUMBS = 40
+
+/** Keeps a thumbnail, dropping the oldest past `MAX_THUMBS`. */
+export function keepThumb(path: string, url: string): void {
+  thumbs.delete(path)
+  thumbs.set(path, url)
+  while (thumbs.size > MAX_THUMBS) thumbs.delete(thumbs.keys().next().value!)
+}
+
 /**
  * Why an agent's CLI can't take images, or '' when it can. Claude Code reads an image file with its Read tool and
  * Gemini CLI (agy) with read_file; OpenCode's and Copilot's are not checked yet (TODO.md).
