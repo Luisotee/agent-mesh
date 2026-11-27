@@ -57,6 +57,7 @@ object Routes {
     const val USAGE = "host/{id}/usage"
     const val AGENT = "host/{id}/agent/{agent}?tab={tab}"
     const val SETTINGS = "settings"
+    const val ACTIVITY = "activity"
     const val SHELL = "host/{id}/shell/{shell}"
 
     fun edit(id: String) = "host/$id/edit"
@@ -132,6 +133,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
         newLead = { h, repo -> closeDrawer { spawn = "$h\n$repo\n" } },
         addAgent = { h, run -> closeDrawer { spawn = "$h\n\n$run" } },
         addProject = { h -> closeDrawer { adding = h } },
+        activity = { closeDrawer { nav.navigate(Routes.ACTIVITY) { launchSingleTop = true } } },
         openShell = { h, s -> closeDrawer { openShell(h, s) } },
         // A terminal in the project's folder: started on the host, then its screen. A refusal (an unknown folder, a device that may not) is said.
         newShell = { h, repo ->
@@ -212,6 +214,7 @@ private fun Routed(
         }
         composable(Routes.ADD) { HostFormScreen(null) { nav.popBackStack() } }
         composable(Routes.EDIT) { HostFormScreen(it.arguments?.getString("id")) { nav.popBackStack() } }
+        composable(Routes.ACTIVITY) { ActivityScreen(onBack = { nav.popBackStack() }, onOpen = { h, a, t -> openAgent(h, a, t) }) }
         composable(Routes.SETTINGS) { DeviceSettingsScreen(onBack = { nav.popBackStack() }, onHosts = { nav.navigate(Routes.HOSTS) }) }
         composable(Routes.LOG) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { LogScreen(it) { nav.popBackStack() } } }
         composable(Routes.DOCK_ALL) { AllHostsDockScreen({ nav.popBackStack() }) { host, agent, tab -> nav.navigate(Routes.agent(host, agent, tab)) } }

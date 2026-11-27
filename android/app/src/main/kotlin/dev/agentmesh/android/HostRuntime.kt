@@ -389,7 +389,7 @@ class HostRuntime(
     override fun onFrame(frame: Frame) {
         if (frame.hasEvent()) {
             val s = _state.value
-            noticeFor(frame.event, s.agents, now(), s.clockSkewMs)?.let { _notices.tryEmit(it) }
+            noticeFor(frame.event, now(), s.clockSkewMs)?.let { _notices.tryEmit(it) }
         }
         _state.update { applyFrame(it, frame) }
         if (frame.hasEvent()) refresher.event(frame.event)
