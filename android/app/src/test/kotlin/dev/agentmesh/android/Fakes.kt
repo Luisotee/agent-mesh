@@ -105,6 +105,37 @@ class RecordingApi : MeshApi {
         return "/v1/term/$agent?ticket=t${tickets.size}"
     }
 
+    /** The host's shells; OpenShell adds one, CloseShell removes one. */
+    @Volatile var shells: List<dev.agentmesh.gen.agentmesh.v1.Shell> = emptyList()
+    val shellTickets = mutableListOf<String>()
+    val shellTicketInputs = mutableListOf<Boolean>()
+    val opened = mutableListOf<String>()
+    val closed = mutableListOf<String>()
+    var shellError: Throwable? = null
+
+    override suspend fun openShellTerminal(shell: String, input: Boolean): String {
+        terminalError?.let { throw it }
+        shellTickets += shell
+        shellTicketInputs += input
+        return "/v1/shell/$shell?ticket=s${shellTickets.size}"
+    }
+
+    override suspend fun openShell(repo: String): dev.agentmesh.gen.agentmesh.v1.Shell {
+        shellError?.let { throw it }
+        opened += repo
+        val s = dev.agentmesh.gen.agentmesh.v1.Shell.newBuilder().setId("sh${opened.size}").setRepo(repo).build()
+        shells = shells + s
+        return s
+    }
+
+    override suspend fun listShells(): List<dev.agentmesh.gen.agentmesh.v1.Shell> = shells
+
+    override suspend fun closeShell(id: String) {
+        shellError?.let { throw it }
+        closed += id
+        shells = shells.filter { it.id != id }
+    }
+
     override fun connectTerminal(path: String): TerminalSocket = sockets.removeFirstOrNull() ?: FakeSocket()
 
     @Volatile var settings: List<Setting> = emptyList()

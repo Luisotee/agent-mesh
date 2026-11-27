@@ -17,12 +17,21 @@ import com.termux.terminal.TerminalSessionClient
 internal class ReadOnlyOutput : TerminalOutput() {
     /**
      * Set only while [TermScreen.pasteBytes] asks the emulator to encode a paste (bracketed or not, as the program set it):
-     * what it writes then is the paste, and is taken. Everything else it writes is a reply to a query, and is dropped.
+     * what it writes then is the paste, and is taken. Everything else it writes is a reply to a query: dropped, unless [reply] is set.
      */
-    var capture: java.io.ByteArrayOutputStream? = null
+    @Volatile var capture: java.io.ByteArrayOutputStream? = null
+
+    /**
+     * Where a reply to a query goes when this screen's client is the one that types (set after the replay, when the host has
+     * left answering to it: while a client with the input right is attached the host's own emulator does not answer, so a
+     * program that asks for the cursor position or the device attributes would wait for ever). None for a viewer.
+     */
+    @Volatile var reply: ((ByteArray) -> Unit)? = null
 
     override fun write(data: ByteArray?, offset: Int, count: Int) {
-        if (data != null) capture?.write(data, offset, count)
+        if (data == null) return
+        val c = capture
+        if (c != null) c.write(data, offset, count) else reply?.invoke(data.copyOfRange(offset, offset + count))
     }
     override fun titleChanged(oldTitle: String?, newTitle: String?) {}
     override fun onCopyTextToClipboard(text: String?) {}

@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.termux.terminal.TerminalEmulator
@@ -85,6 +86,14 @@ private const val MIN_SP = 5f
 private const val MAX_SP = 28f
 private const val READABLE_SP = 8f
 
+/** The text size of a terminal the phone sizes, before the user pinches. */
+private const val PHONE_SP = 13f
+/** The sizes the host takes (it clamps to these): 20 to 500 columns, 5 to 300 rows. */
+private const val MIN_COLS = 20
+private const val MAX_COLS = 500
+private const val MIN_ROWS = 5
+private const val MAX_ROWS = 300
+
 /**
  * Draws a [TermScreen]: each row of the emulator's buffer, cell by cell, in the theme's 16 colours plus the 256 and
  * true colours of the program. A drag scrolls the history (the view stays on the lines being read as
@@ -94,7 +103,11 @@ private const val READABLE_SP = 8f
  * resizes it.
  */
 @Composable
-fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier, selection: Selection? = null, onSelection: (Selection?) -> Unit = {}, onTap: () -> Unit = {}) {
+fun TerminalCanvas(
+    screen: TermScreen, theme: TerminalColors, modifier: Modifier = Modifier, selection: Selection? = null, onSelection: (Selection?) -> Unit = {}, onTap: () -> Unit = {},
+    /** The terminal is this phone's own (a shell it opened): it is drawn at a size that can be read, and [onViewport] says how many columns and rows fit, for the host to size it by. */
+    phoneSized: Boolean = false, onViewport: (cols: Int, rows: Int) -> Unit = { _, _ -> },
+) {
     // The state is the screen's: a new screen (another agent) starts from the fitted size and no pan.
     // 0 fits the host's width to the screen; a pinch sets a size of the user's own.
     var userSp by remember(screen) { mutableFloatStateOf(0f) }
@@ -117,9 +130,20 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
     // selection's owner changes when the screen is made again, and a tap's meaning with the keyboard.
     val currentOnSelection by rememberUpdatedState(onSelection)
     val currentOnTap by rememberUpdatedState(onTap)
+    var viewPx by remember(screen) { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    val dens = androidx.compose.ui.platform.LocalDensity.current
+    // A terminal the phone sizes: the columns and rows that fit the view at the text size now, told again when either changes
+    // (the keyboard came up, a rotation, a pinch).
+    val currentOnViewport by rememberUpdatedState(onViewport)
+    LaunchedEffect(phoneSized, viewPx, userSp, dens.density, dens.fontScale) {
+        if (!phoneSized || viewPx.width <= 0 || viewPx.height <= 0) return@LaunchedEffect
+        val cell = cellAt((if (userSp > 0f) userSp else PHONE_SP) * dens.density * dens.fontScale)
+        currentOnViewport((viewPx.width / cell.w).toInt().coerceIn(MIN_COLS, MAX_COLS), (viewPx.height / cell.h).toInt().coerceIn(MIN_ROWS, MAX_ROWS))
+    }
     val currentSelection by rememberUpdatedState(selection)
     Canvas(
         modifier.fillMaxSize()
+            .onSizeChanged { viewPx = it }
             .semantics { contentDescription = description }
             .pointerInput(screen) {
                 detectTransformGestures { _, pan, zoom, _ ->
@@ -168,7 +192,7 @@ fun TerminalCanvas(screen: TermScreen, theme: TerminalColors, modifier: Modifier
         screen.version
         val emu = screen.emulator ?: return@Canvas
         val pxPerSp = density * fontScale
-        val sp = if (userSp > 0f) userSp else fitWidthSp(size.width, emu.mColumns, pxPerSp)
+        val sp = if (userSp > 0f) userSp else if (phoneSized) PHONE_SP else fitWidthSp(size.width, emu.mColumns, pxPerSp)
         drawn[0] = sp; drawn[1] = pxPerSp; drawn[2] = emu.mColumns.toFloat(); drawn[3] = size.width; drawn[4] = emu.mRows.toFloat(); drawn[5] = size.height
         val px = sp * pxPerSp
         val p = paints[0]?.takeIf { it.px == px } ?: TermPaints(px).also { paints[0] = it }

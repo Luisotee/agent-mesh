@@ -1529,6 +1529,41 @@ describe('ModelControl and vendor icons', () => {
     expect(client.switchAgent.mock.calls[2]![0]).toMatchObject({ tier: '', model: '', effort: 'low' })
   })
 
+  it('"Other model…" asks for a model id the host does not list and switches to it', async () => {
+    const { host, a, wrap, client } = control()
+    client.checkModels.mockResolvedValue(create(CheckModelsResponseSchema, { kinds: [] }))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Other model…' }))
+    const send = await screen.findByRole('button', { name: 'Switch' })
+    expect(send).toBeDisabled()
+    await userEvent.type(screen.getByRole('textbox', { name: 'Model' }), ' claude-opus-5-5 ')
+    await userEvent.click(send)
+    await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(1))
+    expect(client.switchAgent.mock.calls[0]![0]).toMatchObject({ agent: 'c1', tier: '', model: 'claude-opus-5-5', effort: '' })
+    expect(screen.queryByRole('textbox', { name: 'Model' })).toBeNull()
+  })
+
+  it('Mod+L\'s command puts the cursor in the message box, and leaves a disabled one alone', () => {
+    const { model } = control()
+    const box = document.createElement('textarea')
+    box.setAttribute('data-composer', '')
+    // A chat whose pane shows the terminal is hidden, and comes first in the page.
+    const hidden = document.createElement('section')
+    hidden.hidden = true
+    const behind = hidden.appendChild(document.createElement('textarea'))
+    behind.setAttribute('data-composer', '')
+    document.body.append(hidden, box)
+    keyedCommands(model).composer()
+    expect(document.activeElement).toBe(box)
+    hidden.remove()
+    box.blur()
+    box.disabled = true
+    keyedCommands(model).composer()
+    expect(document.activeElement).not.toBe(box)
+    box.remove()
+  })
+
   it('marks the tier an executing worker runs on, not the one it planned on', async () => {
     const { host, a, wrap } = control({ tier: 'strong', execTier: 'mid', phase: AgentPhase.EXECUTING })
     render(wrap(<ModelPicker host={host} agent={a} />))
@@ -1745,6 +1780,81 @@ describe('ChatView', () => {
     const ui = f.wrap(<ChatView host={f.host} agentId="w1" active />)
     return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, rewindAgent, addAttachment, sendPromptAnyway, ui }
   }
+
+  it('draws only the newest 60 blocks of a long conversation, and Show earlier draws the next lot above without moving the reader', async () => {
+    const many = Array.from({ length: 150 }, (_, n) => entry(`q${n}`, TranscriptKind.USER, { text: `question number ${n}` }))
+    const { ui, readTranscript } = chat({ read: vi.fn(async () => res(many, { atStart: true })) })
+    render(ui)
+    await screen.findByText('question number 149')
+    expect(screen.getByText('question number 90')).toBeInTheDocument()
+    expect(screen.queryByText('question number 89')).toBeNull()
+    const scroller = screen.getByTestId('chat')
+    // Each drawn block is 40 px tall.
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => 200 + scroller.querySelectorAll('ol[aria-label="Conversation"] > li').length * 40 })
+    scroller.scrollTop = 100
+    fireEvent.scroll(scroller)
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (90 more)' }))
+    expect(screen.getByText('question number 30')).toBeInTheDocument()
+    expect(screen.queryByText('question number 29')).toBeNull()
+    // No page is asked of the host for what it already holds; the reader is not taken to the end.
+    expect(readTranscript).toHaveBeenCalledTimes(1)
+    // 60 blocks came in above the reader: the place moves down by their height, so what was read stays under the eye.
+    expect(scroller.scrollTop).toBe(100 + 60 * 40)
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (30 more)' }))
+    expect(screen.getByText('question number 0')).toBeInTheDocument()
+    // It all is on screen, and the host has no earlier page: the button is gone.
+    expect(screen.queryByRole('button', { name: /earlier/i })).toBeNull()
+  })
+
+  it('always draws a plan waiting on the user, however old, and keeps what was drawn when a card goes', async () => {
+    const stamped = Array.from({ length: 150 }, (_, n) => create(TranscriptEntrySchema, { id: `q${n}`, kind: TranscriptKind.USER, text: `question number ${n}`, time: timestampFromMs(10_000 + n) }))
+    const { ui, host } = chat({ read: vi.fn(async () => res(stamped, { atStart: false })) })
+    const plan = msg('p1', MessageType.PLAN, 'w1', 'lead', 5000, 'the old plan')
+    putMessages(host, plan)
+    waitOn(host, plan)
+    render(ui)
+    // The plan is older than all 150 blocks: it is drawn above the newest 60, not by drawing everything between.
+    expect(await screen.findByRole('article', { name: 'Plan from w1' })).toBeInTheDocument()
+    await screen.findByText('question number 149')
+    expect(screen.queryByText('question number 0')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Show earlier (90 more)' })).toBeInTheDocument()
+    // The reader draws it all, then the plan is answered and goes: what was drawn stays.
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (90 more)' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (30 more)' }))
+    expect(screen.getByText('question number 0')).toBeInTheDocument()
+    act(() => waitOn(host))
+    await waitFor(() => expect(screen.queryByRole('article', { name: 'Plan from w1' })).toBeNull())
+    expect(screen.getByText('question number 0')).toBeInTheDocument()
+  })
+
+  it('draws the newest blocks when the same session\'s record comes back shorter than the window was', async () => {
+    const long = Array.from({ length: 150 }, (_, n) => entry(`q${n}`, TranscriptKind.USER, { text: `question number ${n}` }))
+    const short = Array.from({ length: 40 }, (_, n) => entry(`s${n}`, TranscriptKind.USER, { text: `short ${n}` }))
+    let page = res(long, { atStart: true, endOffset: 150n })
+    const { ui, host } = chat({ read: vi.fn(async () => page) })
+    render(ui)
+    await screen.findByText('question number 149')
+    await userEvent.click(screen.getByRole('button', { name: 'Show earlier (90 more)' }))
+    // The record was rewritten shorter (a reload, not a read on): the whole of it is drawn, not nothing.
+    page = res(short, { atStart: true, endOffset: 40n })
+    act(() => host.store.setState((st) => ({ agents: { ...st.agents, w1: { ...st.agents.w1!, stateDetail: 'x' } } })))
+    expect(await screen.findByText('short 39', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByText('short 0')).toBeInTheDocument()
+  })
+
+  it('does not send the composer\'s draft when "Other model…" is confirmed from inside it', async () => {
+    const { ui, promptAgent, client } = chat()
+    const switchAgent = vi.fn(async (_req: unknown) => ({}))
+    Object.assign(client, { switchAgent, checkModels: vi.fn(async () => create(CheckModelsResponseSchema, { kinds: [] })) })
+    render(ui)
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Prompt' }), 'a draft')
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Other model…' }))
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Model' }), 'claude-opus-5-5{Enter}')
+    await waitFor(() => expect(switchAgent).toHaveBeenCalledTimes(1))
+    expect(promptAgent).not.toHaveBeenCalled()
+    expect(screen.getByRole('textbox', { name: 'Prompt' })).toHaveValue('a draft')
+  })
 
   it('shows a sent prompt at once as a bubble marked sending, until the record has it, and goes to the end for it', async () => {
     const { ui, promptAgent, readTranscript } = chat()
