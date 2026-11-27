@@ -623,8 +623,11 @@ const (
 // slow disk costs the exit nothing; "" when the agent owes its parent no alert, its CLI keeps no record we read, or the
 // conversation has no reply yet (the alert then quotes the agent's state detail, as it did before).
 func (d *Daemon) exitWords(ctx context.Context, a *v1.Agent) string {
-	if a == nil || !owesParent(a) || a.SessionId == "" || !d.rt.adapters.HasCapability(a.Kind, transcript.Cap) {
-		return ""
+	if a == nil || !owesParent(a) || a.SessionId == "" || stopped(a) || !d.rt.adapters.HasCapability(a.Kind, transcript.Cap) {
+		return "" // a stopped agent's exit (a retire, a stop) is recorded already and tells nobody
+	}
+	if report, err := lastReport(d.store.Read(ctx), a); err != nil || report != nil {
+		return "" // it reported before it went: nothing is owed (alertExitTx), so nothing is quoted
 	}
 	ad, err := d.rt.adapters.Get(a.Kind)
 	if err != nil {
