@@ -107,10 +107,8 @@ func TestTheRecordedBranchFollowsAWorkerThatMovedItself(t *testing.T) {
 	next := "mesh/" + run.Id + "/fix-2"
 	gitIn(t, spawned.Worktree, "checkout", "-q", "-b", next, "origin/main")
 	stop()
+	waitFor(t, "the branch it moved to to be recorded", func() bool { return stored().Branch == next })
 	got := stored()
-	if got.Branch != next {
-		t.Fatalf("recorded branch %q, want %q", got.Branch, next)
-	}
 	if want := gitIn(t, repo, "merge-base", "origin/main", next); got.BaseCommit != want {
 		t.Errorf("recorded base %q, want %q (where the new branch left main)", got.BaseCommit, want)
 	}

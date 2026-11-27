@@ -88,6 +88,9 @@ func (d *Daemon) ListAgentWaits(ctx context.Context, req *connect.Request[v1.Lis
 				if msgs, err = r.RunMessages(id, "", -1); err != nil {
 					return nil, err
 				}
+				if msgs == nil {
+					msgs = []*v1.Message{} // read, and empty: not to be read again for the next agent
+				}
 			}
 			w := d.messageWait(ctx, r, a, msgs)
 			out.Waits = append(out.Waits, &v1.AgentWaitRow{AgentId: a.Id, Wait: w})

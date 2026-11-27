@@ -8,7 +8,6 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter"
-	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 	"google.golang.org/protobuf/proto"
 )
@@ -78,14 +77,14 @@ func onItsBranch(ctx context.Context, a *v1.Agent) *v1.Agent {
 
 // followBranch records the branch a change worker's worktree is on now (and the base re-derived for it, `onItsBranch`)
 // on its row when the worker moved there itself (`git checkout -b fix-2`): the apps, the PR stack, the finished-PR move and
-// a worktree recreated from the branch read the recorded one. It runs when the agent goes idle, outside any write: the
-// base is read with git. The row is read again in the write, so a move the daemon made meanwhile is not undone.
+// a worktree recreated from the branch read the recorded one. It runs when the agent goes idle, outside any write (the
+// base is read with git, so the hook that reported the idle does not wait for it). The row is read again in the write, so a move the daemon made meanwhile is not undone.
 func (d *Daemon) followBranch(ctx context.Context, a *v1.Agent) {
 	moved := onItsBranch(ctx, a)
 	if moved.Branch == a.Branch {
 		return
 	}
-	err := d.store.Write(ctx, auth.ActorFrom(ctx), "", func(t *store.Tx) error {
+	err := d.store.Write(ctx, nil, "", func(t *store.Tx) error {
 		cur, err := t.GetAgent(a.Id)
 		if err != nil || cur.Branch != a.Branch || cur.State == v1.AgentState_AGENT_STATE_RETIRED {
 			return err
