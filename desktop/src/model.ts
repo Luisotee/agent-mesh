@@ -142,8 +142,8 @@ export interface AppState extends WorkspaceState {
   closedTabs: TabRef[]
   /** The side panel beside the open agent is shown. */
   panelOpen: boolean
-  /** Bumped to show the open agent's model control (the panel opens and unfolds its Details). */
-  modelShown: number
+  /** Set to show the open agent's model control (the panel opens and unfolds its Details); cleared once its Details unfolded, so a later mount of the panel opens folded. */
+  modelShown: boolean
   /** The New workspace dialog is open. */
   workspaceOpen: boolean
   /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */
@@ -208,7 +208,8 @@ export interface AppModel {
   openFind(open: boolean): void
   setSidebarCollapsed(collapsed: boolean): void
   /** Takes a project off the sidebar (or puts it back). */
-  toggleHidden(hostId: string, repo: string): void
+  /** Takes a project off the sidebar or puts it back: `on` sets it (an explicit hide or show), else it flips. */
+  toggleHidden(hostId: string, repo: string, on?: boolean): void
   openProjectSettings(project: { hostId: string; repo: string } | undefined): void
   /** Starts (or ends) editing a run's title in the sidebar. */
   renameRun(run: { hostId: string; runId: string } | undefined): void
@@ -217,6 +218,8 @@ export interface AppModel {
   setPanel(open: boolean): void
   /** Opens the side panel on the open agent's model control. */
   showModel(): void
+  /** The Details unfolded for `showModel`: done. */
+  modelRevealed(): void
   /** Opens the New workspace dialog: on a run (to add an agent to it) or a project (to start a lead there), on a host. */
   openWorkspace(open: boolean, runId?: string, at?: { hostId: string; repo: string }): void
   openPairing(open: boolean): void
@@ -228,7 +231,8 @@ export interface AppModel {
   /** Takes a toast away. */
   dismissViewRequest(id: number): void
   /** Pins a project of a host (or unpins it): pinned projects come first in the New workspace dialog. */
-  togglePin(hostId: string, path: string): void
+  /** Pins a project or unpins it: `on` sets it (pinning twice keeps it pinned), else it flips. */
+  togglePin(hostId: string, path: string, on?: boolean): void
 }
 
 export interface ViewRequestRow {
@@ -289,7 +293,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: 0, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'overview', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -437,10 +441,10 @@ export function createAppModel(api: DesktopApi): AppModel {
     openPalette: (open) => set({ paletteOpen: open }),
     openFind: (findOpen) => set({ findOpen }),
     setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
-    toggleHidden: (hostId, repo) =>
+    toggleHidden: (hostId, repo, on) =>
       set((s) => {
         const cur = s.hidden[hostId] ?? []
-        const next = cur.includes(repo) ? cur.filter((p) => p !== repo) : [...cur, repo]
+        const next = (on ?? !cur.includes(repo)) ? [...cur.filter((p) => p !== repo), repo] : cur.filter((p) => p !== repo)
         const { [hostId]: _old, ...rest } = s.hidden
         return { hidden: next.length > 0 ? { ...rest, [hostId]: next } : rest }
       }),
@@ -456,7 +460,8 @@ export function createAppModel(api: DesktopApi): AppModel {
       else model.reopenTab()
     },
     setPanel: (panelOpen) => set({ panelOpen }),
-    showModel: () => set((s) => ({ panelOpen: true, modelShown: s.modelShown + 1 })),
+    showModel: () => set({ panelOpen: true, modelShown: true }),
+    modelRevealed: () => set({ modelShown: false }),
     openWorkspace: (workspaceOpen, runId, at) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, workspaceHost: workspaceOpen ? at?.hostId : undefined }),
     openPairing: (open) => set({ pairOpen: open, settingsOpen: false, watchOpen: false, usageOpen: false }),
     openWatch: (open) => set({ watchOpen: open, settingsOpen: false, pairOpen: false, usageOpen: false }),
@@ -491,10 +496,10 @@ export function createAppModel(api: DesktopApi): AppModel {
       if (r) showView(model, r.hostId, r.request)
     },
     dismissViewRequest: (id) => set((s) => ({ viewRequests: s.viewRequests.filter((x) => x.id !== id) })),
-    togglePin: (hostId, path) =>
+    togglePin: (hostId, path, on) =>
       set((s) => {
         const cur = s.pins[hostId] ?? []
-        const next = cur.includes(path) ? cur.filter((p) => p !== path) : [...cur, path]
+        const next = (on ?? !cur.includes(path)) ? (cur.includes(path) ? cur : [...cur, path]) : cur.filter((p) => p !== path)
         const { [hostId]: _old, ...rest } = s.pins
         return { pins: next.length > 0 ? { ...rest, [hostId]: next } : rest }
       }),

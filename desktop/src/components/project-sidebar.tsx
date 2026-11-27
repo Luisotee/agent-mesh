@@ -1,6 +1,6 @@
 import { ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server } from 'lucide-react'
 import { AnimatePresence, m } from 'motion/react'
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { renameRun, retireAgent, stopAgent } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Chip, Chips } from '@/components/ui/chip'
@@ -10,6 +10,7 @@ import { MoreButton, RowContextMenu, type MenuEntry } from '@/components/ui/menu
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
 import { useApp, useAppState, useHostState } from '@/context'
+import { canArchive } from '@/agent-work'
 import { githubNote } from '@/buckets'
 import { repoName, ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
@@ -47,6 +48,15 @@ export function ProjectSidebar() {
   const many = hosts.length > 1
   const keys = useKeys(hosts)
   const loading = side.some((h) => h.loading)
+  // A rename (F2, the palette) edits the title on the run's lead row: the sidebar unfolds to it, and the project
+  // unfolds it in its place. A run with no row to edit on (its project removed from the sidebar) is no rename.
+  const renaming = useAppState((s) => s.renaming)
+  const renamable = !!renaming && shown.some((p) => p.hostId === renaming.hostId && [...p.runs, ...p.earlier].some((r) => r.run.id === renaming.runId && !!r.lead))
+  useEffect(() => {
+    if (!renaming || loading) return
+    if (!renamable) app.renameRun(undefined)
+    else if (collapsed) app.setSidebarCollapsed(false)
+  }, [app, renaming, renamable, collapsed, loading])
   if (collapsed) {
     return (
       <aside aria-label="Sidebar" className="flex w-14 shrink-0 flex-col items-center gap-2 border-r bg-surface py-3">
@@ -96,7 +106,7 @@ export function ProjectSidebar() {
             </div>
           )}
           <ul className="px-1.5">
-            {shown.map((p) => <ProjectItem key={p.key} project={p} many={many} />)}
+            {shown.map((p) => <ProjectItem key={p.key} project={p} many={many} hidden={(hidden[p.hostId] ?? []).includes(p.repo)} />)}
           </ul>
           {hiddenRows.length > 0 && <HiddenProjects rows={hiddenRows} />}
         </div>
@@ -110,19 +120,12 @@ const sidebarRows = () => [...document.querySelectorAll<HTMLElement>('nav[aria-l
 
 /** Opens the agent row after (1) or before (-1) the open one in the sidebar, as it is shown (the `sidebar_next`/`sidebar_prev` keys). */
 export function stepSidebar(by: 1 | -1): void {
-  const rows = sidebarRows().filter((r) => r.dataset.sidebarRow === 'agent')
+  const rows = sidebarRows().filter((r) => r.dataset.sidebarRow === 'agent' && !r.closest('[data-also]'))
   if (rows.length === 0) return
   const at = rows.findIndex((r) => r.getAttribute('aria-current') === 'true')
   const next = rows[at < 0 ? (by > 0 ? 0 : rows.length - 1) : (at + by + rows.length) % rows.length]!
   next.click()
   next.focus()
-}
-
-/** Focuses the sidebar's search field: the `/` key, outside a text field. */
-export function focusSearch(): boolean {
-  const el = document.querySelector<HTMLElement>('[data-sidebar-search]')
-  el?.click()
-  return !!el
 }
 
 function SidebarSkeleton() {
@@ -170,16 +173,21 @@ function menuKey(e: KeyboardEvent<HTMLElement>) {
   }
 }
 
-function ProjectItem({ project: p, many }: { project: ProjectRow; many: boolean }) {
+function ProjectItem({ project: p, many, hidden }: { project: ProjectRow; many: boolean; /** Taken off the sidebar, and back while something in it waits on the user. */ hidden: boolean }) {
   const app = useApp()
   const [open, setOpen] = useState(true)
+  const renaming = useAppState((s) => (s.renaming?.hostId === p.hostId ? s.renaming.runId : undefined))
+  const renamingEarlier = !!renaming && p.earlier.some((r) => r.run.id === renaming)
+  if (!open && renaming && (renamingEarlier || p.runs.some((r) => r.run.id === renaming))) setOpen(true)
   const entries: MenuEntry[] = [
     { label: 'New lead here', onSelect: () => app.openWorkspace(true, undefined, { hostId: p.hostId, repo: p.repo }), disabled: !p.repo || !p.up },
     { label: 'Project settings…', onSelect: () => app.openProjectSettings({ hostId: p.hostId, repo: p.repo }), disabled: !p.repo },
     'separator',
     { label: p.pinned ? 'Unpin' : 'Pin', onSelect: () => app.togglePin(p.hostId, p.repo), disabled: !p.repo },
     { label: 'Copy path', onSelect: () => copy(p.repo), disabled: !p.repo },
-    { label: 'Remove from the sidebar', onSelect: () => app.toggleHidden(p.hostId, p.repo), disabled: !p.repo },
+    hidden
+      ? { label: 'Keep in the sidebar', onSelect: () => app.toggleHidden(p.hostId, p.repo, false), disabled: !p.repo }
+      : { label: 'Remove from the sidebar', onSelect: () => app.toggleHidden(p.hostId, p.repo, true), disabled: !p.repo },
   ]
   const label = many ? `${p.name} on ${p.hostName}` : p.name
   const empty = p.runs.length === 0 && p.earlier.length === 0 && p.also.length === 0
@@ -224,12 +232,12 @@ function ProjectItem({ project: p, many }: { project: ProjectRow; many: boolean 
             </AnimatePresence>
           </ul>
           {p.also.length > 0 && (
-            <Folded title="Also working here" count={p.also.length}>
+            <Folded title="Also working here" count={p.also.length} also>
               {p.also.map((r) => <LeadItem key={r.run.id} row={r} elsewhere />)}
             </Folded>
           )}
           {p.earlier.length > 0 && (
-            <Folded title="Earlier" count={p.earlier.length}>
+            <Folded title="Earlier" count={p.earlier.length} open={renamingEarlier}>
               {p.earlier.map((r) => <LeadItem key={r.run.id} row={r} />)}
             </Folded>
           )}
@@ -239,10 +247,12 @@ function ProjectItem({ project: p, many }: { project: ProjectRow; many: boolean 
   )
 }
 
-function Folded({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+/** A folded part of a project: "Earlier", or "Also working here" (`also`: copies of rows the sidebar has elsewhere, which Alt+↑/↓ skips). `open` unfolds it from outside (a rename in it). */
+function Folded({ title, count, also, open: forced, children }: { title: string; count: number; also?: boolean; open?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
+  if (forced && !open) setOpen(true)
   return (
-    <div>
+    <div data-also={also ? '' : undefined}>
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronRight className={cn('size-3 transition-transform motion-reduce:transition-none', open && 'rotate-90')} />
         {title} <span className="tabular-nums">{count}</span>
@@ -267,7 +277,7 @@ function HiddenProjects({ rows }: { rows: ProjectRow[] }) {
             <li key={p.key} className="flex items-center gap-2 px-2 py-1 text-xs">
               <ProjectTile project={p} />
               <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => app.toggleHidden(p.hostId, p.repo)}>Show</Button>
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs" onClick={() => app.toggleHidden(p.hostId, p.repo, false)}>Show</Button>
             </li>
           ))}
         </ul>
@@ -309,6 +319,9 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
   ]
 }
 
+/** Archive…, for an agent the host would archive (`canArchive`: a worker with a worktree of its own, not a peer or an adopted session). */
+const archiveEntry = (a: Agent, open: (d: RowDialog) => void): MenuEntry[] => (canArchive(a) ? [{ label: 'Archive…', onSelect: () => open({ kind: 'archive', agent: a }), destructive: true }] : [])
+
 /** A run, as its lead: open it, or open the chevron to see its workers. */
 function LeadItem({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
   const app = useApp()
@@ -328,7 +341,7 @@ function LeadItem({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
     { label: 'Add an agent', onSelect: () => app.openWorkspace(true, row.run.id, { hostId: row.hostId, repo: lead?.repo ?? '' }) },
     { label: 'Copy run id', onSelect: () => copy(row.run.id) },
     ...(lead
-      ? (['separator', ...agentEntries(app, row.hostId, lead, setDialog).slice(1), { label: 'Archive…', onSelect: () => setDialog({ kind: 'archive', agent: lead }), destructive: true }] as MenuEntry[])
+      ? (['separator', ...agentEntries(app, row.hostId, lead, setDialog).slice(1), ...archiveEntry(lead, setDialog)] as MenuEntry[])
       : []),
   ]
   const kids = row.workers.length > 0
@@ -370,7 +383,7 @@ function WorkerItem({ hostId, row }: { hostId: string; row: WorkerRow }) {
   const host = useAppState((s) => s.hosts.find((h) => h.info.id === hostId))
   const [dialog, setDialog] = useState<RowDialog>()
   const a = row.agent
-  const entries: MenuEntry[] = [...agentEntries(app, hostId, a, setDialog), { label: 'Archive…', onSelect: () => setDialog({ kind: 'archive', agent: a }), destructive: true }]
+  const entries: MenuEntry[] = [...agentEntries(app, hostId, a, setDialog), ...archiveEntry(a, setDialog)]
   return (
     <li style={row.elsewhere ? hueStyle(a.repo) : undefined}>
       <RowContextMenu entries={entries}>
@@ -418,7 +431,7 @@ function AgentButton({ hostId, agent: a, title, helpers, tag, onKeyDown }: { hos
           <VendorIcon kind={a.kind} model={a.model} className="size-3" />
           {tag && <Chip className="border-identity/50 text-identity">{tag}</Chip>}
           {help && <Chip className={cn(anyWorking(helpers) && 'border-state-working/60')}>{help}</Chip>}
-          {[vendorOfKind(a.kind) === 'other' || !a.model ? a.kind : '', a.model].filter(Boolean).map((x, i) => <Chip key={i}>{x}</Chip>)}
+          {[vendorOfKind(a.kind) === 'other' || !a.model ? a.kind : '', a.model, a.effort].filter(Boolean).map((x, i) => <Chip key={i}>{x}</Chip>)}
         </Chips>
       </span>
     </button>

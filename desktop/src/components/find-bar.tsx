@@ -18,7 +18,7 @@ function firstNode(): HTMLElement {
 
 /**
  * Find in the window (Mod+F): Chromium's find in page, run by main (`webContents.findInPage`). Enter goes to the next
- * match, Shift+Enter to the one before, Escape closes and keeps the selection. A terminal keeps xterm's own search.
+ * match, Shift+Enter to the one before, Escape closes and keeps the selection. In a focused terminal the same key opens xterm's own search instead (`commands.ts` `find`).
  * Chromium also matches the text in the bar's own field: the bar sits first in the page, so that is match 1, which
  * the count leaves out and a step skips.
  */

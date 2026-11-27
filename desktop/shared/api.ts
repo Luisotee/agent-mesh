@@ -134,6 +134,8 @@ export interface DesktopApi {
   openExternal(url: string): void
   /** Find in page (`webContents.findInPage`): `again` steps to the next match of the same text. */
   find: FindApi
+  /** Whether the focus is in a terminal: main then leaves its Ctrl zoom keys to the shell (Ctrl+- and Ctrl+_ are the shell's). */
+  terminalFocus(on: boolean): void
   shell: ShellApi
 }
 

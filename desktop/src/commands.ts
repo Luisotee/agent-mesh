@@ -1,6 +1,7 @@
 import { approveAgent, renameRun, retireAgent, ringAgent, startRun, stopAgent, switchToNextModel } from './actions'
 import { canPair } from './components/pair-panel'
 import { stepSidebar } from './components/project-sidebar'
+import { TERMINAL_SEARCH } from './keys'
 import { joinWaiting, ROLE_LABEL, statusSentence, type Waiting } from './derive'
 import { AgentRole, AgentState, RunStatus, type Agent } from './gen/agentmesh/v1/types_pb'
 import type { AgentTab, AppModel, HostRuntime } from './model'
@@ -110,7 +111,12 @@ export function keyedCommands(app: AppModel): Record<KeyedCommand, () => void> {
     sidebar_next: () => stepSidebar(1),
     sidebar_prev: () => stepSidebar(-1),
     panel: () => app.setPanel(!st().panelOpen),
-    find: () => app.openFind(!st().findOpen),
+    find: () => {
+      // In a terminal, its own search (the window's find doesn't see xterm's canvas).
+      const el = typeof document === 'undefined' ? null : document.activeElement
+      if (el?.closest('.xterm')) return void el.dispatchEvent(new CustomEvent(TERMINAL_SEARCH, { bubbles: true }))
+      app.openFind(!st().findOpen)
+    },
     rename: () => {
       // The focused sidebar row's run, else the open agent's.
       const row = document.activeElement?.closest<HTMLElement>('[data-sidebar-row="agent"]')

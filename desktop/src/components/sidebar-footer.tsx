@@ -126,13 +126,21 @@ function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose: () =>
   const list = usePolled(async () => (await listProjects(host.client)).projects, `projects/${host.info.id}`, 60_000)
   const shown = rankProjects(list.value ?? [], query, pinned).filter((p) => !pinned.includes(p.path)).slice(0, 8)
   const add = (p: Pick<Project, 'path'>) => {
-    app.togglePin(host.info.id, p.path)
+    app.togglePin(host.info.id, p.path, true)
     onClose()
+  }
+  /** Enter: the path typed when it is one (a project of the list by that exact path, or a new one), else the best match. */
+  const pick = (): Pick<Project, 'path'> | undefined => {
+    const typed = query.trim()
+    const exact = (list.value ?? []).find((p) => p.path === typed)
+    if (exact) return exact
+    if (typed.startsWith('/')) return { path: typed }
+    return shown[0]
   }
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent title="Add a project" description={`A project on ${host.info.name} to keep in the sidebar, pinned, before any run works in it.`}>
-        <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); const p = shown[0] ?? (query.startsWith('/') ? { path: query.trim() } : undefined); if (p) add(p) }}>
+        <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); const p = pick(); if (p) add(p) }}>
           <Field label="Project">
             <Input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="A name, or a path on the host" />
           </Field>

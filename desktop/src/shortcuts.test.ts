@@ -34,6 +34,11 @@ describe('commandFor', () => {
     expect(commandFor(press(inTerm, 'Tab', { ctrlKey: true }), keys)).toBe('tab_next')
   })
 
+  it('gives the Shift form in a terminal to the Ctrl+letter command first (Ctrl+Shift+T there is a new lead)', () => {
+    expect(commandFor(press(inTerm, 'T', { ctrlKey: true, shiftKey: true }), keys)).toBe('tab_new')
+    expect(commandFor(press(page, 'T', { ctrlKey: true, shiftKey: true }), keys)).toBe('tab_reopen')
+  })
+
   it('leaves a chord without Ctrl to a field or terminal being typed in', () => {
     expect(commandFor(press(page, 'F2'), keys)).toBe('rename')
     expect(commandFor(press(field, 'F2'), keys)).toBeUndefined()
