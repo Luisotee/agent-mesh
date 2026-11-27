@@ -53,6 +53,16 @@ private object Silent : MeshApi {
     override suspend fun registerPush(endpoint: String, p256dh: String, auth: String): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
     override suspend fun unregisterPush(): Boolean = error("unused")
     override suspend fun testPush(): dev.agentmesh.gen.agentmesh.v1.PushRegistration = error("unused")
+    override suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): dev.agentmesh.gen.agentmesh.v1.ReadTranscriptResponse = error("unused")
+    override suspend fun promptAgent(agent: String, text: String) = error("unused")
+    override suspend fun switchAgent(agent: String, tier: String, model: String, effort: String): dev.agentmesh.gen.agentmesh.v1.SwitchAgentResponse = error("unused")
+    override suspend fun checkModels(): dev.agentmesh.gen.agentmesh.v1.CheckModelsResponse = error("unused")
+    override suspend fun listAgents(): List<dev.agentmesh.gen.agentmesh.v1.Agent> = error("unused")
+    override suspend fun listWaiting(): List<dev.agentmesh.gen.agentmesh.v1.Waiting> = error("unused")
+    override suspend fun listPullRequests(runId: String): List<dev.agentmesh.gen.agentmesh.v1.AgentPullRequests> = error("unused")
+    override suspend fun holdPullRequest(url: String, release: Boolean): List<dev.agentmesh.gen.agentmesh.v1.PullRequest> = error("unused")
+    override suspend fun getUsage(refresh: Boolean): dev.agentmesh.gen.agentmesh.v1.GetUsageResponse = error("unused")
+    override suspend fun getCost(runId: String, since: String, agents: Boolean): dev.agentmesh.gen.agentmesh.v1.GetCostResponse = error("unused")
 }
 
 @RunWith(RobolectricTestRunner::class)

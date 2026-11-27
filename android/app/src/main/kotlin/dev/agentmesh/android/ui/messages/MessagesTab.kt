@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.derive.messageLabel
 import dev.agentmesh.android.derive.messagesOf
-import dev.agentmesh.android.derive.waitingOnYou
+import dev.agentmesh.android.derive.waitingFor
 import dev.agentmesh.android.ui.collectAsStateWithLifecycleCompat
 import dev.agentmesh.gen.agentmesh.v1.MessageType
 import dev.agentmesh.gen.agentmesh.v1.RunStatus
@@ -55,8 +55,8 @@ private val COMPOSE_TYPES = listOf(MessageType.MESSAGE_TYPE_TASK, MessageType.ME
 fun MessagesTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier) {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val list = remember(state.messages, agentId) { messagesOf(state.messages, agentId) }
-    val pending = remember(state.runs, state.agents, state.messages, agentId) {
-        waitingOnYou(state.runs, state.agents, state.messages).filter { it.agent.id == agentId }.mapNotNull { it.message?.id }.toSet()
+    val pending = remember(state.waiting, state.runs, state.agents, state.messages, agentId) {
+        waitingFor(state).filter { it.agent.id == agentId }.mapNotNull { it.message?.id }.toSet()
     }
     val listState = rememberLazyListState()
     // At the bottom when the last row is (even partly) in view; then a new message keeps it there.
@@ -84,7 +84,7 @@ fun MessagesTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("messages"), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
                 items(list, key = { it.id }, contentType = { it.type }) { m ->
-                    MessageCard(runtime, m, agentId, open = m.id in pending, skewMs = state.clockSkewMs)
+                    MessageCard(runtime, m, agentId, open = m.id in pending, skewMs = state.clockSkewMs, canAnswer = !dev.agentmesh.android.ui.chat.isReadOnlyDevice(state))
                 }
                 if (failed) item(key = "load-failed") {
                     TextButton(onClick = runtime::reloadMessages, Modifier.testTag("reload-messages")) { Text("Older messages didn't load. Try again") }

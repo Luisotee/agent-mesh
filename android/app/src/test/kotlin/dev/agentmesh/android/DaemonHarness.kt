@@ -59,12 +59,14 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
      * Starts meshd. [tls] adds `--listen` (a TLS listener on a loopback port, with the daemon's persistent certificate)
      * and [relay] connects it to a relay, so `mesh pair` writes links with both routes.
      */
-    fun start(tls: Boolean = false, relay: Relay? = null) {
+    fun start(tls: Boolean = false, relay: Relay? = null, transcripts: Boolean = false) {
         val cmd = mutableListOf(
             bin("meshd").path, "--state", state.path, "--tcp", "127.0.0.1:0", "--term-launch", "detached", "--max-lifetime", "5m",
             "--term-binary", bin("mesh-term").path, "--mesh", bin("mesh").path, "--cli", "claude=${bin("claude").path}",
             "--agent-env", "HOME=${home.path}", "--agent-env", "PATH=${System.getenv("PATH").orEmpty()}",
         )
+        // The fake claude then writes each prompt's turn to its transcript, the chat view's source.
+        if (transcripts) cmd += listOf("--agent-env", "FAKECLAUDE_TRANSCRIPT=1", "--agent-env", "FAKECLAUDE_BOX=1")
         if (tls) cmd += listOf("--listen", "127.0.0.1:0")
         if (relay != null) cmd += listOf("--relay-url", "http://${relay.http}", "--relay-tcp", relay.tcp, "--relay-token-file", relay.tokenFile.path)
         val pb = ProcessBuilder(cmd).redirectErrorStream(true).redirectOutput(log)

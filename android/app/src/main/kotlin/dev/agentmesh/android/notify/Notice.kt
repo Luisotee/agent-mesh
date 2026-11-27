@@ -12,7 +12,7 @@ import dev.agentmesh.gen.agentmesh.v1.MessageType
 enum class NoticeKind(val key: String) { Input("input"), Plan("plan"), Question("question"), Report("report"), Failed("failed"), Exited("exited") }
 
 /** The screen a notification opens. */
-enum class Tab { Overview, Messages, Terminal }
+enum class Tab { Overview, Chat, Messages, Terminal }
 
 class Notice(
     val kind: NoticeKind,

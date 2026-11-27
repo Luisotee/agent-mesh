@@ -136,4 +136,34 @@ class StoreTest {
         assertEquals(200, s.earlyDeliveries.size)
         assertFalse("m1" in s.earlyDeliveries); assertTrue("m205" in s.earlyDeliveries)
     }
+
+    @Test fun `an activity frame changes what a working agent runs, and only a working one`() {
+        val working = agent("w1", state = AgentState.AGENT_STATE_WORKING, detail = "Bash")
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(working, a1), seq = 1))
+        s = applyFrame(s, activity("w1", "Read", at = 8_000))
+        assertEquals("Read", s.agents.getValue("w1").stateDetail)
+        assertEquals(8_000L, s.agents.getValue("w1").lastActivity.seconds * 1000)
+        // An idle agent's detail is its state's, not a tool; an unknown agent isn't there.
+        assertEquals(s.agents.getValue("a1"), applyFrame(s, activity("a1", "Read")).agents.getValue("a1"))
+        assertEquals(s, applyFrame(s, activity("nobody", "Read")))
+        // The next state change says what it says: the frame was only a hint.
+        s = applyFrame(s, stateChanged(2, "w1", AgentState.AGENT_STATE_WORKING, AgentState.AGENT_STATE_IDLE))
+        assertEquals("", s.agents.getValue("w1").stateDetail)
+    }
+
+    @Test fun `a PR event replaces the PR of its url or adds it, and keeps the agent's others`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1), seq = 1))
+        s = applyFrame(s, prChanged(2, pr("a1", "u1", 1, checks = "pending")))
+        s = applyFrame(s, prChanged(3, pr("a1", "u2", 2)))
+        s = applyFrame(s, prChanged(4, pr("a1", "u1", 1, state = "merged", checks = "pass")))
+        val prs = s.pullRequests.getValue("a1").pullRequestsList
+        assertEquals(listOf("u1" to "merged", "u2" to "open"), prs.map { it.url to it.state })
+    }
+
+    @Test fun `a hold is a PR event too, so the hold shows at once`() {
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1")), listOf(a1), seq = 1))
+        s = applyFrame(s, prChanged(2, pr("a1", "u1")))
+        s = applyFrame(s, prChanged(3, pr("a1", "u1", held = true)))
+        assertTrue(s.pullRequests.getValue("a1").getPullRequests(0).held)
+    }
 }
