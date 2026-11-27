@@ -31,6 +31,9 @@ class ThemeStore(private val context: Context) {
         _choice.value = name
     }
 
+    /** The theme to draw with right now (this device's choice, else the host's), given the system's mode. */
+    fun current(systemDark: Boolean): MeshTheme = resolve(choice.value, systemDark, host.value)
+
     /** The theme to draw with, given the system's mode. */
     fun resolve(choice: String, systemDark: Boolean, host: String? = null): MeshTheme {
         val wanted = if (choice == HOST) (host ?: Themes.DEFAULT) else if (choice == SYSTEM) (if (systemDark) Themes.DEFAULT else "Alucard") else choice

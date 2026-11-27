@@ -210,7 +210,12 @@ type HelloResponse struct {
 	Actor *Actor `protobuf:"bytes,7,opt,name=actor,proto3" json:"actor,omitempty"`
 	// The host's clock when it answered. A client measures how far its own clock is from the host's with it, to
 	// judge whether an event's time is recent (the host's clock may be minutes off, WSL's often is).
-	ServerTime    *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`
+	ServerTime *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=server_time,json=serverTime,proto3" json:"server_time,omitempty"`
+	// The CLIs this host can launch an agent on (`claude`, `agy`, `opencode`, `copilot`): those whose binary it finds, in
+	// that order. A client offers these for a new agent. A daemon that says so has the `clis` capability, and then an
+	// empty list means none is installed; without the capability (an older daemon) the list says nothing and a client
+	// offers every CLI the host has tiers for.
+	Clis          []string `protobuf:"bytes,9,rep,name=clis,proto3" json:"clis,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -297,6 +302,13 @@ func (x *HelloResponse) GetActor() *Actor {
 func (x *HelloResponse) GetServerTime() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ServerTime
+	}
+	return nil
+}
+
+func (x *HelloResponse) GetClis() []string {
+	if x != nil {
+		return x.Clis
 	}
 	return nil
 }
@@ -8321,7 +8333,11 @@ type ListProjectsRequest struct {
 	// Only this repo (a path or a bare name of a `repos.dir` folder), fetched from its origin first, and with its open
 	// pull requests read from GitHub: the full list is quick (it asks git, not the network) and has none. A read-only
 	// device may name only a repo the full list has, and gets the refs last fetched and no pull requests.
-	Repo          string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	Repo string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	// With `repo`: only say whether it is a git repository (and its branches), as quick as git answers: no fetch from
+	// its origin and no pull requests. For a check before the repo is used; without it the call may take up to 15 s.
+	// Ignored without `repo` (the full list asks git only).
+	Quick         bool `protobuf:"varint,2,opt,name=quick,proto3" json:"quick,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8361,6 +8377,13 @@ func (x *ListProjectsRequest) GetRepo() string {
 		return x.Repo
 	}
 	return ""
+}
+
+func (x *ListProjectsRequest) GetQuick() bool {
+	if x != nil {
+		return x.Quick
+	}
+	return false
 }
 
 // A pull request a workspace can start from: the branch to start the worktree on.
@@ -8602,7 +8625,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x17agentmesh/v1/mesh.proto\x12\fagentmesh.v1\x1a\x18agentmesh/v1/actor.proto\x1a\x16agentmesh/v1/ask.proto\x1a\x17agentmesh/v1/chat.proto\x1a\x1bagentmesh/v1/commands.proto\x1a\x1aagentmesh/v1/context.proto\x1a\x1aagentmesh/v1/options.proto\x1a\x15agentmesh/v1/pr.proto\x1a\x19agentmesh/v1/report.proto\x1a\x18agentmesh/v1/tools.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"Q\n" +
 	"\fHelloRequest\x12\x16\n" +
 	"\x06client\x18\x01 \x01(\tR\x06client\x12)\n" +
-	"\x10protocol_version\x18\x02 \x01(\x05R\x0fprotocolVersion\"\xd9\x02\n" +
+	"\x10protocol_version\x18\x02 \x01(\x05R\x0fprotocolVersion\"\xed\x02\n" +
 	"\rHelloResponse\x12\x1b\n" +
 	"\tdaemon_id\x18\x01 \x01(\tR\bdaemonId\x12\x1f\n" +
 	"\vinstance_id\x18\x02 \x01(\tR\n" +
@@ -8614,7 +8637,8 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\fcapabilities\x18\x06 \x03(\tR\fcapabilities\x12)\n" +
 	"\x05actor\x18\a \x01(\v2\x13.agentmesh.v1.ActorR\x05actor\x12;\n" +
 	"\vserver_time\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"serverTime\"\x8d\x01\n" +
+	"serverTime\x12\x12\n" +
+	"\x04clis\x18\t \x03(\tR\x04clis\"\x8d\x01\n" +
 	"\x0fStartRunRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x125\n" +
@@ -9155,9 +9179,10 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x18\n" +
 	"\arelease\x18\x03 \x01(\bR\arelease\"Y\n" +
 	"\x17HoldPullRequestResponse\x12>\n" +
-	"\rpull_requests\x18\x01 \x03(\v2\x19.agentmesh.v1.PullRequestR\fpullRequests\"3\n" +
+	"\rpull_requests\x18\x01 \x03(\v2\x19.agentmesh.v1.PullRequestR\fpullRequests\"I\n" +
 	"\x13ListProjectsRequest\x12\x1c\n" +
-	"\x04repo\x18\x01 \x01(\tB\b\x98\xb5\x18\x01\xa0\xb5\x18\x01R\x04repo\"\xb0\x01\n" +
+	"\x04repo\x18\x01 \x01(\tB\b\x98\xb5\x18\x01\xa0\xb5\x18\x01R\x04repo\x12\x14\n" +
+	"\x05quick\x18\x02 \x01(\bR\x05quick\"\xb0\x01\n" +
 	"\x12ProjectPullRequest\x12\x16\n" +
 	"\x06number\x18\x01 \x01(\x05R\x06number\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x19\n" +

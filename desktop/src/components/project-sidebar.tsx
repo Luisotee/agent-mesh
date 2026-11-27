@@ -24,7 +24,7 @@ import { vendorOfKind } from '@/vendor'
 import { ArchiveDialog } from './agent-work'
 import { AddProjectDialog } from './add-project'
 import { SidebarFooter } from './sidebar-footer'
-import { cliKinds, cliName } from '@/cli'
+import { cliKinds, cliName, hostClis } from '@/cli'
 import { StateIcon } from './state-icon'
 import { VendorIcon } from './vendor-icon'
 import { WaitingList } from './waiting-list'
@@ -269,7 +269,7 @@ function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; ma
 function EmptyProjectActions({ hostId, repo }: { hostId: string; repo: string }) {
   const app = useApp()
   const fail = (e: unknown) => app.notify(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e), 'error')
-  const kind = () => cliKinds(hostOf(app, hostId)?.store.getState().settings ?? {})[0] ?? 'claude'
+  const kind = () => cliKinds(hostOf(app, hostId)?.store.getState().settings ?? {}, hostClis(hostOf(app, hostId)?.store.getState().daemon))[0] ?? 'claude'
   return (
     <span className="flex shrink-0 gap-0.5">
       <Tip label={`A plain ${cliName(kind())} agent, like claude in a terminal`}>
