@@ -114,3 +114,44 @@ func TestCutSessionFollowsThePromptsChainPastAnAbandonedBranch(t *testing.T) {
 		t.Error("a line on no chain was dropped")
 	}
 }
+
+func TestCutSessionReturnsThePromptAsTheChatShowsItAndRefusesAToolResultLine(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "old.jsonl")
+	body := `{"type":"user","uuid":"u1","sessionId":"old","message":{"content":"first"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"old","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}]}}
+{"type":"user","uuid":"r1","parentUuid":"a1","sessionId":"old","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"x"},{"type":"text","text":"typed mid-turn"}]}}
+{"type":"user","uuid":"u2","parentUuid":"r1","sessionId":"old","message":{"content":[{"type":"text","text":"fix the typo"},{"type":"text","text":"<system-reminder>noise</system-reminder>"}]}}
+{"type":"user","uuid":"c1","parentUuid":"u2","sessionId":"old","message":{"content":"<command-name>/foo</command-name><command-args>bar</command-args>"}}
+`
+	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CutSession(src, "r1", "n1"); !errors.Is(err, ErrNotAPrompt) {
+		t.Errorf("a tool result with text beside it: err = %v, want ErrNotAPrompt", err)
+	}
+	if text, err := CutSession(src, "u2", "n2"); err != nil || text != "fix the typo" {
+		t.Errorf("text, err = %q, %v; want the typed text without the reminder", text, err)
+	}
+	if text, err := CutSession(src, "c1", "n3"); err != nil || text != "/foo bar" {
+		t.Errorf("a slash command: text, err = %q, %v; want /foo bar", text, err)
+	}
+}
+
+func TestCutSessionRefusesTheFirstPrompt(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "old.jsonl")
+	body := `{"type":"session-owner","sessionId":"old"}
+{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"old","message":{"content":"first"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"old","message":{"content":[]}}
+`
+	if err := os.WriteFile(src, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CutSession(src, "u1", "new"); !errors.Is(err, ErrFirstPrompt) {
+		t.Errorf("err = %v, want ErrFirstPrompt", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.jsonl")); !os.IsNotExist(err) {
+		t.Error("a refused cut wrote a file")
+	}
+}

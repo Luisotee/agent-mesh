@@ -395,6 +395,10 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
   useEffect(() => {
     forAgent.current = `${host.info.id}/${agentId}`
     setImages([])
+    // Unmounted (the tab closed) is leaving the agent too.
+    return () => {
+      forAgent.current = ''
+    }
   }, [host, agentId])
   const [busy, setBusy] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -413,7 +417,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
       // Never over what is being written: the taken-back prompt goes after it.
       setText((cur) => (cur.trim() ? `${cur.replace(/\s+$/, '')}\n\n${fill.text}` : fill.text))
       const back = fill.images ?? []
-      if (back.length > 0) setImages((cur) => [...cur, ...back.map((p) => ({ key: `back-${p}`, name: p.split(/[\\/]/).pop() ?? p, url: thumbs.get(p) ?? '', path: p }))])
+      if (back.length > 0) setImages((cur) => [...cur, ...back.map((p) => ({ key: `back-${p}-${Math.random()}`, name: p.split(/[\\/]/).pop() ?? p, url: thumbs.get(p) ?? '', path: p }))])
       app.store.setState({ composerFill: undefined })
     }
   }, [fill, agentId, app, setText])
@@ -435,27 +439,32 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active }: { h
   /** Stores each image on the host (so an agent on another machine can read it), with a thumbnail kept here. */
   async function attach(files: File[]) {
     if (noImages || why) return
+    // The agent these files were added to: the loop stops when another is shown, so none lands in its strip or goes
+    // up under the wrong agent's folder.
+    const owner = forAgent.current
     for (const f of files) {
+      if (forAgent.current !== owner) return
       const problem = imageProblem(f)
       if (problem) {
         setError(problem)
         continue
       }
       const key = `${f.name}-${f.size}-${Math.random()}`
-      const owner = forAgent.current
       const url = await new Promise<string>((resolve) => {
         const r = new FileReader()
         r.onload = () => resolve(String(r.result))
         r.onerror = () => resolve('')
         r.readAsDataURL(f)
       })
+      if (forAgent.current !== owner) return
       setImages((cur) => [...cur, { key, name: f.name, url }])
       try {
         const res = await addAttachment(host.client, agentId, imageName(f), new Uint8Array(await f.arrayBuffer()))
         if (url) keepThumb(res.path, url)
-        if (forAgent.current !== owner) continue
+        if (forAgent.current !== owner) return
         setImages((cur) => cur.map((i) => (i.key === key ? { ...i, path: res.path } : i)))
       } catch (e) {
+        if (forAgent.current !== owner) return
         setImages((cur) => cur.filter((i) => i.key !== key))
         setError(say(e))
       }
@@ -683,11 +692,11 @@ function ChatBlock({ block, agentId, running }: { block: Block; agentId: string;
         <div className="group ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end" data-kind="user">
           {paths.length > 0 && (
             <ul aria-label="Images" className="mb-1 flex flex-wrap justify-end gap-1.5">
-              {paths.map((p) => {
+              {paths.map((p, n) => {
                 const name = p.split(/[\\/]/).pop() ?? p
                 const url = thumbs.get(p)
                 return (
-                  <li key={p} title={p}>
+                  <li key={`${n}-${p}`} title={p}>
                     {url ? <img src={url} alt={name} className="max-h-40 max-w-60 rounded-md border object-contain" /> : <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"><ImagePlus className="size-3.5" />{name}</span>}
                   </li>
                 )

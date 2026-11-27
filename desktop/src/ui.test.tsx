@@ -1514,6 +1514,21 @@ describe('ChatView', () => {
     expect(addAttachment).toHaveBeenCalledTimes(1)
   })
 
+  it('stops uploading the remaining images when another agent is shown meanwhile', async () => {
+    const { ui, addAttachment, wrap, host } = chat()
+    let finish: (v: { path: string }) => void = () => {}
+    addAttachment.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    const { container, rerender } = render(ui)
+    await screen.findByRole('textbox', { name: 'Prompt' })
+    const png = (n: string) => new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], n, { type: 'image/png' })
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, [png('a.png'), png('b.png'), png('c.png')])
+    await waitFor(() => expect(addAttachment).toHaveBeenCalledTimes(1))
+    rerender(wrap(<ChatView host={host} agentId="w2" active />))
+    finish({ path: '/state/runs/r1/attachments/w1/a.png' })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(addAttachment).toHaveBeenCalledTimes(1)
+  })
+
   it('offers no images for a CLI not checked to read them', async () => {
     const { ui } = chat({ agent: { kind: 'opencode' } })
     render(ui)

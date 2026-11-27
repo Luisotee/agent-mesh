@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	agentmeshv1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
 )
 
@@ -19,6 +20,10 @@ const CapRewind = "rewind"
 
 // ErrNotAPrompt says the entry named is not a prompt of the session (another kind of line, or none at all).
 var ErrNotAPrompt = errors.New("not a prompt of this conversation")
+
+// ErrFirstPrompt says the prompt is the conversation's first: nothing comes before it, and Claude Code (2.1.332,
+// checked live) can't resume a session with no messages ("No conversation found").
+var ErrFirstPrompt = errors.New("the first prompt of the conversation has nothing before it to go back to")
 
 // maxSessionLine bounds one line of a session file (a tool result can be large).
 const maxSessionLine = 64 << 20
@@ -85,9 +90,13 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 		chain[at] = true
 	}
 	var out bytes.Buffer
+	messages := 0
 	for _, l := range before {
 		if !linear && l.uuid != "" && !chain[l.uuid] {
 			continue
+		}
+		if l.uuid != "" {
+			messages++
 		}
 		kept, err := withSession(l.raw, newID)
 		if err != nil {
@@ -95,6 +104,9 @@ func CutSession(path, uuid, newID string) (text string, err error) {
 		}
 		out.Write(kept)
 		out.WriteByte('\n')
+	}
+	if messages == 0 {
+		return "", ErrFirstPrompt
 	}
 	dst := filepath.Join(filepath.Dir(path), newID+".jsonl")
 	if err := fsutil.WriteAtomic(dst, out.Bytes(), 0o600); err != nil {
@@ -123,8 +135,9 @@ func withSession(line []byte, id string) ([]byte, error) {
 	return json.Marshal(o)
 }
 
-// promptText is what the user typed, and whether the line is one: a string content, or text blocks (a line of
-// tool results alone answers a tool call, not the user).
+// promptText is what the user typed, as the chat shows it (injected reminders and a command's tags dropped, `userEntry`),
+// and whether the line is a prompt: a string content, or text and image blocks. A line holding a tool result answers
+// a tool call, not the user, even with text beside it: cut there, the copy would end on a call with no result.
 func promptText(msg json.RawMessage) (string, bool) {
 	var m struct {
 		Content json.RawMessage `json:"content"`
@@ -132,9 +145,16 @@ func promptText(msg json.RawMessage) (string, bool) {
 	if json.Unmarshal(msg, &m) != nil {
 		return "", false
 	}
+	typed := func(text string) (string, bool) {
+		e := userEntry(text, false)
+		if e == nil || e.Kind != agentmeshv1.TranscriptKind_TRANSCRIPT_KIND_USER {
+			return "", false
+		}
+		return e.Text, true
+	}
 	var s string
 	if json.Unmarshal(m.Content, &s) == nil {
-		return s, true
+		return typed(s)
 	}
 	var blocks []struct {
 		Type string `json:"type"`
@@ -144,17 +164,19 @@ func promptText(msg json.RawMessage) (string, bool) {
 		return "", false
 	}
 	var parts []string
-	typed := false
+	isPrompt := false
 	for _, b := range blocks {
 		switch b.Type {
+		case "tool_result":
+			return "", false
 		case "text":
-			typed = true
-			if b.Text != "" {
-				parts = append(parts, b.Text)
+			if t, ok := typed(b.Text); ok {
+				parts = append(parts, t)
+				isPrompt = true
 			}
 		case "image":
-			typed = true
+			isPrompt = true
 		}
 	}
-	return strings.Join(parts, "\n"), typed
+	return strings.Join(parts, "\n"), isPrompt
 }

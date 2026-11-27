@@ -44,6 +44,7 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 	out := &v1.RewindAgentResponse{}
 	// The copy cut in a transaction that then fails (a revive refused at the host's cap) is removed again.
 	var cutFrom, cutID string
+	var revived bool
 	if _, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceRewindAgentProcedure, out, func(tx *store.Tx) error {
 		a, err := tx.GetAgent(found.Id)
 		if err != nil {
@@ -55,6 +56,10 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 		if !stopped(a) && !atPrompt(a.State) {
 			return failedPrecondition("%s is at work or waiting at a prompt in its terminal: interrupt it first, then rewind", a.Name)
 		}
+		if a.PendingCompaction != nil || a.PendingReset != nil {
+			// Its compaction or reset still to type would run in the old process and put the old session id back.
+			return failedPrecondition("%s has a compaction or reset waiting: rewind once it is done", a.Name)
+		}
 		if a.SessionId == "" || a.Worktree == "" {
 			return failedPrecondition("%s has no conversation the daemon knows of to rewind", a.Name)
 		}
@@ -64,6 +69,8 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 		switch {
 		case errors.Is(err, claude.ErrNotAPrompt):
 			return failedPrecondition("that entry is not one of %s's prompts in its current conversation", a.Name)
+		case errors.Is(err, claude.ErrFirstPrompt):
+			return failedPrecondition("that is the first prompt of %s's conversation, with nothing before it to go back to: start a new conversation instead", a.Name)
 		case errors.Is(err, os.ErrNotExist):
 			return failedPrecondition("%s's conversation file is not on this host (%s)", a.Name, path)
 		case err != nil:
@@ -75,6 +82,7 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 			if _, err := d.revive(tx, a, reviveSpec{why: "rewound"}); err != nil {
 				return err
 			}
+			revived = true
 		} else {
 			model, effort, deny := target(a)
 			if _, err := requestReopen(tx, a, model, effort, deny, "rewound", "its conversation taken back to before a prompt"); err != nil {
@@ -86,6 +94,9 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 	}); err != nil {
 		if cutID != "" {
 			claude.RemoveCut(cutFrom, cutID)
+		}
+		if revived {
+			d.rt.guard.release(found.Id) // the write failed after the host's cap let the revive through
 		}
 		return nil, err
 	}

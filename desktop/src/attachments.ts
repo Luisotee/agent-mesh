@@ -41,14 +41,21 @@ export function splitImages(text: string): { paths: string[]; text: string } {
 /** The thumbnails of the images this device sent, by their host path (data URLs: the page's CSP allows them). */
 export const thumbs = new Map<string, string>()
 
-/** At most this many thumbnails are kept, the oldest dropped first (each may be megabytes). */
+/** At most this many thumbnails are kept, and this many characters of them (a data URL of a 10 MB image is 13 MB). */
 export const MAX_THUMBS = 40
+export const MAX_THUMB_CHARS = 48_000_000
 
-/** Keeps a thumbnail, dropping the oldest past `MAX_THUMBS`. */
+/** Keeps a thumbnail, dropping the oldest past `MAX_THUMBS` or `MAX_THUMB_CHARS` (the new one stays). */
 export function keepThumb(path: string, url: string): void {
   thumbs.delete(path)
   thumbs.set(path, url)
-  while (thumbs.size > MAX_THUMBS) thumbs.delete(thumbs.keys().next().value!)
+  let size = 0
+  for (const u of thumbs.values()) size += u.length
+  for (const k of [...thumbs.keys()]) {
+    if (thumbs.size <= 1 || (thumbs.size <= MAX_THUMBS && size <= MAX_THUMB_CHARS)) break
+    size -= thumbs.get(k)!.length
+    thumbs.delete(k)
+  }
 }
 
 /**

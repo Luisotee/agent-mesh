@@ -9,8 +9,10 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
 func (h *agentsHarness) rewind(agent, entry, mid string) (*v1.RewindAgentResponse, error) {
@@ -98,6 +100,30 @@ func TestRewindRefusesAnAgentAtWork(t *testing.T) {
 	_, err := h.rewind(a.Id, one.Id, "rw-busy")
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "interrupt it first") {
 		t.Fatalf("rewinding a working agent: %v", err)
+	}
+}
+
+func TestRewindWaitsForAPendingCompaction(t *testing.T) {
+	h, a := chatDaemon(t, nil)
+	if err := h.promptWhenReady(a.Id, "one"); err != nil {
+		t.Fatal(err)
+	}
+	h.waitTranscript(a.Id, "one")
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
+	one := h.promptEntry(a.Id, "one")
+	err := h.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		cur, err := tx.GetAgent(a.Id)
+		if err != nil {
+			return err
+		}
+		cur.PendingCompaction = &v1.PendingCompaction{Id: "c-rw", Why: "follow-up", Always: true, RequestedAt: timestamppb.Now()}
+		return tx.PutAgent(cur)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.rewind(a.Id, one.Id, "rw-compact"); connect.CodeOf(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "compaction or reset waiting") {
+		t.Fatalf("rewinding with a compaction waiting: %v", err)
 	}
 }
 
