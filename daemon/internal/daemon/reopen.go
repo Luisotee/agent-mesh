@@ -1465,6 +1465,9 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 		// The state is what the new process's hooks made it: it was set STARTING before the launch.
 		a.TerminalId, a.Model, a.Effort, a.DenyEdits = tid, r.Model, r.Effort, r.DenyEdits
 		a.Archived = false // its worktree was made again before the launch
+		if r.Fresh {
+			a.HadTurn = false // a new conversation has had no turn yet
+		}
 		if plan != nil && plan.SessionId != "" {
 			a.SessionId = plan.SessionId
 		}
@@ -1511,15 +1514,15 @@ func (d *Daemon) tellContextLost(tx *store.Tx, a *v1.Agent) ([]string, error) {
 		return nil, nil
 	}
 	var ring []string
-	text := "Your earlier conversation (session " + a.SessionId + ") no longer exists: Claude Code deletes transcripts older than " +
-		"30 days, so you start fresh with no memory of it. Run `mesh inbox` and re-read your task and the messages you have; " +
+	text := "Your earlier conversation (session " + a.SessionId + ") was not found where Claude Code keeps it (it deletes transcripts " +
+		"after 30 days, by default), so you start fresh with no memory of it. Run `mesh inbox` and re-read your task and the messages you have; " +
 		"look at your worktree (`git log`, `git status`) for what is already done, and carry on from there."
 	if _, err := tellTx(tx, a, text); err != nil {
 		return nil, err
 	}
 	ring = append(ring, a.Id)
-	if alert, err := d.alertParentTx(tx, a, "context", a.Name+" was resumed with no memory: its earlier Claude conversation no longer "+
-		"exists (Claude Code deletes transcripts after 30 days). It was told, and starts from its task and its worktree. "+
+	if alert, err := d.alertParentTx(tx, a, "context", a.Name+" was resumed with no memory: its earlier Claude conversation was not found "+
+		"(Claude Code deletes transcripts after 30 days, by default). It was told, and starts from its task and its worktree. "+
 		"Check what it has before relying on it.", tx.Now()); err != nil {
 		return nil, err
 	} else if alert != nil {

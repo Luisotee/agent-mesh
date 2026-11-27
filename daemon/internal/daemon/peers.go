@@ -1033,6 +1033,10 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	}
 	if p.SessionId == "" {
 		agent.SessionId = plan.SessionId
+	} else if plan.ResumeMissing {
+		// Its conversation is gone (Claude Code deletes old ones): it answers from its worktree only, and says so.
+		task = "Your earlier conversation was not found where Claude Code keeps it, so you start with no memory of it: answer from " +
+			"your worktree and what you can read there, and say in your answer that your earlier research is not in your context.\n\n" + task
 	}
 	if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
 		if run, err := tx.GetRun(actor.RunId); err != nil {

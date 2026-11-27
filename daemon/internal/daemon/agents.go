@@ -384,7 +384,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	exiting := d.agentOfExit(ctx, terminalID, agentID, reopenID)
 	words := d.exitWords(ctx, exiting) // read before the write that records the exit
 	printed := ""
-	if exiting != nil && !exiting.HadTurn && code > 0 && signal == 0 && reason == "exited" {
+	if exiting != nil && !stopped(exiting) && !exiting.HadTurn && code > 0 && signal == 0 && reason == "exited" {
 		printed = d.screenPrinted(ctx, terminalID) // a CLI that failed at once says why on its screen
 	}
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
@@ -728,6 +728,7 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	before := reducer.Of(a)
 	s := before
 	for _, ev := range evs {
+		prevID := s.SessionID
 		if bad := ev.GetDecodeError(); bad != nil {
 			if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_HookDecodeFailed{
 				HookDecodeFailed: &v1.HookDecodeFailed{Error: bad.Error}}}); err != nil {
@@ -740,6 +741,9 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 			}
 		}
 		s = reducer.Reduce(s, ev)
+		if prevID != "" && s.SessionID != prevID {
+			a.HadTurn = false // a new conversation (a /clear, a reset) has had no turn yet
+		}
 		if s.State == v1.AgentState_AGENT_STATE_WORKING {
 			a.HadTurn = true // a conversation exists from here on (Claude Code writes it with the first prompt)
 		}

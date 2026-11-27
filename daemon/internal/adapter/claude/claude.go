@@ -248,13 +248,17 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 			return nil, fmt.Errorf("standalone launch requires resume_session_id")
 		}
 		argv := []string{bin, "--resume", m.ResumeSessionId}
+		missing := !SessionExists(m.Env, m.ResumeSessionId)
+		if missing {
+			argv = []string{bin, "--session-id", m.ResumeSessionId} // an agent that never had a turn has no conversation to open
+		}
 		if m.Model != "" {
 			argv = append(argv, "--model", m.Model)
 		}
 		if m.Effort != "" {
 			argv = append(argv, "--effort", m.Effort)
 		}
-		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: m.ResumeSessionId}), nil
+		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: m.ResumeSessionId, ResumeMissing: missing}), nil
 	}
 	deny := ReadOnly(m.Role) || m.DenyEdits
 	extra := map[string]any{}
@@ -296,7 +300,7 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if sid == "" {
 		sid = a.NewSessionID()
 		argv = []string{bin, "--session-id", sid}
-	} else if !SessionExists(m.Env, m.Cwd, sid) {
+	} else if !SessionExists(m.Env, sid) {
 		// The id was chosen at the first launch, but Claude Code writes the conversation only with its first turn: an
 		// agent reopened before then has nothing to resume (`--resume` exits 1 with "No conversation found"). The same
 		// id starts it fresh, and the first turn is then the conversation `--resume` finds next time.

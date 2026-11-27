@@ -579,6 +579,27 @@ func TestImportingPeersCarriesTheirConversationsAndWorktreePathsAcrossAndAskResu
 	if f, deny := flags(all[len(all)-1]); f["--resume"] != "sess-alpha" || f["--session-id"] != "" || !deny {
 		t.Errorf("alpha's launch %v", all)
 	}
+	// A peer whose conversation Claude Code no longer has (no transcript on this machine) starts fresh under its id,
+	// and is told, so its answer says its earlier research is not in its context.
+	br, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: "beta-research", Tier: "mid", Body: "What changed?", NoRefresh: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox, err := w.d.Store().Read(ctx).Inbox(br.Msg.Agents[0].Id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	told := false
+	for _, m := range inbox {
+		told = told || strings.Contains(m.Body, "was not found where Claude Code keeps it")
+	}
+	if !told {
+		t.Errorf("beta's task does not say its conversation is gone: %v", inbox)
+	}
+	bl := w.launches(t, "sess-beta")
+	if f, _ := flags(bl[len(bl)-1]); f["--session-id"] != "sess-beta" || f["--resume"] != "" {
+		t.Errorf("beta's launch %v", bl)
+	}
 }
 
 func TestImportingPeersKeepsAConversationRunningInBinMeshOutAndTheUnbriefedOptOut(t *testing.T) {

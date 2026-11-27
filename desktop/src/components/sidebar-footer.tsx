@@ -23,7 +23,8 @@ export function SidebarFooter() {
   const host = useSelectedHost()
   const settingsOpen = useAppState((s) => s.settingsOpen)
   const keys = useKeys(hosts)
-  const mayPair = useHostState(host ?? hosts[0]!, (s) => !!host && s.conn.kind === 'ready' && canPair(host.store))
+  const ready = useHostState(host ?? hosts[0]!, (s) => !!host && s.conn.kind === 'ready')
+  const mayPair = useHostState(host ?? hosts[0]!, () => !!host && canPair(host.store))
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<HostRuntime>()
   const fixed = app.api.hosts.fixed
@@ -35,8 +36,8 @@ export function SidebarFooter() {
     ...(fixed ? [] : ([...(many ? ['separator' as const] : []), { label: 'Connect a host…', onSelect: () => setAdding(true) }] as MenuEntry[])),
     // Only the host's own device makes pairing links; a paired machine asks the setup assistant, which has the right to.
     mayPair
-      ? { label: 'Pair a device', onSelect: () => app.openPairing(true) }
-      : { label: 'Pair a device with the assistant', onSelect: () => void app.openSetup((host ?? hosts[0]!).info.id), disabled: !host },
+      ? { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !ready }
+      : { label: 'Pair a device with the assistant', onSelect: () => void app.openSetup((host ?? hosts[0]!).info.id), disabled: !ready },
     ...(fixed ? [] : (['separator', ...hosts.map((h) => ({ label: `Remove ${h.info.name}…`, onSelect: () => setRemoving(h), destructive: true }))] as MenuEntry[])),
   ]
   return (

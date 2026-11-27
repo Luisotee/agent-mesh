@@ -90,7 +90,7 @@ func TestAnAgentWhoseConversationWasDeletedIsToldItStartsWithNoMemoryAndSoIsItsP
 		t.Fatal(err)
 	}
 	a = w.waitReopened(t, a.Id, old)
-	if w.infoTo(t, a, "no longer exists") != nil {
+	if w.infoTo(t, a, "was not found where Claude Code keeps it") != nil {
 		t.Fatal("an agent reopened before its first turn was told its context is gone")
 	}
 	// After a turn, its conversation deleted: told, and its parent too.
@@ -109,6 +109,6 @@ func TestAnAgentWhoseConversationWasDeletedIsToldItStartsWithNoMemoryAndSoIsItsP
 		t.Fatal(err)
 	}
 	a = w.waitReopened(t, a.Id, old)
-	waitFor(t, "the agent told its context is gone", func() bool { return w.infoTo(t, a, "no longer exists") != nil })
+	waitFor(t, "the agent told its context is gone", func() bool { return w.infoTo(t, a, "was not found where Claude Code keeps it") != nil })
 	waitFor(t, "its parent told", func() bool { return w.infoTo(t, lead, "[mesh alert context "+a.Id+"]") != nil })
 }

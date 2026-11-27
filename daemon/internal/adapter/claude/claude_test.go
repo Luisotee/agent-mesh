@@ -161,12 +161,15 @@ func TestPlanLaunchStartsAMissingConversationFreshUnderItsId(t *testing.T) {
 	if got := plan("sid-new"); strings.Join(got.Argv[:3], " ") != "claude --session-id sid-new" || !got.ResumeMissing || got.SessionId != "sid-new" {
 		t.Errorf("a missing conversation: argv %v, resume_missing %v, session %q", got.Argv, got.ResumeMissing, got.SessionId)
 	}
-	// One kept under another folder is not found by `--resume` here: started fresh as well.
+	// Found by its id in any project folder (a worktree reached through a symlink is named after its real path).
 	write(filepath.Join(home, ".claude", "projects", "-some-other-folder", "sid-else.jsonl"))
-	if got := plan("sid-else"); !got.ResumeMissing {
-		t.Errorf("a conversation of another folder was resumed: %v", got.Argv)
+	if got := plan("sid-else"); got.ResumeMissing || got.Argv[1] != "--resume" {
+		t.Errorf("a conversation of another folder was started fresh: %v", got.Argv)
 	}
 	write(TranscriptPath(env, cwd, "sid-old"))
+	if res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Binary: "claude", ResumeSessionId: "sid-gone", Standalone: true, Env: env})); err != nil || res.Msg.Argv[1] != "--session-id" || !res.Msg.ResumeMissing {
+		t.Errorf("`mesh open` of a session with no conversation: %v, %v", res, err)
+	}
 	if got := plan("sid-old"); strings.Join(got.Argv[:3], " ") != "claude --resume sid-old" || got.ResumeMissing {
 		t.Errorf("an existing conversation: argv %v, resume_missing %v", got.Argv, got.ResumeMissing)
 	}
@@ -258,6 +261,13 @@ func TestSettingsEmitsStatusLineWhenStateFlagPresent(t *testing.T) {
 
 func TestPlanLaunchStandalone(t *testing.T) {
 	a := New()
+	home := t.TempDir() // its conversation exists, so `mesh open` resumes it
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "projects", "-p"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "projects", "-p", "sess-42.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
 		Role:            agentmeshv1.AgentRole_AGENT_ROLE_ASKER,
 		DenyEdits:       true,
@@ -271,7 +281,7 @@ func TestPlanLaunchStandalone(t *testing.T) {
 		HookArgv:        []string{"mesh", "hook", "--state", "/tmp/st"},
 		Lean:            &adapterv1.LeanLaunch{DenyTools: []string{"Agent"}},
 		Env: map[string]string{
-			"HOME":        "/tmp/h",
+			"HOME":        home,
 			"CLAUDECODE":  "1",
 			"ANTHROPIC_K": "v",
 		},
@@ -287,7 +297,7 @@ func TestPlanLaunchStandalone(t *testing.T) {
 	if _, ok := res.Msg.Env["CLAUDECODE"]; ok {
 		t.Errorf("CLAUDECODE kept in standalone env: %v", res.Msg.Env)
 	}
-	if res.Msg.Env["HOME"] != "/tmp/h" {
+	if res.Msg.Env["HOME"] != home {
 		t.Errorf("HOME lost: %v", res.Msg.Env)
 	}
 	if _, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Standalone: true})); err == nil {
