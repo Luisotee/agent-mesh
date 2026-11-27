@@ -204,7 +204,7 @@ public interface MeshServiceClientInterface {
   public suspend fun listShells(request: ListShellsRequest, headers: Headers = emptyMap()): ResponseMessage<ListShellsResponse>
 
   /**
-   *  End a shell (SIGTERM, then SIGKILL) and forget it. A ticket already issued for it stops working.
+   *  End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
    */
   public suspend fun closeShell(request: CloseShellRequest, headers: Headers = emptyMap()): ResponseMessage<CloseShellResponse>
 

@@ -1,5 +1,5 @@
 import { SquareTerminal } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -15,10 +15,16 @@ export function ShellPanel({ host, agentId }: { host: HostRuntime; agentId: stri
   const app = useApp()
   const id = shellIdOf(agentId)
   const shells = useAppState((s) => s.shells[host.info.id])
+  const failure = useAppState((s) => s.shellsError[host.info.id])
   const shell = shells?.find((x) => x.id === id)
   if (!shell) {
     // A restored tab shows before the host's shells are read: the shell is not missing, only not here yet.
-    return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">{shells ? 'That shell has ended.' : 'Connecting to the host…'}</div>
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+        {shells ? 'That shell has ended.' : failure ? <p role="alert">{`The host's shells could not be read: ${failure}`}</p> : 'Connecting to the host…'}
+        {!shells && failure && <Button size="sm" variant="outline" onClick={() => void app.loadShells(host.info.id)}>Try again</Button>}
+      </div>
+    )
   }
   const entries: MenuEntry[] = [{ label: 'End the shell…', onSelect: () => app.closeTab({ hostId: host.info.id, agentId: shellTabId(id) }), destructive: true }]
   return (
@@ -41,6 +47,14 @@ export function ShellCloseDialog() {
   const closing = useAppState((s) => s.closingShell)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const shells = useAppState((s) => (closing ? s.shells[closing.hostId] : undefined))
+  // A shell that ended on its own is not asked about: its tab just closes. The host's list says which (read fresh as the question opens).
+  useEffect(() => {
+    if (closing) void app.loadShells(closing.hostId)
+  }, [closing, app])
+  useEffect(() => {
+    if (closing && shells && !shells.some((x) => shellTabId(x.id) === closing.agentId)) app.closeShellTab(closing, true)
+  }, [closing, shells, app])
   if (!closing) return null
   const ref = closing
   const end = async () => {

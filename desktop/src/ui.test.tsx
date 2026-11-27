@@ -25,6 +25,8 @@ import { ShortcutField } from './components/shortcut-field'
 import { useShortcuts } from './shortcuts'
 import { TabBar } from './components/tab-bar'
 import { ShellCloseDialog } from './components/shell-panel'
+import { keyedCommands } from './commands'
+import { Code, ConnectError } from '@connectrpc/connect'
 import { pruneHost } from './layout'
 import { MessageCard } from './components/messages-panel'
 import { ProjectSidebar, stepSidebar } from './components/project-sidebar'
@@ -1823,6 +1825,49 @@ describe('Project shells', () => {
     await waitFor(() => expect(client.closeShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' })))
     await waitFor(() => expect(model.store.getState().tabs).not.toContainEqual({ hostId: 'h1', agentId: 'shell:t1' }))
     expect(model.store.getState().shells.h1!.map((x) => x.id)).toEqual(['t2'])
+  })
+
+  it('ends a shell that ended on its own without asking, closes a kept one that came back, and tells when a new terminal fails', async () => {
+    const { client, wrap, model } = shells([shell('t1'), shell('t2')])
+    await act(() => model.loadShells('h1'))
+    model.selectAgent('h1', 'shell:t1')
+    model.selectAgent('h1', 'shell:t2')
+    render(wrap(<><TabBar /><ShellCloseDialog /></>))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    // The shell t1 ended by itself (the host forgot it): closing its tab does not offer to keep it running.
+    client.listShells.mockImplementation(async () => create(ListShellsResponseSchema, { shells: [shell('t2')] }))
+    await userEvent.click(within(tabs).getByRole('button', { name: 'Close Terminal' }))
+    await waitFor(() => expect(model.store.getState().tabs).not.toContainEqual({ hostId: 'h1', agentId: 'shell:t1' }))
+    expect(screen.queryByRole('dialog', { name: 'Close this terminal?' })).toBeNull()
+    // End shell of one the host no longer has (it ended between the list and the click) is done, not an error.
+    client.closeShell.mockImplementationOnce(async () => {
+      throw new ConnectError('no shell', Code.NotFound)
+    })
+    await act(() => model.endShell('h1', 't2'))
+    expect(model.store.getState().tabs).not.toContainEqual({ hostId: 'h1', agentId: 'shell:t2' })
+    // A New terminal the host refuses says why, in the bar.
+    model.selectAgent('h1', 'lead')
+    client.openShell.mockImplementationOnce(async () => {
+      throw new ConnectError('20 shells are running: end one first', Code.FailedPrecondition)
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'New terminal' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('20 shells are running')
+  })
+
+  it('reopens a closed shell tab that is still running, forgets a host\'s shells with the host, and opens New lead on a shell tab\'s project', async () => {
+    const { host, model } = shells([shell('t1')])
+    Object.assign(host, { stop: vi.fn() })
+    await act(() => model.loadShells('h1'))
+    model.selectAgent('h1', 'shell:t1')
+    model.closeTab({ hostId: 'h1', agentId: 'shell:t1' }, true)
+    expect(model.store.getState().tabs).not.toContainEqual({ hostId: 'h1', agentId: 'shell:t1' })
+    model.reopenTab()
+    expect(model.store.getState().agentId).toBe('shell:t1')
+    keyedCommands(model).tab_new()
+    expect(model.store.getState()).toMatchObject({ workspaceOpen: true, workspaceRepo: '/p/app', workspaceHost: 'h1' })
+    await act(() => model.removeHost('h1'))
+    expect(model.store.getState().shells.h1).toBeUndefined()
   })
 
   it('judges a restored shell tab by the host\'s shells, once they are read, and not before', async () => {

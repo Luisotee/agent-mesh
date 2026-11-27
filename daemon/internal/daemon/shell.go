@@ -30,6 +30,8 @@ const (
 	maxShells = 20
 	// shellGrace is how long a closed shell has to leave on SIGHUP before it is sent SIGTERM and then SIGKILL.
 	shellGrace = 3 * time.Second
+	// hostCallTimeout bounds a call to the terminal host made while the store's write lock is held.
+	hostCallTimeout = 10 * time.Second
 )
 
 // shellEnv is what a shell starts with: the user's basics and session and none of the daemon's secrets (no AGENT_MESH_*, no
@@ -118,6 +120,9 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 	out := &v1.OpenShellResponse{}
 	var created string
 	_, err = d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceOpenShellProcedure, out, func(*store.Tx) error {
+		// The host is asked with a deadline of its own: this runs under the store's write lock, and a wedged host must not stall every write.
+		ctx, cancel := context.WithTimeout(ctx, hostCallTimeout)
+		defer cancel()
 		// Counted inside the write, so a replay of an applied request neither is refused nor uses a place.
 		live, err := d.shells(ctx)
 		if err != nil {
@@ -173,6 +178,8 @@ func (d *Daemon) CloseShell(ctx context.Context, req *connect.Request[v1.CloseSh
 	out := &v1.CloseShellResponse{}
 	_, err := d.write(ctx, req.Msg.Meta, agentmeshv1connect.MeshServiceCloseShellProcedure, out, func(*store.Tx) error {
 		// Looked up here, after a replay of an applied request is answered: a retry of a close that worked is not "no such shell".
+		ctx, cancel := context.WithTimeout(ctx, hostCallTimeout)
+		defer cancel()
 		ts, err := d.shells(ctx)
 		if err != nil {
 			return err

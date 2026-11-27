@@ -26,7 +26,7 @@ public interface OpenShellRequestOrBuilder extends
    * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
    * </pre>
    *
-   * <code>string repo = 2 [json_name = "repo"];</code>
+   * <code>string repo = 2 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The repo.
    */
   java.lang.String getRepo();
@@ -35,7 +35,7 @@ public interface OpenShellRequestOrBuilder extends
    * The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
    * </pre>
    *
-   * <code>string repo = 2 [json_name = "repo"];</code>
+   * <code>string repo = 2 [json_name = "repo", (.agentmesh.v1.path) = true, (.agentmesh.v1.repo_name) = true];</code>
    * @return The bytes for repo.
    */
   com.google.protobuf.ByteString

@@ -320,7 +320,7 @@ type MeshServiceClient interface {
 	OpenShell(context.Context, *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error)
 	// The shells that are running (or exited and not yet seen to), oldest first.
 	ListShells(context.Context, *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error)
-	// End a shell (SIGTERM, then SIGKILL) and forget it. A ticket already issued for it stops working.
+	// End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
 	CloseShell(context.Context, *connect.Request[v1.CloseShellRequest]) (*connect.Response[v1.CloseShellResponse], error)
 	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
 	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.
@@ -1494,7 +1494,7 @@ type MeshServiceHandler interface {
 	OpenShell(context.Context, *connect.Request[v1.OpenShellRequest]) (*connect.Response[v1.OpenShellResponse], error)
 	// The shells that are running (or exited and not yet seen to), oldest first.
 	ListShells(context.Context, *connect.Request[v1.ListShellsRequest]) (*connect.Response[v1.ListShellsResponse], error)
-	// End a shell (SIGTERM, then SIGKILL) and forget it. A ticket already issued for it stops working.
+	// End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
 	CloseShell(context.Context, *connect.Request[v1.CloseShellRequest]) (*connect.Response[v1.CloseShellResponse], error)
 	// An agent's conversation as its CLI recorded it, for the chat view: the prompts, replies and tool calls, a page at
 	// a time. Only for a CLI whose record the adapter can read (Claude Code); others answer `supported: false`.

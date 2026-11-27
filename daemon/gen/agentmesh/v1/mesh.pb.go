@@ -8244,10 +8244,10 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x13OpenTerminalRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\bR\x05input\x12\x14\n" +
-	"\x05shell\x18\x03 \x01(\tR\x05shell\"U\n" +
+	"\x05shell\x18\x03 \x01(\tR\x05shell\"_\n" +
 	"\x10OpenShellRequest\x12-\n" +
-	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
-	"\x04repo\x18\x02 \x01(\tR\x04repo\">\n" +
+	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x1c\n" +
+	"\x04repo\x18\x02 \x01(\tB\b\x98\xb5\x18\x01\xa0\xb5\x18\x01R\x04repo\">\n" +
 	"\x11OpenShellResponse\x12)\n" +
 	"\x05shell\x18\x01 \x01(\v2\x13.agentmesh.v1.ShellR\x05shell\"\x13\n" +
 	"\x11ListShellsRequest\"A\n" +

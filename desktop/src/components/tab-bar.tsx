@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Columns2, PanelRight, Plus, Rows2, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { displayChord } from '@/keys'
@@ -57,7 +58,12 @@ export function TabBar() {
   const project = open && openAgent ? { hostId: open.hostId, repo: leadRepo(runs, openAgent) } : open && openShellRow ? { hostId: open.hostId, repo: openShellRow.repo } : undefined
   // The shells of this project that no tab shows (kept running when their tab closed): the + menu opens them again.
   const hiddenShells = project ? closedShells(allShells[project.hostId], all, project.hostId, project.repo) : []
-  const newTerminal = () => project && void app.newShell(project.hostId, project.repo)
+  const [shellError, setShellError] = useState('')
+  const newTerminal = () => {
+    if (!project) return
+    setShellError('')
+    app.newShell(project.hostId, project.repo).catch((e) => setShellError(e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e)))
+  }
   const plusEntries: MenuEntry[] = [
     { label: 'New lead', onSelect: () => newLead() },
     { label: 'New terminal', onSelect: newTerminal, disabled: !project },
@@ -161,6 +167,7 @@ export function TabBar() {
         )
       })}
     </div>
+    {shellError && <span role="alert" className="self-center px-2 text-xs text-destructive">{shellError}</span>}
     {tabs.length === 0 && <span className="self-center px-2 text-xs text-muted-foreground">No agent open</span>}
     <Tip label={project ? `New in ${repoName(project.repo)}` : 'New lead or terminal'}>
       <span className="mb-1 ml-1">

@@ -506,7 +506,7 @@ service MeshService {
     };
   }
 
-  // End a shell (SIGTERM, then SIGKILL) and forget it. A ticket already issued for it stops working.
+  // End a shell: SIGHUP, as closing a terminal window does (the shell passes it to its background jobs), then SIGTERM and SIGKILL after 3 s if it is still there; the host forgets it. A ticket already issued for it stops working.
   rpc CloseShell(CloseShellRequest) returns (CloseShellResponse) {
     option (action) = {
       actors: [ACTOR_CLASS_DEVICE]
@@ -1617,7 +1617,7 @@ message OpenTerminalRequest {
 message OpenShellRequest {
   RequestMeta meta = 1;
   // The project: a repo path, or a bare name of a folder of `repos.dir`; it must be one the host knows (`ListProjects`'s sources).
-  string repo = 2;
+  string repo = 2 [(path) = true, (repo_name) = true];
 }
 
 message OpenShellResponse {
