@@ -172,16 +172,6 @@ func (col *collector) next(t *testing.T, s *termclient.Stream) *termv1.TermFrame
 	return f
 }
 
-// resized reads the stream until the next Resized.
-func (col *collector) resized(t *testing.T, s *termclient.Stream) *termv1.Resized {
-	t.Helper()
-	for {
-		if r := col.next(t, s).GetResized(); r != nil {
-			return r
-		}
-	}
-}
-
 func TestRepaintThenLiveInputAndOutput(t *testing.T) {
 	f := startHost(t)
 	term := f.spawn("echo")
@@ -422,12 +412,10 @@ func TestResizeFollowsTheSmallestClientAndMovesTheEpoch(t *testing.T) {
 	ctx := context.Background()
 	a := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
 	var ca collector
-	ca.next(t, a)
-	first := ca.resized(t, a)
+	first := ca.next(t, a).GetAttached()
 	b := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 40})
 	var cb collector
-	cb.next(t, b)
-	second := cb.resized(t, b)
+	second := cb.next(t, b).GetAttached()
 	if second.Cols != 60 || second.Rows != 30 {
 		t.Errorf("size %dx%d, want the smallest 60x30", second.Cols, second.Rows)
 	}
@@ -448,41 +436,40 @@ func TestResizeFollowsTheSmallestClientAndMovesTheEpoch(t *testing.T) {
 	}
 }
 
-// A client already attached is told the new size and epoch in a Resized frame, whoever caused the change. The client that attached
-// and made the change is told after its ReplayDone, with its Attached still in the epoch (and size) it replays in.
+// A client already attached is told the new size and epoch in a Resized frame, whoever caused the change; the client that
+// attached and made the change learns it from its Attached, which is its first frame.
 func TestAResizeIsToldToTheAttachedClientsWithoutARepaint(t *testing.T) {
 	f := startHost(t)
 	term := f.spawn("echo")
 	a := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
 	var ca collector
-	ca.next(t, a)
-	first := ca.resized(t, a)
+	first := ca.next(t, a).GetAttached()
+	resized := func(want func(*termv1.Resized) bool) *termv1.Resized {
+		t.Helper()
+		for {
+			if r := ca.next(t, a).GetResized(); r != nil && want(r) {
+				return r
+			}
+		}
+	}
 	b := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60, Rows: 40})
 	var cb collector
 	second := cb.next(t, b).GetAttached()
 	if second == nil {
 		t.Fatalf("the new client's first frame is %v, not its Attached", cb.frames[0])
 	}
-	if second.Epoch != first.Epoch || second.Cols != 100 || second.Rows != 30 {
-		t.Errorf("the new client's Attached is %v, want the epoch %d at 100x30 it replays in", second, first.Epoch)
+	r := resized(func(*termv1.Resized) bool { return true })
+	if r.Cols != 60 || r.Rows != 30 || r.Epoch != second.Epoch || r.Epoch <= first.Epoch {
+		t.Errorf("Resized %v, want 60x30 in epoch %d (was %d)", r, second.Epoch, first.Epoch)
 	}
-	r := ca.resized(t, a)
-	if r.Cols != 60 || r.Rows != 30 || r.Epoch <= first.Epoch {
-		t.Errorf("Resized %v, want 60x30 in an epoch after %d", r, first.Epoch)
-	}
-	var sawDone bool
-	var told *termv1.Resized
-	for told == nil {
-		fr := cb.next(t, b)
-		sawDone = sawDone || fr.GetReplayDone() != nil
-		told = fr.GetResized()
-	}
-	if !sawDone || told.Epoch != r.Epoch || told.Cols != 60 || told.Rows != 30 || told.Offset != r.Offset {
-		t.Errorf("the new client was told %v (after ReplayDone: %v), want %v", told, sawDone, r)
+	for _, fr := range cb.frames {
+		if fr.GetResized() != nil {
+			t.Errorf("the client that caused the change was sent a Resized: %v", fr)
+		}
 	}
 	b.Close()
-	back := ca.resized(t, a)
-	if back.Cols != 100 || back.Rows != 30 || back.Epoch <= r.Epoch {
+	back := resized(func(r *termv1.Resized) bool { return r.Cols == 100 })
+	if back.Rows != 30 || back.Epoch <= r.Epoch {
 		t.Errorf("when the small client left: %v after %v", back, r)
 	}
 }
@@ -495,12 +482,11 @@ func TestAResizeThatMovesNothingIsAnsweredWithTheCurrentSizeInTheSameEpoch(t *te
 	a := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 100, Rows: 30})
 	var ca collector
 	ca.next(t, a)
-	base := ca.resized(t, a)
 	b := f.attach(term.Id, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 140, Rows: 40})
 	var cb collector
 	at := cb.next(t, b).GetAttached()
-	if at == nil || at.Cols != 100 || at.Rows != 30 || at.Epoch != base.Epoch {
-		t.Fatalf("B attached as %v, want the host's 100x30 in epoch %d", at, base.Epoch)
+	if at == nil || at.Cols != 100 || at.Rows != 30 {
+		t.Fatalf("B attached as %v, want the host's 100x30", at)
 	}
 	resize := func(cols, rows uint32) {
 		t.Helper()
@@ -519,18 +505,20 @@ func TestAResizeThatMovesNothingIsAnsweredWithTheCurrentSizeInTheSameEpoch(t *te
 	for _, want := range [][2]uint32{{100, 30}, {140, 40}, {120, 30}} {
 		resize(want[0], want[1])
 		r := answer()
-		if r.Cols != 100 || r.Rows != 30 || r.Epoch != base.Epoch || r.Offset != base.Offset {
-			t.Errorf("a resize to %dx%d was answered %v, want %v", want[0], want[1], r, base)
+		if r.Cols != 100 || r.Rows != 30 || r.Epoch != at.Epoch || r.Offset != at.Offset {
+			t.Errorf("a resize to %dx%d was answered %v, want 100x30 in epoch %d from offset %d", want[0], want[1], r, at.Epoch, at.Offset)
+		}
+	}
+	// A is told nothing for a resize that moved nothing: its size and epoch are as they were.
+	for _, fr := range ca.frames {
+		if fr.GetResized() != nil {
+			t.Errorf("A was sent %v for a resize that changed nothing", fr)
 		}
 	}
 	// A resize that does move the host is still one Resized to B, with a new epoch.
 	resize(60, 20)
-	if r := answer(); r.Cols != 60 || r.Rows != 20 || r.Epoch <= base.Epoch {
-		t.Errorf("a shrink was answered %v, want 60x20 in a later epoch than %d", r, base.Epoch)
-	}
-	// A was told nothing for the resizes that moved nothing: the first it hears is the one that did.
-	if r := ca.resized(t, a); r.Cols != 60 || r.Rows != 20 || r.Epoch <= base.Epoch {
-		t.Errorf("A's next Resized is %v, want the shrink to 60x20 in a later epoch than %d", r, base.Epoch)
+	if r := answer(); r.Cols != 60 || r.Rows != 20 || r.Epoch <= at.Epoch {
+		t.Errorf("a shrink was answered %v, want 60x20 in a later epoch than %d", r, at.Epoch)
 	}
 }
 
@@ -570,8 +558,8 @@ func TestSizesAreClampedAndOnlyATyperMayResize(t *testing.T) {
 	// A viewer asking for a huge screen gets the cap, not an allocation of 60000 x 60000 cells.
 	viewer := f.attach(term.Id, false, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL, Cols: 60000, Rows: 60000})
 	var cv collector
-	cv.next(t, viewer)
-	if at := cv.resized(t, viewer); at.Cols != 500 || at.Rows != 300 {
+	at := cv.next(t, viewer).GetAttached()
+	if at.Cols != 500 || at.Rows != 300 {
 		t.Errorf("attached at %dx%d, want the cap 500x300", at.Cols, at.Rows)
 	}
 	// It may not resize at all; a typer may, within the limits.

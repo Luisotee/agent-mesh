@@ -1338,8 +1338,8 @@ type Attached struct {
 	Epoch      uint64 `protobuf:"varint,4,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	// Where the output that follows starts.
 	Offset uint64 `protobuf:"varint,5,opt,name=offset,proto3" json:"offset,omitempty"`
-	// The terminal's size in `epoch`. This client's own size counts only after its replay: if it moves the terminal, a Resized
-	// follows ReplayDone, so an exact attach at another size still continues.
+	// The terminal's size in `epoch`. A repaint is of the size that counts this client; an exact attach that continues is in the
+	// epoch it left, and its own size counts after the replay: if that moves the terminal, a Resized follows ReplayDone.
 	Cols uint32 `protobuf:"varint,6,opt,name=cols,proto3" json:"cols,omitempty"`
 	Rows uint32 `protobuf:"varint,7,opt,name=rows,proto3" json:"rows,omitempty"`
 	// Whether this client's input is accepted.
