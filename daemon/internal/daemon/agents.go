@@ -470,7 +470,7 @@ func (d *Daemon) runBackground(ctx context.Context) {
 	d.goBG(func() {
 		t := time.NewTicker(d.rt.cfg.SpoolEvery)
 		defer t.Stop()
-		var pruned, retired, limited, accounted, reserved, contextTick, sampled time.Time
+		var pruned, retired, limited, accounted, reserved, contextTick, sampled, prChecked, prWatched time.Time
 		accountEvery := d.rt.cfg.AccountEvery
 		if accountEvery == 0 {
 			accountEvery = accountEveryDefault
@@ -479,8 +479,9 @@ func (d *Daemon) runBackground(ctx context.Context) {
 		if reserveEvery == 0 {
 			reserveEvery = reserveAlertEvery
 		}
-		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot, sampling atomic.Bool
+		var retiring, limiting, alertRunning, pollingOpenCode, pollingCopilot, sampling, watchingPRs atomic.Bool
 		sampled = d.now() // the first capacity pass is one interval after start, not at once
+		prWatched = sampled
 		retireEvery := d.rt.cfg.RetireEvery
 		if retireEvery == 0 {
 			retireEvery = retireQuiet
@@ -542,6 +543,17 @@ func (d *Daemon) runBackground(ctx context.Context) {
 					defer sampling.Store(false)
 					d.sampleCapacity(ctx)
 				})
+			}
+			if now := d.now(); now.Sub(prChecked) >= prWatchCheckEvery {
+				prChecked = now
+				if every := d.prWatchEvery(ctx); every > 0 && now.Sub(prWatched) >= every && watchingPRs.CompareAndSwap(false, true) {
+					prWatched = now
+					// Off this loop: it runs `gh`, which waits for the network.
+					d.goBG(func() {
+						defer watchingPRs.Store(false)
+						d.prFeedbackPass(ctx)
+					})
+				}
 			}
 			if now := d.now(); now.Sub(pruned) > time.Hour {
 				pruned = now

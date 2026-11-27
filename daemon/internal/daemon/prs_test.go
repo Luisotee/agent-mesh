@@ -35,6 +35,7 @@ type prWorld struct {
 	list    []map[string]any // `gh pr list --head`
 	raw     []byte           // when set, the answer to any list call (gh pr list --state open)
 	views   map[string]map[string]any
+	inline  []map[string]any // `gh api repos/…/pulls/N/comments`
 	fail    error
 	gate    chan struct{} // while set, a gh call waits for it to close
 	calls   atomic.Int32
@@ -65,6 +66,9 @@ func startPR(t *testing.T) *prWorld {
 				defer w.mu.Unlock()
 				if w.fail != nil {
 					return nil, w.fail
+				}
+				if len(args) > 1 && args[0] == "api" {
+					return json.Marshal(w.inline)
 				}
 				if len(args) > 1 && args[1] == "view" {
 					v, ok := w.views[args[2]]
