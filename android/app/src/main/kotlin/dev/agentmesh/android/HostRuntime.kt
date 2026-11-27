@@ -25,6 +25,7 @@ import dev.agentmesh.android.net.RouteException
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.store.Frame
 import dev.agentmesh.android.store.HostState
+import dev.agentmesh.android.store.HostRefresher
 import dev.agentmesh.android.store.LogLine
 import dev.agentmesh.android.store.MAX_LOG
 import dev.agentmesh.android.store.applyFrame
@@ -36,16 +37,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
 
 /** The plan or question the action is about was answered meanwhile (by the lead or on another device). */
-class AlreadyAnswered : Exception("This was already answered")
+class AlreadyAnswered(message: String = "This was already answered") : Exception(message)
+
+/** The host isn't connected, so an action that would be sent now can't be (and isn't kept to be sent on a later connection). */
+class NotConnected : Exception("Not connected to the host")
 
 /** The agent has no plan or question waiting for an answer, so there is nothing for this action to answer. */
 class NothingToAnswer(message: String) : Exception(message)
@@ -85,9 +86,15 @@ class HostRuntime(
     /** Once per connection that became ready (a state flow would fold a quick reconnect into "still ready"). */
     val connected: SharedFlow<Unit> get() = _connected
 
+    // One per snapshot or resume: what is loaded for a connection is loaded for each one, however quickly a drop and a
+    // return follow each other (a state flow of "synced" would fold them into "still synced").
+    private val _synced = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
     private val loader = MessageLoader(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log, messageRetryMs)
 
     val connection = HostConnection(scope, ::buildApi, this, now, random, heartbeatMs = heartbeatMs, routeCount = { host?.routes?.size ?: 1 })
+    /** What the stream doesn't carry (who waits on the user, the pull requests, quiet agents), read again when it may have changed. */
+    private val refresher = HostRefresher(scope, { current }, { _state.value }, { f -> _state.update(f) }, ::log)
     private var watcher: Job? = null
 
     val host: Host? get() = repo.get(hostId)
@@ -116,9 +123,10 @@ class HostRuntime(
 
     fun start() {
         connection.start()
+        refresher.start()
         // The host's settings come once a connection is synced.
         watcher = scope.launch {
-            _state.map { it.synced && it.conn is ConnState.Ready }.distinctUntilChanged().filter { it }.collect {
+            _synced.collect {
                 loadMessages()
                 loadSettings()
             }
@@ -127,6 +135,7 @@ class HostRuntime(
 
     fun stop() {
         connection.stop()
+        refresher.stop()
         watcher?.cancel()
     }
 
@@ -172,6 +181,15 @@ class HostRuntime(
 
     private fun live(): MeshApi = current ?: throw IllegalStateException("Not connected to the host")
 
+    /**
+     * The client for something the user just did, when the connection is ready now, and [NotConnected] at once when it
+     * isn't: an action waiting for a connection would hang its screen and run, stale, whenever one came back.
+     */
+    fun connectedApi(): MeshApi {
+        if (_state.value.conn !is ConnState.Ready) throw NotConnected()
+        return live()
+    }
+
     private fun stored(m: Message): Message {
         _state.update { mergeMessages(it, listOf(m)) }
         return m
@@ -180,15 +198,15 @@ class HostRuntime(
     suspend fun send(to: String, type: MessageType, body: String): Message = stored(live().sendMessage(to, type, body))
 
     /**
-     * Approves the plan (or question) an agent is waiting on. A planning worker moves to its execution model in the
-     * same conversation (`ApproveAgent`); any other agent gets the answer "approved". With nothing waiting on an
-     * answer (it was answered, or the run is closed and its messages aren't loaded) it throws [AlreadyAnswered] or
-     * [NothingToAnswer] and sends nothing; while the conversation isn't known, [NotLoaded].
+     * Approves the plan an agent is waiting on (`ApproveAgent`: a planning worker moves to its execution model in the same
+     * conversation, any other agent just gets the approval; the host takes it only while the agent's newest report is a
+     * plan nobody has answered, so a root that answered first wins). With [askId], the plan the user was shown: it must still
+     * be the one that waits. With nothing waiting on an answer it throws [AlreadyAnswered] or [NothingToAnswer] and sends
+     * nothing; while the conversation isn't known, [NotLoaded].
      */
-    suspend fun approve(agentId: String): Message {
-        unansweredAsk(agentId)
-        val planning = _state.value.agents[agentId]?.phase == AgentPhase.AGENT_PHASE_PLANNING
-        return stored(if (planning) live().approveAgent(agentId) else live().sendMessage(agentId, MessageType.MESSAGE_TYPE_ANSWER, "approved"))
+    suspend fun approve(agentId: String, askId: String? = null): Message {
+        unansweredAsk(agentId, askId)
+        return stored(live().approveAgent(agentId))
     }
 
     /**
@@ -226,14 +244,31 @@ class HostRuntime(
     }
 
     /**
-     * The agent's latest plan or question when nobody has answered it since (the user on another device, the lead):
-     * a notification's Approve or Reply on anything else is stale and must not send a second answer. Throws
-     * [NotLoaded] while the conversation isn't known, and [AlreadyAnswered] when there is nothing to answer.
+     * The plan or question an action answers, or an exception when it shouldn't be answered: the agent's latest one when
+     * nobody has answered it since (the user on another device, the lead): a notification's Approve or Reply on anything
+     * else is stale and must not send a second answer. With [askId] (the row the user opened: the host's `ListWaiting` is the
+     * authority for it, whether or not its messages are loaded), that very ask, and not a newer one the author sent since.
+     * Throws [NotLoaded] while the conversation isn't known, and [AlreadyAnswered] when there is nothing to answer.
      */
-    private fun unansweredAsk(agentId: String): Message {
+    private fun unansweredAsk(agentId: String, askId: String? = null): Message {
         val s = _state.value
-        notLoaded(s, agentId)?.let { throw NotLoaded(it) }
         val msgs = s.messages.values
+        if (askId != null) {
+            val listed = s.waiting?.firstOrNull { it.hasMessage() && it.message.id == askId }?.message
+            if (s.waiting != null && listed == null) throw AlreadyAnswered()
+            val ask = listed ?: s.messages[askId] ?: run {
+                notLoaded(s, agentId)?.let { throw NotLoaded(it) }
+                throw AlreadyAnswered()
+            }
+            // The author wrote another plan or question since: what the user read is not what waits now.
+            if (msgs.any { it.from.id == agentId && (it.type == MessageType.MESSAGE_TYPE_PLAN || it.type == MessageType.MESSAGE_TYPE_QUESTION) && dev.agentmesh.android.store.isBefore(ask, it) }) {
+                throw AlreadyAnswered("${s.agents[agentId]?.name ?: "The agent"} sent a newer plan or question since: open it to read it first")
+            }
+            if (msgs.any { it.toId == agentId && it.type == MessageType.MESSAGE_TYPE_ANSWER && dev.agentmesh.android.store.isBefore(ask, it) }) throw AlreadyAnswered()
+            if (listed == null) notLoaded(s, agentId)?.let { throw NotLoaded(it) }
+            return ask
+        }
+        notLoaded(s, agentId)?.let { throw NotLoaded(it) }
         val ask = msgs.filter { it.from.id == agentId && (it.type == MessageType.MESSAGE_TYPE_PLAN || it.type == MessageType.MESSAGE_TYPE_QUESTION) }
             .maxWithOrNull(dev.agentmesh.android.store.MessageOrder)
             ?: throw NothingToAnswer("${s.agents[agentId]?.name ?: "The agent"} has no plan or question waiting for an answer, so nothing was sent.")
@@ -241,13 +276,13 @@ class HostRuntime(
         return ask
     }
 
-    suspend fun requestChanges(agentId: String, text: String): Message {
-        unansweredAsk(agentId)
+    suspend fun requestChanges(agentId: String, text: String, askId: String? = null): Message {
+        unansweredAsk(agentId, askId)
         return send(agentId, MessageType.MESSAGE_TYPE_ANSWER, "changes: ${text.trim()}")
     }
 
-    suspend fun answer(agentId: String, text: String): Message {
-        unansweredAsk(agentId)
+    suspend fun answer(agentId: String, text: String, askId: String? = null): Message {
+        unansweredAsk(agentId, askId)
         return send(agentId, MessageType.MESSAGE_TYPE_ANSWER, text.trim())
     }
 
@@ -272,6 +307,7 @@ class HostRuntime(
             // Another daemon answers at this address: nothing we hold is about it.
             log("the host at this address is a different daemon ($known before, ${hello.daemonId} now): starting over")
             loader.reset()
+            refresher.reset()
             _state.update { HostState(conn = it.conn, daemon = hello, log = it.log) }
         }
         if (known != hello.daemonId) repo.setDaemonId(hostId, hello.daemonId)
@@ -284,6 +320,12 @@ class HostRuntime(
             noticeFor(frame.event, s.agents, now(), s.clockSkewMs)?.let { _notices.tryEmit(it) }
         }
         _state.update { applyFrame(it, frame) }
+        if (frame.hasEvent()) refresher.event(frame.event)
+        // Straight from the frame, as the desktop does: a quick reconnect would be folded away in a state flow.
+        if (frame.hasSnapshot() || frame.hasResumed()) {
+            refresher.synced()
+            _synced.tryEmit(Unit)
+        }
     }
 
     override fun cursor(): Cursor? = _state.value.cursor

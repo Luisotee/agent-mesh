@@ -74,3 +74,18 @@ fun runStopped(seq: Long, runId: String) =
     ev(seq, runId = runId) { setRunStopped(dev.agentmesh.gen.agentmesh.v1.RunStopped.getDefaultInstance()) }
 fun delivered(seq: Long, messageId: String, at: Long = 6_000) =
     ev(seq, at) { setMessageDelivered(dev.agentmesh.gen.agentmesh.v1.MessageDelivered.newBuilder().setMessageId(messageId)) }
+
+fun activity(agentId: String, detail: String, at: Long = 7_000): SubscribeEventsResponse =
+    SubscribeEventsResponse.newBuilder().setActivity(dev.agentmesh.gen.agentmesh.v1.AgentActivity.newBuilder().setRunId("r1").setAgentId(agentId).setDetail(detail).setTime(ts(at))).build()
+
+fun pr(agentId: String, url: String, number: Int = 1, state: String = "open", draft: Boolean = false, checks: String = "pass", held: Boolean = false): dev.agentmesh.gen.agentmesh.v1.PullRequest =
+    dev.agentmesh.gen.agentmesh.v1.PullRequest.newBuilder().setAgentId(agentId).setUrl(url).setNumber(number).setState(state).setDraft(draft).setChecks(checks).setHeld(held).build()
+
+fun agentPrs(agentId: String, vararg prs: dev.agentmesh.gen.agentmesh.v1.PullRequest): dev.agentmesh.gen.agentmesh.v1.AgentPullRequests =
+    dev.agentmesh.gen.agentmesh.v1.AgentPullRequests.newBuilder().setAgentId(agentId).setAgentName(agentId).addAllPullRequests(prs.toList()).build()
+
+fun prChanged(seq: Long, p: dev.agentmesh.gen.agentmesh.v1.PullRequest) =
+    ev(seq, agentId = p.agentId) { setPullRequestChanged(dev.agentmesh.gen.agentmesh.v1.PullRequestChanged.newBuilder().setPullRequest(p)) }
+
+fun waiting(kind: dev.agentmesh.gen.agentmesh.v1.WaitingKind, agentId: String, runId: String = "r1", message: Message? = null, detail: String = ""): dev.agentmesh.gen.agentmesh.v1.Waiting =
+    dev.agentmesh.gen.agentmesh.v1.Waiting.newBuilder().setKind(kind).setRunId(runId).setAgentId(agentId).setDetail(detail).apply { if (message != null) setMessage(message) }.build()
