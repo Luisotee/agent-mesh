@@ -57,7 +57,7 @@ func retireTx(tx *store.Tx, a *v1.Agent, reason string) (bool, error) {
 	return true, nil
 }
 
-// retireWithHelpersTx is retireTx and its reviewers and askers too, in the same write
+// retireWithHelpersTx is retireTx and its reviewers too, in the same write
 // (stopping a run retires every agent of it on its own, so it uses retireTx).
 func retireWithHelpersTx(tx *store.Tx, a *v1.Agent, reason string) (bool, error) {
 	changed, err := retireTx(tx, a, reason)
@@ -67,10 +67,10 @@ func retireWithHelpersTx(tx *store.Tx, a *v1.Agent, reason string) (bool, error)
 	return changed, retireHelpersTx(tx, a) // also for one retired before: helpers it left running go now
 }
 
-// helpersOf are the reviewers and askers a worker spawned that are still running: they answer to it (to its
-// parent, for a peer, which stays) and have no use once it is gone.
+// helpersOf are the reviewers a worker spawned that are still running: they answer to it and have no use once it is
+// gone. (An asker may carry on a conversation with a parent that is resumed, so it stays.)
 func helpersOf(r store.Reader, parent *v1.Agent) ([]*v1.Agent, error) {
-	if parent.Role == v1.AgentRole_AGENT_ROLE_REVIEWER || parent.Role == v1.AgentRole_AGENT_ROLE_ASKER {
+	if parent.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
 		return nil, nil
 	}
 	all, err := r.ListAgents(parent.RunId)
@@ -79,15 +79,14 @@ func helpersOf(r store.Reader, parent *v1.Agent) ([]*v1.Agent, error) {
 	}
 	var out []*v1.Agent
 	for _, c := range all {
-		if c.ParentId == parent.Id && !c.Peer && !stopped(c) &&
-			(c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER || c.Role == v1.AgentRole_AGENT_ROLE_ASKER) {
+		if c.ParentId == parent.Id && !c.Peer && !stopped(c) && c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
 			out = append(out, c)
 		}
 	}
 	return out, nil
 }
 
-// retireHelpersTx retires a retired worker's reviewers and askers in the same write; their processes are stopped
+// retireHelpersTx retires a retired worker's reviewers in the same write; their processes are stopped
 // after it (stopRetiredHelpers).
 func retireHelpersTx(tx *store.Tx, parent *v1.Agent) error {
 	hs, err := helpersOf(tx.Reader, parent)
@@ -102,7 +101,7 @@ func retireHelpersTx(tx *store.Tx, parent *v1.Agent) error {
 	return nil
 }
 
-// stopRetiredHelpers stops the processes of the reviewers and askers a retire of parent retired with it.
+// stopRetiredHelpers stops the processes of the reviewers a retire of parent retired with it.
 func (d *Daemon) stopRetiredHelpers(ctx context.Context, parentID string) error {
 	r := d.store.Read(ctx)
 	all, err := r.ListAgents("")
@@ -111,7 +110,7 @@ func (d *Daemon) stopRetiredHelpers(ctx context.Context, parentID string) error 
 	}
 	for _, c := range all {
 		if c.ParentId == parentID && c.State == v1.AgentState_AGENT_STATE_RETIRED && c.TerminalId != "" &&
-			!c.Peer && (c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER || c.Role == v1.AgentRole_AGENT_ROLE_ASKER) {
+			!c.Peer && c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
 			if err := d.stopRetiredProcess(ctx, c.Id); err != nil {
 				return err
 			}
