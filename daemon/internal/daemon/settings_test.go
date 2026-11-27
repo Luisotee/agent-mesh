@@ -2,7 +2,6 @@ package daemon_test
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +10,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/testutil/shortdir"
 )
 
 func val(t *testing.T, v any) *structpb.Value {
@@ -209,7 +209,7 @@ func TestOnlyADeviceOrARootWritesSettingsAndEveryoneReadsThem(t *testing.T) {
 }
 
 func TestASettingChangeReachesARunsSubscribersAndSurvivesARestart(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
+	state := shortdir.State(t)
 	h := start(t, state)
 	ctx := context.Background()
 	run := startRun(t, h.device.Mesh, "")

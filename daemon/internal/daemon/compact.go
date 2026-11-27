@@ -49,6 +49,8 @@ const (
 	compactFocusText = "Keep what the next task needs: %s. Keep the repo facts, the decisions and their reasons, the branch and the PR; drop tool output and dead ends."
 	peerFocusText    = "Keep what you learned about %s: its architecture and mechanisms with file:line references, the answers you gave and the upstream commit you last read; drop tool output and dead ends."
 	approveFocusText = "Your plan was just approved, and you carry it out next in this conversation. Keep the approved plan (%s) verbatim, the files it changes with the facts you read from them (file:line), the decisions and their reasons, and the branch; drop tool output and dead ends."
+	// approveSkippedFocusText is the same when the parent approved before any plan was sent: there is no plan file.
+	approveSkippedFocusText = "Your plan phase was skipped: you were approved before sending a plan, and you carry out your task next in this conversation. Keep your task, the files it changes with the facts you read from them (file:line), the decisions and their reasons, and the branch; drop tool output and dead ends."
 )
 
 // contextRuntime is the daemon's in-memory state of context management; its zero value is ready.
@@ -204,8 +206,9 @@ func (d *Daemon) requestResumeCompaction(tx *store.Tx, a *v1.Agent, spec reviveS
 // requestApproveCompaction asks for the compaction `approve` does before the reopen that lifts a planner's deny
 // list or moves it to its execution model: over `compact.approve_switch` when the model differs (the new model
 // writes the whole context anyway, a prompt cache being per model), over `compact.approve` when it stays (the
-// reopen keeps the cache, so only a big context repays it). Claude only. The caller stores the agent.
-func (d *Daemon) requestApproveCompaction(tx *store.Tx, a *v1.Agent, model string) error {
+// reopen keeps the cache, so only a big context repays it). Claude only. noPlan is an approval of a planner that had
+// sent none, so the focus names no plan file. The caller stores the agent.
+func (d *Daemon) requestApproveCompaction(tx *store.Tx, a *v1.Agent, model string, noPlan bool) error {
 	if !d.rt.adapters.HasCapability(a.Kind, capCompactLive) {
 		return nil
 	}
@@ -217,8 +220,11 @@ func (d *Daemon) requestApproveCompaction(tx *store.Tx, a *v1.Agent, model strin
 	if err != nil || at <= 0 {
 		return err
 	}
-	plan := filepath.Join(d.paths.RunDir(a.RunId), "plans", a.Name+".md")
-	a.PendingCompaction = &v1.PendingCompaction{Id: ids.New("c", 10), Why: "approve", Focus: fmt.Sprintf(approveFocusText, plan),
+	focus := approveSkippedFocusText
+	if !noPlan {
+		focus = fmt.Sprintf(approveFocusText, filepath.Join(d.paths.RunDir(a.RunId), "plans", a.Name+".md"))
+	}
+	a.PendingCompaction = &v1.PendingCompaction{Id: ids.New("c", 10), Why: "approve", Focus: focus,
 		RequestedAt: tsOf(tx.Now()), WarmAt: int64(at), ColdAt: int64(at)}
 	return nil
 }

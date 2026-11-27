@@ -126,9 +126,10 @@ func githubRepoOf(u string) string {
 }
 
 // workerGuard refuses what a worker may not do with a review of this PR: one that is not its own (its head is not
-// the worker's branch), and one whose rounds its parent runs (`review.by`, `--reviews root`: a relay for a risky
-// PR). Anyone else passes.
-func (d *Daemon) workerGuard(r store.Reader, actor *v1.Actor, pr *prInfo) error {
+// the worker's branch, nor the branch checked out in its own worktree: a worker may open its PR from another
+// branch than the one it was registered on), and one whose rounds its parent runs (`review.by`, `--reviews root`: a
+// relay for a risky PR). Anyone else passes.
+func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Actor, pr *prInfo) error {
 	self := d.selfWorker(r, actor)
 	if self == nil {
 		return nil
@@ -138,10 +139,73 @@ func (d *Daemon) workerGuard(r store.Reader, actor *v1.Actor, pr *prInfo) error 
 			"your parent runs the reviews of your PR (review.by or --reviews root: a relay, or a PR it reads itself): "+
 				"don't ask a round; report `done` and it starts them"))
 	}
-	if pr.HeadRef == "" || pr.HeadRef != self.Branch {
+	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr)) {
 		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
 	}
 	return nil
+}
+
+// movedBranchIsItsOwn reports whether the PR is the worker's own though its head is not the branch it was
+// registered on: the head is the branch checked out in the worker's own worktree, with commits of its own past its
+// base, and nothing says it is anyone else's: it is not the repo's default branch, no other agent of the repo is
+// registered on it or has it checked out, and no other worker owns or asked a round on the PR. `git switch` onto
+// another worker's branch (or `main`) does not make that PR the worker's own.
+func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, pr *prInfo) bool {
+	head := pr.HeadRef
+	if head == "" || worktreeBranch(ctx, self) != head || head == "main" || head == "master" ||
+		head == strings.TrimPrefix(defaultBaseRO(ctx, self.Repo), "origin/") || !hasBranchWork(ctx, self) {
+		return false
+	}
+	agents, err := r.ListAgents("")
+	if err != nil {
+		return false
+	}
+	for _, o := range agents {
+		if o.Id == self.Id || o.Repo == "" || !sameDir(o.Repo, self.Repo) {
+			continue
+		}
+		if o.Branch == head || worktreeBranch(ctx, o) == head {
+			return false
+		}
+		if o.Role != v1.AgentRole_AGENT_ROLE_WORKER {
+			continue
+		}
+		if prs, err := r.AgentPRs(o.Id); err != nil {
+			return false
+		} else {
+			for _, p := range prs {
+				if prKey(p.Url) == prKey(pr.URL) {
+					return false
+				}
+			}
+		}
+	}
+	asks, err := r.PRAsks(pr.URL)
+	if err != nil {
+		return false
+	}
+	for _, a := range asks {
+		if a.CallerId == self.Id {
+			continue
+		}
+		if c, err := r.GetAgent(a.CallerId); err == nil && c.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+			return false // another worker asked a round on it: it is theirs
+		}
+	}
+	return true
+}
+
+// worktreeBranch is the branch checked out in a worker's own worktree (read-only), or "" when it has none, the
+// worktree is gone or HEAD is detached: then only the registered branch counts.
+func worktreeBranch(ctx context.Context, a *v1.Agent) string {
+	if a.Worktree == "" {
+		return ""
+	}
+	b, err := gitRO(ctx, a.Worktree, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return b
 }
 
 // workerRoundsUsed is how many reviews of the PR count against a worker's ceiling: the answered rounds (any

@@ -76,6 +76,26 @@ function fixture(conn: ConnState = { kind: 'ready', hello: { $typeName: 'agentme
 }
 
 describe('RunSidebar', () => {
+  it('shows skeleton rows until the first snapshot, and the empty text for a host that is down', () => {
+    const { host, wrap } = fixture({ kind: 'connecting' })
+    host.store.setState({ synced: false, runs: {}, agents: {} })
+    const { unmount } = render(wrap(<RunSidebar host={host} />))
+    expect(screen.getByRole('status', { name: 'Loading the runs' })).toBeInTheDocument()
+    unmount()
+    host.store.setState({ conn: { kind: 'stopped', reason: 'auth', message: 'no' } })
+    render(wrap(<RunSidebar host={host} />))
+    expect(screen.queryByRole('status', { name: 'Loading the runs' })).toBeNull()
+    expect(screen.getByText(/No runs yet/)).toBeInTheDocument()
+  })
+
+  it('names the CLI in a chip when its vendor has no mark or the agent no model', () => {
+    const { host, wrap } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, z: agent('z', { role: AgentRole.WORKER, name: 'app-zed', parentId: 'lead', kind: 'zed' }) } }))
+    render(wrap(<RunSidebar host={host} />))
+    expect(within(screen.getByRole('button', { name: /app-zed/ })).getByText('zed')).toBeInTheDocument()
+    expect(within(screen.getByRole('button', { name: /app-fix/ })).queryByText('claude')).toBeNull()
+  })
+
   it('shows each run as a tree with plain status sentences, and opens an agent on click', async () => {
     const { host, wrap, model } = fixture()
     render(wrap(<RunSidebar host={host} />))
@@ -85,7 +105,7 @@ describe('RunSidebar', () => {
     const fix = within(region).getByRole('button', { name: /app-fix/ })
     expect(lead).toHaveTextContent('Idle, waiting for a message')
     expect(fix).toHaveTextContent('Needs you: Bash')
-    expect(fix).toHaveTextContent('app · claude · sonnet')
+    for (const chip of ['app', 'sonnet']) expect(within(fix).getByText(chip)).toBeInTheDocument()
     // The worker is nested under the lead.
     expect(lead.closest('li')).toContainElement(fix)
     await userEvent.click(fix)
@@ -115,7 +135,7 @@ describe('RunSidebar', () => {
 
     await userEvent.click(within(group).getByRole('button', { name: 'Status' }))
     expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Needs you', 'Ready to review', 'Idle', 'Done'])
-    expect(within(screen.getByRole('region', { name: 'Ready to review' })).getByRole('button', { name: /web-docs/ })).toHaveTextContent('web · ship it')
+    expect(within(screen.getByRole('region', { name: 'Ready to review' })).getByRole('button', { name: /web-docs/ })).toHaveTextContent('webship it')
     // Done is folded until asked for.
     const done = screen.getByRole('region', { name: 'Done' })
     expect(within(done).queryByRole('button', { name: /web-old/ })).toBeNull()
@@ -456,7 +476,7 @@ describe('MessagesPanel', () => {
     host.store.setState({ messageLoad: {} })
     const { rerender } = render(wrap(<MessagesPanel host={host} agentId="w1" active={false} />))
     expect(host.loadMessages).not.toHaveBeenCalled() // a tab nobody opened loads nothing
-    expect(screen.getByRole('status')).toHaveTextContent('Loading messages')
+    expect(screen.getByRole('status', { name: 'Loading messages' })).toBeInTheDocument()
     rerender(wrap(<MessagesPanel host={host} agentId="w1" active />))
     expect(host.loadMessages).toHaveBeenCalledWith('r1')
     putMessages(host, msg('p1', MessageType.DONE, 'w1', 'lead', 1000, 'a report an event brought'))
@@ -616,9 +636,9 @@ describe('WatchAll tiles follow the host\'s store', () => {
     host.store.setState((s) => ({ agents: { ...s.agents, w2: agent('w2', { name: 'app-w2', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.IDLE }) } }))
     render(wrap(<WatchAll />))
     const tile = await screen.findByRole('listitem', { name: 'app-w2 in the grid' })
-    expect(tile).toHaveTextContent('idle')
+    expect(tile).toHaveTextContent(/idle/i)
     act(() => host.store.setState({ waiting: [create(WaitingSchema, { kind: WaitingKind.PLAN, runId: 'r1', agentId: 'w2', message: create(MessageSchema, { id: 'm9', type: MessageType.PLAN, runId: 'r1' }) })] }))
-    expect(screen.getByRole('listitem', { name: 'app-w2 in the grid' })).toHaveTextContent('needs you')
+    expect(screen.getByRole('listitem', { name: 'app-w2 in the grid' })).toHaveTextContent(/needs you/i)
   })
 })
 
@@ -1013,6 +1033,10 @@ describe('ModelControl and vendor icons', () => {
     expect(screen.getByRole('img', { name: 'GitHub Copilot' }).tagName.toLowerCase()).toBe('svg')
     expect(screen.getByRole('img', { name: 'OpenAI' })).toHaveTextContent('O')
     expect(screen.getByRole('img', { name: 'zed' })).toHaveTextContent('Z')
+    // Each in its vendor's brand colour (a theme token), an unknown CLI in the muted text colour.
+    expect(screen.getByRole('img', { name: 'Google Gemini' })).toHaveClass('text-vendor-gemini')
+    expect(screen.getByRole('img', { name: 'OpenAI' })).toHaveClass('text-vendor-openai')
+    expect(screen.getByRole('img', { name: 'zed' })).toHaveClass('text-muted-foreground')
   })
 })
 

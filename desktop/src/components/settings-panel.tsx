@@ -133,7 +133,7 @@ function FreeModels({ host, setting, repos }: { host: HostRuntime; setting: Sett
               <label className="flex flex-1 items-center gap-2 text-[13px]" title={repo}>
                 <input type="checkbox" aria-label={`May use free models: ${repoName(repo)}`} checked={mayUse} disabled={busy} onChange={(e) => void toggle(repo, e.target.checked)} />
                 <span className="font-medium">{repoName(repo)}</span>
-                <span className="truncate font-mono text-[11px] text-muted-foreground">{repo}</span>
+                <span className="truncate font-mono text-xs text-muted-foreground">{repo}</span>
               </label>
               <span className="text-xs text-muted-foreground">{mayUse ? 'free models allowed' : 'kept from free models'}</span>
             </li>
@@ -208,8 +208,8 @@ function SettingRow({ host, setting: s }: { host: HostRuntime; setting: Setting 
       </div>
       <p className="text-xs text-muted-foreground">{s.schema?.summary}</p>
       <Field host={host} control={control} id={s.key} value={current} draft={draft} setDraft={setDraft} commit={commit} save={save} busy={busy} />
-      {!s.isSet && <p className="text-[11px] text-muted-foreground">Default</p>}
-      {s.isSet && <p className="text-[11px] text-muted-foreground">Default: <code className="font-mono">{show(json(s.default))}</code></p>}
+      {!s.isSet && <p className="text-xs text-muted-foreground">Default</p>}
+      {s.isSet && <p className="text-xs text-muted-foreground">Default: <code className="font-mono">{show(json(s.default))}</code></p>}
       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     </div>
   )

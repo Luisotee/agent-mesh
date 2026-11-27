@@ -2,7 +2,7 @@
   "name": "Tokyo Night",
   "dark": true,
   "font": {
-    "sans": "Inter",
+    "sans": "Geist",
     "mono": "JetBrains Mono"
   },
   "density": "compact",
@@ -30,7 +30,22 @@
     "state-idle": "#565f89",
     "state-done": "#9ece6a",
     "state-failed": "#f7768e",
-    "state-unknown": "#e0af68"
+    "state-unknown": "#e0af68",
+    "hue-1": "#7aa2f7",
+    "hue-2": "#bb9af7",
+    "hue-3": "#7dcfff",
+    "hue-4": "#9ece6a",
+    "hue-5": "#e0af68",
+    "hue-6": "#ff9e64",
+    "hue-7": "#f7768e",
+    "hue-8": "#73daca",
+    "vendor-claude": "#d97757",
+    "vendor-gemini": "#a58be0",
+    "vendor-openai": "#c0caf5",
+    "vendor-copilot": "#c0caf5",
+    "vendor-opencode": "#c0caf5",
+    "vendor-deepseek": "#6b84ff",
+    "glow": "#ff9e64"
   },
   "terminal": {
     "background": "#16161e",
