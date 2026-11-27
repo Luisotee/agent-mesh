@@ -15,9 +15,12 @@ appId: dev.agentmesh.android.debug
 - tapOn: "Device token"
 - inputText: "${TOKEN}"
 - tapOn: "Add and connect"
+# Pairing lands on home; the host is under Settings › Hosts.
+- tapOn: "Menu"
+- tapOn: "Settings"
+- tapOn: "Paired hosts"
 - assertVisible: "Test host"
 - assertVisible:
     text: ".*open runs.*|Syncing….*"
     timeout: 20000
-- tapOn: "Test host"
 - assertNotVisible: "The host refused this device's token"
