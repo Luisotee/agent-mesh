@@ -128,4 +128,15 @@ class HostRefresherTest {
         assertEquals(0, api.agentListings)
         rig.refresher.stop()
     }
+
+    @Test fun `a failing call is said once even while another call keeps succeeding`() = runTest {
+        val api = RecordingApi().apply { failWaiting = dev.agentmesh.android.net.ApiException(com.connectrpc.Code.UNIMPLEMENTED, "unknown method") }
+        val rig = Rig(api, backgroundScope, agents = listOf(agent("w1")))
+        rig.refresher.start(); rig.refresher.synced(); runCurrent()
+        api.agentList = listOf(agent("w1"))
+        // Several agent ticks answer fine, and each tries the waiting list again: still one line.
+        advanceTimeBy(95_000); runCurrent()
+        assertEquals(1, rig.logs.count { "what waits" in it })
+        rig.refresher.stop()
+    }
 }

@@ -371,7 +371,7 @@ class ParityScreensTest {
         }
         NotificationsTest.api = api
         val rt = host(worker)
-        show { UsageScreen(rt) {} }
+        show { UsageScreen(rt, {}, quotaEveryMs = 300) }
         waitForTag("quota-warning")
         compose.onNodeWithText("At the reserve: Claude five-hour window").assertIsDisplayed()
         compose.onAllNodesWithTag("quota-bar").assertCountEquals(2)
@@ -385,13 +385,16 @@ class ParityScreensTest {
         assertEquals("" to "24h", api.costCalls.last())
         compose.onNodeWithTag("refresh").performClick()
         compose.waitUntil(5_000) { true in api.usageCalls }
+        // The timed reads after it don't force the host's cache again.
+        compose.waitUntil(5_000) { api.usageCalls.size >= 4 }
+        assertEquals(1, api.usageCalls.count { it })
     }
 
     @Test fun `the spend of one run is asked for by its id`() {
         api = RecordingApi()
         NotificationsTest.api = api
         val rt = host(worker)
-        show { UsageScreen(rt) {} }
+        show { UsageScreen(rt, onBack = {}) }
         waitForTag("cost-tokens")
         compose.onNodeWithTag("span-run").performClick()
         compose.onNodeWithText("Fix the typo").performClick()

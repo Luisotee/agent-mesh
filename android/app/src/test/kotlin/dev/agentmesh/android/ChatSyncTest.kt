@@ -126,4 +126,21 @@ class ChatSyncTest {
         advanceTimeBy(1_300); runCurrent()
         assertEquals(before + 2, api.reads.size)
     }
+
+    @Test fun `after a stop mid-read, the same sync reads again`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val api = RecordingApi().apply { transcript = { _, _, _ -> page(listOf(e("a"))) } }
+        val slow = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun readTranscript(agent: String, offset: Long, backward: Boolean): ReadTranscriptResponse {
+                if (api.reads.isEmpty()) gate.await()
+                return api.readTranscript(agent, offset, backward)
+            }
+        }
+        val sync = ChatSync(backgroundScope, { slow }, "w1")
+        sync.sync(); runCurrent()
+        sync.stop()
+        gate.complete(Unit); runCurrent()
+        sync.sync(); runCurrent()
+        assertTrue(sync.state.value.loaded)
+    }
 }

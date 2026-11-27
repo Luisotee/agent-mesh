@@ -91,7 +91,7 @@ fun AppNav(nav: NavHostController = rememberNavController()) {
             val id = e.arguments!!.getString("id")!!
             runtimes[id]?.let { DockScreen(it, { nav.popBackStack() }) { agent, tab -> nav.navigate(Routes.agent(id, agent, tab)) } }
         }
-        composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it) { nav.popBackStack() } } }
+        composable(Routes.USAGE) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { UsageScreen(it, onBack = { nav.popBackStack() }) } }
         composable(Routes.HOST_SETTINGS) { e -> runtimes[e.arguments!!.getString("id")!!]?.let { HostSettingsScreen(it) { nav.popBackStack() } } }
         composable(
             Routes.AGENT,

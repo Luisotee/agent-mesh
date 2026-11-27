@@ -32,6 +32,8 @@ import kotlinx.coroutines.launch
  * terminal's output when read, never stored or sent as an event), so the agents are listed again every [agentsEveryMs];
  * an agent an event touched meanwhile keeps what the event said.
  */
+private const val RETRY_PRS_MS = 1_000L
+
 class HostRefresher(
     private val scope: CoroutineScope,
     private val api: () -> MeshApi?,
@@ -50,15 +52,22 @@ class HostRefresher(
     private var waitingLoading = false
     private var prsLoading = false
     private var waitingFailed = false
-    private var complained = false
+    private var waitingComplained = false
+    private var agentsComplained = false
     private var prsComplained = false
     private var tickers: List<Job> = emptyList()
 
-    private fun complain(what: String, e: Throwable) {
-        // A host that doesn't know the action (an older daemon) would say so every 30 s: once is enough.
-        if (complained) return
-        complained = true
-        log("couldn't $what: ${e.message ?: e.javaClass.simpleName}")
+    // A host that doesn't know an action (an older daemon) would say so every 30 s: once is enough, for each call apart.
+    private fun complainWaiting(e: Throwable) {
+        if (waitingComplained) return
+        waitingComplained = true
+        log("couldn't list what waits on you: ${e.message ?: e.javaClass.simpleName}")
+    }
+
+    private fun complainAgents(e: Throwable) {
+        if (agentsComplained) return
+        agentsComplained = true
+        log("couldn't refresh the agents: ${e.message ?: e.javaClass.simpleName}")
     }
 
     private val ready get() = state().let { it.conn is ConnState.Ready && it.synced }
@@ -76,7 +85,7 @@ class HostRefresher(
             val list = api.listWaiting()
             if (stopped) return
             waitingFailed = false
-            complained = false
+            waitingComplained = false
             // Shown even if an event overtook it (a busy host answers slower than events come); the event scheduled a call,
             // or this one does, to correct it.
             update { withWaiting(it, list) }
@@ -86,7 +95,7 @@ class HostRefresher(
         } catch (e: Exception) {
             // The list stays as it was; the next tick asks again.
             waitingFailed = true
-            complain("list what waits on you", e)
+            complainWaiting(e)
         } finally {
             waitingLoading = false
         }
@@ -134,7 +143,8 @@ class HostRefresher(
             } else prsComplained = false
         } finally {
             prsLoading = false
-            if (again) scope.launch { loadPullRequests() }
+            // Not at once: under a steady stream of PR events that would be one call after another.
+            if (again) scope.launch { delay(RETRY_PRS_MS); loadPullRequests() }
         }
     }
 
@@ -150,6 +160,7 @@ class HostRefresher(
         val seen = agentTouches
         try {
             val list = api.listAgents()
+            agentsComplained = false
             if (stopped || seen != agentTouches) return
             var changed = false
             update { s ->
@@ -165,7 +176,7 @@ class HostRefresher(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            complain("refresh the agents", e)
+            complainAgents(e)
         }
     }
 

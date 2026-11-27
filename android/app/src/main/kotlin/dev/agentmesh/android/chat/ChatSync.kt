@@ -137,6 +137,8 @@ class ChatSync(private val scope: CoroutineScope, private val api: () -> MeshApi
 
     fun stop() {
         gen++
+        busy = false
+        again = false
         timers.forEach { it.cancel() }
         timers = emptyList()
     }

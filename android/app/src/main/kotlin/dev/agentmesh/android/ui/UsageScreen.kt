@@ -64,7 +64,7 @@ private const val QUOTA_EVERY_MS = 60_000L
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit) {
+fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit, quotaEveryMs: Long = QUOTA_EVERY_MS) {
     val state by runtime.state.collectAsStateWithLifecycleCompat()
     val connected = state.conn is ConnState.Ready
     var usage by remember { mutableStateOf<UsageView?>(null) }
@@ -77,16 +77,19 @@ fun UsageScreen(runtime: HostRuntime, onBack: () -> Unit) {
 
     LaunchedEffect(connected, refresh) {
         if (!connected) return@LaunchedEffect
+        // Refresh asks the host to bypass its cache once; the timed reads after it take what the host has.
+        var forced = refresh > 0
         while (true) {
             try {
-                usage = usageView(runtime.awaitApi().getUsage(refresh = refresh > 0))
+                usage = usageView(runtime.awaitApi().getUsage(refresh = forced))
+                forced = false
                 usageError = ""
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 usageError = say(e)
             }
-            delay(QUOTA_EVERY_MS)
+            delay(quotaEveryMs)
         }
     }
     LaunchedEffect(connected, scope, refresh) {

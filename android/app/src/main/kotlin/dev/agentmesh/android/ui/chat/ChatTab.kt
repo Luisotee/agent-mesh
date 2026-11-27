@@ -95,7 +95,9 @@ fun ChatTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modifier
     LaunchedEffect(sync, agent.sessionId, connected) { if (connected) sync.sync() }
     // Read on when the agent's events say it did something (a burst is one read), and every couple of seconds while it
     // works: a reply fires no event of its own.
-    LaunchedEffect(sync, agent) {
+    // Keyed on what an event changes about the conversation, not the whole agent: an activity frame changes the agent a few
+    // times a second, and each change would start the pause again.
+    LaunchedEffect(sync, agent.state, agent.needsInput, agent.phase, agent.terminalId, agent.model, agent.effort) {
         if (connected && chat.loaded) {
             delay(SETTLE_MS)
             sync.sync()
