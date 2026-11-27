@@ -138,6 +138,11 @@ class ParityE2ETest {
             val seen = { runBlocking { withContext(dispatcher) { screen.visibleText() } } }
             try { withTimeout(20_000) { while ("phone-shell-42" !in withContext(dispatcher) { screen.visibleText() }) delay(50) } }
             catch (e: kotlinx.coroutines.TimeoutCancellationException) { throw AssertionError("the shell's answer never came; its screen:\n${seen()}") }
+            // A program that asks the terminal where the cursor is and waits for the answer: with this client typing, the host leaves the
+            // answering to it, so the phone's emulator must answer (a reply of ESC [ row ; col R, which `read` takes up to the R).
+            assertTrue(client.type("printf '\\033[6n'; IFS= read -rs -d R -t 8 pos; echo \"answered:\${#pos}\"\r".toByteArray()))
+            try { withTimeout(20_000) { while (Regex("answered:[1-9]").find(withContext(dispatcher) { screen.visibleText() }) == null) delay(50) } }
+            catch (e: kotlinx.coroutines.TimeoutCancellationException) { throw AssertionError("the program's query was never answered; its screen:\n${seen()}") }
             // The keyboard came up: the view is shorter, and the terminal follows.
             assertTrue(client.resize(70, 12))
             withTimeout(20_000) { while (withContext(dispatcher) { screen.rows } != 12) delay(50) }

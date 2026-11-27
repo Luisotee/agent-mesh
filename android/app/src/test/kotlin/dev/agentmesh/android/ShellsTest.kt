@@ -124,4 +124,45 @@ class ShellsTest {
         assertEquals(listOf("shop"), rows.map { it.name })
         assertEquals(listOf("a", "b"), rows.single().shells.map { it.id })
     }
+
+    @Test fun `opening a shell when the list was never read reads the host's own list, and the last try is followed by one more read`() = runBlocking {
+        val api = RecordingApi().apply { shells = listOf(shell("a")) }
+        var calls = 0
+        lateinit var rt: HostRuntime
+        val wrapped = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun listShells(): List<Shell> { calls++; if (calls == 1) error("down"); return api.listShells() }
+        }
+        val repo = HostRepository(tmp.newFile("hosts4.json").also { it.delete() }, Plain)
+        val host = repo.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        rt = HostRuntime(host.id, repo, { _, _ -> wrapped }, CoroutineScope(Dispatchers.Unconfined))
+        rt.start(); started += rt
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        rt.refreshShells()
+        assertNull(rt.state.value.shells); assertTrue(rt.state.value.shellsFailed)
+        val b = rt.openShell("/home/u/shop")
+        // Not the one shell alone: the host's others are read now too, and the failure is cleared.
+        assertEquals(setOf("a", b.id), rt.state.value.shells!!.map { it.id }.toSet())
+        assertTrue(!rt.state.value.shellsFailed)
+    }
+
+    @Test fun `a frame on every try still ends with the list read once more behind them`() = runBlocking {
+        val api = RecordingApi().apply { shells = listOf(shell("a")) }
+        var calls = 0
+        lateinit var rt: HostRuntime
+        val wrapped = object : dev.agentmesh.android.net.MeshApi by api {
+            override suspend fun listShells(): List<Shell> {
+                val list = api.listShells()
+                // A frame arrives during each of the first three reads (and then the host is quiet).
+                if (calls++ < 3) rt.onFrame(frame(change(shell("n$calls"))))
+                return list
+            }
+        }
+        val repo = HostRepository(tmp.newFile("hosts5.json").also { it.delete() }, Plain)
+        val host = repo.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        rt = HostRuntime(host.id, repo, { _, _ -> wrapped }, CoroutineScope(Dispatchers.Unconfined))
+        rt.start(); started += rt
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        rt.refreshShells()
+        assertEquals(4, calls)
+    }
 }

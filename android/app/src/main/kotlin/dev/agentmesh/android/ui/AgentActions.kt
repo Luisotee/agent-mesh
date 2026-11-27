@@ -40,6 +40,7 @@ fun AgentActionDialog(runtime: HostRuntime, action: AgentAction, onDone: (succee
     var error by remember { mutableStateOf("") }
     var title by remember(action) { mutableStateOf((action as? AgentAction.RenameRun)?.title.orEmpty()) }
     val scope = rememberCoroutineScope()
+    val prefs = LocalContainer.current.prefs
     val (head, body, verb) = when (action) {
         is AgentAction.StopAgent -> Triple("Stop ${action.name}?", "Its process ends now. Its worktree and branch stay.", "Stop")
         is AgentAction.RetireAgent -> Triple("Retire ${action.name}?", "It stops on purpose and keeps its branch. A message to it brings it back.", "Retire")
@@ -60,7 +61,7 @@ fun AgentActionDialog(runtime: HostRuntime, action: AgentAction, onDone: (succee
                     is AgentAction.RetireAgent -> api.retireAgent(action.agentId)
                     is AgentAction.StopRun -> api.stopRun(action.runId)
                     is AgentAction.RenameRun -> api.renameRun(action.runId, title.trim())
-                    is AgentAction.EndShell -> runtime.closeShell(action.shellId)
+                    is AgentAction.EndShell -> { runtime.closeShell(action.shellId); prefs.forgetPhoneShell(runtime.hostId, action.shellId) }
                 }
                 onDone(true)
             } catch (e: CancellationException) {

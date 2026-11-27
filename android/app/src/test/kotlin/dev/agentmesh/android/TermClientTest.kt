@@ -338,15 +338,37 @@ class TermClientTest {
         assertTrue(s.sent.none { it.frameCase == TermFrame.FrameCase.RESIZE })
     }
 
-    @Test fun `the emulator's replies to the program's queries are never sent, typing or not`() = runTest {
+    @Test fun `the client that types answers the program's queries once the replay is done, a viewer and the replay never do`() = runTest {
         val r = TypingRig(this); val s = r.socket()
-        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
-        // Device attributes (ESC [ c), a cursor position report (ESC [ 6 n) and a status report (ESC [ 5 n): the emulator would answer each.
-        s.host(Frames.output("\u001B[c\u001B[6n\u001B[5n", 5)); runCurrent()
+        r.client.start(); runCurrent()
+        // The replay itself holds a query (the program asked before this client came): its answer is dropped, as the host's input is before Ready.
+        s.host(TermFrame.newBuilder().setAttached(Frames.attached(AttachMode.ATTACH_MODE_REPAINT, epoch = 1, offset = 5, cols = 40, rows = 10).attached.toBuilder().setInput(true)).build())
+        s.host(Frames.screen("hello\u001B[c", epoch = 1, offset = 5)); s.host(Frames.replayDone(5)); runCurrent()
         assertEquals(listOf(TermFrame.FrameCase.ATTACH, TermFrame.FrameCase.READY), s.sent.map { it.frameCase })
-        // What the user types still goes.
+        // Live: device attributes (ESC [ c) and a cursor position report (ESC [ 6 n). With a client that types attached the host's own emulator
+        // does not answer, so this one does, as the terminal it is.
+        s.host(Frames.output("\u001B[c\u001B[6n", 5)); runCurrent()
+        val answers = s.sent.filter { it.hasInput() }.joinToString("") { it.input.data.toStringUtf8() }
+        assertTrue("got ${answers.replace("\u001B", "ESC")}", answers.contains("\u001B[?") && answers.contains("R"))
+        // What the user types goes too.
         r.client.type("q".toByteArray())
-        assertEquals(TermFrame.FrameCase.INPUT, s.sent.last().frameCase)
+        assertEquals("q", s.sent.last().input.data.toStringUtf8())
+    }
+
+    @Test fun `a viewer sends nothing but the attach, whatever the program asks`() = runTest {
+        val r = TypingRig(this, input = false); val s = r.socket()
+        r.client.start(); runCurrent(); granted(s, input = false); s.host(Frames.replayDone(5)); runCurrent()
+        s.host(Frames.output("\u001B[c\u001B[6n\u001B[5n", 5)); runCurrent()
+        assertEquals(listOf(TermFrame.FrameCase.ATTACH), s.sent.map { it.frameCase })
+    }
+
+    @Test fun `a resize to the size already sent is not sent again`() = runTest {
+        val r = ShellRig(this) { 52 to 30 }; val s = r.socket()
+        r.client.start(); runCurrent(); granted(s); s.host(Frames.replayDone(5)); runCurrent()
+        assertTrue(!r.client.resize(52, 30))
+        assertTrue(r.client.resize(52, 20))
+        assertTrue(!r.client.resize(52, 20))
+        assertEquals(1, s.sent.count { it.hasResize() })
     }
 
     @Test fun `a host that did not grant the input right gets no input, and Ready is not sent`() = runTest {

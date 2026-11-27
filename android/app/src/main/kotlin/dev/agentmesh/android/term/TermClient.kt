@@ -56,8 +56,11 @@ object CloseCode {
  *  - a slow client (close 4001) reattaches by offset at once, any other drop after a growing wait, and each
  *    attach asks for a fresh one-time ticket;
  *  - it sends input only when [input] is on (the keyboard is up) and the host granted it: the user's typing and pastes,
- *    after `Ready`; never the emulator's replies to queries, and never a size (it stays 0, so a phone that types
- *    doesn't resize the terminal the desktop uses). With [input] off it sends nothing, so the host answers the queries.
+ *    after `Ready`, and from then on the emulator's replies to the program's queries (while a client that types is
+ *    attached the host's own emulator leaves answering to it; what the replay's queries asked is not answered, the
+ *    host drops input before `Ready`); and a size only for a terminal the phone sizes ([size]: a shell it opened), else
+ *    it stays 0, so a phone that types doesn't resize the terminal the desktop uses. With [input] off it sends nothing,
+ *    so the host answers the queries.
  */
 class TermClient(
     private val scope: CoroutineScope,
@@ -99,13 +102,17 @@ class TermClient(
      * types may resize, so it waits for that and is not sent otherwise; false when nothing was sent.
      */
     fun resize(cols: Int, rows: Int): Boolean {
-        if (size == null || !_typing.value) return false
+        if (size == null || !_typing.value || sizeSent == cols to rows) return false
         val sock = socket ?: return false
+        sizeSent = cols to rows
         return sock.send(TermFrame.newBuilder().setResize(dev.agentmesh.gen.agentmesh.term.v1.Resize.newBuilder().setCols(cols).setRows(rows)).build())
     }
 
     private var job: Job? = null
     private var socket: TerminalSocket? = null
+
+    /** The size the host was last told: attached with, or resized to. */
+    private var sizeSent: Pair<Int, Int>? = null
 
     // Where the stream is: the host's epoch and the offset of the next byte we expect.
     private var epoch = 0L
@@ -129,6 +136,7 @@ class TermClient(
 
     fun stop() {
         _typing.value = false
+        screen.output.reply = null
         job?.cancel()
         job = null
         socket?.close()
@@ -194,7 +202,8 @@ class TermClient(
             val attach = Attach.newBuilder()
                 .setMode(if (repaint || !haveScreen) AttachMode.ATTACH_MODE_REPAINT else AttachMode.ATTACH_MODE_EXACT)
                 .setEpoch(epoch).setOffset(offset) // size 0 unless the phone sizes this terminal (below): ours to ask nothing of
-            size?.invoke()?.let { (c, r) -> attach.setCols(c).setRows(r) }
+            sizeSent = size?.invoke()
+            sizeSent?.let { (c, r) -> attach.setCols(c).setRows(r) }
             sock.send(TermFrame.newBuilder().setAttach(attach).build())
             for (ev in sock.events) {
                 when (ev) {
@@ -215,6 +224,7 @@ class TermClient(
             sock.close()
             if (socket === sock) socket = null
             _typing.value = false
+            screen.output.reply = null
             granted = false
         }
     }
@@ -270,6 +280,8 @@ class TermClient(
                 if (granted) {
                     socket?.send(TermFrame.newBuilder().setReady(Ready.getDefaultInstance()).build())
                     _typing.value = true
+                    // From here this client is the one that types: the host leaves answering the program's queries to it.
+                    screen.output.reply = { bytes -> type(bytes) }
                 }
                 onLive()
             }

@@ -257,7 +257,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.projectItems(
     val open = searching || ((p.runs.isNotEmpty() || p.shells.isNotEmpty()) != (p.key in flipped))
     item(key = "p:${p.key}", contentType = "project") { ProjectHeader(p, model, open, a) { flip(p.key) } }
     if (!open) return
-    p.shells.forEachIndexed { i, sh -> item(key = "s:${p.key}:${sh.id}", contentType = "shell") { ShellItem(p.hostId, sh, if (p.shells.size > 1) "Terminal ${i + 1}" else "Terminal", current, a, canAct = model.hosts.none { it.hostId == p.hostId && it.readOnly }) } }
+    p.shells.forEachIndexed { i, sh -> item(key = "s:${p.key}:${sh.id}", contentType = "shell") { ShellItem(p.hostId, sh, shellLabel(sh, p.shells.size > 1, i), current, a, canAct = model.hosts.none { it.hostId == p.hostId && it.readOnly }) } }
     p.runs.forEach { r -> leadItems(r, p, current, a, model) }
     if (p.also.isNotEmpty()) foldItems("Also working here", "also:${p.key}", p.also, p, current, a, model, searching, flipped, flip)
     if (p.earlier.isNotEmpty()) foldItems("Earlier", "earlier:${p.key}", p.earlier, p, current, a, model, searching, flipped, flip)
@@ -370,6 +370,10 @@ private fun ShellItem(hostId: String, sh: ShellRow, label: String, current: Pair
         }
     }
 }
+
+/** "Terminal", or with several in a project "Terminal · 14:02" (when it started, which does not change as others end). */
+private fun shellLabel(sh: ShellRow, several: Boolean, index: Int): String =
+    if (!several) "Terminal" else if (sh.startedMs > 0) "Terminal · " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(sh.startedMs)) else "Terminal ${index + 1}"
 
 /** What the drawer's `current` says for a shell's screen (an agent's id is the other kind). */
 fun shellScreenId(shellId: String) = "shell:$shellId"

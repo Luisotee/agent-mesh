@@ -175,14 +175,22 @@ class HostRuntime(
         repeat(3) { attempt ->
             val asked = _state.value.shellTouch
             val list = try { awaitApi().listShells() } catch (e: CancellationException) { throw e } catch (e: Exception) { log("couldn't list the host's shells: ${e.message ?: e.javaClass.simpleName}"); _state.update { it.copy(shellsFailed = true) }; return }
-            if (_state.value.shellTouch == asked || attempt == 2) { _state.update { it.copy(shells = list, shellsFailed = false) }; return }
+            if (_state.value.shellTouch == asked || attempt == 2) {
+                _state.update { it.copy(shells = list, shellsFailed = false) }
+                // The last try is kept even if a frame came meanwhile, and the list is read once more behind it.
+                if (_state.value.shellTouch != asked) scope.launch { refreshShells() }
+                return
+            }
         }
     }
 
     /** Starts a shell in [repo] and shows it at once (its `ShellChange` frame brings it too, and is the same shell). */
     suspend fun openShell(repo: String): dev.agentmesh.gen.agentmesh.v1.Shell {
         val shell = connectedApi().openShell(repo)
-        _state.update { applyShell(it, dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder().setShell(shell).build()).let { s -> if (s.shells == null) s.copy(shells = listOf(shell)) else s } }
+        val unread = _state.value.shells == null
+        _state.update { applyShell(it, dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder().setShell(shell).build()) }
+        // A list never read (the read after the snapshot failed): the host's others are read now, not shown as if there were only this one.
+        if (unread) scope.launch { refreshShells() }
         return shell
     }
 

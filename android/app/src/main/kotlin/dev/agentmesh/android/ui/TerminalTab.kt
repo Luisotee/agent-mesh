@@ -63,6 +63,9 @@ import dev.agentmesh.android.term.pasteBytes
 import dev.agentmesh.android.term.selectedText
 import dev.agentmesh.android.ui.chat.isReadOnlyDevice
 
+/** How long a terminal the phone sizes waits for its view to be measured before it attaches without a size. */
+private const val MEASURE_WAIT_MS = 3_000L
+
 fun termSentence(s: TermState): String = when (s) {
     TermState.WaitingForHost -> "Waiting for the host…"
     TermState.Attaching -> "Attaching…"
@@ -96,11 +99,14 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
     val client = remember(agentId, typingOn) {
         TermClient(
             scope, agentId, { runtime.awaitApi() }, screen, hostReady = { runtime.state.value.conn is ConnState.Ready }, input = typingOn, shell = shell,
-            size = if (phoneSized && typingOn) ({ viewport }) else null,
+            size = if (phoneSized) ({ viewport }) else null,
         )
     }
     // A terminal the phone sizes waits for its first measure, so the first attach carries the view's size (a later change is a resize).
-    val measured = !(phoneSized && typingOn) || viewport != null
+    // (Not for ever: a view that is never measured attaches at size 0 after a moment.)
+    var waited by remember(agentId) { mutableStateOf(false) }
+    LaunchedEffect(agentId, phoneSized) { if (phoneSized) { kotlinx.coroutines.delay(MEASURE_WAIT_MS); waited = true } }
+    val measured = !phoneSized || viewport != null || waited
     DisposableEffect(client, measured) {
         if (measured) client.start()
         onDispose { client.stop() }
@@ -146,7 +152,7 @@ fun TerminalTab(runtime: HostRuntime, agentId: String, modifier: Modifier = Modi
         Box(Modifier.weight(1f).fillMaxWidth()) {
             TerminalCanvas(
                 screen, LocalMeshTheme.current.terminal, selection = selection, onSelection = { selection = it }, onTap = { if (typingOn) showKeyboard++ },
-                phoneSized = phoneSized && typingOn, onViewport = { c, r -> viewport = c to r },
+                phoneSized = phoneSized, onViewport = { c, r -> viewport = c to r },
             )
             if (state is TermState.Failed) {
                 Button(onClick = client::retry, modifier = Modifier.align(Alignment.Center).testTag("terminal-retry")) { Text("Try again") }
