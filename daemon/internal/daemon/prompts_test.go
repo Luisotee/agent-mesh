@@ -328,6 +328,7 @@ func TestASendOverADraftWhileSomeoneTypesAndOtherRefusals(t *testing.T) {
 	user := h.openTerminal(ctx, a, true, &termv1.Attach{Mode: termv1.AttachMode_ATTACH_MODE_TAIL})
 	defer user.Close()
 	user.Ready(ctx)
+	typedAt := time.Now()
 	user.Input(ctx, []byte("x\x7f"))
 	// Wait for the host to count the keystroke by looking at it, not by sending: a send that arrives before the host
 	// has counted it finds nobody typing and goes through (the draft is cleared, the prompt is typed and gone), and the
@@ -338,7 +339,8 @@ func TestASendOverADraftWhileSomeoneTypesAndOtherRefusals(t *testing.T) {
 	}
 	waitFor(t, "the keystroke counted by the host", func() bool {
 		ti := h.terminalOf(ctx, tc, a)
-		return ti != nil && ti.InputClients > 0 && ti.LastClientInput != nil
+		// Newer than the keystroke: the typist before it, on the same terminal, left a time of its own.
+		return ti != nil && ti.InputClients > 0 && ti.LastClientInput != nil && ti.LastClientInput.AsTime().After(typedAt)
 	})
 	if _, err := h.sendAnyway(a.Id, p.Id, "half a thou", "over-6"); err == nil || !strings.Contains(err.Error(), "someone is typing") {
 		t.Fatalf("a send while someone types: %v", err)

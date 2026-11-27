@@ -347,14 +347,20 @@ func (d *Daemon) adopt(ctx context.Context) error {
 
 // agentOfExit is the agent a terminal's exit is about, as recordExit finds it (nil when none): read before the write, for
 // what exitWords needs.
-func (d *Daemon) agentOfExit(ctx context.Context, terminalID, agentID string) *v1.Agent {
+func (d *Daemon) agentOfExit(ctx context.Context, terminalID, agentID, reopenID string) *v1.Agent {
 	r := d.store.Read(ctx)
 	a, err := r.AgentByTerminal(terminalID)
 	if errors.Is(err, store.ErrNotFound) && agentID != "" {
 		a, err = r.GetAgent(agentID)
+		if err == nil && a.TerminalId != "" && a.TerminalId != terminalID {
+			return nil // another process's exit, as recordExit finds
+		}
 	}
 	if err != nil {
 		return nil
+	}
+	if p := a.PendingReopen; p != nil && p.Id != reopenID {
+		return nil // a reopen's own stop of the old process: recordExit records nothing and tells no one
 	}
 	return a
 }
@@ -375,7 +381,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	}
 	claimed, replaced, realExit, owner := false, false, false, ""
 	var alert *v1.Message
-	words := d.exitWords(ctx, d.agentOfExit(ctx, terminalID, agentID)) // read before the write that records the exit
+	words := d.exitWords(ctx, d.agentOfExit(ctx, terminalID, agentID, reopenID)) // read before the write that records the exit
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
 		if errors.Is(err, store.ErrNotFound) && agentID != "" {

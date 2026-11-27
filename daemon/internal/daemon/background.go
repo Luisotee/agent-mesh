@@ -28,7 +28,9 @@ import (
 // own parent), and a command it runs in the background (`background: true`, which notifies the session when it ends) is such a
 // shell that outlives the turn. A foreground command ends within the turn, so a shell with `-c` under an OpenCode agent at its
 // prompt is a command it left running. Its other children are not shells with `-c` (its language servers and MCP servers run
-// their program directly). A job it detached with `&`, `nohup` or `setsid` has no shell to see: it is no longer under the
+// their program directly, unless an MCP server is configured as `sh -c …`, or a tool such as `npx` starts one: that would be
+// read as a command left running and hold the nudge for the grace; the walk is of the whole tree under the terminal's process,
+// as a wrapper may stand between it and OpenCode). A job it detached with `&`, `nohup` or `setsid` has no shell to see: it is no longer under the
 // agent, as it is not for Claude. Read from the source and the docs of OpenCode's dev branch, not seen on a live agent: the
 // bash tool of the 1.19.6 installed here has no `background` argument yet, so the check finds nothing there. agy is not
 // covered: nothing of how it runs a command could be read without running it (daemon/CLAUDE.md: never a real agy).
@@ -89,12 +91,16 @@ func shellCommand(table []proc.Info, pid int) (string, bool) {
 		}
 		switch p.Argv[0][strings.LastIndex(p.Argv[0], "/")+1:] {
 		case "bash", "sh", "zsh", "dash", "fish", "ksh":
-			for i := 1; i < len(p.Argv)-1 && i <= 3; i++ {
+			// OpenCode starts zsh as `zsh +o nomatch -c <command>`: flags of either sign and the name an `-o`/`+o` takes come first.
+			for i := 1; i < len(p.Argv)-1 && i <= 6; i++ {
 				switch p.Argv[i] {
 				case "-c", "-lc", "-ic", "-cl", "-ci":
 					return strings.TrimSpace(p.Argv[i+1]), true
+				case "-o", "+o":
+					i++ // the option's name
+					continue
 				}
-				if !strings.HasPrefix(p.Argv[i], "-") {
+				if a := p.Argv[i]; !strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "+") {
 					break // a script's name, not a flag: not a command shell
 				}
 			}
