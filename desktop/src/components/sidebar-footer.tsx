@@ -107,7 +107,7 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
       {many && <span className="text-xs font-medium text-muted-foreground">{host.info.name}</span>}
       <ul aria-label="Quota" className="flex flex-col gap-1">
         {q.rows.map((r) => (
-          <li key={r.label} className="grid grid-cols-[5.5rem_1fr_2.5rem] items-center gap-2 text-xs">
+          <li key={r.label} className="grid grid-cols-[minmax(0,8rem)_1fr_2.5rem] items-center gap-2 text-xs">
             <span className="truncate text-muted-foreground" title={r.resetsAt ? resetText(r.resetsAt) : undefined}>{r.label}</span>
             <Meter label={`${r.label}${r.resetsAt ? `, ${resetText(r.resetsAt)}` : ''}`} value={r.used} tone={toneOf(r)} />
             <span className={toneOf(r) === 'ok' ? 'text-right tabular-nums text-muted-foreground' : 'text-right font-semibold tabular-nums text-state-needs'}>{Math.round(r.used)}%</span>

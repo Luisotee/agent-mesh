@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useApp, useAppState } from '@/context'
@@ -14,13 +14,28 @@ export function FindBar() {
   const [text, setText] = useState('')
   const [result, setResult] = useState<{ active: number; total: number }>()
   const find = app.api.find
-  useEffect(() => (open ? find?.onResult(setResult) : undefined), [open, find])
-  if (!open) return null
+  const field = useRef<HTMLInputElement>(null)
+  // Chromium moves the focus to the match it selects: the field takes it back, so typing goes on there.
+  useEffect(() => (open ? find?.onResult((r) => { setResult(r); field.current?.focus() }) : undefined), [open, find])
   const close = () => {
     find?.stop()
     setResult(undefined)
     app.openFind(false)
   }
+  // Escape closes it wherever the focus went.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      find?.stop()
+      setResult(undefined)
+      app.openFind(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, find, app])
+  if (!open) return null
   const go = (forward: boolean, again: boolean, t = text) => {
     if (t) find?.start(t, forward, again)
     else {
@@ -31,6 +46,7 @@ export function FindBar() {
   return (
     <div role="search" aria-label="Find in the window" className="absolute top-2 right-3 z-30 flex items-center gap-1 rounded-md border bg-popover p-1 shadow-lg">
       <Input
+        ref={field}
         autoFocus
         aria-label="Find"
         value={text}
@@ -44,9 +60,6 @@ export function FindBar() {
           if (e.key === 'Enter') {
             e.preventDefault()
             go(!e.shiftKey, true)
-          } else if (e.key === 'Escape') {
-            e.preventDefault()
-            close()
           }
         }}
       />

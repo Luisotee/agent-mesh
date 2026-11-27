@@ -25,6 +25,7 @@ import { MessagesPanel } from './components/messages-panel'
 import { ProjectSidebar } from './components/project-sidebar'
 import { ProjectSettingsDialog } from './components/project-settings'
 import { SidebarFooter } from './components/sidebar-footer'
+import { FindBar } from './components/find-bar'
 import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext } from './context'
@@ -801,6 +802,26 @@ describe('SidePanel', () => {
     unmount()
     render(wrap(<SidePanel host={host} />))
     expect(screen.getByText(/Open an agent to see/)).toBeInTheDocument()
+  })
+})
+
+describe('FindBar', () => {
+  it('finds as you type, steps with Enter and Shift+Enter, and closes on Escape wherever the focus is', async () => {
+    const { wrap, model } = fixture()
+    const find = { start: vi.fn(), stop: vi.fn(), onResult: vi.fn((cb: (r: { active: number; total: number }) => void) => ((find.cb = cb), () => {})), cb: undefined as undefined | ((r: { active: number; total: number }) => void) }
+    ;(model.api as unknown as { find: unknown }).find = find
+    model.openFind(true)
+    render(wrap(<FindBar />))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Find' }), 'ab')
+    expect(find.start).toHaveBeenLastCalledWith('ab', true, false)
+    act(() => find.cb!({ active: 2, total: 5 }))
+    expect(screen.getByRole('status')).toHaveTextContent('2 of 5')
+    await userEvent.keyboard('{Shift>}{Enter}{/Shift}')
+    expect(find.start).toHaveBeenLastCalledWith('ab', false, true)
+    act(() => (document.activeElement as HTMLElement).blur())
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(find.stop).toHaveBeenCalled()
+    expect(model.store.getState().findOpen).toBe(false)
   })
 })
 

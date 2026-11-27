@@ -335,9 +335,9 @@ function LeadItem({ row }: { row: LeadRow }) {
   return (
     <m.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }} aria-label={title}>
       <RowContextMenu entries={entries}>
-        <div data-row className="group flex items-center gap-0.5 pr-1">
+        <div data-row className="group flex items-start gap-0.5 pr-1">
           {kids ? (
-            <button type="button" aria-label={expanded ? `Fold ${title}` : `Show the workers of ${title}`} aria-expanded={expanded} onClick={() => setOpen(!expanded)} className="grid size-5 shrink-0 place-items-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+            <button type="button" aria-label={expanded ? `Fold ${title}` : `Show the workers of ${title}`} aria-expanded={expanded} onClick={() => setOpen(!expanded)} className="mt-1.5 grid size-5 shrink-0 place-items-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
               <ChevronRight className={cn('size-3.5 transition-transform motion-reduce:transition-none', expanded && 'rotate-90')} />
             </button>
           ) : (
@@ -350,7 +350,7 @@ function LeadItem({ row }: { row: LeadRow }) {
           ) : (
             <span className="min-w-0 flex-1 truncate px-2 py-1.5 text-[13px] text-muted-foreground">{title}: no agents yet</span>
           )}
-          <span data-row-more className="contents"><MoreButton label={`Menu of ${title}`} entries={entries} /></span>
+          <span data-row-more className="mt-1.5 flex"><MoreButton label={`Menu of ${title}`} entries={entries} /></span>
         </div>
       </RowContextMenu>
       {kids && expanded && (
@@ -374,9 +374,9 @@ function WorkerItem({ hostId, row }: { hostId: string; row: WorkerRow }) {
   return (
     <li style={row.elsewhere ? hueStyle(a.repo) : undefined}>
       <RowContextMenu entries={entries}>
-        <div data-row className="group flex items-center gap-0.5 pr-1">
+        <div data-row className="group flex items-start gap-0.5 pr-1">
           <AgentButton hostId={hostId} agent={a} helpers={row.helpers} tag={row.elsewhere ? repoName(a.repo) : undefined} onKeyDown={menuKey} />
-          <span data-row-more className="contents"><MoreButton label={`Menu of ${a.name}`} entries={entries} /></span>
+          <span data-row-more className="mt-1.5 flex"><MoreButton label={`Menu of ${a.name}`} entries={entries} /></span>
         </div>
       </RowContextMenu>
       {row.workers.length > 0 && (
