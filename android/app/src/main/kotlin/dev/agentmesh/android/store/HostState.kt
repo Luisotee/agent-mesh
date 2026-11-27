@@ -30,6 +30,11 @@ sealed interface ConnState {
 
 data class LogLine(val atMs: Long, val text: String)
 
+/** One entry of the Activity list: a notice the host made, `forUser` or not; [seq] is its event's, [atMs] by the host's clock. */
+data class ActivityItem(val seq: Long, val atMs: Long, val notice: dev.agentmesh.gen.agentmesh.v1.UserNotice)
+
+const val MAX_ACTIVITY = 200
+
 /** One host as the app knows it: what its snapshot and event stream said, and the state of the connection. */
 data class HostState(
     val conn: ConnState = ConnState.Connecting,
@@ -67,6 +72,11 @@ data class HostState(
     val promptsDone: Set<String> = emptySet(),
     /** How many times each agent's queue changed here: a listing asked before a change is older than what we hold. */
     val promptTouch: Map<String, Int> = emptyMap(),
+    /**
+     * What the host decided to tell the user (`UserNotice` events), oldest first, the last [MAX_ACTIVITY]: the Activity list, the ones
+     * that were for the user and the ones that only informed. Kept as they arrive on this connection (a snapshot keeps them).
+     */
+    val activity: List<ActivityItem> = emptyList(),
     /** How many snapshots arrived: what an event carries can have been missed across one, so a screen reads again. */
     val snapshots: Int = 0,
     val cursor: Cursor? = null,
@@ -190,6 +200,7 @@ private fun applyEvent(s: HostState, e: Event): HostState {
             next.copy(runs = s.runs + (r.id to r.toBuilder().setTitle(e.runRenamed.title).build()))
         } ?: next
         // The chat's queue: a prompt joins it, and leaves it once typed or taken back.
+        Event.PayloadCase.USER_NOTICE -> next.copy(activity = (s.activity + ActivityItem(e.seq, if (e.hasTime()) e.time.toMillis() else 0L, e.userNotice)).takeLast(MAX_ACTIVITY))
         Event.PayloadCase.PROMPT_QUEUED -> if (e.promptQueued.hasPrompt()) {
             val q = e.promptQueued.prompt
             // A requeue (its typing never reached the terminal) is queued again, so it is no longer done.

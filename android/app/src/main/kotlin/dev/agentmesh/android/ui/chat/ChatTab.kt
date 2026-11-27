@@ -26,7 +26,7 @@ import dev.agentmesh.android.chat.mergeTimeline
 import dev.agentmesh.android.chat.quoteReply
 import dev.agentmesh.android.chat.stamped
 import dev.agentmesh.android.derive.messagesOf
-import dev.agentmesh.android.derive.waitingFor
+import dev.agentmesh.android.derive.waitingAllFor
 import dev.agentmesh.android.ui.copyToClipboard
 import dev.agentmesh.android.ui.messages.MessageCard
 import dev.agentmesh.android.ui.LocalReducedMotion
@@ -181,7 +181,7 @@ fun ChatTab(
     val messages = remember(host.messages, agentId) { messagesOf(host.messages, agentId) }
     val messagesFailed = runId in host.messagesFailed
     val waitingOn = remember(host.waiting, host.runs, host.agents, host.messages, agentId) {
-        waitingFor(host).filter { it.agent.id == agentId }.mapNotNull { it.message?.id }.toSet()
+        waitingAllFor(host).filter { it.agent.id == agentId }.mapNotNull { it.message?.id }.toSet()
     }
     // Cards stand in for the doorbell lines only once the run's history has loaded, and stay so over a reconnect (which
     // keeps what is held): a live message before the load must not hide the older lines, nor a failed load all of them.

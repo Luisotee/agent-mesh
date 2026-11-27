@@ -21,33 +21,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NoticeTest {
-    private val lead = agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead")
-    private val worker = agent("w1", parent = "lead", name = "shop-fix")
-    private val agents = listOf(lead, worker).associateBy { it.id }
     private val now = 100_000L
 
-    private fun notice(f: SubscribeEventsResponse, skew: Long = 0, at: Long = now) = noticeFor(f.event, agents, at, skew)
+    private fun notice(f: SubscribeEventsResponse, skew: Long = 0, at: Long = now) = noticeFor(f.event, at, skew)
 
-    @Test fun `an agent stopped at a prompt notifies once, at the transition`() {
-        val n = notice(stateChanged(1, "w1", AgentState.AGENT_STATE_WORKING, AgentState.AGENT_STATE_NEEDS_INPUT, "Bash", 1, at = now))!!
-        assertEquals(NoticeKind.Input, n.kind); assertEquals("shop-fix needs you", n.title); assertEquals("Bash", n.body); assertEquals(Tab.Terminal, n.tab)
-        // Still waiting, or a different state: nothing.
-        assertNull(notice(stateChanged(2, "w1", AgentState.AGENT_STATE_NEEDS_INPUT, AgentState.AGENT_STATE_NEEDS_INPUT, at = now)))
-        assertNull(notice(stateChanged(3, "w1", AgentState.AGENT_STATE_IDLE, AgentState.AGENT_STATE_WORKING, at = now)))
+    @Test fun `only the host decision notifies, a UserNotice for the user and live`() {
+        val n = notice(userNotice(1, "plan", title = "shop-fix sent a plan", body = "Change the typo", at = now))!!
+        assertEquals(NoticeKind.Plan, n.kind); assertEquals("shop-fix sent a plan", n.title); assertEquals("Change the typo", n.body)
+        assertEquals("w1", n.agentId); assertEquals(Tab.Chat, n.tab); assertEquals(1L, n.seq); assertEquals("w1", n.tag)
+        assertEquals(Tab.Terminal, notice(userNotice(2, "input", tab = "terminal", at = now))!!.tab)
+        assertEquals("run-1", notice(userNotice(3, "finished", tag = "run-1", at = now))!!.tag)
     }
 
-    @Test fun `an agent at its usage limit or in error notifies once, at the transition (the daemon's and the desktop's rules)`() {
-        for ((to, kind, title) in listOf(
-            Triple(AgentState.AGENT_STATE_LIMITED, NoticeKind.Limited, "shop-fix hit its usage limit"),
-            Triple(AgentState.AGENT_STATE_ERROR, NoticeKind.Error, "shop-fix is in error"),
-        )) {
-            val n = notice(stateChanged(1, "w1", AgentState.AGENT_STATE_WORKING, to, "5-hour window", at = now))!!
-            assertEquals(kind, n.kind); assertEquals(title, n.title); assertEquals("5-hour window", n.body); assertEquals(Tab.Terminal, n.tab); assertEquals("w1", n.agentId)
-            assertNull(notice(stateChanged(2, "w1", to, to, at = now)))
-            assertEquals("Its terminal says more.", notice(stateChanged(3, "w1", AgentState.AGENT_STATE_WORKING, to, at = now))!!.body)
-        }
-        // Recovering is not news.
-        assertNull(notice(stateChanged(4, "w1", AgentState.AGENT_STATE_LIMITED, AgentState.AGENT_STATE_WORKING, at = now)))
+    @Test fun `a notice that is not for the user, one of a kind this app does not know, and one about no agent are the Activity list's alone`() {
+        assertNull(notice(userNotice(1, "plan", forUser = false, at = now)))
+        assertNull(notice(userNotice(2, "party", at = now)))
+        assertNull(notice(userNotice(3, "plan", agentId = "", at = now).let { f -> SubscribeEventsResponse.newBuilder().setEvent(f.event.toBuilder().setUserNotice(f.event.userNotice.toBuilder().setAgentId(""))).build() }))
+    }
+
+    @Test fun `the kinds the daemon added, finished and ready, notify and are on by default`() {
+        assertEquals(NoticeKind.Finished, notice(userNotice(1, "finished", at = now))!!.kind)
+        assertEquals(NoticeKind.Ready, notice(userNotice(2, "ready", at = now))!!.kind)
+        assertTrue(notifies(HostState(), NoticeKind.Finished)); assertTrue(notifies(HostState(), NoticeKind.Ready))
+    }
+
+    @Test fun `what the app used to work out itself from states and messages is the host's to say now`() {
+        // An agent at a prompt, a plan to a lead, a death: events of their own, no notice here (the host sends a UserNotice).
+        assertNull(notice(stateChanged(1, "w1", AgentState.AGENT_STATE_WORKING, AgentState.AGENT_STATE_NEEDS_INPUT, "Bash", 1, at = now)))
+        assertNull(notice(messageSent(2, message("m", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "go"), at = now)))
+        assertNull(noticeFor(exited(3, "w1", 2).event.toBuilder().setTime(ts(now)).build(), now))
+    }
+
+    @Test fun `history replayed after a reconnect stays quiet, judged by the host's clock`() {
+        val e = userNotice(1, "input", at = 30_000)
+        assertNull(notice(e))
+        // The host's clock is 80 s behind ours: by its own clock the event is only 10 s old, so it is live.
+        assertEquals(NoticeKind.Input, noticeFor(e.event, 100_000, clockSkewMs = -80_000)!!.kind)
     }
 
     @Test fun `this phone's own list of kinds decides, the host's silencing still wins`() {
@@ -63,39 +72,6 @@ class NoticeTest {
         assertTrue(!notifies(off, NoticeKind.Plan, setOf("plan")))
         // The default list, before the host's settings arrive, is the daemon's (it has error, not limited).
         assertTrue(notifies(HostState(), NoticeKind.Error)); assertTrue(!notifies(HostState(), NoticeKind.Limited)); assertTrue(!notifies(HostState(), NoticeKind.Exited))
-    }
-
-    @Test fun `what reaches the lead notifies, with the kind of report`() {
-        fun kind(t: MessageType) = notice(messageSent(1, message("m", from = "w1", to = "lead", type = t, body = "# Plan\n- **do** `x`"), at = now))
-        assertEquals(NoticeKind.Plan, kind(MessageType.MESSAGE_TYPE_PLAN)!!.kind)
-        assertEquals("Plan do x", kind(MessageType.MESSAGE_TYPE_PLAN)!!.body)
-        assertEquals(NoticeKind.Question, kind(MessageType.MESSAGE_TYPE_QUESTION)!!.kind)
-        assertEquals(NoticeKind.Report, kind(MessageType.MESSAGE_TYPE_DONE)!!.kind)
-        assertEquals(NoticeKind.Failed, kind(MessageType.MESSAGE_TYPE_FAILED)!!.kind)
-        assertEquals(Tab.Messages, kind(MessageType.MESSAGE_TYPE_DONE)!!.tab)
-        assertNull(kind(MessageType.MESSAGE_TYPE_INFO))
-    }
-
-    @Test fun `talk among workers and what the user did themselves are not news`() {
-        assertNull(notice(messageSent(1, message("m", from = "lead", to = "w1", type = MessageType.MESSAGE_TYPE_PLAN), at = now)))
-        val byDevice = message("m", from = "me", to = "lead", type = MessageType.MESSAGE_TYPE_QUESTION, at = now)
-            .toBuilder().setFrom(Actor.newBuilder().setClass_(ActorClass.ACTOR_CLASS_DEVICE).setId("w1")).build()
-        assertNull(notice(messageSent(1, byDevice, at = now)))
-        assertNull(notice(messageSent(1, message("m", from = "ghost", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN), at = now)))
-    }
-
-    @Test fun `history replayed after a reconnect stays quiet, judged by the host's clock`() {
-        val e = stateChanged(1, "w1", AgentState.AGENT_STATE_WORKING, AgentState.AGENT_STATE_NEEDS_INPUT, at = 30_000)
-        assertNull(notice(e))
-        // The host's clock is 80 s behind ours: by its own clock the event is only 10 s old, so it is live.
-        assertEquals(NoticeKind.Input, noticeFor(e.event, agents, 100_000, clockSkewMs = -80_000)!!.kind)
-    }
-
-    @Test fun `a death is news unless the user stopped the agent`() {
-        assertEquals("shop-fix exited with code 2", noticeFor(exited(1, "w1", 2).event.toBuilder().setTime(ts(now)).build(), agents, now)!!.title)
-        assertEquals("shop-fix was lost", noticeFor(exited(1, "w1", 0, "lost").event.toBuilder().setTime(ts(now)).build(), agents, now)!!.title)
-        assertEquals(NoticeKind.Exited, noticeFor(exited(1, "w1", 0).event.toBuilder().setTime(ts(now)).build(), agents, now)!!.kind)
-        assertNull(noticeFor(exited(1, "w1", -1, "killed").event.toBuilder().setTime(ts(now)).build(), agents, now))
     }
 
     @Test fun `bodies are plain text, cut to a notification's size`() {

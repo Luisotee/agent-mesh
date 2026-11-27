@@ -166,7 +166,9 @@ fun waitingOnYou(runs: Map<String, Run>, agents: Map<String, Agent>, messages: M
 }
 
 /** The host's `ListWaiting` rows as screens show them; a row whose agent the app doesn't know (yet) is left out. */
-fun waitingFrom(list: List<dev.agentmesh.gen.agentmesh.v1.Waiting>, runs: Map<String, Run>, agents: Map<String, Agent>): List<Waiting> = list.mapNotNull { w ->
+fun waitingFrom(list: List<dev.agentmesh.gen.agentmesh.v1.Waiting>, runs: Map<String, Run>, agents: Map<String, Agent>, onlyForUser: Boolean = true): List<Waiting> = list.mapNotNull { w ->
+    // Not set for a worker's plan or question to a lead that decides it: the run's own view shows it, the user's lists do not.
+    if (onlyForUser && !w.forUser) return@mapNotNull null
     val agent = agents[w.agentId] ?: return@mapNotNull null
     val kind = when (w.kind) {
         dev.agentmesh.gen.agentmesh.v1.WaitingKind.WAITING_KIND_PLAN -> WaitingKind.Plan
@@ -182,6 +184,9 @@ fun waitingFrom(list: List<dev.agentmesh.gen.agentmesh.v1.Waiting>, runs: Map<St
  * (or on a host too old to have the action) what [waitingOnYou] derives from the messages.
  */
 fun waitingFor(s: HostState): List<Waiting> = s.waiting?.let { waitingFrom(it, s.runs, s.agents) } ?: waitingOnYou(s.runs, s.agents, s.messages)
+
+/** Everything the host says waits, the user's or not (a lead's own view of a worker's plan it decides), for the run's chat: its card is open to answer. */
+fun waitingAllFor(s: HostState): List<Waiting> = s.waiting?.let { waitingFrom(it, s.runs, s.agents, onlyForUser = false) } ?: waitingOnYou(s.runs, s.agents, s.messages)
 
 fun Agent.lastActivityMillis(): Long = if (hasLastActivity()) lastActivity.toMillis() else createdMillis
 

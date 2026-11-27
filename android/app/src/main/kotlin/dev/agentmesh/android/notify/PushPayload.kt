@@ -34,8 +34,7 @@ data class PushPayload(
         if (agent.isEmpty()) return null
         val t = when (tab) {
             "terminal" -> Tab.Terminal
-            "messages" -> Tab.Messages
-            else -> Tab.Overview
+            else -> Tab.Chat
         }
         return Notice(k, title, body, agent, t, seq)
     }

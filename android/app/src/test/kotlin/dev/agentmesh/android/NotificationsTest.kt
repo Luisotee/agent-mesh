@@ -148,7 +148,7 @@ class NotificationsTest {
         val (_, rt) = readyHost()
         val got = mutableListOf<Notice>()
         val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined).launch { rt.notices.collect { got += it } }
-        rt.onFrame(messageSent(1, message("m", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "go", at = System.currentTimeMillis()), at = System.currentTimeMillis()))
+        rt.onFrame(userNotice(1, "plan", body = "go", at = System.currentTimeMillis()))
         waitFor("the notice") { got.isNotEmpty() }
         assertEquals(NoticeKind.Plan, got.single().kind)
         job.cancel()
@@ -196,11 +196,11 @@ class NotificationsTest {
         val (hostId, rt) = readyHost()
         container.viewing.value = hostId to "w1"
         val now = System.currentTimeMillis()
-        rt.onFrame(messageSent(1, message("p9", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "go", at = now), at = now))
+        rt.onFrame(userNotice(1, "plan", body = "go", at = now))
         Thread.sleep(400); shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(0, manager.allNotifications.size)
         container.viewing.value = null
-        rt.onFrame(messageSent(2, message("p10", from = "w1", to = "lead", type = MessageType.MESSAGE_TYPE_PLAN, body = "go", at = now), at = now))
+        rt.onFrame(userNotice(2, "plan", body = "go", at = now))
         waitFor("the notification") { manager.allNotifications.isNotEmpty() }
     }
 

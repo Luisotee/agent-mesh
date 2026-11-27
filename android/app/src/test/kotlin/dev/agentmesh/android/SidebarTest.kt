@@ -309,4 +309,16 @@ class SidebarTest {
         compose.onNodeWithContentDescription("Menu of shop-api").performClick()
         compose.onNodeWithText("Show again").assertIsDisplayed()
     }
+
+    @Test fun `the drawer says how much Activity is unread, until it is looked at`() {
+        api = RecordingApi(); NotificationsTest.api = api
+        val rt = host("wsl", runs, team)
+        rt.onFrame(userNotice(7, "plan", title = "shop-fix sent a plan"))
+        rt.onFrame(userNotice(8, "report", forUser = false))
+        drawer()
+        waitForText("Activity (2)")
+        container.prefs.markActivitySeen(rt.hostId, 8)
+        waitForText("Activity")
+        compose.onAllNodesWithText("Activity (2)").assertCountEquals(0)
+    }
 }
