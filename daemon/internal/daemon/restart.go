@@ -135,7 +135,7 @@ func (d *Daemon) resumeAfterRestart(ctx context.Context) {
 		}
 		for _, id := range ids {
 			if left[id] {
-				d.lostAfterRestart(context.WithoutCancel(ctx), id, errors.New("meshd stopped before it could be resumed"))
+				d.lostAfterRestart(ctx, id, errors.New("meshd stopped before it could be resumed"))
 			}
 		}
 	}()
@@ -255,7 +255,8 @@ func (d *Daemon) resumeLost(ctx context.Context, id string) error {
 // lostAfterRestart tells what the agent's exit alert would have: it was lost and could not be brought back. A pending
 // member of an ask settles `lost`, and its asker is told when the round finishes.
 func (d *Daemon) lostAfterRestart(ctx context.Context, id string, why error) {
-	defer d.bootRelease(id) // after the write: until then the round's pass leaves the member to it
+	defer d.bootRelease(id)          // after the write: until then the round's pass leaves the member to it
+	ctx = context.WithoutCancel(ctx) // a daemon that is stopping still tells (the store is open until this ends)
 	reason := why.Error()
 	var ce *connect.Error
 	if errors.As(why, &ce) {
@@ -275,7 +276,8 @@ func (d *Daemon) lostAfterRestart(ctx context.Context, id string, why error) {
 		}
 		text := fmt.Sprintf("%s lost its terminal in a machine restart and could not be resumed (%s). Resume it (`mesh resume %s`) or reassign the work.",
 			cur.Name, reason, cur.Name)
-		ring, err = d.alertParentTx(tx, cur, "exited", text, time.Time{})
+		// Since this boot: an exit alert told earlier in the run (the agent was resumed by hand since) does not tell this one.
+		ring, err = d.alertParentTx(tx, cur, "exited", text, d.startedAt)
 		return err
 	})
 	if err != nil {

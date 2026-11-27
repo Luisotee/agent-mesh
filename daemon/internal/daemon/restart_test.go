@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/fsutil"
@@ -206,20 +208,31 @@ func TestWhatIsNotResumedWhenTheDaemonStopsIsToldToItsParent(t *testing.T) {
 	})
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{Task: "do the thing"})
+	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{})
+	// It crashed earlier in the run and was told once; it was resumed by hand since. Losing it again must tell again.
+	w.typeInto(worker, "/crash\r")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_EXITED)
+	waitFor(t, "the first alert", func() bool { return w.alerts(t, lead.Id, "[mesh alert exited "+worker.Id+"]") == 1 })
+	if _, err := asLead.ResumeAgent(context.Background(), connect.NewRequest(&v1.ResumeAgentRequest{Agent: worker.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.set(t, "caps.agents", 1)
 	oldLead := w.agent(lead.Id).TerminalId
 
 	w.machineRestart(t)
 	w.waitResumed(t, lead, lead, oldLead)
 	time.Sleep(500 * time.Millisecond) // the worker is refused by the cap, and tried again every 100 ms
-	if n := w.alerts(t, lead.Id, "[mesh alert exited "+worker.Id+"]"); n != 0 {
-		t.Fatalf("told before the window ended: %d", n)
+	if n := w.alerts(t, lead.Id, "[mesh alert exited "+worker.Id+"]"); n != 1 {
+		t.Fatalf("told before the window ended: %d (the earlier crash is one)", n)
 	}
 	w.stop()
 	w.agentsHarness = w.restart(t)
-	got := w.alertText(t, lead.Id, "[mesh alert exited "+worker.Id+"]")
-	if !strings.Contains(got, "could not be resumed (meshd stopped before it could be resumed") {
-		t.Errorf("the parent was told %q", got)
+	var told []string
+	for _, m := range w.mailStarting(t, lead.Id, "[mesh alert exited "+worker.Id+"]") {
+		told = append(told, m.Body)
+	}
+	if len(told) != 2 || !strings.Contains(told[1], "could not be resumed (meshd stopped before it could be resumed") {
+		t.Errorf("the parent was told %q", told)
 	}
 }

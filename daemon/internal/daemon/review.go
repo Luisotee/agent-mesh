@@ -618,12 +618,12 @@ func writeAnswers(a *v1.Ask) error {
 	return os.WriteFile(a.AnswersPath, []byte(b.String()), 0o600)
 }
 
-// summary is the one message the caller gets when a collected ask finishes.
 // lostLine says of a member whose process ended before it answered that its answer is not coming, and what to do.
 func lostLine(m *v1.AskMember) string {
 	return fmt.Sprintf("LOST, its answer is not coming: %s `mesh resume %s` brings it back, or ask again", m.Line, m.Name)
 }
 
+// summary is the one message the caller gets when a collected ask finishes.
 func (d *Daemon) summary(r store.Reader, a *v1.Ask) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[mesh answers %s] %d of %d reviewers answered: %s at %s\n", a.Id, answered(a), len(a.Members), a.Pr, short(a.Head))
