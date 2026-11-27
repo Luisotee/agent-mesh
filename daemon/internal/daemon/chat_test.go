@@ -192,7 +192,7 @@ func TestAPromptIsRefusedWhereTheLineWouldAnswerAPromptOrThereIsNoTerminal(t *te
 	}
 }
 
-func TestACLIWithoutARecordAnswersUnsupported(t *testing.T) {
+func TestEveryBuiltInCLIHasAChatView(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "state")
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
@@ -201,9 +201,10 @@ func TestACLIWithoutARecordAnswersUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// agy keeps its conversation in a SQLite file the adapter reads: a chat view, empty until the conversation starts.
 	got := h.transcript(res.Msg.Agent.Id, -1, true)
-	if got.Supported || len(got.Entries) != 0 {
-		t.Errorf("agy has no record we read, but %v", got)
+	if !got.Supported || len(got.Entries) != 0 || !got.AtStart {
+		t.Errorf("agy's chat view = %v", got)
 	}
 	time.Sleep(10 * time.Millisecond)
 }

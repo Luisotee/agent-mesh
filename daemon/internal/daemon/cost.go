@@ -22,6 +22,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/agy"
+	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/copilot"
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
@@ -88,12 +89,18 @@ func claudeCallCost(model string, input, w5, w1, read, output int64) float64 {
 		float64(output)*rates[4]) / 1e6
 }
 
+var bareGeminiRE = regexp.MustCompile(`^gemini-[0-9.]+-([a-z]+)(?:-[a-z0-9-]+)?$`)
+
 func costModelFamily(model string) string {
 	if model == "" {
 		return "?"
 	}
 	if fam, ok := agy.ModelFamily(model); ok {
 		return fam
+	}
+	// A conversation file names the model without an effort (`gemini-4-neon`, `gemini-3.8-flash-n`, `gemini-4-argon-trial`).
+	if m := bareGeminiRE.FindStringSubmatch(model); m != nil {
+		return m[1]
 	}
 	ml := strings.ToLower(model)
 	for _, p := range priceOrder {
@@ -191,6 +198,23 @@ func (d *Daemon) opencodeDBPathForCost() string {
 	return opencode.DBPath(env)
 }
 
+// copilotEnvForCost is the environment Copilot's session-state is found by, or nil under test when none is set (a test
+// never reads the machine's own Copilot sessions).
+func (d *Daemon) copilotEnvForCost() map[string]string {
+	env := d.costEnv()
+	if testing.Testing() {
+		if env["COPILOT_HOME"] == "" && env["HOME"] == "" {
+			return nil
+		}
+		return env
+	}
+	// A Copilot agent's own COPILOT_HOME (agentEnv passes it on) is where its sessions are written.
+	if v, ok := os.LookupEnv("COPILOT_HOME"); ok && env["COPILOT_HOME"] == "" {
+		env["COPILOT_HOME"] = v
+	}
+	return env
+}
+
 func sanitizeClaudeCwd(cwd string) string {
 	return sanitizeCwdRE.ReplaceAllString(cwd, "-")
 }
@@ -207,7 +231,7 @@ type costCall struct {
 	read   int64
 	output int64
 	usd    float64 // used for paid OpenCode calls; Claude prices via claudeCallCost
-	cli    string  // "agy" or "opencode"; empty is Claude
+	cli    string  // "agy", "opencode" or "copilot"; empty is Claude
 }
 
 type claudeSessionInfo struct {
@@ -399,7 +423,7 @@ type costSegment struct {
 	start   time.Time
 	end     time.Time
 	marks   []phaseMark
-	tally   string // "claude", "agy", "opencode"
+	tally   string // "claude", "agy", "opencode", "copilot"
 	cli     string
 	prs     []string
 	cwds    []string
@@ -461,6 +485,8 @@ func costKind(a *v1.Agent, isReviewer bool) string {
 		return "agy " + base
 	case opencode.Kind:
 		return "opencode " + base
+	case copilot.Kind:
+		return "copilot " + base
 	default:
 		return base
 	}
@@ -525,6 +551,8 @@ func cliCostTally(kind string) (tally string, ok bool) {
 		return "agy", true
 	case opencode.Kind:
 		return "opencode", true
+	case copilot.Kind:
+		return "copilot", true
 	default:
 		return "", false
 	}
@@ -1208,6 +1236,7 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 	claudeFiles := map[string]bool{}
 	agySessions := map[string]string{}    // session -> kind ("agy")
 	openCodeSessions := map[string]bool{} // session -> true
+	copilotSessions := map[string]bool{}  // session -> true
 
 	if runID != "" {
 		w := windows[runID]
@@ -1225,6 +1254,8 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					agySessions[sess] = seg.cli
 				case "opencode":
 					openCodeSessions[sess] = true
+				case "copilot":
+					copilotSessions[sess] = true
 				}
 			}
 		}
@@ -1254,6 +1285,11 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 		if dbPath := d.opencodeDBPathForCost(); dbPath != "" {
 			for _, s := range opencode.RecentSessions(dbPath, since) {
 				openCodeSessions[s] = true
+			}
+		}
+		if env := d.copilotEnvForCost(); env != nil {
+			for _, s := range copilot.RecentSessions(env, since) {
+				copilotSessions[s] = true
 			}
 		}
 	}
@@ -1357,7 +1393,7 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 			rawCalls := agy.ConversationCalls(convDir, sess)
 			calls := make([]costCall, len(rawCalls))
 			for i, rc := range rawCalls {
-				calls[i] = costCall{t: rc.Time, model: "agy", cli: "agy", input: rc.Input, read: rc.Read, output: rc.Output}
+				calls[i] = costCall{t: rc.Time, model: rc.Model, cli: "agy", input: rc.Input, read: rc.Read, output: rc.Output}
 			}
 			mine := segments[sess]
 			place := func(c costCall) *placedCall {
@@ -1369,17 +1405,22 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					if runID != "" && seg.run != runID {
 						return nil
 					}
+					// The model the conversation's own record names; the agent's recorded model only where it names none.
+					m := c.model
+					if m == "" {
+						m = modelAt(seg, c.t)
+					}
 					return &placedCall{
 						kind:  seg.kind,
 						agent: agentKey{run: seg.run, name: seg.name},
 						phase: phaseAt(seg.marks, c.t),
-						model: modelAt(seg, c.t),
+						model: m,
 					}
 				}
 				if runID != "" {
 					return nil
 				}
-				return &placedCall{kind: "agy user", agent: agentKey{name: "agy user"}}
+				return &placedCall{kind: "agy user", agent: agentKey{name: "agy user"}, model: c.model}
 			}
 			tallySession(tokenTally, sess, calls, false, place, since, until, map[string]bool{})
 		}
@@ -1422,6 +1463,48 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					return nil
 				}
 				return &placedCall{kind: "opencode user", agent: agentKey{name: "opencode user"}, model: c.model}
+			}
+			tallySession(tokenTally, sess, calls, false, place, since, until, map[string]bool{})
+		}
+	}
+
+	if env := d.copilotEnvForCost(); env != nil {
+		sessList := make([]string, 0, len(copilotSessions))
+		for s := range copilotSessions {
+			sessList = append(sessList, s)
+		}
+		sort.Strings(sessList)
+		for _, sess := range sessList {
+			rawCalls := copilot.SessionCalls(env, sess)
+			calls := make([]costCall, len(rawCalls))
+			for i, rc := range rawCalls {
+				calls[i] = costCall{id: rc.ID, t: rc.Time, model: rc.Model, cli: "copilot", input: rc.Input, w5: rc.Write, read: rc.Read, output: rc.Output}
+			}
+			mine := segments[sess]
+			place := func(c costCall) *placedCall {
+				var seg *costSegment
+				if len(mine) > 0 {
+					seg = segmentAt(mine, c.t)
+				}
+				if seg != nil {
+					if runID != "" && seg.run != runID {
+						return nil
+					}
+					m := c.model
+					if m == "" {
+						m = modelAt(seg, c.t)
+					}
+					return &placedCall{
+						kind:  seg.kind,
+						agent: agentKey{run: seg.run, name: seg.name},
+						phase: phaseAt(seg.marks, c.t),
+						model: m,
+					}
+				}
+				if runID != "" {
+					return nil
+				}
+				return &placedCall{kind: "copilot user", agent: agentKey{name: "copilot user"}, model: c.model}
 			}
 			tallySession(tokenTally, sess, calls, false, place, since, until, map[string]bool{})
 		}
@@ -1538,6 +1621,7 @@ var cliBasis = map[string]string{
 	"claude":   "exact: the API usage Claude Code records for each call (input, cache writes by TTL, cache reads, output)",
 	"opencode": "exact as the provider reports it to OpenCode (reasoning counts as output); its $ is what the provider reported, not an API-price estimate",
 	"agy":      "as agy records each step: no cache-write split, so cache writes sit in input; read it as an estimate",
+	"copilot":  "as Copilot reports each call (input without its cached tokens, cache reads and writes, output with reasoning); no price: it bills premium requests per call, so the call count is its cost",
 }
 
 func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[string]map[string]bool,
