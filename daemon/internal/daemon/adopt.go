@@ -96,6 +96,10 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	if run.Status != v1.RunStatus_RUN_STATUS_OPEN {
 		return nil, failedPrecondition("run %s is closed", run.Id)
 	}
+	top := sess.Cwd // (a git subprocess: before the locks, so a slow one holds no other adoption up)
+	if t, err := topOf(ctx, sess.Cwd); err == nil && t != "" {
+		top = t
+	}
 	// One adoption of a run at a time, from the scan of its agents to the identity file: two sessions adopting at once
 	// then see each other (one root, the second refused), a retry with the same mutation id finds the file the first
 	// call wrote or repairs a missing one, and never mints a token that call is about to overwrite. Keyed by the run,
@@ -103,6 +107,11 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 	amu := d.agentLock("adopt:" + run.Id)
 	amu.Lock()
 	defer amu.Unlock()
+	// And one run at a time for a session: the same process adopted into two runs at once would write one identity file
+	// for two roots.
+	pmu := d.agentLock(fmt.Sprintf("adopt-pid:%d", pid))
+	pmu.Lock()
+	defer pmu.Unlock()
 	all, err := r.AllAgents()
 	if err != nil {
 		return nil, err
@@ -123,10 +132,6 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		d.rt.sys.ProcAlive(int(root.AdoptedPid), root.AdoptedPidStart) {
 		return nil, failedPrecondition("the run's root is another adopted session (process %d): end it first", root.AdoptedPid)
 	}
-	top := sess.Cwd
-	if t, err := topOf(ctx, sess.Cwd); err == nil && t != "" {
-		top = t
-	}
 	if err := d.ensureRunDir(run.Id); err != nil {
 		return nil, err
 	}
@@ -140,6 +145,10 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		defer mu.Unlock()
 	}
 	replayed, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAdoptSessionProcedure, out, func(tx *store.Tx) error {
+		// The run may have been stopped since it was read: a session is no root of a closed run.
+		if cur, err := tx.GetRun(run.Id); err != nil || cur.Status != v1.RunStatus_RUN_STATUS_OPEN {
+			return failedPrecondition("run %s is closed", run.Id)
+		}
 		now := tx.Now()
 		if root != nil {
 			cur, err := tx.GetAgent(root.Id)

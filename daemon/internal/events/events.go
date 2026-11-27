@@ -288,7 +288,8 @@ func VisibleTo(viewer string, ev *v1.Event) bool {
 		return m.GetFrom().GetId() == viewer || m.GetToId() == viewer
 	case *v1.Event_PromptQueued:
 		return p.PromptQueued.GetPrompt().GetAgentId() == viewer
-	case *v1.Event_DoorbellHeld, *v1.Event_RootResetRequested, *v1.Event_RootResetFinished, *v1.Event_AgentReopenRequested:
+	case *v1.Event_DoorbellHeld, *v1.Event_RootResetRequested, *v1.Event_RootResetFinished, *v1.Event_AgentReopenRequested,
+		*v1.Event_AgentReopened, *v1.Event_AgentReopenDropped:
 		// A held draft; a root's own notes (what it does next, its focus, its transcript); the `--why` of an approve
 		// or a resume: all free text the agent's parent wrote, no one else's to read.
 		return ev.AgentId == viewer

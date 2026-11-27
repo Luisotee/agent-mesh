@@ -394,6 +394,11 @@ func TestVisibleToShowsAViewerOnlyItsOwnTextBearingEvents(t *testing.T) {
 		{"its own held draft", "me", held("me"), true},
 		{"another agent's root reset notes", "me", &v1.Event{AgentId: "b", Payload: &v1.Event_RootResetRequested{RootResetRequested: &v1.RootResetRequested{}}}, false},
 		{"another agent's reopen reason", "me", &v1.Event{AgentId: "b", Payload: &v1.Event_AgentReopenRequested{AgentReopenRequested: &v1.AgentReopenRequested{}}}, false},
+		{"another agent's reopen that launched", "me", &v1.Event{AgentId: "b", Payload: &v1.Event_AgentReopened{AgentReopened: &v1.AgentReopened{}}}, false},
+		{"another agent's dropped reopen", "me", &v1.Event{AgentId: "b", Payload: &v1.Event_AgentReopenDropped{AgentReopenDropped: &v1.AgentReopenDropped{}}}, false},
+		{"another agent's reset that finished", "me", &v1.Event{AgentId: "b", Payload: &v1.Event_RootResetFinished{RootResetFinished: &v1.RootResetFinished{}}}, false},
+		{"its own reset notes", "me", &v1.Event{AgentId: "me", Payload: &v1.Event_RootResetRequested{RootResetRequested: &v1.RootResetRequested{}}}, true},
+		{"its own reopen", "me", &v1.Event{AgentId: "me", Payload: &v1.Event_AgentReopened{AgentReopened: &v1.AgentReopened{}}}, true},
 		{"a state change of another agent is metadata", "me", state, true},
 	} {
 		if got := VisibleTo(c.viewer, c.ev); got != c.want {

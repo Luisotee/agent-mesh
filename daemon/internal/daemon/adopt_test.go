@@ -413,7 +413,10 @@ func TestTwoSessionsAdoptingOneRunAtOnceLeaveOneRoot(t *testing.T) {
 		}
 	}
 	roots := 0
-	agents, _ := w.d.Store().Read(ctx).ListAgents(run.Id)
+	agents, err := w.d.Store().Read(ctx).ListAgents(run.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, ag := range agents {
 		if ag.Role == v1.AgentRole_AGENT_ROLE_ROOT {
 			roots++
