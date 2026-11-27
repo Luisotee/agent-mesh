@@ -2,7 +2,7 @@ import { Archive, ArchiveRestore, FileCode2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { archiveAgent, getAgentChanges, getAgentProgress, openInEditor, resumeAgent } from '@/actions'
 import { ActorClass } from '@/gen/agentmesh/v1/actor_pb'
-import { archiveAdvice, canArchive, changeSummary, contextMeter, ignoredLines, planSummary, STATUS_MARK } from '@/agent-work'
+import { archiveAdvice, canArchive, changeSummary, contextMeter, contextTone, ignoredLines, markPct, planSummary, sizeText, STATUS_MARK } from '@/agent-work'
 import { Button } from '@/components/ui/button'
 import { SkeletonLines } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
@@ -69,24 +69,36 @@ export function Progress({ host, agent }: { host: HostRuntime; agent: Agent }) {
 }
 
 /**
- * How much of its context window the agent's conversation fills, as a small ring by the composer (its CLI's record:
- * for a CLI the host can't read, nothing). Amber from 70%, red from 90%: a long conversation the CLI will compact soon.
+ * How much of its context window the agent's conversation fills, as a short bar by the composer ("84k / 200k"; its CLI's
+ * record: for a CLI the host can't read, nothing). A tick sits where the host acts on the conversation (`GetAgentProgress.marks`:
+ * a lead's reset, a compaction), the bar turns amber from the first one and red from 90%; the tooltip says what each does.
  */
-export function ContextRing({ host, agent, active }: { host: HostRuntime; agent: Agent; active: boolean }) {
+export function ContextMeter({ host, agent, active }: { host: HostRuntime; agent: Agent; active: boolean }) {
   const got = usePolled(async () => getAgentProgress(host.client, agent.id), `${host.info.id}/${agent.id}/ring`, 30_000, active && !agent.archived, String(agent.state))
   const p = got.value
   const ctx = p?.supported ? contextMeter(p.contextTokens, p.contextWindow) : undefined
-  if (!ctx) return null
-  const r = 7
-  const c = 2 * Math.PI * r
-  const tone = ctx.pct >= 90 ? 'text-destructive' : ctx.pct >= 70 ? 'text-state-needs' : 'text-identity'
+  if (!p || !ctx) return null
+  const tokens = Number(p.contextTokens)
+  const window = Number(p.contextWindow)
+  const marks = p.marks.map((m) => ({ ...m, tokens: Number(m.tokens) })).filter((m) => markPct(m.tokens, window) !== undefined)
+  const tone = contextTone(tokens, window, marks.map((m) => m.tokens))
   return (
-    <Tip label={`Context: ${ctx.text}`}>
-      <span role="meter" aria-label="Context used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={ctx.pct} aria-valuetext={ctx.text} data-testid="context-text" className="grid size-9 shrink-0 place-items-center">
-        <svg viewBox="0 0 18 18" className={cn('size-[18px] -rotate-90', tone)} aria-hidden>
-          <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeOpacity="0.2" strokeWidth="2.5" />
-          <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - ctx.pct / 100)} />
-        </svg>
+    <Tip
+      side="top"
+      label={
+        <div className="flex max-w-64 flex-col gap-0.5">
+          <span>Context: {ctx.text}</span>
+          {marks.map((m) => <span key={m.setting} className="text-muted-foreground">{m.label} at {sizeText(m.tokens)}</span>)}
+          <span className="text-muted-foreground">The CLI also compacts on its own when it nears full.</span>
+        </div>
+      }
+    >
+      <span role="meter" aria-label="Context used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={ctx.pct} aria-valuetext={ctx.text} data-testid="context-text" className="flex shrink-0 items-center gap-1.5 px-1 text-xs text-muted-foreground">
+        <span aria-hidden className="relative h-1.5 w-20 rounded-full bg-muted">
+          <span data-tone={tone} className={cn('absolute inset-y-0 left-0 rounded-full', tone === 'over' ? 'bg-destructive' : tone === 'warn' ? 'bg-state-needs' : 'bg-identity')} style={{ width: `${ctx.pct}%` }} />
+          {marks.map((m) => <span key={m.setting} data-testid="context-mark" style={{ left: `${markPct(m.tokens, window)}%` }} className="absolute -top-0.5 -bottom-0.5 w-px bg-foreground/60" />)}
+        </span>
+        <span className="tabular-nums">{sizeText(tokens)} / {sizeText(window)}</span>
       </span>
     </Tip>
   )

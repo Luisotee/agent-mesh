@@ -154,8 +154,6 @@ export interface AppState extends WorkspaceState {
   messageTo?: { hostId: string; agentId: string }
   /** The Rewind dialog, for this agent (its chat shows it: the prompts are the chat's). */
   rewindFor?: { hostId: string; agentId: string }
-  /** Set to show the open agent's model control (the panel opens and unfolds its Details); cleared once its Details unfolded, so a later mount of the panel opens folded. */
-  modelShown: boolean
   /** The New workspace dialog is open. */
   workspaceOpen: boolean
   /** The run the New workspace dialog opens on (the palette's "Add an agent to the run"); unset: a new run. */
@@ -251,14 +249,10 @@ export interface AppModel {
   /** Opens the last tab closed in this session again. */
   reopenTab(): void
   setPanel(open: boolean): void
-  /** Opens the side panel on the open agent's model control. */
-  showModel(): void
   /** Opens (or, undefined, closes) the Send a message dialog to an agent. */
   openMessage(to: { hostId: string; agentId: string } | undefined): void
   /** Opens (or, undefined, closes) the Rewind dialog of an agent. */
   openRewind(of: { hostId: string; agentId: string } | undefined): void
-  /** The Details unfolded for `showModel`: done. */
-  modelRevealed(): void
   /** Opens the New workspace dialog: on a run (to add an agent to it) or a project (to start a lead there), on a host. */
   openWorkspace(open: boolean, runId?: string, at?: { hostId: string; repo: string }): void
   openPairing(open: boolean): void
@@ -367,7 +361,7 @@ export function setupMessage(e: unknown): string {
 
 /** The app's own state: which hosts, and what is selected. Everything else lives on a host. */
 export function createAppModel(api: DesktopApi): AppModel {
-  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, modelShown: false, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], notices: [], shells: {}, shellsError: {}, ...emptyWorkspace() }))
+  const store = createStore<AppState>(() => ({ loaded: false, hosts: [], tab: 'chat', settingsOpen: false, pairOpen: false, watchOpen: false, usageOpen: false, paletteOpen: false, findOpen: false, firstRun: false, sidebarCollapsed: false, hidden: {}, closedTabs: [], panelOpen: true, workspaceOpen: false, settingsQuery: '', pins: {}, viewRequests: [], notices: [], shells: {}, shellsError: {}, ...emptyWorkspace() }))
   const set = store.setState
   // What the tray shows: how many things wait on the user across the hosts, and what closing the window does
   // (the first host's `app.tray.close_to_tray`: the tray is the app's, not one host's).
@@ -383,10 +377,14 @@ export function createAppModel(api: DesktopApi): AppModel {
     const first = store.getState().hosts[0]
     api.shell.configure({ closeToTray: appPrefs(first?.store.getState().settings ?? {}).closeToTray })
   }
+  const shellFrames: Record<string, number> = {} // per host: the shell frames seen, to notice one that came while ListShells was on its way
   const hooks: HostHooks = {
     spawned: (hostId, agent, mode) => set((s) => noteSpawned(s, { hostId, agentId: agent.id }, mode, Date.now())),
     view: (hostId, v, openViews) => offerView(model, hostId, v, openViews),
-    shell: (hostId, c) => set((s) => applyShellChange(s, hostId, c)),
+    shell: (hostId, c) => {
+      shellFrames[hostId] = (shellFrames[hostId] ?? 0) + 1 // a listing on its way may predate it: loadShells asks again
+      set((s) => applyShellChange(s, hostId, c))
+    },
   }
   // The window's layout is kept for the next start (`layout.ts`): written a moment after it last changed.
   let saved = ''
@@ -540,8 +538,6 @@ export function createAppModel(api: DesktopApi): AppModel {
       else model.reopenTab()
     },
     setPanel: (panelOpen) => set({ panelOpen }),
-    showModel: () => set({ panelOpen: true, modelShown: true }),
-    modelRevealed: () => set({ modelShown: false }),
     openMessage: (messageTo) => set({ messageTo }),
     openRewind: (rewindFor) => set({ rewindFor }),
     openWorkspace: (workspaceOpen, runId, at) => set({ workspaceOpen, workspaceRun: workspaceOpen ? runId : undefined, workspaceRepo: workspaceOpen ? at?.repo : undefined, workspaceHost: workspaceOpen ? at?.hostId : undefined }),
@@ -553,7 +549,14 @@ export function createAppModel(api: DesktopApi): AppModel {
       const h = store.getState().hosts.find((x) => x.info.id === hostId)
       if (!h) return
       try {
-        const res = await listShells(h.client)
+        // A frame that came while the list was on its way may be missing from it (the host read its shells before the change, or the
+        // frame found no list to join yet): ask again, a few times at most.
+        let seen = shellFrames[hostId] ?? 0
+        let res = await listShells(h.client)
+        for (let tries = 0; tries < 3 && (shellFrames[hostId] ?? 0) !== seen; tries++) {
+          seen = shellFrames[hostId] ?? 0
+          res = await listShells(h.client)
+        }
         set((s) => {
           const shells = { ...s.shells, [hostId]: res.shells }
           const { [hostId]: _was, ...shellsError } = s.shellsError

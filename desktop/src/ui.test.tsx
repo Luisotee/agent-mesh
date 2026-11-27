@@ -19,6 +19,7 @@ import { Panes } from './components/panes'
 import { SidePanel } from './components/side-panel'
 import { WatchAll } from './components/watch-all'
 import { ModelControl } from './components/model-control'
+import { ModelPicker } from './components/model-picker'
 import { VendorIcon } from './components/vendor-icon'
 import { NewWorkspaceDialog } from './components/workspace-dialog'
 import { ShortcutField } from './components/shortcut-field'
@@ -38,7 +39,7 @@ import { WaitingList } from './components/waiting-list'
 import type { ConnState } from './connection'
 import { AppContext, useApp, useHostState } from './context'
 import { messagesOf } from './derive'
-import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, UserNoticeSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
+import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentPhase, AgentRole, AgentSchema, AgentState, ReopenSchema, MessageSchema, MessageType, RunSchema, RunStatus, QueuedPromptSchema, UserNoticeSchema, type QueuedPrompt } from './gen/agentmesh/v1/types_pb'
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
@@ -1452,66 +1453,91 @@ describe('ModelControl and vendor icons', () => {
     return { ...f, a, client: f.client as typeof f.client & { switchAgent: ReturnType<typeof vi.fn>; checkModels: ReturnType<typeof vi.fn> } }
   }
 
-  it('shows the CLI, model and effort with the vendor\'s mark, and a reopen under way', () => {
-    const { host, a, wrap } = control({ pendingReopen: create(ReopenSchema, { model: 'opus', effort: 'high', why: 'moved' }) })
-    render(wrap(<ModelControl host={host} agent={a} />))
+  it('shows the CLI, model and effort with the vendor\'s mark, and a reopen under way, read-only', () => {
+    const { a, wrap } = control({ pendingReopen: create(ReopenSchema, { model: 'opus', effort: 'high', why: 'moved' }) })
+    render(wrap(<ModelControl agent={a} />))
     expect(screen.getByTestId('runs-on')).toHaveTextContent('claude · sonnet · high')
     expect(screen.getByRole('img', { name: 'Anthropic Claude' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Switching to opus (moved)…')
+    expect(screen.queryByRole('button')).toBeNull() // the picker by the composer is the one place to change it
   })
 
-  it('does not switch to a tier when the host lists none for the CLI', async () => {
-    const { host, a, wrap, client } = control()
-    noTiers.on = true
-    try {
-      render(wrap(<ModelControl host={host} agent={a} />))
-      await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-      expect(screen.getByLabelText('Tier')).toBeDisabled()
-      expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
-      expect(client.switchAgent).not.toHaveBeenCalled()
-    } finally {
-      noTiers.on = false
-    }
+  it('the picker\'s chip names the model and effort, and says what a reopen under way will switch to', () => {
+    const { host, a, wrap } = control()
+    const { unmount } = render(wrap(<ModelPicker host={host} agent={a} />))
+    expect(screen.getByTestId('model-chip')).toHaveTextContent('sonnet · high')
+    unmount()
+    render(wrap(<ModelPicker host={host} agent={{ ...a, pendingReopen: create(ReopenSchema, { model: 'opus' }) }} />))
+    expect(screen.getByTestId('model-chip')).toHaveTextContent('→ opus')
   })
 
-  it('switches to a tier, to a model of the host\'s list with an effort, or the effort alone', async () => {
+  it('switches from the picker: to a tier, to a model of the host\'s list, or the effort alone, each one call', async () => {
     const { host, a, wrap, client } = control()
-    render(wrap(<ModelControl host={host} agent={a} />))
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    // To a tier (the host's tiers for the kind, or the usual four).
-    await userEvent.selectOptions(screen.getByLabelText('Tier'), 'strong')
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    const open = () => userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await open()
+    // The tiers, the models of the host's list for the CLI, and the efforts; the current ones are marked.
+    expect(await screen.findByRole('menuitemradio', { name: 'mid' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('menuitemradio', { name: 'high' })).toHaveAttribute('aria-checked', 'true')
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'strong' }))
     await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(1))
     expect(client.switchAgent.mock.calls[0]![0]).toMatchObject({ agent: 'c1', tier: 'strong', model: '', effort: '', next: false })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'model')
-    expect(screen.getByRole('button', { name: 'Switch' })).toBeDisabled()
-    await waitFor(() => expect(client.checkModels).toHaveBeenCalled())
-    await userEvent.type(screen.getByLabelText('Model'), 'opus')
-    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'max')
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await open()
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'opus' }))
     await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(2))
-    expect(client.switchAgent.mock.calls[1]![0]).toMatchObject({ tier: '', model: 'opus', effort: 'max' })
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(client.switchAgent.mock.calls[1]![0]).toMatchObject({ tier: '', model: 'opus', effort: '' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    await userEvent.selectOptions(screen.getByLabelText('Change by'), 'effort')
-    await userEvent.selectOptions(screen.getByLabelText('Effort'), 'low')
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
+    await open()
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'low' }))
     await waitFor(() => expect(client.switchAgent).toHaveBeenCalledTimes(3))
     expect(client.switchAgent.mock.calls[2]![0]).toMatchObject({ tier: '', model: '', effort: 'low' })
   })
 
-  it('shows the host\'s refusal in its own words and keeps the dialog open', async () => {
-    const { host, a, wrap, client } = control()
+  it('marks the tier an executing worker runs on, not the one it planned on', async () => {
+    const { host, a, wrap } = control({ tier: 'strong', execTier: 'mid', phase: AgentPhase.EXECUTING })
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    expect(await screen.findByRole('menuitemradio', { name: 'mid' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('menuitemradio', { name: 'strong' })).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('marks the one family the agent runs on, the longest match, as a radio of its group', async () => {
+    const { host, a, wrap, client } = control({ model: 'gpt-5-codex' })
+    client.checkModels.mockResolvedValue(create(CheckModelsResponseSchema, { kinds: [create(KindModelsSchema, { kind: 'claude', listed: [create(ModelFamilyEntrySchema, { family: 'gpt-5' }), create(ModelFamilyEntrySchema, { family: 'gpt-5-codex' })] })] }))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    expect(await screen.findByRole('menuitemradio', { name: 'gpt-5-codex' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('menuitemradio', { name: 'gpt-5' })).toHaveAttribute('aria-checked', 'false')
+    // Each heading labels its own group of entries.
+    expect(within(screen.getByRole('group', { name: 'Model' })).getAllByRole('menuitemradio')).toHaveLength(2)
+  })
+
+  it('reads the host\'s models when the chip is used, not before, and shows the host\'s refusal as a toast', async () => {
+    const { host, a, wrap, client, model } = control()
     client.switchAgent.mockRejectedValue(new Error('[failed_precondition] app-c already runs on sonnet at high effort'))
-    render(wrap(<ModelControl host={host} agent={a} />))
-    await userEvent.click(screen.getByRole('button', { name: 'Change the model of app-c' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Switch' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('app-c already runs on sonnet at high effort')
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    expect(client.checkModels).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: /^Model: / }))
+    await waitFor(() => expect(client.checkModels).toHaveBeenCalledTimes(1))
+    await userEvent.click(await screen.findByRole('menuitemradio', { name: 'opus' }))
+    await waitFor(() => expect(model.store.getState().notices.map((n) => n.text)).toEqual(['app-c already runs on sonnet at high effort']))
+  })
+
+  it('asks the host for its models again when the first answer failed', async () => {
+    const { host, a, wrap, client } = control()
+    client.checkModels.mockRejectedValueOnce(new Error('[unavailable] busy'))
+    render(wrap(<ModelPicker host={host} agent={a} />))
+    const chip = screen.getByRole('button', { name: /^Model: / })
+    await userEvent.click(chip) // the hover's read fails; the click asks again
+    expect(await screen.findByRole('menuitemradio', { name: 'opus' })).toBeInTheDocument()
+    expect(client.checkModels.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('has no picker to use for a read-only device or a stopped agent', () => {
+    const { host, a, wrap } = control()
+    render(wrap(<ModelPicker host={host} agent={a} disabled />))
+    expect(screen.getByRole('button', { name: /^Model: / })).toBeDisabled()
   })
 
   it('draws a mark for each known vendor and a letter badge for the rest', () => {
@@ -1685,6 +1711,50 @@ describe('ChatView', () => {
     return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, rewindAgent, addAttachment, sendPromptAnyway, ui }
   }
 
+  it('shows a sent prompt at once as a bubble marked sending, until the record has it, and goes to the end for it', async () => {
+    const { ui, promptAgent, readTranscript } = chat()
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const scroller = screen.getByTestId('chat')
+    // The reader had scrolled up.
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    expect(await screen.findByRole('button', { name: /Jump to the end/ })).toBeInTheDocument()
+    await userEvent.type(box, 'run the tests{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: 'run the tests' })))
+    const sending = await screen.findByRole('list', { name: 'Sending' })
+    expect(sending).toHaveTextContent('run the tests')
+    expect(sending).toHaveTextContent('sending…')
+    // Sending goes to the end, and the pill is gone.
+    await waitFor(() => expect(scroller.scrollTop).toBe(2000))
+    expect(screen.queryByRole('button', { name: /Jump to the end/ })).toBeNull()
+    // The record has it now: the bubble is replaced by the real one.
+    readTranscript.mockResolvedValue(res([...tail, entry('u9', TranscriptKind.USER, { text: 'run the tests' })]))
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Sending' })).toBeNull(), { timeout: 4000 })
+    expect(screen.getAllByText('run the tests')).toHaveLength(1)
+  })
+
+  it('takes an image dropped anywhere over the chat, says so while one is dragged over it, and hints at paste and drop', async () => {
+    const { ui, addAttachment } = chat()
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    expect(box).toHaveAttribute('placeholder', expect.stringContaining('Paste or drop an image'))
+    const chatEl = screen.getByRole('region', { name: 'Chat' })
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'dropped.png', { type: 'image/png' })
+    const dataTransfer = { types: ['Files'], files: [png] }
+    fireEvent.dragEnter(screen.getByTestId('chat'), { dataTransfer })
+    expect(screen.getByRole('status', { name: 'Drop images' })).toHaveTextContent('Drop images to attach')
+    fireEvent.drop(screen.getByTestId('chat'), { dataTransfer })
+    expect(screen.queryByRole('status', { name: 'Drop images' })).toBeNull()
+    await waitFor(() => expect(addAttachment).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', name: 'dropped.png' })))
+    expect(chatEl).toBeInTheDocument()
+    // Not a file being dragged (text, a tab): no overlay.
+    fireEvent.dragEnter(screen.getByTestId('chat'), { dataTransfer: { types: ['text/plain'], files: [] } })
+    expect(screen.queryByRole('status', { name: 'Drop images' })).toBeNull()
+  })
+
   it('stores an added image on the host, shows it, and names its path in the prompt', async () => {
     const { ui, promptAgent, addAttachment } = chat()
     const { container } = render(ui)
@@ -1695,7 +1765,9 @@ describe('ChatView', () => {
     expect(within(screen.getByRole('list', { name: 'Images' })).getByRole('img', { name: 'shot.png' })).toBeInTheDocument()
     await userEvent.type(box, 'what is wrong here{Enter}')
     await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: '[image: /state/runs/r1/attachments/w1/i1.png]\nwhat is wrong here' })))
-    await waitFor(() => expect(screen.queryByRole('list', { name: 'Images' })).toBeNull())
+    // The composer's strip is empty; the prompt shows at once as a bubble with the image, "sending…" until the record has it.
+    await waitFor(() => expect(within(screen.getByRole('form', { name: 'Prompt' })).queryByRole('list', { name: 'Images' })).toBeNull())
+    expect(within(screen.getByRole('list', { name: 'Sending' })).getByRole('img', { name: 'i1.png' })).toBeInTheDocument()
     // Not an image: refused here, with nothing stored.
     await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, new File(['x'], 'notes.txt', { type: 'text/plain' }), { applyAccept: false })
     expect(await screen.findByRole('alert')).toHaveTextContent('Only PNG, JPEG, GIF and WebP')
@@ -1820,6 +1892,64 @@ describe('ChatView', () => {
     expect(first).toHaveTextContent('the very first prompt')
     expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 10n, backward: true }))
     expect(screen.queryByRole('button', { name: 'Load earlier' })).toBeNull()
+  })
+
+  it('keeps the sending bubble and the pill\'s count when an earlier page of older prompts is loaded', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => (req.backward && req.offset === 10n ? res([entry('old1', TranscriptKind.USER, { text: 'an old prompt' }), entry('old2', TranscriptKind.ASSISTANT, { text: 'an old reply' })], { startOffset: 0n, endOffset: 10n, atStart: true }) : res(tail)))
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const scroller = screen.getByTestId('chat')
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    await userEvent.type(box, 'run the tests{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalled())
+    expect(await screen.findByRole('list', { name: 'Sending' })).toHaveTextContent('run the tests')
+    // The reader scrolls up and loads the older page: older prompts end nothing, and are no news at the end.
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    expect(await screen.findByText('an old prompt')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Sending' })).toHaveTextContent('run the tests')
+    expect(screen.getByRole('button', { name: /Jump to the end/ })).toHaveTextContent(/^Jump to the end$/)
+  })
+
+  it('keeps following the end after a Load earlier that failed', async () => {
+    const read = vi.fn(async (req: { offset: bigint; backward: boolean }) => {
+      if (req.backward && req.offset === 10n) throw new Error('[unavailable] host busy')
+      return res(tail)
+    })
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    const scroller = screen.getByTestId('chat')
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 2000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    scroller.scrollTop = 0
+    fireEvent.scroll(scroller)
+    await userEvent.click(await screen.findByRole('button', { name: 'Load earlier' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('host busy')
+    await new Promise((r) => setTimeout(r, 150))
+    await userEvent.type(box, 'go on{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalled())
+    await waitFor(() => expect(scroller.scrollTop).toBe(2000))
+  })
+
+  it('ends one bubble for each prompt the record gains, not both for the first', async () => {
+    const entries = [...tail]
+    const read = vi.fn(async () => res(entries))
+    const { ui, promptAgent } = chat({ read })
+    render(ui)
+    const box = await screen.findByRole('textbox', { name: 'Prompt' })
+    await userEvent.type(box, 'first one{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledTimes(1))
+    await userEvent.type(box, 'second one{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenCalledTimes(2))
+    expect(within(await screen.findByRole('list', { name: 'Sending' })).getAllByRole('listitem')).toHaveLength(2)
+    // The record has the first only: one bubble left.
+    entries.push(entry('u1', TranscriptKind.USER, { text: 'first one' }))
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Sending' })).getAllByRole('listitem')).toHaveLength(1), { timeout: 4000 })
+    expect(screen.getByRole('list', { name: 'Sending' })).toHaveTextContent('second one')
   })
 
   it('reads the tail again when an earlier page does not join what is held', async () => {
