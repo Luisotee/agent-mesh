@@ -99,6 +99,10 @@ type pusher struct {
 	ctx     context.Context
 	senders map[senderKey]*pushSender
 
+	// pending counts the batches enqueued and not yet dispatched (for tests: the notify settings are read when a batch
+	// is dispatched, so a test that changes them waits for this to reach zero first).
+	pending atomic.Int64
+
 	// started and live count senders, for tests; wg waits for them at shutdown.
 	started, live atomic.Int64
 	wg            sync.WaitGroup
@@ -137,9 +141,11 @@ func (p *pusher) enqueue(evs []*v1.Event) {
 	if len(keep) == 0 {
 		return
 	}
+	p.pending.Add(1)
 	select {
 	case p.in <- keep:
 	default:
+		p.pending.Add(-1)
 		p.d.log.Warn("push: dispatcher behind; events not pushed", "events", len(keep))
 	}
 }
@@ -159,6 +165,7 @@ func (p *pusher) run(ctx context.Context) {
 			return
 		case evs := <-p.in:
 			p.dispatch(ctx, evs)
+			p.pending.Add(-1)
 		}
 	}
 }
