@@ -233,7 +233,7 @@ func TestAWorkersDoneCarriesItsRoundsAndVerdictsAndTheRootsVerdictStands(t *test
 		t.Fatal(err)
 	}
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" settled")
-	if got := a.doneBody(t); !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 3 finding(s): 2 agreed, 1 declined (0 blocking); checks none") {
+	if got := a.doneBody(t); !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 3 finding(s): 2 agreed, 0 other, 1 disagreed (0 blocking declined); checks none") {
 		t.Errorf("footer after the author's verdict: %s", got)
 	}
 	byAuthor := func() (n int64) {
@@ -353,7 +353,7 @@ func TestTheFooterNamesASingleReviewerAskedAloneAndItsMissingVerdict(t *testing.
 		t.Fatal(err)
 	}
 	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" settled")
-	if got := a.doneBody(t); strings.Contains(got, "no verdict recorded") || !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 1 finding(s): 1 agreed, 0 declined (0 blocking)") {
+	if got := a.doneBody(t); strings.Contains(got, "no verdict recorded") || !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 1 finding(s): 1 agreed, 0 other, 0 disagreed (0 blocking declined)") {
 		t.Errorf("footer after the verdict: %s", got)
 	}
 }

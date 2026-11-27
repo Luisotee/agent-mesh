@@ -353,7 +353,7 @@ func DefaultLeaves() []Leaf {
 		Leaf{Key: "review.re_review.keep.large", Type: Kinds, Default: []any{}, Choices: AgentKinds,
 			Summary: "kinds asked again after a fix on a large PR even when skipped"},
 		Leaf{Key: "review.by", Type: String, Default: "worker", Choices: []string{"worker", "root"},
-			Summary: "who runs the review rounds of a worker's PR: the worker itself (once its self-review is done), or its parent, the root (a relay for a risky PR); `mesh spawn --reviews` and `mesh approve --reviews` set it per worker"},
+			Summary: "who runs the review rounds of a worker's PR: the worker itself (once its self-review is done), or its parent, the root (the user's override); a risky PR's worker runs a relay itself: `mesh spawn --reviews relay` and `mesh approve --reviews relay` (also `worker`, `root`) set it per worker"},
 		Leaf{Key: "review.tier.small", Type: String, Default: "mid", Choices: []string{"light", "mid", "strong"},
 			Summary: "the tier the reviewers of a small PR run on when the round names none (a worker's own round)"},
 		Leaf{Key: "review.tier.large", Type: String, Default: "strong", Choices: []string{"light", "mid", "strong"},

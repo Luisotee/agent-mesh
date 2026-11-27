@@ -376,8 +376,26 @@ func hasBranchWork(ctx context.Context, a *v1.Agent) bool {
 // failing or pending checks, or a PR the worker opened and asked nothing on, all make it NEEDS YOU. A worker whose
 // parent runs its reviews gets none.
 func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWork bool) string {
-	if self.Role != v1.AgentRole_AGENT_ROLE_WORKER || d.reviewByOf(r, self) == reviewByRoot {
+	outs := d.reviewOutcomes(r, self, body, hasWork)
+	if len(outs) == 0 {
 		return ""
+	}
+	var lines []string
+	for _, o := range outs {
+		lines = append(lines, o.line)
+	}
+	return "\n\n" + strings.Join(lines, "\n")
+}
+
+// outcome is one PR's review outcome: its line, and its state (settled, running: only a round still collecting,
+// or needs you).
+type outcome struct{ line, state string }
+
+// reviewOutcomes is the outcome of each PR a worker's `done` (body) concerns, in order; none for a worker whose
+// parent runs its reviews.
+func (d *Daemon) reviewOutcomes(r store.Reader, self *v1.Agent, body string, hasWork bool) []outcome {
+	if self.Role != v1.AgentRole_AGENT_ROLE_WORKER || d.reviewByOf(r, self) == reviewByRoot {
+		return nil
 	}
 	var urls []string
 	seen := map[string]bool{}
@@ -389,7 +407,7 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 	}
 	asks, err := r.RunAsks(self.RunId)
 	if err != nil {
-		return ""
+		return nil
 	}
 	byPR := map[string][]*v1.Ask{} // the review asks of the worker, by PR
 	var prOrder []string
@@ -440,14 +458,15 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 			}
 		}
 	}
-	var lines []string
+	var outs []outcome
 	done := map[string]bool{}
 	line := func(k, u string) {
 		if done[k] {
 			return
 		}
 		done[k] = true
-		lines = append(lines, d.reviewOutcome(r, self, prNumberOf(u), u, byPR[k], recorded[k]))
+		l, st := d.reviewOutcome(r, self, prNumberOf(u), u, byPR[k], recorded[k])
+		outs = append(outs, outcome{l, st})
 	}
 	for _, u := range urls {
 		if own[prKey(u)] {
@@ -470,30 +489,33 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 			line(k, p.Url)
 		}
 	}
-	if len(lines) == 0 {
-		return ""
-	}
-	return "\n\n" + strings.Join(lines, "\n")
+	return outs
 }
 
-// reviewWord is the one word the brief shows of a worker's PR reviews so far: "needs you" when any PR's outcome is
-// NEEDS YOU (a round still collecting says "running"), else "settled"; "" for a worker with no PR or round to speak of.
+// reviewWord is the one word the brief shows of a finished worker's PR reviews: "needs you" when any PR's outcome is
+// NEEDS YOU for a reason of its own, "running" when only a round is still collecting, else "settled"; "" for a worker
+// with no PR or round to speak of. The caller asks only after the worker's `done`: before it, an open PR with no
+// round yet is no news.
 func (d *Daemon) reviewWord(r store.Reader, a *v1.Agent) string {
-	f := d.reviewFooter(r, a, "", false)
-	switch {
-	case f == "":
+	outs := d.reviewOutcomes(r, a, "", false)
+	if len(outs) == 0 {
 		return ""
-	case strings.Contains(f, "a round is still collecting"):
-		return "running"
-	case strings.Contains(f, "NEEDS YOU"):
-		return "needs you"
 	}
-	return "settled"
+	word := "settled"
+	for _, o := range outs {
+		switch {
+		case o.state == "needs you":
+			return "needs you"
+		case o.state == "running":
+			word = "running"
+		}
+	}
+	return word
 }
 
 // reviewOutcome is the line for one PR of a worker: SETTLED with what the reviews came to, or NEEDS YOU with what is
 // open. rounds are the asks the worker made of it (none: the rounds others asked are named), p its recorded row.
-func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url string, rounds []*v1.Ask, p *v1.PullRequest) string {
+func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url string, rounds []*v1.Ask, p *v1.PullRequest) (string, string) {
 	head := "[mesh reviews] PR #" + number + ": "
 	checks := "checks none"
 	if p != nil && p.Checks != "" {
@@ -510,26 +532,30 @@ func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url strin
 			}
 		}
 		if len(by) == 0 {
-			return head + "NEEDS YOU: " + self.Name + " asked no review round: ask it why, or start one yourself."
+			return head + "NEEDS YOU: " + self.Name + " asked no review round: ask it why, or start one yourself.", "needs you"
 		}
-		return head + "NEEDS YOU: " + self.Name + " asked no review round itself; rounds of it were asked by " + strings.Join(by, ", ") + " (`mesh asks`)."
+		return head + "NEEDS YOU: " + self.Name + " asked no review round itself; rounds of it were asked by " + strings.Join(by, ", ") + " (`mesh asks`).", "needs you"
 	}
 	sort.SliceStable(rounds, func(i, j int) bool { return rounds[i].CreatedAt.AsTime().Before(rounds[j].CreatedAt.AsTime()) })
 	last := rounds[len(rounds)-1]
 	var why []string
-	var findings, agreed, declined, declinedBlocking int32
+	collecting := false
+	var findings, agreed, other, disagreed, declinedBlocking int32
 	steps := 0
 	for _, a := range rounds {
-		if a.Status == v1.AskStatus_ASK_STATUS_OPEN {
+		if a.Status == v1.AskStatus_ASK_STATUS_OPEN && !collecting {
 			why = append(why, "a round is still collecting its answers")
+			collecting = true
 		}
-		if a.RelayStep > 0 {
-			steps++
+		// A step that nobody answered is run again under the same number: only answered steps count.
+		if a.RelayStep > 0 && answered(a) > 0 && int(a.RelayStep) > steps {
+			steps = int(a.RelayStep)
 		}
 		for _, v := range a.Verdicts {
 			findings += v.Agree + v.Other + v.Disagree
 			agreed += v.Agree
-			declined += v.Other + v.Disagree
+			other += v.Other
+			disagreed += v.Disagree
 			// The author's own count stands until the root judges the reviewer's findings (its verdict replaces it).
 			if v.Judge == judgeAuthor && v.DeclinedBlocking > 0 {
 				declinedBlocking += v.DeclinedBlocking
@@ -555,6 +581,7 @@ func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url strin
 		kinds = append(kinds, m.Kind)
 		v := verdictOf(last, m.Name)
 		switch {
+		case last.Status == v1.AskStatus_ASK_STATUS_OPEN: // still collecting: said above, once
 		case last.Collected && m.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED:
 			why = append(why, m.Name+" did not answer"+bracket(m.Line))
 		case v == nil: // answered (or asked alone, its done went to the asker) and not judged
@@ -575,26 +602,33 @@ func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url strin
 	if p != nil && (p.Checks == "failing" || p.Checks == "pending") {
 		why = append(why, "checks "+p.Checks)
 	}
+	if p != nil && (p.State == "unknown" || p.Stale) {
+		why = append(why, "GitHub's state of the PR was not read (checks unknown)")
+	}
 	if len(why) > 0 {
 		out := head + "NEEDS YOU: " + strings.Join(why, "; ") + "."
 		if last.AnswersPath != "" {
 			out += " Answers: " + filepath.Clean(last.AnswersPath)
 		}
-		return out
+		if collecting && len(why) == 1 {
+			return out, "running"
+		}
+		return out, "needs you"
 	}
 	what := fmt.Sprintf("%d round(s)", len(rounds))
 	if steps > 0 {
 		what = fmt.Sprintf("relay, %d step(s)", steps)
 	}
-	return head + fmt.Sprintf("SETTLED: %s (%s); %d finding(s): %d agreed, %d declined (%d blocking); %s",
-		what, strings.Join(kinds, ", "), findings, agreed, declined, declinedBlocking, checks)
+	return head + fmt.Sprintf("SETTLED: %s (%s); %d finding(s): %d agreed, %d other, %d disagreed (%d blocking declined); %s",
+		what, strings.Join(kinds, ", "), findings, agreed, other, disagreed, declinedBlocking, checks), "settled"
 }
 
-// relayHasFindings tells whether the relay's latest step left findings the author agreed with (a step whose
-// verdicts agree with nothing leaves nothing to fix: "stop at any step that leaves nothing worth fixing").
+// relayHasFindings tells whether the relay's latest step left findings the author used (agreed with, or found
+// otherwise useful: a step whose verdicts take nothing leaves nothing to fix: "stop at any step that leaves
+// nothing worth fixing").
 func relayHasFindings(last *v1.Ask) bool {
 	for _, v := range last.Verdicts {
-		if v.Agree > 0 {
+		if v.Agree+v.Other > 0 {
 			return true
 		}
 	}

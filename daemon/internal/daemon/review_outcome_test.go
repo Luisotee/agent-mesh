@@ -65,7 +65,7 @@ func TestAWorkersDoneCarriesOneOutcomeLinePerPR(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := a.doneNaming7(t)
-		if !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 5 finding(s): 3 agreed, 2 declined (0 blocking); checks none") {
+		if !strings.Contains(got, "PR #7: SETTLED: 1 round(s) (claude); 5 finding(s): 3 agreed, 1 other, 1 disagreed (0 blocking declined); checks none") {
 			t.Errorf("%s", got)
 		}
 		if strings.Contains(got, "NEEDS YOU") || strings.Contains(got, "Answers:") {
@@ -237,7 +237,7 @@ func TestAWorkerOnARelayRunsItAndIsSettledOnlyWhenItHas(t *testing.T) {
 		t.Errorf("a relay with findings left: %s", got)
 	}
 	// A step with nothing to fix ends it.
-	if err := a.verdictFull(t, a.asWorker, reviewer, 0, 1, 1, 0, 0); err != nil {
+	if err := a.verdictFull(t, a.asWorker, reviewer, 0, 0, 2, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if got := a.doneNaming7(t); !strings.Contains(got, "PR #7: SETTLED: relay, 1 step(s)") {
@@ -261,6 +261,12 @@ func TestTheBriefShowsAWorkersReviewOutcomeInOneWord(t *testing.T) {
 	}
 	a.pr.push(t, "the feature")
 	a.commit(t)
+	// Working, not done: an open PR with no round yet is no news.
+	a.recordPR(t, 7, a.pr.url(), "open", "", a.worker.Branch)
+	if b := brief(); strings.Contains(b, "reviews:") {
+		t.Errorf("a review word before the worker's done: %s", b)
+	}
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "PR "+a.pr.url()+" opened")
 	a.set(t, "review.reviewers.small", []any{[]any{"claude"}})
 	res, err := a.ask(t, &v1.AskRequest{Review: "7", Size: "small", Reviewers: "auto"})
 	if err != nil {
@@ -282,5 +288,75 @@ func TestTheBriefShowsAWorkersReviewOutcomeInOneWord(t *testing.T) {
 	}
 	if b := brief(); !strings.Contains(b, "reviews: settled") {
 		t.Errorf("a judged round: %s", b)
+	}
+}
+
+// A PR whose GitHub state was never read (or is stale) is not settled: its checks are unknown.
+func TestAnOutcomeIsNotSettledOnUnreadGitHubState(t *testing.T) {
+	a := startAuthor(t, "")
+	a.answeredRound(t)
+	reviewer := filepath.Base(a.pr.repo) + "-review-7-claude"
+	if err := a.verdictFull(t, a.asWorker, reviewer, 1, 0, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	a.recordPR(t, 7, a.pr.url(), "unknown", "", a.worker.Branch)
+	if got := a.doneNaming7(t); !strings.Contains(got, "PR #7: NEEDS YOU: GitHub's state of the PR was not read") {
+		t.Errorf("an unread PR: %s", got)
+	}
+}
+
+// A relay step nobody answered is run again under the same number: only answered steps count, so a relay can't read
+// as having run three steps because it was tried three times.
+func TestARelayStepsCountOnlyAnsweredOnes(t *testing.T) {
+	a := startAuthor(t, "relay")
+	a.pr.push(t, "the feature")
+	a.commit(t)
+	for i := 0; i < 2; i++ {
+		res, err := a.ask(t, &v1.AskRequest{Repo: a.pr.repo, Review: "7", Relay: true})
+		if err != nil {
+			t.Fatalf("step try %d: %v", i, err)
+		}
+		a.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_FAILED, "no")
+		waitFor(t, "the step to finish", func() bool {
+			k, _ := a.d.Store().Read(context.Background()).GetAsk(res.Ask.Id)
+			return k.Status == v1.AskStatus_ASK_STATUS_FINISHED
+		})
+	}
+	res, err := a.ask(t, &v1.AskRequest{Repo: a.pr.repo, Review: "7", Relay: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "findings")
+	waitFor(t, "the step to finish", func() bool {
+		k, _ := a.d.Store().Read(context.Background()).GetAsk(res.Ask.Id)
+		return k.Status == v1.AskStatus_ASK_STATUS_FINISHED
+	})
+	if err := a.verdictFull(t, a.asWorker, res.Agents[0].Name, 2, 0, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.doneNaming7(t); strings.Contains(got, "SETTLED") || !strings.Contains(got, "its relay is unfinished (step 1 of 3") {
+		t.Errorf("three tries, one answered step: %s", got)
+	}
+}
+
+// A relay step whose findings were only "other" (found useful) still has something to fix.
+func TestARelayStepWithOnlyUsefulOtherFindingsIsNotDone(t *testing.T) {
+	a := startAuthor(t, "relay")
+	a.pr.push(t, "the feature")
+	a.commit(t)
+	res, err := a.ask(t, &v1.AskRequest{Repo: a.pr.repo, Review: "7", Relay: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.say(t, res.Agents[0].Id, v1.MessageType_MESSAGE_TYPE_DONE, "findings")
+	waitFor(t, "the step to finish", func() bool {
+		k, _ := a.d.Store().Read(context.Background()).GetAsk(res.Ask.Id)
+		return k.Status == v1.AskStatus_ASK_STATUS_FINISHED
+	})
+	if err := a.verdictFull(t, a.asWorker, res.Agents[0].Name, 0, 2, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.doneNaming7(t); strings.Contains(got, "SETTLED") {
+		t.Errorf("a relay with useful findings left: %s", got)
 	}
 }
