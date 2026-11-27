@@ -388,6 +388,18 @@ func (d *Daemon) revokeDevice(ctx context.Context, meta *v1.RequestMeta, procedu
 			if _, err := tx.DeletePush(id, ""); err != nil {
 				return err
 			}
+			// What the device queued for later (held tasks) goes with its token: it would be sent in its name.
+			held, err := tx.Reader.HeldTasks("")
+			if err != nil {
+				return err
+			}
+			for _, h := range held {
+				if h.From.GetId() == id {
+					if err := tx.DeleteHeldTask(h.Id); err != nil {
+						return err
+					}
+				}
+			}
 			dev.RevokedAt = tsOf(tx.Now())
 			if _, err := tx.AppendEvent(&v1.Event{
 				Payload: &v1.Event_DeviceRevoked{DeviceRevoked: &v1.DeviceRevoked{DeviceId: dev.Id, Name: dev.Name}},

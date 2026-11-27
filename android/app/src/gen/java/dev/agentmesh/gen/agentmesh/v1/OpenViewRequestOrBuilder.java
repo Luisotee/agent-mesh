@@ -23,9 +23,9 @@ public interface OpenViewRequestOrBuilder extends
 
   /**
    * <pre>
-   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
-   * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
-   * owns the pull request, with its side panel).
+   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's messages, or
+   * the run lead's: in the agent's chat on the desktop, the Messages tab on Android), "plan" (the same for the agent that
+   * wrote the plan, at its newest plan) or "pr" (the agent that owns the pull request, with its side panel).
    * </pre>
    *
    * <code>string view = 2 [json_name = "view"];</code>
@@ -34,9 +34,9 @@ public interface OpenViewRequestOrBuilder extends
   java.lang.String getView();
   /**
    * <pre>
-   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's Messages tab, or
-   * the run lead's), "plan" (the Messages tab of the agent that wrote the plan, at its newest plan) or "pr" (the agent that
-   * owns the pull request, with its side panel).
+   * "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's messages, or
+   * the run lead's: in the agent's chat on the desktop, the Messages tab on Android), "plan" (the same for the agent that
+   * wrote the plan, at its newest plan) or "pr" (the agent that owns the pull request, with its side panel).
    * </pre>
    *
    * <code>string view = 2 [json_name = "view"];</code>

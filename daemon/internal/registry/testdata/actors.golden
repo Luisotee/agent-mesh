@@ -3,6 +3,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/AddTools
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/Ask
+  /agentmesh.v1.MeshService/CancelHeldTask
   /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
@@ -25,6 +26,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListDevices
+  /agentmesh.v1.MeshService/ListHeldTasks
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
@@ -144,6 +146,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/AdoptSession
   /agentmesh.v1.MeshService/ApproveAgent
   /agentmesh.v1.MeshService/ArchiveAgent
+  /agentmesh.v1.MeshService/CancelHeldTask
   /agentmesh.v1.MeshService/CheckAgent
   /agentmesh.v1.MeshService/CheckConflicts
   /agentmesh.v1.MeshService/CheckModels
@@ -168,6 +171,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
   /agentmesh.v1.MeshService/ListDevices
+  /agentmesh.v1.MeshService/ListHeldTasks
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers
@@ -232,6 +236,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/ListAgentCommands
   /agentmesh.v1.MeshService/ListAgents
   /agentmesh.v1.MeshService/ListAsks
+  /agentmesh.v1.MeshService/ListHeldTasks
   /agentmesh.v1.MeshService/ListMCPServers
   /agentmesh.v1.MeshService/ListMessages
   /agentmesh.v1.MeshService/ListPeers

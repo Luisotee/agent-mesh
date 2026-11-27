@@ -404,6 +404,12 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	if err != nil {
 		return nil, err
 	}
+	if req.Msg.After != "" {
+		// A task for after another's done is held (held.go); one whose task is already done goes the plain way.
+		if res, done, err := d.holdTask(ctx, req); done {
+			return res, err
+		}
+	}
 	out := &v1.SendMessageResponse{}
 	// A message to a stopped agent resumes it, and a direct task to a planner reopens it without its deny list:
 	// both need its conversation id, found before the write (learnSession).
@@ -765,6 +771,10 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	}
 	if d.notify != nil && !replayed && req.Msg.Type != v1.MessageType_MESSAGE_TYPE_WAIT {
 		d.notify(out.Message.ToId)
+	}
+	if out.Message != nil && out.Message.Re != "" && (req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE ||
+		req.Msg.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {
+		d.releaseHeldSoon(out.Message.RunId) // tasks held for the task this report answers
 	}
 	return connect.NewResponse(out), nil
 }

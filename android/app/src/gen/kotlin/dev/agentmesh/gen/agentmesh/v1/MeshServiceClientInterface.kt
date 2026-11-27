@@ -85,6 +85,17 @@ public interface MeshServiceClientInterface {
   public suspend fun sendMessage(request: SendMessageRequest, headers: Headers = emptyMap()): ResponseMessage<SendMessageResponse>
 
   /**
+   *  The tasks held for a task that is not reported done yet (`SendMessage` with `after`), oldest first. A lead reads its
+   *  own run's.
+   */
+  public suspend fun listHeldTasks(request: ListHeldTasksRequest, headers: Headers = emptyMap()): ResponseMessage<ListHeldTasksResponse>
+
+  /**
+   *  Drop a held task: it is never sent.
+   */
+  public suspend fun cancelHeldTask(request: CancelHeldTaskRequest, headers: Headers = emptyMap()): ResponseMessage<CancelHeldTaskResponse>
+
+  /**
    *  The calling agent's messages; unread ones are marked read unless peek is set.
    */
   public suspend fun readInbox(request: ReadInboxRequest, headers: Headers = emptyMap()): ResponseMessage<ReadInboxResponse>
