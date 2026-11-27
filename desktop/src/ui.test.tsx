@@ -43,7 +43,7 @@ import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentPhase, A
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
-import { AgyUsageRowSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgentWaitKind, AgentWaitSchema, AgyUsageRowSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
@@ -117,6 +117,18 @@ describe('ProjectSidebar', () => {
     expect(within(fix).getByText('sonnet')).toBeInTheDocument()
     await userEvent.click(fix)
     expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1' })
+  })
+
+  it('words an idle agent by what the host says it waits on, and redraws that row only', async () => {
+    const { host, wrap } = fixture()
+    render(wrap(<ProjectSidebar />))
+    const project = screen.getByRole('listitem', { name: 'app' })
+    const lead = within(project).getByRole('button', { name: 'ship it, lead app-lead' })
+    expect(lead).toHaveTextContent('Idle, waiting for a message')
+    act(() => host.store.setState({ agentWaits: { lead: create(AgentWaitSchema, { kind: AgentWaitKind.BACKGROUND, detail: 'make test' }) } }))
+    expect(lead).toHaveTextContent('Waiting on its background job: make test')
+    act(() => host.store.setState({ agentWaits: { lead: create(AgentWaitSchema, { kind: AgentWaitKind.DECLARED, detail: 'for the build', until: timestampFromMs(Date.now() + 3_600_000) }) } }))
+    expect(lead).toHaveTextContent(/Waiting: for the build, until /)
   })
 
   it('folds reviewers and askers into a chip on their worker, and tags a worker in another repo', async () => {
@@ -870,6 +882,24 @@ describe('Dock resting agents', () => {
   })
 })
 
+describe('Dock resting: idle on its own', () => {
+  it('keeps the tile of an idle worker on its background job or a declared wait, words it so, and rests it when the wait is over', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } }, waitingAll: [], waiting: [] }))
+    render(wrap(<Dock />))
+    expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.BACKGROUND, detail: 'make test' }) } }))
+    const tile = await screen.findByRole('listitem', { name: 'app-fix in the dock' })
+    expect(tile).toHaveTextContent('Waiting on its background job: make test')
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.DECLARED, detail: 'the review' }) } }))
+    await waitFor(() => expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toHaveTextContent('Waiting: the review'))
+    // A report or a message to wait for is rest.
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.REPORTED, from: 'app-lead' }) } }))
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull())
+  })
+})
+
 describe('Dock resting: helpers and scope', () => {
   it('keeps the tile of an idle worker while a reviewer folded into it works, and counts the agents it hides', async () => {
     const { host, wrap, model } = fixture()
@@ -998,6 +1028,16 @@ describe('SidePanel', () => {
     expect(prs).not.toHaveTextContent('#3')
     await userEvent.click(within(prs).getByRole('button', { name: /Merged and closed/ }))
     expect(within(within(prs).getByRole('list', { name: 'Merged and closed pull requests' })).getAllByRole('listitem').map((l) => l.textContent?.slice(0, 2))).toEqual(['#3', '#2'])
+  })
+
+  it('keeps an idle worker on its background job in the tree', async () => {
+    const { host, wrap } = panelFixture()
+    host.store.setState((s) => ({ waiting: [], waitingAll: [], agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } }))
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    const tree = screen.getByRole('list', { name: 'Agent tree' })
+    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead'])
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.BACKGROUND, detail: 'make test' }) } }))
+    await waitFor(() => expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker']))
   })
 
   it('shows a lead\'s tree first, then its run\'s PRs, and the run total folded to one line', async () => {

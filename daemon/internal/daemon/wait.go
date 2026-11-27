@@ -6,7 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -18,7 +21,12 @@ func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
 	if cmd, ok := d.shownBackgroundCommand(ctx, a); ok {
 		return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_BACKGROUND, Detail: cmd}
 	}
-	r := d.store.Read(ctx)
+	return d.messageWait(ctx, d.store.Read(ctx), a, nil)
+}
+
+// messageWait is agentWait past the background command: what the run's messages say it waits on. `msgs` is the run's
+// messages when the caller has read them already (a list of agents reads them once per run), else nil and read here.
+func (d *Daemon) messageWait(ctx context.Context, r store.Reader, a *v1.Agent, msgs []*v1.Message) *v1.AgentWait {
 	parent := "user"
 	if a.ParentId != "" {
 		parent = a.ParentId
@@ -26,9 +34,11 @@ func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
 			parent = p.Name
 		}
 	}
-	msgs, err := r.RunMessages(a.RunId, "", -1)
-	if err != nil {
-		return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
+	if msgs == nil {
+		var err error
+		if msgs, err = r.RunMessages(a.RunId, "", -1); err != nil {
+			return &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_MESSAGE, From: parent}
+		}
 	}
 	var waitMax, unseen time.Duration
 	if v, err := d.Setting(r, "accountability.wait_max"); err == nil {
@@ -38,6 +48,52 @@ func (d *Daemon) agentWait(ctx context.Context, a *v1.Agent) *v1.AgentWait {
 		unseen = time.Duration(v.(float64) * float64(time.Second))
 	}
 	return waitFrom(a, parent, msgs, d.now(), waitMax, unseen, func(wait time.Time) bool { return d.waits.peek(a, wait) })
+}
+
+// ListAgentWaits says what each idle agent waits on, for the apps to word and count them without asking per agent.
+func (d *Daemon) ListAgentWaits(ctx context.Context, req *connect.Request[v1.ListAgentWaitsRequest]) (*connect.Response[v1.ListAgentWaitsResponse], error) {
+	runID, err := scopedReadRun(auth.ActorFrom(ctx), req.Msg.RunId)
+	if err != nil {
+		return nil, err
+	}
+	r := d.store.Read(ctx)
+	var runs []string
+	if runID != "" {
+		runs = []string{runID}
+	} else {
+		open, err := r.ListRuns(false)
+		if err != nil {
+			return nil, err
+		}
+		for _, run := range open {
+			runs = append(runs, run.Id)
+		}
+	}
+	out := &v1.ListAgentWaitsResponse{}
+	for _, id := range runs {
+		agents, err := r.ListAgents(id)
+		if err != nil {
+			return nil, err
+		}
+		var msgs []*v1.Message
+		for _, a := range agents {
+			if a.Archived || d.agentView(a).State != v1.AgentState_AGENT_STATE_IDLE {
+				continue
+			}
+			if cmd, bg := d.shownBackgroundCommand(ctx, a); bg {
+				out.Waits = append(out.Waits, &v1.AgentWaitRow{AgentId: a.Id, Wait: &v1.AgentWait{Kind: v1.AgentWaitKind_AGENT_WAIT_KIND_BACKGROUND, Detail: cmd}})
+				continue
+			}
+			if msgs == nil {
+				if msgs, err = r.RunMessages(id, "", -1); err != nil {
+					return nil, err
+				}
+			}
+			w := d.messageWait(ctx, r, a, msgs)
+			out.Waits = append(out.Waits, &v1.AgentWaitRow{AgentId: a.Id, Wait: w})
+		}
+	}
+	return connect.NewResponse(out), nil
 }
 
 // waitFrom reads the wait off the run's messages: the newest one that settles it, scanning from the end. A task or an

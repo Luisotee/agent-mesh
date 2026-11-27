@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { AgentWait } from './gen/agentmesh/v1/mesh_pb'
 import type { HostView } from './dock'
 import type { HostRuntime } from './model'
 import { joinWaiting } from './derive'
@@ -32,14 +33,14 @@ export function useHostViews(hosts: HostRuntime[]): HostView[] {
   const snapshot = useCallback(() => {
     const next = hosts.map((h) => {
       const s = h.store.getState()
-      return { hostId: h.info.id, hostName: h.info.name, runs: s.runs, agents: s.agents, messages: s.messages, clockSkewMs: s.clockSkewMs, waitingAll: s.waitingAll }
+      return { hostId: h.info.id, hostName: h.info.name, runs: s.runs, agents: s.agents, messages: s.messages, clockSkewMs: s.clockSkewMs, waitingAll: s.waitingAll, agentWaits: s.agentWaits }
     })
     const prev = last.current
     const same =
       prev.length === next.length &&
       next.every((n, i) => {
         const p = prev[i]!
-        return p.hostId === n.hostId && p.hostName === n.hostName && p.runs === n.runs && p.agents === n.agents && p.messages === n.messages && p.clockSkewMs === n.clockSkewMs && p.waitingAll === n.waitingAll
+        return p.hostId === n.hostId && p.hostName === n.hostName && p.runs === n.runs && p.agents === n.agents && p.messages === n.messages && p.clockSkewMs === n.clockSkewMs && p.waitingAll === n.waitingAll && p.agentWaits === n.agentWaits
       })
     if (!same) last.current = next
     return last.current
@@ -68,6 +69,13 @@ function sidebarHost(h: HostRuntime, s: HostState, prev?: { from: HostState; out
     agents: s.agents,
     waiting: new Set(joinWaiting(s.waiting, s.runs, s.agents).map((w) => w.agent.id)),
   }
+}
+
+/** What one agent waits on (`ListAgentWaits`), re-rendering only when that agent's wait changes (a row of the sidebar asks, not its parent). */
+export function useAgentWait(hosts: HostRuntime[], hostId: string, agentId: string): AgentWait | undefined {
+  const host = hosts.find((h) => h.info.id === hostId)
+  const subscribe = useCallback((notify: () => void) => host?.store.subscribe(notify) ?? (() => {}), [host])
+  return useSyncExternalStore(subscribe, () => host?.store.getState().agentWaits[agentId])
 }
 
 /** What the sidebar shows of every host, together: it changes only when a host's runs, agents, waiting list or connection do. */

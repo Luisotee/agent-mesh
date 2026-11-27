@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ListAgentsResponseSchema, ListPermissionsResponseSchema, ListWaitingResponseSchema, PendingPermissionSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgentWaitKind, AgentWaitRowSchema, ListAgentWaitsResponseSchema, ListAgentsResponseSchema, ListPermissionsResponseSchema, ListWaitingResponseSchema, PendingPermissionSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { ListPullRequestsResponseSchema, AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
 import { AgentSchema, AgentState, EventSchema, MessageSchema, MessageType, RunSchema, RunStatus, type Event } from './gen/agentmesh/v1/types_pb'
 import { hostRefresher } from './refresh'
@@ -21,7 +21,7 @@ function gate<T>() {
 function setup() {
   const store = createHostStore()
   store.setState({ conn: { kind: 'ready', hello: {} as never }, synced: true })
-  const client = { listWaiting: vi.fn(), listAgents: vi.fn(), listPullRequests: vi.fn().mockResolvedValue(create(ListPullRequestsResponseSchema)), listPermissions: vi.fn().mockResolvedValue(create(ListPermissionsResponseSchema)) }
+  const client = { listWaiting: vi.fn(), listAgentWaits: vi.fn().mockResolvedValue(create(ListAgentWaitsResponseSchema)), listAgents: vi.fn(), listPullRequests: vi.fn().mockResolvedValue(create(ListPullRequestsResponseSchema)), listPermissions: vi.fn().mockResolvedValue(create(ListPermissionsResponseSchema)) }
   const log = vi.fn()
   const r = hostRefresher(client as never, store, log, undefined, { debounceMs: 200, agentsEveryMs: 30_000 })
   return { store, client, log, r }
@@ -61,10 +61,12 @@ describe('what waits on the user', () => {
     const { client, r } = setup()
     client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
     r.event(sent(MessageType.DONE))
+    r.event(sent(MessageType.TASK))
     r.event(sent(MessageType.INFO))
     r.event(create(EventSchema, { payload: { case: 'messageDelivered', value: { $typeName: 'agentmesh.v1.MessageDelivered', messageId: 'x', via: '', tries: 0 } } }))
     await vi.advanceTimersByTimeAsync(1000)
     expect(client.listWaiting).not.toHaveBeenCalled()
+    expect(client.listAgentWaits).toHaveBeenCalledTimes(1) // a report or a task changes what the idle agents wait on, once for the burst
   })
 
   it('shows a list that an event overtook, then asks again and shows that one', async () => {
@@ -317,5 +319,87 @@ describe('why GitHub cannot be read', () => {
     r.start()
     await vi.advanceTimersByTimeAsync(61_000)
     expect(store.getState().githubProblem).toBe('')
+  })
+})
+
+describe('what the idle agents wait on', () => {
+  const waitRow = (agentId: string, kind: AgentWaitKind, detail = '') => create(AgentWaitRowSchema, { agentId, wait: { kind, detail } })
+
+  it('is read on a snapshot, again after a pause for a message or a state change, and on a timer (a job ends with no event)', async () => {
+    const { store, client, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    client.listAgentWaits.mockResolvedValue(create(ListAgentWaitsResponseSchema, { waits: [waitRow('a', AgentWaitKind.BACKGROUND, 'make test')] }))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().agentWaits.a?.detail).toBe('make test')
+    for (const t of [MessageType.WAIT, MessageType.TASK, MessageType.DONE, MessageType.FAILED]) {
+      client.listAgentWaits.mockClear()
+      r.event(sent(t))
+      await vi.advanceTimersByTimeAsync(250)
+      expect(client.listAgentWaits, String(t)).toHaveBeenCalledTimes(1)
+    }
+    client.listAgentWaits.mockClear()
+    r.start()
+    await vi.advanceTimersByTimeAsync(15_001)
+    expect(client.listAgentWaits).toHaveBeenCalledTimes(1)
+    r.stop()
+  })
+
+  it('keeps the object of a wait that did not change, drops an agent the host no longer lists, and says nothing when nothing changed', async () => {
+    const { store, client, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    client.listAgentWaits.mockResolvedValueOnce(create(ListAgentWaitsResponseSchema, { waits: [waitRow('a', AgentWaitKind.DECLARED, 'the build'), waitRow('b', AgentWaitKind.MESSAGE)] }))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    const first = store.getState().agentWaits
+    client.listAgentWaits.mockResolvedValueOnce(create(ListAgentWaitsResponseSchema, { waits: [waitRow('a', AgentWaitKind.DECLARED, 'the build'), waitRow('b', AgentWaitKind.MESSAGE)] }))
+    r.event(sent(MessageType.WAIT))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(store.getState().agentWaits).toBe(first)
+    client.listAgentWaits.mockResolvedValueOnce(create(ListAgentWaitsResponseSchema, { waits: [waitRow('a', AgentWaitKind.DECLARED, 'the build'), waitRow('b', AgentWaitKind.ANSWER)] }))
+    r.event(sent(MessageType.WAIT))
+    await vi.advanceTimersByTimeAsync(250)
+    const next = store.getState().agentWaits
+    expect(next.a).toBe(first.a)
+    expect(next.b?.kind).toBe(AgentWaitKind.ANSWER)
+    client.listAgentWaits.mockResolvedValueOnce(create(ListAgentWaitsResponseSchema))
+    r.event(sent(MessageType.WAIT))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(store.getState().agentWaits).toEqual({})
+  })
+
+  it('keeps the last words when the host fails, and says so once', async () => {
+    const { store, client, log, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    client.listAgentWaits.mockResolvedValueOnce(create(ListAgentWaitsResponseSchema, { waits: [waitRow('a', AgentWaitKind.BACKGROUND)] })).mockRejectedValue(new Error('unimplemented'))
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    r.event(sent(MessageType.WAIT))
+    await vi.advanceTimersByTimeAsync(300)
+    r.event(sent(MessageType.WAIT))
+    await vi.advanceTimersByTimeAsync(300)
+    expect(store.getState().agentWaits.a?.kind).toBe(AgentWaitKind.BACKGROUND)
+    expect(log).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks again once the call on its way is done, and not before the first snapshot', async () => {
+    const { store, client, r } = setup()
+    client.listWaiting.mockResolvedValue(create(ListWaitingResponseSchema))
+    const g = gate<ReturnType<typeof create<typeof ListAgentWaitsResponseSchema>>>()
+    client.listAgentWaits.mockReturnValueOnce(g.p)
+    r.synced()
+    await vi.advanceTimersByTimeAsync(0)
+    r.event(sent(MessageType.WAIT))
+    await vi.advanceTimersByTimeAsync(250)
+    expect(client.listAgentWaits).toHaveBeenCalledTimes(1)
+    g.resolve(create(ListAgentWaitsResponseSchema))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(client.listAgentWaits).toHaveBeenCalledTimes(2)
+    store.setState({ synced: false })
+    client.listAgentWaits.mockClear()
+    r.start()
+    await vi.advanceTimersByTimeAsync(15_001)
+    expect(client.listAgentWaits).not.toHaveBeenCalled()
+    r.stop()
   })
 })

@@ -799,6 +799,11 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 		}
 	}
 	d.permissionEnded(a.Id, req.EventName, req.Payload) // an agent that went on has no prompt waiting
+	if out.State == v1.AgentState_AGENT_STATE_IDLE {
+		if cur, err := d.store.Read(ctx).GetAgent(a.Id); err == nil {
+			d.followBranch(ctx, cur) // a worker that made its next branch itself
+		}
+	}
 	// A doorbell in flight is checked against this very activity, not at the next tick.
 	if takesDoorbell(out.State) || d.hasRing(actor.Id) {
 		d.deliverSoon(actor.Id)

@@ -117,6 +117,7 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const agents = useHostState(host, useShallow((s) => Object.fromEntries(Object.entries(s.agents).filter(([, a]) => a.runId === agent.runId))))
   const waiting = useHostState(host, (s) => s.waiting)
   const waitingAll = useHostState(host, (s) => s.waitingAll)
+  const agentWaits = useHostState(host, (s) => s.agentWaits)
   const newTiles = useAppState((s) => s.newTiles)
   // Asking for the resting ones holds for this run only: another run or host starts folded again.
   const scope = `${host.info.id}/${agent.runId}`
@@ -133,7 +134,7 @@ function AgentTree({ host, agent }: { host: HostRuntime; agent: Agent }) {
   // Live agents only; the idle and finished ones rest behind a count. A parent of a live agent stays, so the tree keeps its shape.
   // A worker that just started stays, as in the dock (its new mark).
   const isNew = (a: Agent) => { const at = newTiles[tabKey({ hostId: host.info.id, agentId: a.id })]; return at !== undefined && Date.now() - at < NEW_FOR_MS }
-  const live = (a: Agent) => isActive(a, { waiting: waits.has(a.id), keep: a.id === agent.id || isNew(a) })
+  const live = (a: Agent) => isActive(a, { waiting: waits.has(a.id), wait: agentWaits[a.id], keep: a.id === agent.id || isNew(a) })
   const workerLive = (w: WorkerRow): boolean => live(w.agent) || w.helpers.some(live) || w.workers.some(workerLive)
   const shown = (w: WorkerRow) => showResting || workerLive(w)
   const helpers = (hs: Agent[]) => (showResting ? hs : hs.filter(live))

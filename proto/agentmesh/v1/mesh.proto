@@ -1128,6 +1128,21 @@ service MeshService {
     };
   }
 
+  // What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
+  // dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
+  // agents that are idle now (not archived); an agent reads its own run's.
+  rpc ListAgentWaits(ListAgentWaitsRequest) returns (ListAgentWaitsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "waits"
+      summary: "List what each idle agent waits on"
+    };
+  }
+
   // Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
   // changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
   // ResumeAgent brings it back: the worktree is made again from the branch.
@@ -1432,6 +1447,20 @@ message GetAgentProgressResponse {
   // only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
   // conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
   repeated ContextMark marks = 6;
+}
+
+message ListAgentWaitsRequest {
+  // Only this run's; empty means every open run.
+  string run_id = 1;
+}
+
+message ListAgentWaitsResponse {
+  repeated AgentWaitRow waits = 1;
+}
+
+message AgentWaitRow {
+  string agent_id = 1;
+  AgentWait wait = 2;
 }
 
 // What an idle agent waits on, first match wins: a background command it started, a wait it declared, an answer to its

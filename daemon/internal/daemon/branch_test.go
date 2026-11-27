@@ -70,3 +70,48 @@ func TestAWorkerThatMovedBranchIsShownOnTheBranchItIsOn(t *testing.T) {
 		t.Errorf("changes %v, %v", ch, err)
 	}
 }
+
+// The recorded branch follows a worker that moved itself (`git checkout -b fix-2`) once it goes idle, with the base re-derived,
+// so the PR stack, the finished-PR move and a recreated worktree start from the branch it is on.
+func TestTheRecordedBranchFollowsAWorkerThatMovedItself(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	repo := gitRepo(t)
+	gitIn(t, repo, "remote", "add", "origin", repo)
+	gitIn(t, repo, "fetch", "origin")
+	gitIn(t, repo, "remote", "set-head", "origin", "main")
+	run := startRun(t, w.device.Mesh, "")
+	worker := w.spawn(run.Id, repo, "fix", "")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	stored := func() *v1.Agent {
+		t.Helper()
+		a, err := w.d.Store().Read(ctx).GetAgent(worker.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	spawned := stored()
+	stop := func() {
+		t.Helper()
+		if _, err := w.as(w.token(t, worker.Id)).ReportHook(ctx, connect.NewRequest(&v1.ReportHookRequest{
+			Meta: meta(""), Kind: "claude", EventName: "Stop", Payload: []byte(`{"hook_event_name":"Stop"}`)})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// On its own branch: nothing to record.
+	stop()
+	if got := stored(); got.Branch != spawned.Branch || got.BaseCommit != spawned.BaseCommit {
+		t.Fatalf("a worker on its branch: recorded %q at %s, want %q at %s", got.Branch, got.BaseCommit, spawned.Branch, spawned.BaseCommit)
+	}
+	next := "mesh/" + run.Id + "/fix-2"
+	gitIn(t, spawned.Worktree, "checkout", "-q", "-b", next, "origin/main")
+	stop()
+	got := stored()
+	if got.Branch != next {
+		t.Fatalf("recorded branch %q, want %q", got.Branch, next)
+	}
+	if want := gitIn(t, repo, "merge-base", "origin/main", next); got.BaseCommit != want {
+		t.Errorf("recorded base %q, want %q (where the new branch left main)", got.BaseCommit, want)
+	}
+}

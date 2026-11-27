@@ -1,17 +1,20 @@
 import { equals } from '@bufbuild/protobuf'
 import type { MeshClient } from './actions'
-import { listPermissions, listPullRequests, listWaiting } from './actions'
+import { listAgentWaits, listPermissions, listPullRequests, listWaiting } from './actions'
 import { realTimers, type Timers } from './connection'
 import { AgentSchema, MessageType, RunStatus, type Agent, type Event } from './gen/agentmesh/v1/types_pb'
-import { setGithubProblem, setPermissions, setPullRequests, setWaiting, type HostStore } from './store'
+import { setAgentWaits, setGithubProblem, setPermissions, setPullRequests, setWaiting, type HostStore } from './store'
 
 /**
- * Two things the event stream doesn't carry, read from the host again when they may have changed.
+ * Three things the event stream doesn't carry, read from the host again when they may have changed.
  *
  * What waits on the user is the host's to say (`ListWaiting`), so it is listed again, after a short pause that
  * folds a burst of events into one call, whenever an event could change it: a plan, question or answer, an agent
  * starting, changing state, exiting or being retired, a run stopping. A list that was on its way while one of those
  * arrived may be stale: it is shown, and fetched again after the pause.
+ *
+ * What each idle agent waits on (`ListAgentWaits`: its background job, a wait it declared, an answer owed) is read on the same
+ * pause, and every `waitsEveryMs`: a job ends and a deadline passes with no event.
  *
  * The pull requests (`ListPullRequests`, which the host caches for two minutes) are read at connect and every
  * `prsEveryMs`; a PR that changes between is told by an event the store applies itself.
@@ -21,22 +24,28 @@ import { setGithubProblem, setPermissions, setPullRequests, setWaiting, type Hos
  * `agentsEveryMs`; an agent an event touched meanwhile keeps what the event said.
  */
 export function hostRefresher(
-  client: Pick<MeshClient, 'listWaiting' | 'listAgents' | 'listPullRequests' | 'listPermissions'>,
+  client: Pick<MeshClient, 'listWaiting' | 'listAgentWaits' | 'listAgents' | 'listPullRequests' | 'listPermissions'>,
   store: HostStore,
   log: (line: string) => void,
   timers: Timers = realTimers,
-  opts: { debounceMs?: number; agentsEveryMs?: number; prsEveryMs?: number } = {},
+  opts: { debounceMs?: number; agentsEveryMs?: number; prsEveryMs?: number; waitsEveryMs?: number } = {},
 ) {
   const debounceMs = opts.debounceMs ?? 200
   const agentsEveryMs = opts.agentsEveryMs ?? 30_000
   const prsEveryMs = opts.prsEveryMs ?? 60_000
+  const waitsEveryMs = opts.waitsEveryMs ?? 15_000
   let stopped = false
   let waitingTouches = 0
   let agentTouches = 0
   let pause: unknown
+  let waitsPause: unknown
   let waitingLoading = false
   let ticker: unknown
   let prTicker: unknown
+  let waitsTicker: unknown
+  let waitsLoading = false
+  let waitsAgain = false
+  let waitsComplained = false
   let prsLoading = false
   let prsComplained = false
   // PR events the store applied: a read that was under way when one came is older than it, and must not undo it.
@@ -82,6 +91,32 @@ export function hostRefresher(
     }
   }
 
+  async function loadAgentWaits(): Promise<void> {
+    const st = store.getState()
+    if (st.conn.kind !== 'ready' || !st.synced) return
+    if (waitsLoading) {
+      waitsAgain = true // what changed meanwhile is asked for once this call is done
+      return
+    }
+    waitsLoading = true
+    try {
+      const res = await listAgentWaits(client as MeshClient)
+      if (stopped) return
+      waitsComplained = false
+      store.setState(setAgentWaits(res.waits, store.getState().agentWaits))
+    } catch (e) {
+      // An older host doesn't know the action; said once. The words stay as they were.
+      if (!waitsComplained) log(`couldn't list what the idle agents wait on: ${e instanceof Error ? e.message : String(e)}`)
+      waitsComplained = true
+    } finally {
+      waitsLoading = false
+      if (waitsAgain && !stopped) {
+        waitsAgain = false
+        void loadAgentWaits()
+      }
+    }
+  }
+
   async function loadPermissions(): Promise<void> {
     if (permLoading) {
       permAgain = true // what changed meanwhile is asked for once this call is done
@@ -112,6 +147,16 @@ export function hostRefresher(
     pause = timers.setTimeout(() => {
       pause = undefined
       void loadWaiting()
+      void loadAgentWaits()
+    }, debounceMs)
+  }
+
+  /** The same pause for what only the idle agents' words depend on (a wait, a task, a report): no call of `ListWaiting`. */
+  const scheduleWaits = () => {
+    if (stopped || pause !== undefined || waitsPause !== undefined) return
+    waitsPause = timers.setTimeout(() => {
+      waitsPause = undefined
+      void loadAgentWaits()
     }, debounceMs)
   }
 
@@ -192,6 +237,9 @@ export function hostRefresher(
           if (t === MessageType.PLAN || t === MessageType.QUESTION || t === MessageType.ANSWER) {
             waitingTouches++
             schedule()
+          } else if (t === MessageType.WAIT || t === MessageType.TASK || t === MessageType.DONE || t === MessageType.FAILED) {
+            // These change what an idle agent waits on (`ListAgentWaits`), not what waits on the user.
+            scheduleWaits()
           }
           return
         }
@@ -230,22 +278,30 @@ export function hostRefresher(
       waitingTouches++
       timers.clearTimeout(pause)
       pause = undefined
+      timers.clearTimeout(waitsPause)
+      waitsPause = undefined
       void loadWaiting()
+      void loadAgentWaits()
       void loadPullRequests()
       void loadPermissions()
     },
     start(): void {
       ticker ??= timers.setInterval(() => void loadAgents(), agentsEveryMs)
       prTicker ??= timers.setInterval(() => void loadPullRequests(), prsEveryMs)
+      waitsTicker ??= timers.setInterval(() => void loadAgentWaits(), waitsEveryMs)
     },
     stop(): void {
       stopped = true
       timers.clearTimeout(pause)
       pause = undefined
+      timers.clearTimeout(waitsPause)
+      waitsPause = undefined
       timers.clearInterval(ticker)
       ticker = undefined
       timers.clearInterval(prTicker)
       prTicker = undefined
+      timers.clearInterval(waitsTicker)
+      waitsTicker = undefined
     },
   }
 }

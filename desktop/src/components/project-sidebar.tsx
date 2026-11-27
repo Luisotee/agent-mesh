@@ -14,7 +14,7 @@ import { canArchive } from '@/agent-work'
 import { githubNote } from '@/buckets'
 import { repoName, ROLE_LABEL, statusSentence } from '@/derive'
 import { AgentState, RunStatus, type Agent, type Run } from '@/gen/agentmesh/v1/types_pb'
-import { useKeys, useSidebarHosts } from '@/hooks'
+import { useAgentWait, useKeys, useSidebarHosts } from '@/hooks'
 import { hueStyle } from '@/hue'
 import { displayChord } from '@/keys'
 import { cn } from '@/lib/utils'
@@ -457,6 +457,7 @@ const AgentButton = memo(AgentButtonView, (a, b) => a.hostId === b.hostId && a.a
 function AgentButtonView({ hostId, agent: a, title, helpers, tag, onKeyDown }: { hostId: string; agent: Agent; title?: string; helpers: Agent[]; tag?: string; onKeyDown?: (e: KeyboardEvent<HTMLButtonElement>) => void }) {
   const app = useApp()
   const selected = useAppState((s) => s.hostId === hostId && s.agentId === a.id)
+  const wait = useAgentWait(useAppState((s) => s.hosts), hostId, a.id)
   const help = helpersLabel(helpers)
   return (
     <button
@@ -477,7 +478,7 @@ function AgentButtonView({ hostId, agent: a, title, helpers, tag, onKeyDown }: {
       <span className="mt-0.5"><StateIcon agent={a} /></span>
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium">{title ?? a.name}</span>
-        <span className="block truncate text-xs text-muted-foreground">{statusSentence(a)}</span>
+        <span className="block truncate text-xs text-muted-foreground">{statusSentence(a, wait)}</span>
         <Chips className="mt-0.5 flex-wrap">
           <VendorIcon kind={a.kind} model={a.model} className="size-3" />
           {tag && <Chip className="border-identity/50 text-identity">{tag}</Chip>}

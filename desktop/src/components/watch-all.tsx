@@ -127,7 +127,7 @@ function GridTile({ tile, host, now, many }: { tile: Tile; host?: HostRuntime; n
           {tile.run && <Chip>{tile.run.title || tile.run.id}</Chip>}
           <Chip>{BUCKET_LABEL[bucket]}</Chip>
         </Chips>
-        <span className="truncate text-xs">{tile.activity ? `Working: ${tile.activity}` : statusSentence(a)}</span>
+        <span className="truncate text-xs">{tile.activity ? `Working: ${tile.activity}` : statusSentence(a, tile.wait)}</span>
         <ul aria-label="Recent" className="mt-1 flex flex-col gap-1 text-xs leading-snug">
           {tail.lines.map((l) => (
             <li key={l.id} className={cn('line-clamp-2', l.who === 'tools' && 'text-muted-foreground', l.who === 'you' && 'text-primary', l.who === 'mesh' && 'text-muted-foreground italic')}>
