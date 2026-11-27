@@ -128,6 +128,9 @@ fun leadRows(h: SidebarHost): List<LeadRow> {
     return out.sortedWith(compareByDescending<LeadRow> { it.needs > 0 }.thenByDescending { it.last })
 }
 
+/** The run [agentId] belongs to as a lead row (its lead, workers and folded helpers), for the agent screen's strip; null when it is in none. */
+fun leadRowOf(h: SidebarHost, agentId: String): LeadRow? = leadRows(h).firstOrNull { r -> r.agents().any { it.id == agentId } }
+
 /**
  * The projects of every host: pinned first (in pin order), then those with something waiting on the user, then by latest
  * activity. A run sits under its lead's project; a worker in another repo lists the run under that project's [ProjectRow.also].

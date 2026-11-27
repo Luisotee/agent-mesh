@@ -272,6 +272,15 @@ class RecordingApi : MeshApi {
         failProjects?.let { throw it }
         return projects
     }
+
+    /** What each stop, retire, rename and run stop asked, in order ("stop a1", "retire a1", "rename r1 Title", "stop-run r1"). */
+    val lifecycle = java.util.Collections.synchronizedList(mutableListOf<String>())
+    @Volatile var failLifecycle: Exception? = null
+
+    override suspend fun stopAgent(agent: String) { failLifecycle?.let { throw it }; lifecycle += "stop $agent" }
+    override suspend fun retireAgent(agent: String) { failLifecycle?.let { throw it }; lifecycle += "retire $agent" }
+    override suspend fun renameRun(runId: String, title: String) { failLifecycle?.let { throw it }; lifecycle += "rename $runId $title" }
+    override suspend fun stopRun(runId: String): List<String> { failLifecycle?.let { throw it }; lifecycle += "stop-run $runId"; return emptyList() }
 }
 
 /** A terminal stream a test scripts: what the host sends is put in with [host], what the app sent is in [sent]. */
@@ -327,4 +336,5 @@ class MemoryEndpoints : dev.agentmesh.android.notify.EndpointStore {
     override fun get(hostId: String) = map[hostId]
     override fun put(hostId: String, e: dev.agentmesh.android.notify.SavedEndpoint) { map[hostId] = e }
     override fun remove(hostId: String) { map.remove(hostId) }
+
 }

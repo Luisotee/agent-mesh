@@ -104,7 +104,10 @@ class SpawnSheetTest {
         show(rt)
         compose.onAllNodesWithTag("new-run").assertCountEquals(0)
         compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }
-        compose.onNodeWithText("Add an agent").assertIsNotEnabled()
+        // A read-only device's menu has only what reads: no add, rename, stop or retire.
+        compose.onAllNodesWithText("Add an agent").assertCountEquals(0)
+        compose.onAllNodesWithTag("menu-stop-run").assertCountEquals(0)
+        compose.onNodeWithTag("menu-open").assertIsDisplayed()
         // The run is in the drawer (open at this width) and on home.
         compose.onAllNodesWithText("Fix the typo")[0].assertIsDisplayed()
     }

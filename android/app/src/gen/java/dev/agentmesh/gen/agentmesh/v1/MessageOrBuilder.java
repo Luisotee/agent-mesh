@@ -167,4 +167,26 @@ public interface MessageOrBuilder extends
    * @return The waitUntil.
    */
   com.google.protobuf.Timestamp getWaitUntil();
+
+  /**
+   * <pre>
+   * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+   * current task when it was sent. Empty for any other message.
+   * </pre>
+   *
+   * <code>string re = 12 [json_name = "re"];</code>
+   * @return The re.
+   */
+  java.lang.String getRe();
+  /**
+   * <pre>
+   * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+   * current task when it was sent. Empty for any other message.
+   * </pre>
+   *
+   * <code>string re = 12 [json_name = "re"];</code>
+   * @return The bytes for re.
+   */
+  com.google.protobuf.ByteString
+      getReBytes();
 }

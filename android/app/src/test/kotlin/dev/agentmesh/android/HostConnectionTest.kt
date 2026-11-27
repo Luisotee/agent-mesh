@@ -74,6 +74,10 @@ private class FakeApi : MeshApi {
     override suspend fun startRun(title: String): dev.agentmesh.gen.agentmesh.v1.Run = error("unused")
     override suspend fun spawnAgent(runId: String, repo: String, slug: String, role: dev.agentmesh.gen.agentmesh.v1.AgentRole, kind: String, tier: String, model: String, task: String): dev.agentmesh.gen.agentmesh.v1.SpawnAgentResponse = error("unused")
     override suspend fun listProjects(): List<dev.agentmesh.gen.agentmesh.v1.Project> = error("unused")
+    override suspend fun stopAgent(agent: String) = error("unused")
+    override suspend fun retireAgent(agent: String) = error("unused")
+    override suspend fun renameRun(runId: String, title: String) = error("unused")
+    override suspend fun stopRun(runId: String): List<String> = error("unused")
 }
 
 private class Sink(private val scope: TestScope) : ConnectionSink {

@@ -34,7 +34,7 @@ const (
 	prTTL       = 120 * time.Second // how long a read of GitHub is reused
 	prRetryTTL  = 60 * time.Second  // before a failed read is tried again
 	prFetchers  = 8                 // GitHub reads at once
-	prJSON      = "number,url,state,isDraft,headRefOid,statusCheckRollup"
+	prJSON      = "number,url,state,isDraft,headRefOid,headRefName,statusCheckRollup"
 	prListLimit = "20"
 )
 
@@ -160,6 +160,7 @@ type ghPRState struct {
 	State      string           `json:"state"`
 	IsDraft    bool             `json:"isDraft"`
 	HeadRefOid string           `json:"headRefOid"`
+	HeadRef    string           `json:"headRefName"`
 	Rollup     []map[string]any `json:"statusCheckRollup"`
 }
 
@@ -197,7 +198,7 @@ func checksWord(rollup []map[string]any) string {
 
 func (g ghPRState) record(agentID, source string, at time.Time) *v1.PullRequest {
 	return &v1.PullRequest{AgentId: agentID, Url: g.URL, Number: g.Number, State: strings.ToLower(g.State), Draft: g.IsDraft,
-		Checks: checksWord(g.Rollup), Source: source, CheckedAt: timestamppb.New(at)}
+		Checks: checksWord(g.Rollup), Source: source, CheckedAt: timestamppb.New(at), HeadRef: g.HeadRef}
 }
 
 // ghDir is where gh runs for an agent: its worktree while that exists, else its repo.
