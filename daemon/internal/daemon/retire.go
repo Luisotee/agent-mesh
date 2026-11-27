@@ -79,7 +79,7 @@ func helpersOf(r store.Reader, parent *v1.Agent) ([]*v1.Agent, error) {
 	}
 	var out []*v1.Agent
 	for _, c := range all {
-		if c.ParentId == parent.Id && !c.Peer && !stopped(c) && c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
+		if c.ParentId == parent.Id && !c.Peer && c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER && (!stopped(c) || c.PendingReopen != nil) {
 			out = append(out, c)
 		}
 	}
@@ -108,15 +108,14 @@ func (d *Daemon) stopRetiredHelpers(ctx context.Context, parentID string) error 
 	if err != nil {
 		return err
 	}
+	var errs []error // one that cannot be stopped does not leave the others running
 	for _, c := range all {
 		if c.ParentId == parentID && c.State == v1.AgentState_AGENT_STATE_RETIRED && c.TerminalId != "" &&
 			!c.Peer && c.Role == v1.AgentRole_AGENT_ROLE_REVIEWER {
-			if err := d.stopRetiredProcess(ctx, c.Id); err != nil {
-				return err
-			}
+			errs = append(errs, d.stopRetiredProcess(ctx, c.Id))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // mayRetire is who may retire an agent: a device, its parent, or the root of its run (a worker's reviewer outlives
@@ -178,11 +177,11 @@ func (d *Daemon) sweepAsync(agents []*v1.Agent) {
 // in the background.
 func (d *Daemon) finishRetire(ctx context.Context, agentID string) error {
 	ctx = context.WithoutCancel(ctx)
-	if err := d.stopRetiredProcess(ctx, agentID); err != nil {
-		return err
-	}
-	if err := d.stopRetiredHelpers(ctx, agentID); err != nil {
-		return err
+	// The reviewers are stopped whether or not the worker's own stop worked: they are retired, token gone, and
+	// no later pass would stop them.
+	stopErr := errors.Join(d.stopRetiredProcess(ctx, agentID), d.stopRetiredHelpers(ctx, agentID))
+	if stopErr != nil {
+		return stopErr
 	}
 	if a, err := d.store.Read(ctx).GetAgent(agentID); err == nil {
 		d.sweepAsync([]*v1.Agent{a})
@@ -707,8 +706,11 @@ func (d *Daemon) retireReviewer(ctx context.Context, agentID, reason string) err
 	retired := false
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
-		if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil // gone
+		}
+		if err != nil {
+			return err
 		}
 		if a.Role != v1.AgentRole_AGENT_ROLE_REVIEWER || a.Peer || !atPrompt(a.State) || a.PendingReopen != nil {
 			return nil

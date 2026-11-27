@@ -117,4 +117,31 @@ func TestAReviewerIsRetiredWhenItsPRMerges(t *testing.T) {
 	if state("r-busy") == v1.AgentState_AGENT_STATE_RETIRED {
 		t.Error("a reviewer on a turn was retired")
 	}
+	// Brought back (a resume), it is not retired again at the next read of the PR that is still merged.
+	w.edit("r-idle", func(a *v1.Agent) { a.State = v1.AgentState_AGENT_STATE_IDLE })
+	w.advance(time.Hour)
+	w.prs("", true)
+	time.Sleep(300 * time.Millisecond)
+	if state("r-idle") != v1.AgentState_AGENT_STATE_IDLE {
+		t.Error("a resumed reviewer was retired again by a later read of its merged PR")
+	}
+}
+
+// A worker that moved to a new branch has the PR of that branch listed (the lookup is by the branch it is on), and
+// the row is not dropped at the next read.
+func TestAMovedWorkersNewPRIsListedByItsCurrentBranch(t *testing.T) {
+	w := startPR(t)
+	runGit(t, w.repo, "checkout", "-q", "-b", "mesh/"+w.run.Id+"/fix-2", w.base)
+	runGit(t, w.repo, "commit", "--allow-empty", "-m", "next work")
+	tip := runGit(t, w.repo, "rev-parse", "HEAD")
+	w.mu.Lock()
+	w.byHead = map[string][]map[string]any{"mesh/" + w.run.Id + "/fix-2": {ghPR(14, "OPEN", tip, false)}} // none for the first branch
+	w.mu.Unlock()
+	for i := 0; i < 2; i++ {
+		w.advance(time.Hour)
+		rows := w.prs("", true)
+		if len(rows) != 1 || len(rows[0].PullRequests) != 1 || rows[0].PullRequests[0].Number != 14 {
+			t.Fatalf("read %d: rows %v, want PR 14 of the branch it is on", i, rows)
+		}
+	}
 }

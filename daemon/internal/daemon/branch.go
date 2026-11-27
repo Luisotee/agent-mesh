@@ -64,11 +64,11 @@ func onItsBranch(ctx context.Context, a *v1.Agent) *v1.Agent {
 	}
 	out := proto.Clone(a).(*v1.Agent)
 	out.Branch = cur
-	if def := defaultBaseRO(ctx, a.Repo); def != "HEAD" {
-		if tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+cur); err == nil {
-			if mb, err := gitRO(ctx, a.Repo, "merge-base", def, tip); err == nil && mb != "" {
-				out.BaseCommit = mb
-			}
+	// The default branch, else (no origin/HEAD) the repo's own HEAD, its main checkout: either way not the first
+	// branch's start, which would count the merged PR's commits again.
+	if tip, err := gitRO(ctx, a.Repo, "rev-parse", "--verify", "refs/heads/"+cur); err == nil {
+		if mb, err := gitRO(ctx, a.Repo, "merge-base", defaultBaseRO(ctx, a.Repo), tip); err == nil && mb != "" {
+			out.BaseCommit = mb
 		}
 	}
 	return out

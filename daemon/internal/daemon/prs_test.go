@@ -32,8 +32,9 @@ type prWorld struct {
 	base             string
 
 	mu      sync.Mutex
-	list    []map[string]any // `gh pr list --head`
-	raw     []byte           // when set, the answer to any list call (gh pr list --state open)
+	list    []map[string]any            // `gh pr list --head`
+	byHead  map[string][]map[string]any // when set: the answer to `gh pr list --head <branch>`, per branch
+	raw     []byte                      // when set, the answer to any list call (gh pr list --state open)
 	views   map[string]map[string]any
 	inline  []map[string]any // `gh api repos/…/pulls/N/comments`
 	fail    error
@@ -76,6 +77,13 @@ func startPR(t *testing.T) *prWorld {
 						return nil, errors.New("not found")
 					}
 					return json.Marshal(v)
+				}
+				if w.byHead != nil {
+					for i, a := range args {
+						if a == "--head" && i+1 < len(args) {
+							return json.Marshal(w.byHead[args[i+1]])
+						}
+					}
 				}
 				if w.raw != nil {
 					return w.raw, nil

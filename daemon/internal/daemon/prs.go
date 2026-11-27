@@ -321,6 +321,7 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 	if !ownsPRs(a) {
 		return
 	}
+	a = onItsBranch(ctx, a) // the branch it is on now: the PR lookup below is by branch
 	now := d.nowTime()
 	// A claim first, so two readers at once make one round of calls (the tracker is the throttle). It stays open
 	// until what GitHub said is recorded: a reader meanwhile hears the last finished read, never "no PR" for one
@@ -367,6 +368,7 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 	if timedOut && ferr == nil {
 		ferr = ghCtx.Err()
 	}
+	endedNow := map[string]bool{}
 	err = d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
 		old, err := tx.AgentPRs(a.Id)
 		if err != nil {
@@ -378,6 +380,9 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 		}
 		for _, p := range found {
 			o := prev[prKey(p.Url)]
+			if (p.State == "merged" || p.State == "closed") && (o == nil || o.State != p.State) {
+				endedNow[prKey(p.Url)] = true // its reviewers end now, once (a resumed one is not retired again at each read)
+			}
 			delete(prev, prKey(p.Url))
 			if o != nil { // the watch's cursors are not GitHub's to say (prfeedback.go)
 				p.FeedbackCursor, p.FailingHead, p.FeedbackResumes = o.FeedbackCursor, o.FailingHead, o.FeedbackResumes
@@ -432,7 +437,7 @@ func (d *Daemon) refreshPRs(ctx, ghCtx context.Context, a *v1.Agent, force bool)
 	}
 	complete = ferr == nil
 	for _, p := range found {
-		if p.State == "merged" || p.State == "closed" {
+		if (p.State == "merged" || p.State == "closed") && endedNow[prKey(p.Url)] {
 			// Off the reader's path: stopping a process waits for it, and a brief is waiting on this read.
 			d.goBG(func() {
 				bg, cancel := d.stopCtx()
