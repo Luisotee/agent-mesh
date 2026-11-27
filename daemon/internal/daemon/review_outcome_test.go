@@ -361,6 +361,12 @@ func TestASettledLineCountsCommitsAfterTheLastReviewedHead(t *testing.T) {
 	if got := a.doneNaming7(t); !strings.Contains(got, "head is not the last reviewed head (commits after it, count unknown)") {
 		t.Errorf("a head that is not past the reviewed one: %s", got)
 	}
+	// A rewritten branch: a head with a commit the reviewed one lacks, which is not past it, is not "1 commit after".
+	rewritten := strings.TrimSpace(gitOut(t, a.pr.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", "main^{tree}", "-p", "main", "-m", "rewritten"))
+	row(rewritten)
+	if got := a.doneNaming7(t); !strings.Contains(got, "count unknown") || strings.Contains(got, "1 commit(s)") {
+		t.Errorf("a head that diverges from the reviewed one: %s", got)
+	}
 	row("")
 	if got := a.doneNaming7(t); strings.Contains(got, "after the last reviewed head") || !strings.Contains(got, "SETTLED") {
 		t.Errorf("a row with no head says nothing: %s", got)

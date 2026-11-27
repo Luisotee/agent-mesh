@@ -313,6 +313,7 @@ func TestChecksFoldToOneWord(t *testing.T) {
 		{"a failure that ran nothing beside a pass", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z"), run("COMPLETED", "SUCCESS")}, "pass"},
 		{"a failure that ran nothing beside a real one", []map[string]any{timed("FAILURE", "09:17:19Z", "09:17:21Z"), timed("FAILURE", "09:17:19Z", "09:19:21Z")}, "failing"},
 		{"a failure after minutes", []map[string]any{timed("FAILURE", "09:17:19Z", "09:19:21Z")}, "failing"},
+		{"a startup failure is news however fast", []map[string]any{timed("STARTUP_FAILURE", "09:17:19Z", "09:17:21Z")}, "failing"},
 		{"a failure with no times", []map[string]any{run("COMPLETED", "FAILURE")}, "failing"},
 	} {
 		if got := daemon.ChecksWord(c.rollup); got != c.want {

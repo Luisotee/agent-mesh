@@ -448,10 +448,13 @@ func (d *Daemon) commitsAfterReview(ctx context.Context, self *v1.Agent) (after 
 		if head == "" || head == a.Head {
 			continue
 		}
+		// Only a head past the reviewed one is counted: `A..X` also counts a rewritten branch's commits (a rebase).
 		n := -1
-		if c, err := git(ctx, ghDir(self), "rev-list", "--count", a.Head+".."+head); err == nil {
-			if v, err := strconv.Atoi(c); err == nil && v > 0 {
-				n = v
+		if _, err := git(ctx, ghDir(self), "merge-base", "--is-ancestor", a.Head, head); err == nil {
+			if c, err := git(ctx, ghDir(self), "rev-list", "--count", a.Head+".."+head); err == nil {
+				if v, err := strconv.Atoi(c); err == nil && v > 0 {
+					n = v
+				}
 			}
 		}
 		after[k] = n
@@ -695,7 +698,7 @@ func (d *Daemon) reviewOutcome(r store.Reader, self *v1.Agent, number, url strin
 	if steps > 0 {
 		what = fmt.Sprintf("relay, %d step(s)", steps)
 	}
-	late := ""
+	late := "" // a note on SETTLED only: a NEEDS YOU line sends the lead to the findings, which name the head
 	switch {
 	case after > 0:
 		late = fmt.Sprintf("; %d commit(s) after the last reviewed head", after)

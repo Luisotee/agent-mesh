@@ -191,6 +191,9 @@ func neverRan(c map[string]any) bool {
 		t, err := time.Parse(time.RFC3339, s)
 		return t, err == nil
 	}
+	if conclusion, _ := c["conclusion"].(string); !strings.EqualFold(conclusion, "FAILURE") {
+		return false // a STARTUP_FAILURE (an invalid workflow) or a timeout is news whatever it took
+	}
 	start, ok1 := at("startedAt")
 	end, ok2 := at("completedAt")
 	return ok1 && ok2 && !end.Before(start) && end.Sub(start) < neverRanWithin
