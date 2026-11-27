@@ -76,6 +76,7 @@ function MessageCard({ host, message: m, open }: { host: HostRuntime; message: M
   // An `OpenView` plan: the card comes into view, marked for a moment (the mark is the app's, not kept anywhere).
   useEffect(() => {
     if (!focused) return
+    setExpanded(true)
     ref.current?.scrollIntoView?.({ block: 'center' })
     const t = setTimeout(() => app.clearFocusMessage(), 3000)
     return () => clearTimeout(t)

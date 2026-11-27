@@ -152,9 +152,11 @@ function ArchiveButton({ host, agent, disabled }: { host: HostRuntime; agent: Ag
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [sure, setSure] = useState(false)
-  const read = usePolled(async () => getAgentChanges(host.client, agent.id, true), `archive/${host.info.id}/${agent.id}`, 5_000, open)
+  const read = usePolled(async () => getAgentChanges(host.client, agent.id), `archive/${host.info.id}/${agent.id}`, 5_000, open)
+  // The ignored files are a walk of the worktree: asked once when the dialog opens, not on its 5 s poll (a very long interval keeps the hook's shape).
+  const ignoredRead = usePolled(async () => getAgentChanges(host.client, agent.id, true), `archive-ignored/${host.info.id}/${agent.id}`, 3_600_000, open)
   const advice = archiveAdvice(read.value)
-  const ignored = read.value ? ignoredLines(read.value) : { lines: [], more: 0 }
+  const ignored = ignoredRead.value ? ignoredLines(ignoredRead.value) : { lines: [], more: 0 }
   /** Closing forgets what was ticked and said: the next opening starts as a new question. */
   function close(next: boolean) {
     setOpen(next)

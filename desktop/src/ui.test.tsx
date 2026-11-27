@@ -443,10 +443,12 @@ describe('MessagesPanel', () => {
   it("marks the plan an OpenView named, expanded and in view, and the mark goes after a few seconds", async () => {
     const { host, wrap, model } = fixture()
     putMessages(host, msg('p1', MessageType.PLAN, 'w1', 'lead', 1000), msg('p2', MessageType.PLAN, 'w1', 'lead', 2000, 'x'.repeat(2000)))
-    model.store.setState({ focusMessage: { hostId: host.info.id, id: 'p2' } })
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       render(wrap(<MessagesPanel host={host} agentId="w1" />))
+      // The card was shown, collapsed, before the request came: the request expands it too.
+      expect(within(screen.getAllByRole('article')[1]!).getByRole('button', { name: /Show all/ })).toBeInTheDocument()
+      act(() => model.store.setState({ focusMessage: { hostId: host.info.id, id: 'p2' } }))
       const [first, second] = screen.getAllByRole('article')
       expect(first).not.toHaveAttribute('aria-current')
       expect(second).toHaveAttribute('aria-current', 'true')

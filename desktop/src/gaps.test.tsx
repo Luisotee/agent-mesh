@@ -293,6 +293,19 @@ describe('OpenView: messages, a plan and a pull request', () => {
     expect(model.store.getState()).toBe(before)
   })
 
+  it('forgets a plan whose card never showed, so a later load does not jump to it', () => {
+    vi.useFakeTimers()
+    try {
+      const { model } = fixture()
+      showView(model, 'h1', create(ViewRequestSchema, { view: 'plan', target: 'w1', messageId: 'm9' }))
+      expect(model.store.getState().focusMessage).toMatchObject({ id: 'm9' })
+      vi.advanceTimersByTime(10_100)
+      expect(model.store.getState().focusMessage).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('names them in the toast', async () => {
     const { model, wrap } = fixture()
     render(wrap(<ViewToasts />))

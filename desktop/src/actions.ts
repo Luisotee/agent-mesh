@@ -32,7 +32,7 @@ export const startRun = (c: MeshClient, title: string, autonomy?: Pick<RunAutono
 /** Changes a run's title. */
 export const renameRun = (c: MeshClient, runId: string, title: string) => c.renameRun({ meta: meta(), runId, title })
 
-/** Asks the user's apps to show a view (`agent`, `terminal`, `settings` or `run`): the same call an agent's CLI makes. */
+/** Asks the user's apps to show a view (`agent`, `terminal`, `messages`, `plan`, `pr`, `settings` or `run`): the same call an agent's CLI makes. */
 export const openView = (c: MeshClient, view: 'agent' | 'terminal' | 'settings' | 'run' | 'messages' | 'plan' | 'pr', target = '', runId = '') => c.openView({ meta: meta(), view, target, runId })
 
 /** The permission prompts held for agents' parents now (the host keeps them in memory only). */

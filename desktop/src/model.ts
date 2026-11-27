@@ -253,7 +253,14 @@ export function showView(app: AppModel, hostId: string, v: ViewRequest): void {
     case 'messages':
     case 'plan':
       if (!s.agents[v.target]) return
-      if (v.view === 'plan' && v.messageId) app.store.setState({ focusMessage: { hostId, id: v.messageId } })
+      if (v.view === 'plan' && v.messageId) {
+        const focus = { hostId, id: v.messageId }
+        app.store.setState({ focusMessage: focus })
+        // The card clears it when it shows it; if it never mounts (its messages did not load), it must not fire later.
+        setTimeout(() => {
+          if (app.store.getState().focusMessage === focus) app.clearFocusMessage()
+        }, 10_000)
+      }
       app.selectAgent(hostId, v.target, 'messages')
       return
     case 'pr':

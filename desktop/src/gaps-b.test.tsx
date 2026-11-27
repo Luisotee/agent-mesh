@@ -219,7 +219,10 @@ describe('worktree actions', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Archive app-fix?' })
     const list = await within(dialog).findByRole('list', { name: 'Ignored files that will be deleted' })
     expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['node_modules/at least 212.0 MB', '.env.local11 B', 'and 3 more'])
-    expect(last(client.getAgentChanges)).toMatchObject({ agent: 'w1', withIgnored: true })
+    // The walk of the worktree is asked once, by its own call; the plain read of what changed is not asked to do it.
+    const asked = client.getAgentChanges.mock.calls.map((c) => (c[0] as { withIgnored?: boolean }).withIgnored ?? false)
+    expect(asked.filter((w) => w)).toHaveLength(1)
+    expect(asked.some((w) => !w)).toBe(true)
     // The tick is for what git can lose (commits no remote has), not for build output: archiving stays one click.
     await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Archive' })).toBeEnabled())
   })
