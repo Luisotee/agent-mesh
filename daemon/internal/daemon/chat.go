@@ -18,6 +18,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/claude"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
+	"github.com/Luisotee/agent-mesh/daemon/internal/transcript"
 )
 
 // The chat view of an agent: its CLI's record of the conversation, read for display, and a prompt typed into the
@@ -37,7 +38,7 @@ func (d *Daemon) ReadTranscript(ctx context.Context, req *connect.Request[v1.Rea
 		return nil, err
 	}
 	ad, err := d.rt.adapters.Get(a.Kind)
-	if err != nil || !d.rt.adapters.HasCapability(a.Kind, claude.CapTranscript) {
+	if err != nil || !d.rt.adapters.HasCapability(a.Kind, transcript.Cap) {
 		return connect.NewResponse(&v1.ReadTranscriptResponse{}), nil
 	}
 	out := &v1.ReadTranscriptResponse{Supported: true, SessionId: a.SessionId, AtStart: true}
@@ -45,7 +46,7 @@ func (d *Daemon) ReadTranscript(ctx context.Context, req *connect.Request[v1.Rea
 		return connect.NewResponse(out), nil
 	}
 	res, err := ad.ReadTranscript(ctx, connect.NewRequest(&adapterv1.ReadTranscriptRequest{
-		SessionId: a.SessionId, Cwd: a.Worktree, Env: d.cliBaseEnv(), Offset: req.Msg.Offset, Backward: req.Msg.Backward, MaxBytes: req.Msg.MaxBytes}))
+		SessionId: a.SessionId, Cwd: a.Worktree, Env: d.agentEnv(a, ""), Offset: req.Msg.Offset, Backward: req.Msg.Backward, MaxBytes: req.Msg.MaxBytes}))
 	if connect.CodeOf(err) == connect.CodeUnimplemented {
 		return connect.NewResponse(&v1.ReadTranscriptResponse{}), nil
 	}

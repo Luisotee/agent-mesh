@@ -197,7 +197,7 @@ export function ChatView({ host, agentId, active, panelId, tabId }: { host: Host
       >
         {!transcript.supported && (
           <p role="status" className="py-2 text-xs text-muted-foreground">
-            The chat view reads Claude Code's record of a conversation; {agent.kind} has none we read yet. Its terminal shows the whole of it, and what you send here is typed into it.
+            The host reads no record of a {agent.kind} conversation for the chat view. Its terminal shows the whole of it, and what you send here is typed into it.
           </p>
         )}
         {transcript.supported && !loaded && !error && <p role="status" className="py-6 text-center text-xs text-muted-foreground">Loading the conversation…</p>}

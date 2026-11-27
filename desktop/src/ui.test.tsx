@@ -1396,7 +1396,7 @@ describe('ChatView', () => {
   it('tells the user a CLI has no record to read, and still takes prompts', async () => {
     const { ui } = chat({ read: vi.fn(async () => res([], { supported: false })) })
     render(ui)
-    expect(await screen.findByText(/has none we read yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/reads no record of a/)).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeEnabled()
   })
 })
