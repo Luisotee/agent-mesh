@@ -781,6 +781,23 @@ describe('Dock and TabBar', () => {
     expect(model.store.getState()).toMatchObject({ agentId: 'w1', tabs: [{ agentId: 'lead' }, { agentId: 'w1' }] })
   })
 
+  it('puts a quiet dot on the tab of an agent that finished a turn while another tab was shown, until it is opened', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.WORKING } } }))
+    model.selectAgent('h1', 'w1')
+    model.selectAgent('h1', 'lead')
+    render(wrap(<TabBar />))
+    const tabs = screen.getByRole('tablist', { name: 'Open agents' })
+    expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull()
+    act(() => host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } })))
+    expect(await within(tabs).findByRole('img', { name: 'Finished a turn while you were away' })).toBeInTheDocument()
+    // Looking at it clears the dot.
+    await userEvent.click(within(tabs).getByRole('tab', { name: /app-fix/ }))
+    await waitFor(() => expect(within(tabs).queryByRole('img', { name: 'Finished a turn while you were away' })).toBeNull())
+    // The vendor's mark is beside the name and adds none to it.
+    expect(within(tabs).getAllByRole('tab').map((t) => t.textContent)).toEqual(['app-fix', 'app-lead'])
+  })
+
   it('closes a tab with a middle click and moves one by dragging it onto another', () => {
     const { wrap, model } = fixture()
     model.selectAgent('h1', 'lead')

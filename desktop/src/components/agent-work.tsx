@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { SkeletonLines } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { useHostState } from '@/context'
+import { useApp, useHostState } from '@/context'
 import type { AgentWait } from '@/gen/agentmesh/v1/mesh_pb'
 import type { Agent } from '@/gen/agentmesh/v1/types_pb'
 import { AgentState } from '@/gen/agentmesh/v1/types_pb'
@@ -143,20 +143,18 @@ export function Changes({ host, agent }: { host: HostRuntime; agent: Agent }) {
 export function WorktreeActions({ host, agent }: { host: HostRuntime; agent: Agent }) {
   const local = useHostState(host, (s) => s.conn.kind === 'ready' && canPair(host.store))
   const readOnly = useHostState(host, (s) => s.daemon?.actor?.class === ActorClass.READ_ONLY_DEVICE)
-  const [error, setError] = useState('')
-  const [note, setNote] = useState('')
+  const app = useApp()
   const [busy, setBusy] = useState(false)
   if (!agent.worktree || readOnly) return null
+  // What happened is a toast (it outlives the panel's redraws and stays out of its layout).
   async function run(what: () => Promise<unknown>, done = '') {
     if (busy) return
     setBusy(true)
-    setError('')
-    setNote('')
     try {
       await what()
-      setNote(done)
+      if (done) app.notify(done)
     } catch (e) {
-      setError(say(e))
+      app.notify(say(e), 'error')
     } finally {
       setBusy(false)
     }
@@ -182,8 +180,6 @@ export function WorktreeActions({ host, agent }: { host: HostRuntime; agent: Age
           canArchive(agent) && <ArchiveButton host={host} agent={agent} disabled={busy} />
         )}
       </div>
-      {note && <p role="status" className="text-xs text-muted-foreground">{note}</p>}
-      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }

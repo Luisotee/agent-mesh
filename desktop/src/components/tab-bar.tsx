@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Columns2, MoreHorizontal, PanelRight, Plus, Rows2, SquareTerminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { displayChord } from '@/keys'
@@ -13,6 +13,7 @@ import type { HostRuntime } from '@/model'
 import type { Shell } from '@/gen/agentmesh/v1/mesh_pb'
 import { useHostViews, useKeys } from '@/hooks'
 import { StateIcon } from './state-icon'
+import { VendorIcon } from './vendor-icon'
 import { Tip } from '@/components/ui/tooltip'
 import { ActionMenu, RowContextMenu, type MenuEntry } from '@/components/ui/menu'
 import { ConfirmDialog } from '@/components/ui/confirm'
@@ -72,6 +73,23 @@ export function TabBar() {
   // The agent to stop with the host of its tab, which is not always the open one's.
   const [stopping, setStopping] = useState<{ hostId: string; agent: Agent }>()
   const newLead = () => app.store.getState().hosts.length > 0 && app.openWorkspace(true, undefined, project)
+  // A tab whose agent finished a turn while another tab was shown carries a quiet dot until it is opened.
+  const [finished, setFinished] = useState<ReadonlySet<string>>(new Set())
+  const lastState = useRef(new Map<string, AgentState>())
+  useEffect(() => {
+    const next = new Set(finished)
+    for (const t of all) {
+      const a = isShellTab(t.agentId) ? undefined : views.find((v) => v.hostId === t.hostId)?.agents[t.agentId]
+      if (!a) continue
+      const key = tabKey(t)
+      const was = lastState.current.get(key)
+      lastState.current.set(key, a.state)
+      const shown = t.hostId === hostId && t.agentId === agentId
+      if (shown) next.delete(key)
+      else if (was === AgentState.WORKING && a.state === AgentState.IDLE) next.add(key)
+    }
+    if (next.size !== finished.size || [...next].some((k) => !finished.has(k))) setFinished(next)
+  }, [all, views, hostId, agentId, finished])
 
   /** A tab's menu: the same list for the right-click and the ⋯ of the open one. */
   const entriesOf = (t: TabRef, agent: Agent | undefined, label: string): MenuEntry[] => {
@@ -163,7 +181,7 @@ export function TabBar() {
                 // The open tab is underlined in its project's hue.
                 className={cn(
                   'group relative flex w-full min-w-0 items-center rounded-t-md border border-b-0 text-[13px]',
-                  active ? 'bg-background text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-identity' : 'border-transparent text-muted-foreground hover:bg-accent',
+                  active ? 'bg-linear-to-b from-identity/10 to-background text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-identity' : 'border-transparent text-muted-foreground hover:bg-accent',
                 )}
               >
                 <button
@@ -176,7 +194,9 @@ export function TabBar() {
                   className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-1 pl-2.5 outline-none focus-visible:ring-2 focus-visible:ring-identity"
                 >
                   {agent ? <StateIcon agent={agent} className="size-3.5 shrink-0" /> : shellTab ? <SquareTerminal className="size-3.5 shrink-0" /> : null}
+                  {agent && <VendorIcon decorative kind={agent.kind} model={agent.model} className="size-3 shrink-0 opacity-80" />}
                   <span className="truncate">{label}</span>
+                  {finished.has(tabKey(t)) && <span role="img" aria-label="Finished a turn while you were away" title="Finished a turn while you were away" className="size-1.5 shrink-0 rounded-full bg-primary" />}
                   {many && view && <span className="shrink-0 text-xs text-muted-foreground">{view.hostName}</span>}
                 </button>
                 <button
