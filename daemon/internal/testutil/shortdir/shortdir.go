@@ -9,26 +9,28 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 var (
-	baseOnce sync.Once
-	base     string
+	probeOnce   sync.Once
+	tmpWritable bool // whether /tmp can be written does not change in a test binary's life
 )
 
-// Base is where the short dirs go: /tmp when it can be written, else the OS temp dir.
+// Base is where the short dirs go: /tmp when it can be written, else the OS temp dir (read each time, so a test
+// that sets TMPDIR is followed).
 func Base() string {
-	baseOnce.Do(func() {
-		base = os.TempDir()
-		if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
-			if f, err := os.CreateTemp("/tmp", "am-probe"); err == nil {
-				f.Close()
-				os.Remove(f.Name())
-				base = "/tmp"
-			}
+	probeOnce.Do(func() {
+		if f, err := os.CreateTemp("/tmp", "am-probe"); err == nil {
+			f.Close()
+			os.Remove(f.Name())
+			tmpWritable = true
 		}
 	})
-	return base
+	if tmpWritable {
+		return "/tmp"
+	}
+	return os.TempDir()
 }
 
 // Make is os.MkdirTemp under Base, for a test that removes the dir itself (keep the prefix short).
@@ -42,7 +44,17 @@ func New(t testing.TB) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() {
+		// Retried: a process the test started may still be writing as its dir goes (the terminal host's last file).
+		var err error
+		for try := 0; try < 40; try++ {
+			if err = os.RemoveAll(dir); err == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Logf("could not remove %s: %v", dir, err)
+	})
 	return dir
 }
 

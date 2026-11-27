@@ -173,12 +173,9 @@ func TestApproveReopensThePlannersConversationOnItsExecutionTier(t *testing.T) {
 		t.Errorf("the planner's launch %v", first[0])
 	}
 
-	// Nothing to approve before a plan; the worker can't approve itself.
+	// The worker can't approve itself. (Approving a planner before its plan skips the plan: addition_test.go.)
 	oldTok := w.token(t, worker.Id)
 	asWorker := w.as(oldTok)
-	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: worker.Id, Tier: "mid"})); code(err) != connect.CodeFailedPrecondition {
-		t.Errorf("approve with no plan: %v", err)
-	}
 	readInbox(t, asWorker)
 	if _, err := asWorker.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent",
 		Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: "the plan"})); err != nil {

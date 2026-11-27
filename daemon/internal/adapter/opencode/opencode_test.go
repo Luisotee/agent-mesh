@@ -452,7 +452,7 @@ func externalRules(t *testing.T, cfgJSON string) (keys []string, actions map[str
 }
 
 // What is outside the worktree answers deny (OpenCode's ask is never answered in a mesh and the agent hangs there),
-// except the share folder, the run folder, the toolchain and, for an agent that cannot edit, its repo.
+// except the share folder, the run folder and the toolchain; the share and the toolchain are not for editing.
 func TestPlanLaunchDeniesEveryExternalDirectoryButWhatTheAgentNeeds(t *testing.T) {
 	a := New()
 	share, home, runDir, repo := "/opt/mesh/share", "/home/u", "/state/runs/r1", "/work/shop-api"
@@ -466,39 +466,47 @@ func TestPlanLaunchDeniesEveryExternalDirectoryButWhatTheAgentNeeds(t *testing.T
 	}
 	env := map[string]string{"AGENT_MESH_SHARE": share + "/", "HOME": home, "AGENT_MESH_RUN_DIR": runDir}
 	for _, role := range []agentmeshv1.AgentRole{agentmeshv1.AgentRole_AGENT_ROLE_WORKER, agentmeshv1.AgentRole_AGENT_ROLE_REVIEWER} {
-		cfgJSON := launch(env, role, false)
-		keys, actions := externalRules(t, cfgJSON)
-		if len(keys) == 0 || keys[0] != "*" || actions["*"] != "deny" {
-			t.Fatalf("%v: external_directory = %v, want the deny of everything first", role, keys)
-		}
-		for _, d := range []string{share, runDir, home + "/.local/go", home + "/go", home + "/.cache/go-build", "/usr/local/go", "/tmp"} {
-			if actions[d+"/*"] != "allow" || actions[d+"/**"] != "allow" {
-				t.Errorf("%v: %s is not allowed: %v", role, d, actions)
+		for _, deny := range []bool{false, true} {
+			cfgJSON := launch(env, role, deny)
+			keys, actions := externalRules(t, cfgJSON)
+			if len(keys) == 0 || keys[0] != "*" || actions["*"] != "deny" {
+				t.Fatalf("%v: external_directory = %v, want the deny of everything first", role, keys)
+			}
+			for _, d := range []string{share, runDir, home + "/.local/go", home + "/go", home + "/.cache/go-build", "/usr/local/go", "/tmp"} {
+				if actions[d+"/*"] != "allow" || actions[d+"/**"] != "allow" {
+					t.Errorf("%v: %s is not allowed: %v", role, d, actions)
+				}
+			}
+			for _, k := range keys[1:] {
+				if actions[k] != "allow" {
+					t.Errorf("%v: %s = %s, want allow after the deny", role, k, actions[k])
+				}
+			}
+			// Its repo's main checkout is not opened: its untracked files are the user's.
+			if _, ok := actions[repo+"/*"]; ok {
+				t.Errorf("%v: the repo is allowed", role)
+			}
+			var cfg map[string]any
+			if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			perm, _ := cfg["permission"].(map[string]any)
+			edit, _ := perm["edit"].(map[string]any)
+			// The share and the toolchain can be read, not edited; scratch dirs and the run folder are not listed.
+			for _, d := range []string{share, home + "/.local/go", home + "/go", home + "/.local/opt", "/usr/local/go"} {
+				if edit[d+"/*"] != "deny" || edit[d+"/**"] != "deny" {
+					t.Errorf("%v: edits in %s are not denied: %v", role, d, edit)
+				}
+			}
+			for _, d := range []string{runDir, "/tmp", "/var/tmp"} {
+				if _, ok := edit[d+"/*"]; ok {
+					t.Errorf("%v: edits in %s are denied: %v", role, d, edit)
+				}
+			}
+			if len(perm) != 2 {
+				t.Errorf("%v: permission = %v, want external_directory and edit only", role, perm)
 			}
 		}
-		for _, k := range keys[1:] {
-			if actions[k] != "allow" {
-				t.Errorf("%v: %s = %s, want allow after the deny", role, k, actions[k])
-			}
-		}
-		// The repo's main checkout is the worker's to leave alone, and a read-only agent's to read.
-		if _, ok := actions[repo+"/*"]; ok == (role == agentmeshv1.AgentRole_AGENT_ROLE_WORKER) {
-			t.Errorf("%v: repo allowed = %v", role, ok)
-		}
-		// The share's edits are denied, and no other permission key is set.
-		var cfg map[string]any
-		if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
-			t.Fatal(err)
-		}
-		perm, _ := cfg["permission"].(map[string]any)
-		edit, _ := perm["edit"].(map[string]any)
-		if len(edit) != 2 || edit[share+"/*"] != "deny" || edit[share+"/**"] != "deny" || len(perm) != 2 {
-			t.Errorf("%v: permission = %v, want external_directory and the share's edit deny only", role, perm)
-		}
-	}
-	// A worker whose edits are denied (planning) reads its repo too.
-	if _, actions := externalRules(t, launch(env, agentmeshv1.AgentRole_AGENT_ROLE_WORKER, true)); actions[repo+"/**"] != "allow" {
-		t.Errorf("a planner's repo is not readable: %v", actions)
 	}
 	// No absolute share path: nothing of it is allowed or edit-denied, but the deny of the rest stays.
 	for _, e := range []map[string]string{{"HOME": home}, {"AGENT_MESH_SHARE": "share", "HOME": home}} {
@@ -507,7 +515,7 @@ func TestPlanLaunchDeniesEveryExternalDirectoryButWhatTheAgentNeeds(t *testing.T
 		if len(keys) == 0 || keys[0] != "*" || actions["*"] != "deny" {
 			t.Errorf("env %v: external_directory = %v", e, keys)
 		}
-		if strings.Contains(cfgJSON, `"edit"`) || strings.Contains(cfgJSON, "share/*") {
+		if strings.Contains(cfgJSON, "share/*") {
 			t.Errorf("env %v: a share rule without a share: %s", e, cfgJSON)
 		}
 	}

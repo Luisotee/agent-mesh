@@ -427,11 +427,12 @@ var toolchainDirs = []string{".local/go", "go", ".cache/go-build", ".local/opt",
 // "Access external directory" (the default is ask) is never answered in a mesh: the agent hangs there until its
 // ask times out. So everything outside is denied, which gives the agent a refusal it carries on from, except what
 // it needs: the installed share folder (the protocol and skills its first doorbell names; read only, its edits are
-// denied), the run's folder (`$AGENT_MESH_RUN_DIR`: plans and reports), the toolchain dirs above, and, for an
-// agent that cannot edit (read-only or planning), its repo's main checkout. OpenCode evaluates the patterns last
-// match wins, so `*` comes first and the allows after it, in the order written here. Always set: the deny holds
-// when the daemon has no share path.
-func (a *Adapter) externalPermission(env map[string]string, repo string, noEdit bool) (map[string]any, error) {
+// denied), the run's folder (`$AGENT_MESH_RUN_DIR`: plans and reports) and the toolchain dirs above (edits denied
+// there too, except in the scratch dirs: an agent that may edit is not let overwrite a tool). Not the repo's main
+// checkout: its untracked files are the user's. OpenCode evaluates the patterns last match wins, so `*` comes
+// first and the allows after it, in the order written here. Always set: the deny holds when the daemon has no
+// share path.
+func (a *Adapter) externalPermission(env map[string]string) (map[string]any, error) {
 	share := ""
 	if s := env["AGENT_MESH_SHARE"]; filepath.IsAbs(s) {
 		share = filepath.ToSlash(filepath.Clean(s))
@@ -440,11 +441,13 @@ func (a *Adapter) externalPermission(env map[string]string, repo string, noEdit 
 	if home == "" {
 		home = a.userHome()
 	}
-	var dirs []string
-	add := func(d string) {
-		if d = filepath.ToSlash(filepath.Clean(d)); filepath.IsAbs(d) {
+	var dirs, tools []string // tools: the dirs whose files are not the agent's to edit
+	add := func(d string) bool {
+		d = filepath.ToSlash(filepath.Clean(d))
+		if filepath.IsAbs(d) {
 			dirs = append(dirs, d)
 		}
+		return filepath.IsAbs(d)
 	}
 	if share != "" {
 		add(share)
@@ -453,14 +456,15 @@ func (a *Adapter) externalPermission(env map[string]string, repo string, noEdit 
 		add(rd)
 	}
 	for _, d := range toolchainDirs {
-		if filepath.IsAbs(d) {
-			add(d)
-		} else if home != "" {
-			add(filepath.Join(home, d))
+		if !filepath.IsAbs(d) {
+			if home == "" {
+				continue
+			}
+			d = filepath.Join(home, d)
 		}
-	}
-	if noEdit && repo != "" {
-		add(repo)
+		if add(d) && d != "/tmp" && d != "/var/tmp" {
+			tools = append(tools, filepath.ToSlash(filepath.Clean(d)))
+		}
 	}
 	pairs := []orderedKV{{key: "*", val: "deny"}}
 	for _, d := range dirs {
@@ -471,8 +475,15 @@ func (a *Adapter) externalPermission(env map[string]string, repo string, noEdit 
 		return nil, err
 	}
 	perm := map[string]any{"external_directory": json.RawMessage(raw)}
+	noEdit := map[string]string{}
 	if share != "" {
-		perm["edit"] = map[string]string{share + "/*": "deny", share + "/**": "deny"}
+		tools = append(tools, share)
+	}
+	for _, d := range tools {
+		noEdit[d+"/*"], noEdit[d+"/**"] = "deny", "deny"
+	}
+	if len(noEdit) > 0 {
+		perm["edit"] = noEdit
 	}
 	return perm, nil
 }
@@ -556,7 +567,7 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		}
 	}
 	cfg := map[string]any{"agent": map[string]any{agentName: agentCfg}}
-	perm, err := a.externalPermission(env, m.Repo, adapter.ReadOnly(m.Role) || m.DenyEdits)
+	perm, err := a.externalPermission(env)
 	if err != nil {
 		return nil, err
 	}

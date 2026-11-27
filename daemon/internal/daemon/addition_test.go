@@ -14,12 +14,17 @@ import (
 // setWorking marks the agent as in a turn, as its hooks do while it works.
 func (w *reopenWorld) setWorking(t *testing.T, id string) {
 	t.Helper()
+	w.setState(t, id, v1.AgentState_AGENT_STATE_WORKING)
+}
+
+func (w *reopenWorld) setState(t *testing.T, id string, state v1.AgentState) {
+	t.Helper()
 	if err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(id)
 		if err != nil {
 			return err
 		}
-		a.State = v1.AgentState_AGENT_STATE_WORKING
+		a.State = state
 		return tx.PutAgent(a)
 	}); err != nil {
 		t.Fatal(err)
@@ -71,5 +76,62 @@ func TestADirectTaskAddedToAPlannerStillPlanningChangesNoPhase(t *testing.T) {
 	}
 	if got := w.agent(p.Id); got.Phase != v1.AgentPhase_AGENT_PHASE_UNSPECIFIED || got.PendingReopen == nil || got.PendingReopen.DenyEdits {
 		t.Fatalf("a direct task after the plan: phase %v reopen %v", got.Phase, got.PendingReopen)
+	}
+}
+
+// A planner that is starting, or idle with a follow-up task unread, has not begun its plan either: a direct task is an
+// addition to it too, not the end of its plan phase.
+func TestADirectTaskToAPlannerThatHasNotReadItsTaskIsAnAddition(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	for i, state := range []v1.AgentState{v1.AgentState_AGENT_STATE_STARTING, v1.AgentState_AGENT_STATE_IDLE} {
+		p := w.spawnUnder(t, asLead, "planner-"+string(rune('a'+i)), &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+		w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
+		if state == v1.AgentState_AGENT_STATE_STARTING {
+			w.setState(t, p.Id, state)
+		} else {
+			// Idle with a follow-up it has not read (the fake never runs `mesh inbox`): the plan it makes is not begun.
+			if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: p.Id,
+				Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "plan the cache first"})); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: p.Id,
+			Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task (no plan): also cover the cache"})); err != nil {
+			t.Fatal(err)
+		}
+		if got := w.agent(p.Id); got.Phase != v1.AgentPhase_AGENT_PHASE_PLANNING || !got.DenyEdits || got.PendingReopen != nil {
+			t.Errorf("%v: an addition changed the planner: phase %v deny %v reopen %v", state, got.Phase, got.DenyEdits, got.PendingReopen)
+		}
+	}
+}
+
+// Approving a planner that has sent no plan is the parent skipping its plan: allowed, and the answer says so. An
+// agent with no plan phase has nothing to skip.
+func TestApprovingAPlannerWithNoPlanSkipsItsPlan(t *testing.T) {
+	w := startReopen(t)
+	ctx := context.Background()
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+	p := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.setWorking(t, p.Id)
+	ap, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: p.Id, Tier: "mid"}))
+	if err != nil {
+		t.Fatalf("approve before the plan: %v", err)
+	}
+	if body := ap.Msg.Message.Body; !strings.Contains(body, "plan phase is skipped") || !strings.HasPrefix(body, "approved") {
+		t.Errorf("the answer does not say the plan is skipped: %q", body)
+	}
+	if got := w.agent(p.Id); got.Phase != v1.AgentPhase_AGENT_PHASE_EXECUTING || got.ExecTier != "mid" {
+		t.Errorf("after the skip: phase %v tier %q", got.Phase, got.ExecTier)
+	}
+	// No plan phase, no plan: nothing to approve.
+	plain := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{Tier: "mid"})
+	w.waitState(plain.Id, v1.AgentState_AGENT_STATE_IDLE)
+	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: plain.Id})); code(err) != connect.CodeFailedPrecondition {
+		t.Errorf("approve an agent with no plan phase: %v", err)
 	}
 }

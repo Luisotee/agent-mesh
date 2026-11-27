@@ -139,17 +139,21 @@ func (d *Daemon) workerGuard(ctx context.Context, r store.Reader, actor *v1.Acto
 			"your parent runs the reviews of your PR (review.by or --reviews root: a relay, or a PR it reads itself): "+
 				"don't ask a round; report `done` and it starts them"))
 	}
-	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr.HeadRef)) {
+	if pr.HeadRef == "" || (pr.HeadRef != self.Branch && !d.movedBranchIsItsOwn(ctx, r, self, pr)) {
 		return denied("a worker reviews only its own PR (head branch %s); PR #%d is of %q: the root reviews the rest", self.Branch, pr.Number, pr.HeadRef)
 	}
 	return nil
 }
 
-// movedBranchIsItsOwn reports whether head is the branch checked out in the worker's own worktree and no other
-// agent of the repo is registered on it: a worker that moved its work to another branch reviews its PR, but
-// `git switch` onto another worker's branch does not make that worker's PR its own.
-func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, head string) bool {
-	if head == "" || worktreeBranch(ctx, self) != head {
+// movedBranchIsItsOwn reports whether the PR is the worker's own though its head is not the branch it was
+// registered on: the head is the branch checked out in the worker's own worktree, with commits of its own past its
+// base, and nothing says it is anyone else's: it is not the repo's default branch, no other agent of the repo is
+// registered on it or has it checked out, and no other worker owns or asked a round on the PR. `git switch` onto
+// another worker's branch (or `main`) does not make that PR the worker's own.
+func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *v1.Agent, pr *prInfo) bool {
+	head := pr.HeadRef
+	if head == "" || worktreeBranch(ctx, self) != head || head == "main" || head == "master" ||
+		head == strings.TrimPrefix(defaultBaseRO(ctx, self.Repo), "origin/") || !hasBranchWork(ctx, self) {
 		return false
 	}
 	agents, err := r.ListAgents("")
@@ -157,8 +161,35 @@ func (d *Daemon) movedBranchIsItsOwn(ctx context.Context, r store.Reader, self *
 		return false
 	}
 	for _, o := range agents {
-		if o.Id != self.Id && o.Repo == self.Repo && o.Branch == head {
+		if o.Id == self.Id || o.Repo == "" || !sameDir(o.Repo, self.Repo) {
+			continue
+		}
+		if o.Branch == head || worktreeBranch(ctx, o) == head {
 			return false
+		}
+		if o.Role != v1.AgentRole_AGENT_ROLE_WORKER {
+			continue
+		}
+		if prs, err := r.AgentPRs(o.Id); err != nil {
+			return false
+		} else {
+			for _, p := range prs {
+				if prKey(p.Url) == prKey(pr.URL) {
+					return false
+				}
+			}
+		}
+	}
+	asks, err := r.PRAsks(pr.URL)
+	if err != nil {
+		return false
+	}
+	for _, a := range asks {
+		if a.CallerId == self.Id {
+			continue
+		}
+		if c, err := r.GetAgent(a.CallerId); err == nil && c.Role == v1.AgentRole_AGENT_ROLE_WORKER {
+			return false // another worker asked a round on it: it is theirs
 		}
 	}
 	return true

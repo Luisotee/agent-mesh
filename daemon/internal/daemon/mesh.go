@@ -359,6 +359,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			IsAgent(actor.Class) && to.ParentId != actor.Id {
 			return false
 		}
+		if add, _ := plannerOwesItsPlan(d.store.Read(ctx), to); add {
+			return false // an addition to its plan: the write leaves it planning, so no conversation id is needed
+		}
 		_, _, deny := target(to)
 		return deny && (!adapter.ReadOnly(to.Role) || d.becomesWorker(d.store.Read(ctx), to, req.Msg.Body))
 	})
