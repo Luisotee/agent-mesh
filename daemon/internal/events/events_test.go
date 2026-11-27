@@ -346,7 +346,7 @@ func TestAViewPublishedWhileTheSnapshotIsBeingSentIsNotDropped(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	got := make(chan string, 4)
-	go bus.ServeFor(ctx, &v1.SubscribeEventsRequest{Activity: true}, true, true, nil, func(f *v1.SubscribeEventsResponse) error {
+	go bus.ServeFor(ctx, &v1.SubscribeEventsRequest{Activity: true}, true, true, "", nil, func(f *v1.SubscribeEventsResponse) error {
 		if f.GetSnapshot() != nil {
 			// What the app does with its snapshot, before the server's next line runs.
 			bus.PublishView(&v1.ViewRequest{View: "messages", Target: "a1"})
@@ -363,5 +363,39 @@ func TestAViewPublishedWhileTheSnapshotIsBeingSentIsNotDropped(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the view published while the snapshot was sent was dropped")
+	}
+}
+
+func TestVisibleToShowsAViewerOnlyItsOwnTextBearingEvents(t *testing.T) {
+	msg := func(from, to string) *v1.Event {
+		return &v1.Event{Payload: &v1.Event_MessageSent{MessageSent: &v1.MessageSent{Message: &v1.Message{
+			From: &v1.Actor{Id: from}, ToId: to, Body: "text"}}}}
+	}
+	prompt := func(agent string) *v1.Event {
+		return &v1.Event{Payload: &v1.Event_PromptQueued{PromptQueued: &v1.PromptQueued{Prompt: &v1.QueuedPrompt{AgentId: agent, Text: "typed"}}}}
+	}
+	held := func(agent string) *v1.Event {
+		return &v1.Event{AgentId: agent, Payload: &v1.Event_DoorbellHeld{DoorbellHeld: &v1.DoorbellHeld{Draft: "draft"}}}
+	}
+	state := &v1.Event{AgentId: "other", Payload: &v1.Event_AgentStateChanged{AgentStateChanged: &v1.AgentStateChanged{}}}
+	for _, c := range []struct {
+		name   string
+		viewer string
+		ev     *v1.Event
+		want   bool
+	}{
+		{"unrestricted sees a message between others", "", msg("a", "b"), true},
+		{"a message to the viewer", "me", msg("a", "me"), true},
+		{"a message from the viewer", "me", msg("me", "b"), true},
+		{"a message between others", "me", msg("a", "b"), false},
+		{"a prompt for the viewer", "me", prompt("me"), true},
+		{"a prompt for another agent", "me", prompt("b"), false},
+		{"a held draft of another agent", "me", held("b"), false},
+		{"its own held draft", "me", held("me"), true},
+		{"a state change of another agent is metadata", "me", state, true},
+	} {
+		if got := VisibleTo(c.viewer, c.ev); got != c.want {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
 	}
 }

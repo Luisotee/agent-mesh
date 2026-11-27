@@ -199,7 +199,13 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		return nil, err
 	}
 	if replayed {
-		return connect.NewResponse(out), nil // the first call did all of it; its token and file stand
+		// The first call did all of it, and its file stands; if the file write failed after the store's commit (a full
+		// disk), the stored answer is all there is and the token was lost with it: mint another and write it. The
+		// run's root is locked above (it is the adopted row by now), so two replays do not both mint.
+		if err := d.repairAdoptedFile(ctx, out.GetAgent().GetId(), m); err != nil {
+			return nil, err
+		}
+		return connect.NewResponse(out), nil
 	}
 	if old != nil {
 		d.endTakenOverRoot(ctx, old, agent, out)
@@ -211,6 +217,33 @@ func (d *Daemon) AdoptSession(ctx context.Context, req *connect.Request[v1.Adopt
 		return nil, err
 	}
 	return connect.NewResponse(out), nil
+}
+
+// repairAdoptedFile rewrites the identity file of an adopted session, when the call that adopted it left none: the
+// session of this process is still the agent's, and `<state>/adopted/<pid>.json` is missing. The agent's tokens go (the
+// lost one was never delivered, and the file was the only place a token lived) and a new one is written to it.
+func (d *Daemon) repairAdoptedFile(ctx context.Context, agentID string, m *v1.AdoptSessionRequest) error {
+	if agentID == "" {
+		return nil
+	}
+	cur, err := d.store.Read(ctx).GetAgent(agentID)
+	if err != nil || !isAdopted(cur) || stopped(cur) || cur.AdoptedPid != m.Pid || cur.AdoptedPidStart != m.PidStartTicks {
+		return nil // another session's row now, or gone: the replay's answer is all that is owed
+	}
+	if _, err := os.Stat(d.paths.Adopted(int(cur.AdoptedPid))); err == nil {
+		return nil
+	}
+	token := auth.NewToken()
+	err = d.store.Write(ctx, meshActor, "", func(tx *store.Tx) error {
+		if err := tx.RevokeTokens(cur.Id); err != nil {
+			return err
+		}
+		return tx.PutToken(auth.Hash(token), store.TokenRecord{Class: ClassOf(cur.Role), SubjectID: cur.Id, Name: cur.Name, RunID: cur.RunId})
+	})
+	if err != nil {
+		return err
+	}
+	return d.writeAdoptedFile(cur, token)
 }
 
 // endTakenOverRoot stops what the run's own root left running once its row has become an adopted session's: its

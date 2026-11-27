@@ -72,6 +72,7 @@ func (d *Daemon) StreamLog(ctx context.Context, req *connect.Request[v1.StreamLo
 		filterID, filterName = m.Agent, m.Agent
 	}
 
+	viewer := restrictedViewer(actor)
 	var ch <-chan *v1.Event
 	var unsub func()
 	if m.Follow && run.Status != v1.RunStatus_RUN_STATUS_CLOSED {
@@ -93,6 +94,9 @@ func (d *Daemon) StreamLog(ctx context.Context, req *connect.Request[v1.StreamLo
 		}
 		if ev.GetRunStopped() != nil {
 			sawStop = true
+		}
+		if !events.VisibleTo(viewer, ev) {
+			continue
 		}
 		if entry, ok := logEntryFromEvent(ev, agentNames, filterID, filterName); ok {
 			entries = append(entries, entry)
@@ -126,6 +130,12 @@ func (d *Daemon) StreamLog(ctx context.Context, req *connect.Request[v1.StreamLo
 			lastSeq = ev.Seq
 			if sp := ev.GetAgentSpawned(); sp != nil && sp.Agent != nil {
 				agentNames[sp.Agent.Id] = sp.Agent.Name
+			}
+			if !events.VisibleTo(viewer, ev) {
+				if ev.GetRunStopped() != nil {
+					return nil
+				}
+				continue
 			}
 			if entry, ok := logEntryFromEvent(ev, agentNames, filterID, filterName); ok {
 				if err := stream.Send(&v1.StreamLogResponse{Entry: entry}); err != nil {
