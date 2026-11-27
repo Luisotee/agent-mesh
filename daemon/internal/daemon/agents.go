@@ -464,6 +464,7 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 }
 
 func (d *Daemon) runBackground(ctx context.Context) {
+	d.goBG(func() { d.scanHeld(ctx) }) // tasks held for a done that came while the daemon was down
 	if d.rt.term != nil && !d.rt.cfg.NoTerminalWatch {
 		d.goBG(func() { d.watchTerminals(ctx) })
 	}

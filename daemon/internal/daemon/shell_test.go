@@ -398,3 +398,97 @@ func TestEndingAShellHangsUpItsBackgroundJobs(t *testing.T) {
 		t.Errorf("a replayed close: %v", err)
 	}
 }
+
+// An app (a device's subscriber that asked for activity) is told when a shell opens and when it ends, by CloseShell or by its
+// own exit; a subscriber that is no app is told nothing.
+func TestAnAppIsToldWhenAShellOpensAndEnds(t *testing.T) {
+	w := startShells(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app, err := w.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{Activity: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := w.device.Mesh.SubscribeEvents(ctx, connect.NewRequest(&v1.SubscribeEventsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []*connect.ServerStreamForClient[v1.SubscribeEventsResponse]{app, plain} {
+		if !s.Receive() || s.Msg().GetSnapshot() == nil {
+			t.Fatalf("no snapshot: %v", s.Err())
+		}
+	}
+	// The stream is live once an event every subscriber gets arrives.
+	live := func(s *connect.ServerStreamForClient[v1.SubscribeEventsResponse]) {
+		t.Helper()
+		for s.Receive() {
+			if s.Msg().GetEvent() != nil {
+				return
+			}
+			if s.Msg().GetShell() != nil {
+				t.Fatalf("a shell frame before any shell: %v", s.Msg())
+			}
+		}
+		t.Fatalf("the stream ended: %v", s.Err())
+	}
+	if _, err := w.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Key: "claude.lean", Value: val(t, false)})); err != nil {
+		t.Fatal(err)
+	}
+	live(app)
+	live(plain)
+
+	next := func() *v1.ShellChange {
+		t.Helper()
+		for app.Receive() {
+			if c := app.Msg().GetShell(); c != nil {
+				return c
+			}
+		}
+		t.Fatalf("no shell frame: %v", app.Err())
+		return nil
+	}
+	a, err := w.open(t, "frame-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := next(); c.Closed || c.Shell.Id != a.Id || c.Shell.Repo == "" {
+		t.Errorf("opening: %v", c)
+	}
+	// A replay of the open tells nobody twice (the next frame below is the close of the first shell).
+	if _, err := w.open(t, "frame-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.device.Mesh.CloseShell(ctx, connect.NewRequest(&v1.CloseShellRequest{Meta: meta("c-a"), Id: a.Id})); err != nil {
+		t.Fatal(err)
+	}
+	if c := next(); !c.Closed || c.Shell.Id != a.Id {
+		t.Errorf("closing: %v", c)
+	}
+	// A shell that exits by itself is told too.
+	b, err := w.open(t, "frame-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := next(); c.Closed || c.Shell.Id != b.Id {
+		t.Errorf("opening b: %v", c)
+	}
+	s, _ := w.attach(t, w.device, b.Id, true)
+	s.Ready(ctx)
+	s.Input(ctx, []byte("exit 0\n"))
+	if c := next(); !c.Closed || c.Shell.Id != b.Id {
+		t.Errorf("b's own exit: %v", c)
+	}
+	// The subscriber that is no app saw none of it: a later event is the next thing it gets.
+	if _, err := w.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Key: "claude.lean", Value: val(t, true)})); err != nil {
+		t.Fatal(err)
+	}
+	for plain.Receive() {
+		if plain.Msg().GetShell() != nil {
+			t.Fatalf("a subscriber that is no app got %v", plain.Msg())
+		}
+		if plain.Msg().GetEvent() != nil {
+			return
+		}
+	}
+	t.Fatalf("the stream ended: %v", plain.Err())
+}

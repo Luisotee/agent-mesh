@@ -26,6 +26,7 @@ public  final class SubscribeEventsResponse extends
     END(4),
     ACTIVITY(5),
     VIEW(6),
+    SHELL(7),
     FRAME_NOT_SET(0);
     private final int value;
     private FrameCase(int value) {
@@ -47,6 +48,7 @@ public  final class SubscribeEventsResponse extends
         case 4: return END;
         case 5: return ACTIVITY;
         case 6: return VIEW;
+        case 7: return SHELL;
         case 0: return FRAME_NOT_SET;
         default: return null;
       }
@@ -473,6 +475,81 @@ public  final class SubscribeEventsResponse extends
    */
   private void clearView() {
     if (frameCase_ == 6) {
+      frameCase_ = 0;
+      frame_ = null;
+    }
+  }
+
+  public static final int SHELL_FIELD_NUMBER = 7;
+  /**
+   * <pre>
+   * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+   * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+   */
+  @java.lang.Override
+  public boolean hasShell() {
+    return frameCase_ == 7;
+  }
+  /**
+   * <pre>
+   * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+   * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.ShellChange getShell() {
+    if (frameCase_ == 7) {
+       return (dev.agentmesh.gen.agentmesh.v1.ShellChange) frame_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.ShellChange.getDefaultInstance();
+  }
+  /**
+   * <pre>
+   * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+   * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+   */
+  private void setShell(dev.agentmesh.gen.agentmesh.v1.ShellChange value) {
+    java.util.Objects.requireNonNull(value);
+    frame_ = value;
+    frameCase_ = 7;
+  }
+  /**
+   * <pre>
+   * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+   * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+   */
+  private void mergeShell(dev.agentmesh.gen.agentmesh.v1.ShellChange value) {
+    java.util.Objects.requireNonNull(value);
+    if (frameCase_ == 7 &&
+        frame_ != dev.agentmesh.gen.agentmesh.v1.ShellChange.getDefaultInstance()) {
+      frame_ = dev.agentmesh.gen.agentmesh.v1.ShellChange.newBuilder((dev.agentmesh.gen.agentmesh.v1.ShellChange) frame_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      frame_ = value;
+    }
+    frameCase_ = 7;
+  }
+  /**
+   * <pre>
+   * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+   * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+   * </pre>
+   *
+   * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+   */
+  private void clearShell() {
+    if (frameCase_ == 7) {
       frameCase_ = 0;
       frame_ = null;
     }
@@ -1007,6 +1084,84 @@ public  final class SubscribeEventsResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+     * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+     */
+    @java.lang.Override
+    public boolean hasShell() {
+      return instance.hasShell();
+    }
+    /**
+     * <pre>
+     * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+     * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.ShellChange getShell() {
+      return instance.getShell();
+    }
+    /**
+     * <pre>
+     * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+     * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+     */
+    public Builder setShell(dev.agentmesh.gen.agentmesh.v1.ShellChange value) {
+      copyOnWrite();
+      instance.setShell(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+     * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+     */
+    public Builder setShell(
+        dev.agentmesh.gen.agentmesh.v1.ShellChange.Builder builderForValue) {
+      copyOnWrite();
+      instance.setShell(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+     * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+     */
+    public Builder mergeShell(dev.agentmesh.gen.agentmesh.v1.ShellChange value) {
+      copyOnWrite();
+      instance.mergeShell(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A project shell opened or ended (`OpenShell`, a shell's own exit, `CloseShell`). Sent to the live subscribers of a
+     * device's token only; ephemeral, like `activity`: a client lists the shells (`ListShells`) when it connects.
+     * </pre>
+     *
+     * <code>.agentmesh.v1.ShellChange shell = 7 [json_name = "shell"];</code>
+     */
+    public Builder clearShell() {
+      copyOnWrite();
+      instance.clearShell();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SubscribeEventsResponse)
   }
   @java.lang.Override
@@ -1031,10 +1186,11 @@ public  final class SubscribeEventsResponse extends
             dev.agentmesh.gen.agentmesh.v1.End.class,
             dev.agentmesh.gen.agentmesh.v1.AgentActivity.class,
             dev.agentmesh.gen.agentmesh.v1.ViewRequest.class,
+            dev.agentmesh.gen.agentmesh.v1.ShellChange.class,
           };
           java.lang.String info =
-              "\u0000\u0006\u0001\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001<\u0000\u0002<" +
-              "\u0000\u0003<\u0000\u0004<\u0000\u0005<\u0000\u0006<\u0000";
+              "\u0000\u0007\u0001\u0000\u0001\u0007\u0007\u0000\u0000\u0000\u0001<\u0000\u0002<" +
+              "\u0000\u0003<\u0000\u0004<\u0000\u0005<\u0000\u0006<\u0000\u0007<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

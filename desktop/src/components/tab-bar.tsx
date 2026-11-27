@@ -175,7 +175,7 @@ export function TabBar() {
           entries={plusEntries}
           align="end"
           trigger={
-            <Button size="icon" variant="ghost" className="size-7" aria-label={project ? `New in ${repoName(project.repo)}` : 'New in this project'} onClick={() => project && void app.loadShells(project.hostId)}>
+            <Button size="icon" variant="ghost" className="size-7" aria-label={project ? `New in ${repoName(project.repo)}` : 'New in this project'}>
               <Plus />
             </Button>
           }

@@ -147,6 +147,9 @@ func (d *Daemon) OpenShell(ctx context.Context, req *connect.Request[v1.OpenShel
 		out.Shell = shellOf(res.Msg.Terminal)
 		return nil
 	})
+	if err == nil && created != "" {
+		d.bus.PublishShell(&v1.ShellChange{Shell: out.Shell})
+	}
 	if err != nil && created != "" {
 		// The shell started but its record did not commit (the caller went away): a retry with the same mutation id would start a
 		// second one, and nobody knows this one, so it ends.
@@ -225,7 +228,10 @@ func (d *Daemon) shellExited(ctx context.Context, id string) error {
 	d.rt.mu.Unlock()
 	_, err := d.rt.term.API.AckExit(ctx, connect.NewRequest(&termv1.AckExitRequest{Id: id}))
 	if connect.CodeOf(err) == connect.CodeNotFound {
-		err = nil
+		return nil // forgotten already (the watch and a close both got here): it was told then
+	}
+	if err == nil {
+		d.bus.PublishShell(&v1.ShellChange{Shell: &v1.Shell{Id: id, Exited: true}, Closed: true})
 	}
 	return err
 }

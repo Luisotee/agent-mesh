@@ -19,6 +19,7 @@ public  final class SendMessageRequest extends
     body_ = "";
     until_ = "";
     re_ = "";
+    after_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -381,6 +382,93 @@ public  final class SendMessageRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     re_ = value.toStringUtf8();
+
+  }
+
+  public static final int AFTER_FIELD_NUMBER = 7;
+  private java.lang.String after_;
+  /**
+   * <pre>
+   * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+   * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+   * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+   * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+   * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+   * </pre>
+   *
+   * <code>string after = 7 [json_name = "after"];</code>
+   * @return The after.
+   */
+  @java.lang.Override
+  public java.lang.String getAfter() {
+    return after_;
+  }
+  /**
+   * <pre>
+   * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+   * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+   * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+   * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+   * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+   * </pre>
+   *
+   * <code>string after = 7 [json_name = "after"];</code>
+   * @return The bytes for after.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAfterBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(after_);
+  }
+  /**
+   * <pre>
+   * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+   * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+   * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+   * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+   * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+   * </pre>
+   *
+   * <code>string after = 7 [json_name = "after"];</code>
+   * @param value The after to set.
+   */
+  private void setAfter(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    after_ = value;
+  }
+  /**
+   * <pre>
+   * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+   * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+   * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+   * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+   * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+   * </pre>
+   *
+   * <code>string after = 7 [json_name = "after"];</code>
+   */
+  private void clearAfter() {
+
+    after_ = getDefaultInstance().getAfter();
+  }
+  /**
+   * <pre>
+   * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+   * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+   * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+   * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+   * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+   * </pre>
+   *
+   * <code>string after = 7 [json_name = "after"];</code>
+   * @param value The bytes for after to set.
+   */
+  private void setAfterBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    after_ = value.toStringUtf8();
 
   }
 
@@ -856,6 +944,95 @@ public  final class SendMessageRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+     * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+     * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+     * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+     * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+     * </pre>
+     *
+     * <code>string after = 7 [json_name = "after"];</code>
+     * @return The after.
+     */
+    @java.lang.Override
+    public java.lang.String getAfter() {
+      return instance.getAfter();
+    }
+    /**
+     * <pre>
+     * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+     * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+     * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+     * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+     * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+     * </pre>
+     *
+     * <code>string after = 7 [json_name = "after"];</code>
+     * @return The bytes for after.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAfterBytes() {
+      return instance.getAfterBytes();
+    }
+    /**
+     * <pre>
+     * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+     * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+     * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+     * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+     * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+     * </pre>
+     *
+     * <code>string after = 7 [json_name = "after"];</code>
+     * @param value The after to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAfter(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAfter(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+     * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+     * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+     * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+     * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+     * </pre>
+     *
+     * <code>string after = 7 [json_name = "after"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAfter() {
+      copyOnWrite();
+      instance.clearAfter();
+      return this;
+    }
+    /**
+     * <pre>
+     * Only for a task from a run's lead or a device: the id of a task of the same run (the id in its `mesh inbox` header).
+     * The daemon holds this task until a `done` answers that task, then sends it as it would have been sent then (the target
+     * is resumed if it is stopped, a refusal is told to the sender); a `failed` for it drops the held task, and the sender is
+     * told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
+     * task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
+     * </pre>
+     *
+     * <code>string after = 7 [json_name = "after"];</code>
+     * @param value The bytes for after to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAfterBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAfterBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SendMessageRequest)
   }
   @java.lang.Override
@@ -879,10 +1056,11 @@ public  final class SendMessageRequest extends
             "body_",
             "until_",
             "re_",
+            "after_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\f\u0004\u0208\u0005\u0208\u0006\u0208";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\f\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

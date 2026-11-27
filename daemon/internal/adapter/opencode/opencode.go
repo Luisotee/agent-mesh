@@ -516,7 +516,8 @@ func relFrom(cwd, d string) (string, bool) {
 // for each one alone, with the command's own text (the whole text, redirect included, when it is redirected): a
 // command that matches no allow is denied, so `ls; rm x` is refused at `rm x`. A trailing ` *` also matches the
 // command with no arguments. What it can't see: a bare redirect (`> file`, no command) is no command, so it
-// is not asked for at all; TODO.md has it.
+// is not asked for at all: `share/opencode/readonly-guard.js`, a plugin the launch loads (PlanLaunch), refuses
+// a bash command with a `>` before it runs.
 //
 // Not listed on purpose: `sed` (`w` and `e` write and run inside the script), `xargs`, `env`, `sh`, `rm`, `mv`,
 // `cp`, `tee`, `git -C`, `git branch` that is not a `--list`, `git fetch`, and a command with a leading
@@ -641,6 +642,13 @@ func (a *Adapter) PlanLaunch(ctx context.Context, req *connect.Request[adapterv1
 		return nil, err
 	}
 	cfg["permission"] = perm
+	if !m.Standalone && (adapter.ReadOnly(m.Role) || m.DenyEdits) {
+		// The hook that closes what the bash patterns can't see (a bare redirect: readOnlyBash). It is a file of the
+		// installed share; a meshd with no share has no protocol for its agents either, so it is no real launch.
+		if share := env["AGENT_MESH_SHARE"]; filepath.IsAbs(share) {
+			cfg["plugin"] = []string{"file://" + filepath.ToSlash(filepath.Join(share, "opencode", "readonly-guard.js"))}
+		}
+	}
 	cfgBytes, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
