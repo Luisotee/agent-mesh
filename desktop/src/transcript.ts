@@ -152,3 +152,17 @@ export function timeline(blocks: Block[], messages: Message[] | undefined, atSta
   while (i < cards.length) out.push(cards[i++]!)
   return out
 }
+
+/**
+ * Whether two blocks show the same: the transcript is read again as the agent works and builds every block anew, so an
+ * unchanged one is a new object. A chat block redraws only for a block this says changed (`memo` in the chat view).
+ */
+export function sameBlock(a: Block, b: Block): boolean {
+  if (a === b) return true
+  if (a.kind !== b.kind || a.id !== b.id || a.at !== b.at) return false
+  if (a.kind === 'tools' && b.kind === 'tools') {
+    return a.calls.length === b.calls.length && a.calls.every((c, i) => c.id === b.calls[i]!.id && c.tool === b.calls[i]!.tool && c.input === b.calls[i]!.input && c.result?.id === b.calls[i]!.result?.id && c.result?.text === b.calls[i]!.result?.text && c.result?.isError === b.calls[i]!.result?.isError && c.result?.truncated === b.calls[i]!.result?.truncated)
+  }
+  if (a.kind !== 'tools' && b.kind !== 'tools') return a.entry.text === b.entry.text && a.entry.truncated === b.entry.truncated && a.entry.isError === b.entry.isError
+  return false
+}

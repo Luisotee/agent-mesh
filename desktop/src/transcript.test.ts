@@ -3,7 +3,7 @@ import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { MessageSchema } from './gen/agentmesh/v1/types_pb'
-import { emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater } from './transcript'
+import { emptyTranscript, fromTail, sameBlock, timeline, toBlocks, toolsSummary, withEarlier, withLater } from './transcript'
 
 const entry = (id: string, kind: TranscriptKind, o: Partial<{ text: string; tool: string; toolInput: string; toolUseId: string; isError: boolean }> = {}) => create(TranscriptEntrySchema, { id, kind, ...o })
 const page = (entries: ReturnType<typeof entry>[], o: Partial<{ sessionId: string; startOffset: bigint; endOffset: bigint; atStart: boolean; supported: boolean }> = {}) =>
@@ -113,5 +113,28 @@ describe('timeline', () => {
   it('keeps the doorbells while the messages are not read yet, and shows every message of a conversation it cannot read', () => {
     expect(timeline(blocks, undefined, false).map((i) => i.id)).toEqual(['u1', 'bell', 'a1'])
     expect(timeline([], [m('x', 5)], false).map((i) => i.id)).toEqual(['m-x'])
+  })
+})
+
+describe('sameBlock', () => {
+  const blocks = (entries: ReturnType<typeof entry>[]) => toBlocks(entries)
+
+  it('takes a block built anew from the same entries for the same, so a chat block is not redrawn for it', () => {
+    const make = () => blocks([entry('u1', TranscriptKind.USER, { text: 'run it' }), entry('c1', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolInput: 'ls', toolUseId: 't1' }), entry('r1', TranscriptKind.TOOL_RESULT, { text: 'a b', toolUseId: 't1' }), entry('a1', TranscriptKind.ASSISTANT, { text: 'done' })])
+    const [x, y] = [make(), make()]
+    expect(x.every((b, i) => b !== y[i] && sameBlock(b, y[i]!))).toBe(true)
+  })
+
+  it('sees a reply that grew, a tool call that got its result, and a block of another kind', () => {
+    const [a1] = blocks([entry('a1', TranscriptKind.ASSISTANT, { text: 'part' })])
+    const [a2] = blocks([entry('a1', TranscriptKind.ASSISTANT, { text: 'part and more' })])
+    expect(sameBlock(a1!, a2!)).toBe(false)
+    const [open] = blocks([entry('c1', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolInput: 'ls', toolUseId: 't1' })])
+    const [done] = blocks([entry('c1', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolInput: 'ls', toolUseId: 't1' }), entry('r1', TranscriptKind.TOOL_RESULT, { text: 'ok', toolUseId: 't1' })])
+    expect(sameBlock(open!, done!)).toBe(false)
+    expect(sameBlock(a1!, open!)).toBe(false)
+    // The same text cut or not is another block.
+    const [cut] = blocks([entry('c1', TranscriptKind.TOOL_CALL, { tool: 'Bash', toolInput: 'ls', toolUseId: 't1' }), create(TranscriptEntrySchema, { id: 'r1', kind: TranscriptKind.TOOL_RESULT, text: 'ok', toolUseId: 't1', truncated: true })])
+    expect(sameBlock(done!, cut!)).toBe(false)
   })
 })
