@@ -41,13 +41,27 @@ import kotlinx.coroutines.launch
 /** This device's own preferences. They aren't on a host: a theme chosen here overrides the host's `app.theme` on this phone only. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DeviceSettingsScreen(onBack: () -> Unit) {
+fun DeviceSettingsScreen(onBack: () -> Unit, onHosts: () -> Unit = {}) {
     val themes = LocalContainer.current.themes
+    val hostCount by LocalContainer.current.hosts.hosts.collectAsStateWithLifecycleCompat()
     val choice by themes.choice.collectAsStateWithLifecycleCompat()
     Scaffold(topBar = {
         TopAppBar(title = { Text("Settings") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } })
     }) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize()) {
+            item { SectionHeader("Hosts") }
+            item {
+                Row(Modifier.fillMaxWidth().clickable(onClick = onHosts).padding(horizontal = 16.dp, vertical = 12.dp).testTag("settings-hosts"), verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+                        Text("Paired hosts")
+                        Text(
+                            if (hostCount.isEmpty()) "None yet: pair with a host to begin." else hostCount.joinToString(", ") { it.name },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             item { SectionHeader("Notifications") }
             item { NotificationSettings() }
             item { SectionHeader("Theme") }

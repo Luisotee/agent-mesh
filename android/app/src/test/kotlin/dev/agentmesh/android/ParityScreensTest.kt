@@ -25,8 +25,9 @@ import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.AgentScreen
-import dev.agentmesh.android.ui.DockScreen
-import dev.agentmesh.android.ui.HostScreen
+import dev.agentmesh.android.ui.AllHostsDockScreen
+import dev.agentmesh.android.ui.HomeScreen
+import dev.agentmesh.android.ui.rememberSidebar
 import dev.agentmesh.android.ui.LocalContainer
 import dev.agentmesh.android.ui.UsageScreen
 import dev.agentmesh.android.ui.settings.HostSettingsScreen
@@ -214,27 +215,7 @@ class ParityScreensTest {
         compose.onAllNodesWithTag("load-earlier").assertCountEquals0()
     }
 
-    // ── The host screen: buckets and answering in place ──
-
-    @Test fun `the host screen can group the agents by what they need, and offers Live and Usage`() {
-        api = RecordingApi()
-        NotificationsTest.api = api
-        val rt = host(
-            agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead", state = AgentState.AGENT_STATE_IDLE),
-            agent("w1", parent = "lead", name = "busy-one", state = AgentState.AGENT_STATE_WORKING),
-            agent("w2", parent = "lead", name = "stuck-one", state = AgentState.AGENT_STATE_NEEDS_INPUT, needsInput = 1, detail = "Bash"),
-            agent("w3", parent = "lead", name = "broken-one", state = AgentState.AGENT_STATE_ERROR),
-        )
-        var dock = 0; var usage = 0
-        show { HostScreen(rt, {}, { _, _ -> }, {}, {}, onDock = { dock++ }, onUsage = { usage++ }) }
-        compose.onNodeWithTag("view-status").performClick()
-        for (b in listOf("Needs", "Failed", "Working", "Idle")) compose.onNodeWithTag("bucket-$b").assertIsDisplayed()
-        compose.onAllNodesWithTag("bucket-Done").assertCountEquals0()
-        compose.onNodeWithText("Needs you (1)").assertIsDisplayed()
-        compose.onNodeWithTag("open-dock").performClick()
-        compose.onNodeWithTag("open-usage").performClick()
-        assertEquals(1, dock); assertEquals(1, usage)
-    }
+    // ── Home: answering in place ──
 
     @Test fun `what waits on the user is the host's own list, answered in place`() {
         api = RecordingApi()
@@ -243,7 +224,7 @@ class ParityScreensTest {
         api.waitingList = listOf(waiting(WaitingKind.WAITING_KIND_PLAN, "w1", message = plan))
         api.pages = mapOf("r1" to listOf(listOf(plan)))
         val rt = host(agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead"), agent("w1", parent = "lead", name = "shop-fix").toBuilder().setPhase(dev.agentmesh.gen.agentmesh.v1.AgentPhase.AGENT_PHASE_PLANNING).build())
-        show { HostScreen(rt, {}, { _, _ -> }, {}, {}) }
+        show { HomeScreen(rememberSidebar(), null, { _, _, _ -> }, {}, {}, {}, {}) }
         waitForText("shop-fix sent a plan")
         compose.onNodeWithText("Waiting on you (1)").assertIsDisplayed()
         // Opening the row shows the plan and its Approve.
@@ -269,7 +250,7 @@ class ParityScreensTest {
         // A tool call changes the working agent's line without any event.
         rt.onFrame(activity("w1", "Read", at = 8_000))
         var opened: Pair<String, Tab>? = null
-        show { DockScreen(rt, {}) { a, t -> opened = a to t } }
+        show { AllHostsDockScreen({}) { _, a, t -> opened = a to t } }
         compose.onAllNodesWithTag("tile").assertCountEquals(2)
         compose.onNodeWithText("Working: Read").assertIsDisplayed()
         compose.onNodeWithText("Needs you: Edit").assertIsDisplayed()
@@ -529,7 +510,7 @@ class ParityScreensTest {
         api = RecordingApi().apply { waitingList = listOf(waiting(WaitingKind.WAITING_KIND_PLAN, "w1", message = plan)) }
         NotificationsTest.api = api
         val rt = host(agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead"), agent("w1", parent = "lead", name = "shop-fix"))
-        show { HostScreen(rt, {}, { _, _ -> }, {}, {}) }
+        show { HomeScreen(rememberSidebar(), null, { _, _, _ -> }, {}, {}, {}, {}) }
         waitForText("shop-fix sent a plan")
         compose.onNodeWithText("shop-fix sent a plan").performClick()
         compose.onNodeWithText("Show all").performScrollTo().performClick()

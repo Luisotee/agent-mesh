@@ -4,7 +4,8 @@
 appId: dev.agentmesh.android.debug
 ---
 - launchApp
-- tapOn: "Test host"
+# The agent is under its project in the drawer.
+- tapOn: "Menu"
 - tapOn: "${AGENT}"
 - tapOn: "Terminal"
 - assertVisible: "Read only"

@@ -16,7 +16,8 @@ import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
 import dev.agentmesh.android.ui.AllHostsDockScreen
-import dev.agentmesh.android.ui.HostsScreen
+import dev.agentmesh.android.ui.HomeScreen
+import dev.agentmesh.android.ui.rememberSidebar
 import dev.agentmesh.android.ui.LocalContainer
 import dev.agentmesh.gen.agentmesh.v1.AgentState
 import dev.agentmesh.gen.agentmesh.v1.HelloResponse
@@ -79,12 +80,12 @@ class AllHostsDockTest {
         compose.onNodeWithText("1 of 2 hosts not connected", substring = true).assertIsDisplayed()
     }
 
-    @Test fun `the hosts screen has the way in once there is a host`() {
+    @Test fun `home has the way in once there is a host`() {
         NotificationsTest.api = RecordingApi()
         host("Home", true, agent("a1", name = "home-fix", state = AgentState.AGENT_STATE_WORKING))
         var live = 0
         compose.setContent {
-            CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { HostsScreen({}, {}, {}, {}, {}, onLive = { live++ }) } }
+            CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { HomeScreen(rememberSidebar(), null, { _, _, _ -> }, { live++ }, {}, {}, {}) } }
         }
         compose.onNodeWithTag("live-all").performClick()
         assertEquals(1, live)

@@ -8,9 +8,12 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
@@ -27,7 +30,7 @@ import dev.agentmesh.android.net.Route
 import dev.agentmesh.android.store.ConnState
 import dev.agentmesh.android.theme.Themes
 import dev.agentmesh.android.ui.AgentMeshTheme
-import dev.agentmesh.android.ui.HostScreen
+import dev.agentmesh.android.ui.AppNav
 import dev.agentmesh.android.ui.LocalContainer
 import dev.agentmesh.gen.agentmesh.v1.Actor
 import dev.agentmesh.gen.agentmesh.v1.ActorClass
@@ -47,7 +50,7 @@ import java.io.File
 
 /** Starting a run and adding an agent from the phone: the form's rules (the desktop's), its calls, and who sees it. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36], application = TestApp::class, qualifiers = "w411dp-h2000dp-xxhdpi")
+@Config(sdk = [36], application = TestApp::class, qualifiers = "w900dp-h2000dp-xxhdpi")
 class SpawnSheetTest {
     @get:Rule val compose = createComposeRule()
     private val theme = Themes.resolve(Themes.parse(File("../../shared/themes/dracula.json").readText()))
@@ -68,7 +71,7 @@ class SpawnSheetTest {
     }
 
     private fun show(rt: HostRuntime) = compose.setContent {
-        CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { HostScreen(rt, {}, { _, _ -> }, {}, {}) } }
+        CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { AppNav() } }
     }
 
     private fun waitUntil(cond: () -> Boolean) = compose.waitUntil(5_000) { cond() }
@@ -100,8 +103,10 @@ class SpawnSheetTest {
         val rt = host(ActorClass.ACTOR_CLASS_READ_ONLY_DEVICE, agent("lead", role = AgentRole.AGENT_ROLE_ROOT))
         show(rt)
         compose.onAllNodesWithTag("new-run").assertCountEquals(0)
-        compose.onAllNodesWithTag("add-agent-r1").assertCountEquals(0)
-        compose.onNodeWithText("Fix the typo").assertIsDisplayed()
+        compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }
+        compose.onNodeWithText("Add an agent").assertIsNotEnabled()
+        // The run is in the drawer (open at this width) and on home.
+        compose.onAllNodesWithText("Fix the typo")[0].assertIsDisplayed()
     }
 
     @Test fun `a new run starts with its lead, from the title and a repo of the host, with the defaults of a lead`() {
@@ -152,7 +157,9 @@ class SpawnSheetTest {
         api = RecordingApi(); NotificationsTest.api = api
         val rt = host(ActorClass.ACTOR_CLASS_DEVICE, agent("lead", role = AgentRole.AGENT_ROLE_ROOT, name = "shop-lead"))
         show(rt)
-        compose.onNodeWithTag("add-agent-r1").performClick()
+        // Held down, the run in the (always open, at this width) drawer offers an agent.
+        compose.onNodeWithTag("lead-r1").performTouchInput { longClick() }
+        compose.onNodeWithText("Add an agent").performClick()
         compose.onNodeWithTag("repo").performScrollTo().performTextInput("/home/u/shop-api")
         compose.onNodeWithTag("slug").performScrollTo().performTextInput("Bad Name")
         compose.onNodeWithTag("spawn-problem").performScrollTo()
