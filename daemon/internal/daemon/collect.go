@@ -103,7 +103,7 @@ func (d *Daemon) finishIfDone(tx *store.Tx, a *v1.Ask) (*v1.Message, error) {
 		text = d.summary(tx.Reader, a)
 	}
 	if fileErr != nil {
-		text += "\n(the answers file could not be written: " + fileErr.Error() + "; read the answers with `mesh asks`)"
+		text += "\n(the answers file could not be written: " + fileErr.Error() + "; read the answers with `mesh asks --format json`)"
 	}
 	return tellTx(tx, caller, text)
 }

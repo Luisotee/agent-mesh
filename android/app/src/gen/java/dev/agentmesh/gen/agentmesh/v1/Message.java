@@ -20,6 +20,7 @@ public  final class Message extends
     toId_ = "";
     toName_ = "";
     body_ = "";
+    re_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -613,6 +614,78 @@ public  final class Message extends
   private void clearWaitUntil() {
     waitUntil_ = null;
     bitField0_ = (bitField0_ & ~0x00000010);
+  }
+
+  public static final int RE_FIELD_NUMBER = 12;
+  private java.lang.String re_;
+  /**
+   * <pre>
+   * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+   * current task when it was sent. Empty for any other message.
+   * </pre>
+   *
+   * <code>string re = 12 [json_name = "re"];</code>
+   * @return The re.
+   */
+  @java.lang.Override
+  public java.lang.String getRe() {
+    return re_;
+  }
+  /**
+   * <pre>
+   * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+   * current task when it was sent. Empty for any other message.
+   * </pre>
+   *
+   * <code>string re = 12 [json_name = "re"];</code>
+   * @return The bytes for re.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getReBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(re_);
+  }
+  /**
+   * <pre>
+   * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+   * current task when it was sent. Empty for any other message.
+   * </pre>
+   *
+   * <code>string re = 12 [json_name = "re"];</code>
+   * @param value The re to set.
+   */
+  private void setRe(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    re_ = value;
+  }
+  /**
+   * <pre>
+   * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+   * current task when it was sent. Empty for any other message.
+   * </pre>
+   *
+   * <code>string re = 12 [json_name = "re"];</code>
+   */
+  private void clearRe() {
+
+    re_ = getDefaultInstance().getRe();
+  }
+  /**
+   * <pre>
+   * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+   * current task when it was sent. Empty for any other message.
+   * </pre>
+   *
+   * <code>string re = 12 [json_name = "re"];</code>
+   * @param value The bytes for re to set.
+   */
+  private void setReBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    re_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Message parseFrom(
@@ -1331,6 +1404,80 @@ public  final class Message extends
       return this;
     }
 
+    /**
+     * <pre>
+     * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+     * current task when it was sent. Empty for any other message.
+     * </pre>
+     *
+     * <code>string re = 12 [json_name = "re"];</code>
+     * @return The re.
+     */
+    @java.lang.Override
+    public java.lang.String getRe() {
+      return instance.getRe();
+    }
+    /**
+     * <pre>
+     * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+     * current task when it was sent. Empty for any other message.
+     * </pre>
+     *
+     * <code>string re = 12 [json_name = "re"];</code>
+     * @return The bytes for re.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getReBytes() {
+      return instance.getReBytes();
+    }
+    /**
+     * <pre>
+     * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+     * current task when it was sent. Empty for any other message.
+     * </pre>
+     *
+     * <code>string re = 12 [json_name = "re"];</code>
+     * @param value The re to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRe(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setRe(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+     * current task when it was sent. Empty for any other message.
+     * </pre>
+     *
+     * <code>string re = 12 [json_name = "re"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRe() {
+      copyOnWrite();
+      instance.clearRe();
+      return this;
+    }
+    /**
+     * <pre>
+     * A report (plan, question, done, failed) to the sender's parent: the id of the task it answers, the sender's
+     * current task when it was sent. Empty for any other message.
+     * </pre>
+     *
+     * <code>string re = 12 [json_name = "re"];</code>
+     * @param value The bytes for re to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setReBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Message)
   }
   @java.lang.Override
@@ -1359,11 +1506,12 @@ public  final class Message extends
             "deliveredAt_",
             "readAt_",
             "waitUntil_",
+            "re_",
           };
           java.lang.String info =
-              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u1009\u0000\u0004\u0208\u0005\u0208\u0006\f\u0007\u0208\b\u1009\u0001\t\u1009" +
-              "\u0002\n\u1009\u0003\u000b\u1009\u0004";
+              "\u0000\f\u0000\u0001\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u1009" +
+              "\u0000\u0004\u0208\u0005\u0208\u0006\f\u0007\u0208\b\u1009\u0001\t\u1009\u0002\n" +
+              "\u1009\u0003\u000b\u1009\u0004\f\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -379,24 +379,38 @@ func (d *Daemon) reviewFooter(r store.Reader, self *v1.Agent, body string, hasWo
 			urls = append(urls, u)
 		}
 	}
-	// The PRs the done names that are the worker's own: those the daemon has recorded for it, else (none of them
-	// recorded: a new PR, or a reused worker's older ones) the first link.
+	// The PRs the done names that are the worker's own. A recorded PR whose head branch GitHub gave is decided by
+	// it (the worker's own is the one on its branch); one the branch lookup found is the worker's; a link a `done`
+	// once named, recorded with no head branch, proves nothing; and when none is its own and the branch has
+	// commits (a new PR, a reused worker's older ones), the first link not already known to be another branch's.
 	own := map[string]bool{}
+	decided := map[string]bool{}
 	if prs, err := r.AgentPRs(self.Id); err == nil {
-		recorded := map[string]bool{}
+		recorded := map[string]*v1.PullRequest{}
 		for _, p := range prs {
-			recorded[prKey(p.Url)] = true
+			recorded[prKey(p.Url)] = p
 		}
 		for _, u := range urls {
-			if recorded[prKey(u)] {
-				own[prKey(u)] = true
+			p := recorded[prKey(u)]
+			switch {
+			case p == nil:
+			case p.HeadRef != "":
+				decided[prKey(u)] = true
+				own[prKey(u)] = p.HeadRef == self.Branch
+			case p.Source == "branch":
+				own[prKey(u)] = true // found by `gh pr list --head <its branch>`
 			}
 		}
 	}
 	// hasWork: the worker's branch has commits. A worker with none (research, a question) that names a PR names
 	// somebody else's, and "asked no review round" would be wrong of it.
-	if len(own) == 0 && len(urls) > 0 && hasWork {
-		own[prKey(urls[0])] = true
+	if !slices.ContainsFunc(urls, func(u string) bool { return own[prKey(u)] }) && hasWork {
+		for _, u := range urls {
+			if !decided[prKey(u)] {
+				own[prKey(u)] = true
+				break
+			}
+		}
 	}
 	asks, err := r.RunAsks(self.RunId)
 	if err != nil {

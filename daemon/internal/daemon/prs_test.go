@@ -155,7 +155,7 @@ func (w *prWorld) changes() []*v1.PullRequestChanged {
 
 func ghPR(number int, state, oid string, draft bool, rollup ...map[string]any) map[string]any {
 	return map[string]any{"number": number, "url": "https://github.com/acme/demo/pull/" + itoa(number), "state": state,
-		"isDraft": draft, "headRefOid": oid, "statusCheckRollup": rollup}
+		"isDraft": draft, "headRefOid": oid, "headRefName": "feature-" + itoa(number), "statusCheckRollup": rollup}
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
@@ -172,7 +172,7 @@ func TestAWorkersBranchAndReportedPRsAreListedWithStateAndChecks(t *testing.T) {
 		ghPR(12, "OPEN", w.branchTip, true, run("COMPLETED", "SUCCESS"), run("COMPLETED", "FAILURE")),
 		ghPR(3, "MERGED", w.base, false))
 	w.views["https://github.com/other/lib/pull/9"] = map[string]any{"number": 9, "url": "https://github.com/other/lib/pull/9",
-		"state": "MERGED", "isDraft": false, "headRefOid": "deadbeef", "statusCheckRollup": []any{}}
+		"state": "MERGED", "isDraft": false, "headRefOid": "deadbeef", "headRefName": "their-branch", "statusCheckRollup": []any{}}
 	// Its done names a PR in another repo; a later one that names none doesn't forget it.
 	asWorker := w.as(w.workTok)
 	if _, err := w.as(w.rootTok).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""),
@@ -202,6 +202,10 @@ func TestAWorkersBranchAndReportedPRsAreListedWithStateAndChecks(t *testing.T) {
 	}
 	if p := got[9]; p.State != "merged" || p.Source != "report" || p.Checks != "" {
 		t.Errorf("PR 9: %v", p)
+	}
+	// The head branch GitHub gave is kept, for a branch lookup and for a report's link.
+	if got[12].HeadRef != "feature-12" || got[9].HeadRef != "their-branch" {
+		t.Errorf("head refs: %q, %q", got[12].HeadRef, got[9].HeadRef)
 	}
 	if ch := w.changes(); len(ch) != 2 || ch[0].FromState != "" {
 		t.Errorf("events %v, want one first-seen per PR", ch)

@@ -496,6 +496,42 @@ func TestTheFooterNamesWhoAskedTheRoundsOfAPRTheWorkerDidNot(t *testing.T) {
 	}
 }
 
+// The footer's own-PR test reads the recorded head branch: a done that names another branch's PR first still gets
+// the line for the worker's own, and one that names only another's gets none.
+func TestTheFooterTellsTheWorkersOwnPRByItsHeadBranch(t *testing.T) {
+	a := startAuthor(t, "")
+	a.pr.push(t, "the feature")
+	a.commit(t)
+	base := strings.TrimSuffix(a.pr.url(), "7")
+	record := func(num int32, url, head string) {
+		t.Helper()
+		err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+			return tx.PutAgentPR(&v1.PullRequest{AgentId: a.worker.Id, Url: url, Number: num, State: "open", Source: "report", HeadRef: head})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(9, base+"9", "someone-elses-branch")
+	record(7, a.pr.url(), a.worker.Branch)
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "built on "+base+"9, PR "+a.pr.url()+" opened")
+	got := a.doneBody(t)
+	if !strings.Contains(got, "PR #7: "+a.worker.Name+" asked no review round") || strings.Contains(got, "PR #9") {
+		t.Errorf("a foreign PR named first:\n%s", got)
+	}
+	// A link a done once named, recorded before GitHub gave its head branch, is not taken for the worker's own.
+	record(5, base+"5", "")
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "also "+base+"5 and "+a.pr.url())
+	if got := a.doneBody(t); !strings.Contains(got, "PR #7: ") || strings.Contains(got, "PR #5") {
+		t.Errorf("an old link with no head branch:\n%s", got)
+	}
+	// Only another branch's PR named: no line, though the branch has commits and the link is the first.
+	a.say(t, a.worker.Id, v1.MessageType_MESSAGE_TYPE_DONE, "see "+base+"9")
+	if got := a.doneBody(t); strings.Contains(got, "asked no review round") {
+		t.Errorf("a foreign PR only:\n%s", got)
+	}
+}
+
 func TestAVerdictsNotFoundErrorSaysByYouOnlyToAWorker(t *testing.T) {
 	a := startAuthor(t, "")
 	a.pr.push(t, "the feature")

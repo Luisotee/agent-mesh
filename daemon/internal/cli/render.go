@@ -38,6 +38,8 @@ var renderers = map[string]struct {
 	"permission":      {func() proto.Message { return &v1.DecidePermissionResponse{} }, renderPermission},
 	"check":           {func() proto.Message { return &v1.CheckAgentResponse{} }, renderCheck},
 	"pair":            {func() proto.Message { return &v1.CreatePairingResponse{} }, renderPair},
+	"ask":             {func() proto.Message { return &v1.AskResponse{} }, renderAsk},
+	"asks":            {func() proto.Message { return &v1.ListAsksResponse{} }, renderAsks},
 }
 
 type streamState struct {
@@ -104,8 +106,12 @@ func renderInbox(m proto.Message, w io.Writer) {
 		if i > 0 {
 			fmt.Fprintln(w)
 		}
+		id := msg.Id
+		if msg.Re != "" {
+			id += ", on task " + msg.Re // a report names the task it answers
+		}
 		fmt.Fprintf(w, "── %s from %s at %s (%s) ──\n", enumLower(msg.Type, "MESSAGE_TYPE_"), msg.From.GetName(),
-			msg.CreatedAt.AsTime().UTC().Format("2006-01-02T15:04:05Z"), msg.Id)
+			msg.CreatedAt.AsTime().UTC().Format("2006-01-02T15:04:05Z"), id)
 		fmt.Fprintln(w, strings.TrimRight(msg.Body, "\n"))
 	}
 }
@@ -611,4 +617,112 @@ func renderPair(m proto.Message, w io.Writer) {
 // renderCheck prints a worker's check report as it is.
 func renderCheck(m proto.Message, w io.Writer) {
 	fmt.Fprintln(w, strings.TrimRight(m.(*v1.CheckAgentResponse).Text, "\n"))
+}
+
+// askHead is an ask's one line: id, kind, status and what it is about (the PR and round, or the size).
+func askHead(a *v1.Ask) string {
+	line := fmt.Sprintf("%s  %s  %s", a.Id, enumLower(a.Kind, "ASK_KIND_"), enumLower(a.Status, "ASK_STATUS_"))
+	if a.Pr != "" {
+		line += fmt.Sprintf("  PR #%d", a.PrNumber)
+		if a.RelayStep > 0 { // a relay step is no round, though it carries the number
+			line += fmt.Sprintf(" relay step %d", a.RelayStep)
+		} else if a.Round > 0 {
+			line += fmt.Sprintf(" round %d", a.Round)
+		}
+		if a.Size != "" {
+			line += " (" + a.Size + ")"
+		}
+	}
+	return line
+}
+
+// answered counts the members that answered, of those asked (a member not asked is left out).
+func answered(a *v1.Ask) (done, total int) {
+	for _, m := range a.Members {
+		switch m.Status {
+		case v1.AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED:
+		case v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED:
+			done++
+			total++
+		default:
+			total++
+		}
+	}
+	return done, total
+}
+
+// renderAsk prints what `mesh ask` started: the ask, who was asked and how, what to know, and where the answers go.
+func renderAsk(m proto.Message, w io.Writer) {
+	r := m.(*v1.AskResponse)
+	if a := r.Ask; a != nil {
+		fmt.Fprintln(w, askHead(a))
+		for _, mem := range a.Members {
+			how := mem.Kind
+			if mem.How != "" {
+				how += ", " + mem.How
+			}
+			line := fmt.Sprintf("  %s (%s): %s", mem.Name, how, enumLower(mem.Status, "ASK_MEMBER_STATUS_"))
+			if mem.Line != "" {
+				line += ": " + mem.Line
+			}
+			fmt.Fprintln(w, line)
+		}
+		if a.AnswersPath != "" {
+			fmt.Fprintln(w, "answers: "+a.AnswersPath)
+		}
+	} else {
+		for _, ag := range r.Agents {
+			fmt.Fprintf(w, "asked %s (%s)\n", ag.Name, ag.Kind)
+		}
+		if r.Message != nil {
+			fmt.Fprintln(w, "task "+r.Message.Id)
+		}
+	}
+	for _, n := range r.Notes {
+		fmt.Fprintln(w, "note: "+n)
+	}
+	if r.Hint != "" {
+		fmt.Fprintln(w, r.Hint)
+	}
+}
+
+// renderAsks prints one line per ask (how many members answered, the verdicts given) and its answers file.
+func renderAsks(m proto.Message, w io.Writer) {
+	asks := m.(*v1.ListAsksResponse).Asks
+	if len(asks) == 0 {
+		fmt.Fprintln(w, "no asks")
+		return
+	}
+	for _, a := range asks {
+		done, total := answered(a)
+		line := fmt.Sprintf("%s  by %s  %d/%d answered", askHead(a), a.CallerName, done, total)
+		if len(a.Verdicts) > 0 {
+			var parts []string
+			for _, v := range a.Verdicts {
+				p := fmt.Sprintf("%s %d/%d/%d", v.Reviewer, v.Agree, v.Other, v.Disagree)
+				if v.Blocking > 0 {
+					p += fmt.Sprintf(" (%d blocking)", v.Blocking)
+				}
+				if v.Judge != "" {
+					p += " by " + v.Judge
+				}
+				parts = append(parts, p)
+			}
+			line += "  verdicts (agree/other/disagree): " + strings.Join(parts, ", ")
+		}
+		fmt.Fprintln(w, line)
+		var who []string
+		for _, mem := range a.Members {
+			who = append(who, mem.Name+" "+enumLower(mem.Status, "ASK_MEMBER_STATUS_"))
+		}
+		if len(who) > 0 {
+			fmt.Fprintln(w, "    "+strings.Join(who, ", "))
+		}
+		switch {
+		case a.AnswersPath != "" && a.Status == v1.AskStatus_ASK_STATUS_FINISHED:
+			fmt.Fprintln(w, "    "+a.AnswersPath)
+		case a.Collected && a.Status == v1.AskStatus_ASK_STATUS_FINISHED:
+			fmt.Fprintln(w, "    no answers file: the answers are in `mesh asks --format json` (each member's text)")
+		}
+	}
 }
