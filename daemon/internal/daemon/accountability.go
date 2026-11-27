@@ -355,12 +355,22 @@ func (d *Daemon) limitedText(ctx context.Context, a *v1.Agent) string {
 // alertOnce tells the parent about an agent once per stretch of silence: the same alert is not repeated while
 // the agent's last activity is older than it.
 func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kind string, text func(context.Context) string) error {
+	return d.alertOnceSince(ctx, r, a, kind, time.Time{}, text)
+}
+
+// alertOnceSince is alertOnce where an alert already sent counts as told only when it is newer than `floor`, if
+// that is later than the agent's last activity: a stall that ends and starts again in one reply (no event moves the
+// agent's activity) is told again.
+func (d *Daemon) alertOnceSince(ctx context.Context, r store.Reader, a *v1.Agent, kind string, floor time.Time, text func(context.Context) string) error {
 	if !owesParent(a) {
 		return nil // no parent to tell: nothing to read, build or write
 	}
 	since := time.Time{}
 	if a.LastActivity != nil {
 		since = a.LastActivity.AsTime()
+	}
+	if floor.After(since) {
+		since = floor
 	}
 	// Told already? Looked at before the text is built: it can read GitHub, git and the screen.
 	if told, err := toldParent(r, a, a.ParentId, alertHead(kind, a.Id), since); told || err != nil {
@@ -391,7 +401,8 @@ func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kin
 				return nil
 			}
 		case "stalled":
-			if cur.State != v1.AgentState_AGENT_STATE_WORKING {
+			// Not while the view says UNKNOWN: that hang is told by its own alert, and one hang is one alert.
+			if cur.State != v1.AgentState_AGENT_STATE_WORKING || d.view(cur).State == v1.AgentState_AGENT_STATE_UNKNOWN {
 				return nil
 			}
 		case "error":
@@ -405,6 +416,9 @@ func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kin
 		since := time.Time{}
 		if cur.LastActivity != nil {
 			since = cur.LastActivity.AsTime()
+		}
+		if floor.After(since) {
+			since = floor
 		}
 		ring, err = d.alertParentTx(tx, cur, kind, body, since)
 		return err

@@ -1064,10 +1064,10 @@ type SendMessageRequest struct {
 	To   string      `protobuf:"bytes,2,opt,name=to,proto3" json:"to,omitempty"`
 	Type MessageType `protobuf:"varint,3,opt,name=type,proto3,enum=agentmesh.v1.MessageType" json:"type,omitempty"`
 	Body string      `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
-	// Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+	// Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
 	// the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
 	// accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-	// on another message type, is refused.
+	// on another message type or a wait to anyone but your parent, is refused.
 	Until         string `protobuf:"bytes,5,opt,name=until,proto3" json:"until,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

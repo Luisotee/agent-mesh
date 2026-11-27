@@ -228,10 +228,10 @@ public  final class SendMessageRequest extends
   private java.lang.String until_;
   /**
    * <pre>
-   * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
    * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
    * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-   * on another message type, is refused.
+   * on another message type or a wait to anyone but your parent, is refused.
    * </pre>
    *
    * <code>string until = 5 [json_name = "until"];</code>
@@ -243,10 +243,10 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
    * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
    * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-   * on another message type, is refused.
+   * on another message type or a wait to anyone but your parent, is refused.
    * </pre>
    *
    * <code>string until = 5 [json_name = "until"];</code>
@@ -259,10 +259,10 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
    * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
    * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-   * on another message type, is refused.
+   * on another message type or a wait to anyone but your parent, is refused.
    * </pre>
    *
    * <code>string until = 5 [json_name = "until"];</code>
@@ -276,10 +276,10 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
    * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
    * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-   * on another message type, is refused.
+   * on another message type or a wait to anyone but your parent, is refused.
    * </pre>
    *
    * <code>string until = 5 [json_name = "until"];</code>
@@ -290,10 +290,10 @@ public  final class SendMessageRequest extends
   }
   /**
    * <pre>
-   * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+   * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
    * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
    * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-   * on another message type, is refused.
+   * on another message type or a wait to anyone but your parent, is refused.
    * </pre>
    *
    * <code>string until = 5 [json_name = "until"];</code>
@@ -617,10 +617,10 @@ public  final class SendMessageRequest extends
 
     /**
      * <pre>
-     * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
      * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
      * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-     * on another message type, is refused.
+     * on another message type or a wait to anyone but your parent, is refused.
      * </pre>
      *
      * <code>string until = 5 [json_name = "until"];</code>
@@ -632,10 +632,10 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
      * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
      * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-     * on another message type, is refused.
+     * on another message type or a wait to anyone but your parent, is refused.
      * </pre>
      *
      * <code>string until = 5 [json_name = "until"];</code>
@@ -648,10 +648,10 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
      * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
      * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-     * on another message type, is refused.
+     * on another message type or a wait to anyone but your parent, is refused.
      * </pre>
      *
      * <code>string until = 5 [json_name = "until"];</code>
@@ -666,10 +666,10 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
      * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
      * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-     * on another message type, is refused.
+     * on another message type or a wait to anyone but your parent, is refused.
      * </pre>
      *
      * <code>string until = 5 [json_name = "until"];</code>
@@ -682,10 +682,10 @@ public  final class SendMessageRequest extends
     }
     /**
      * <pre>
-     * Only for a wait (--type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
+     * Only for a wait to your own parent (mesh send parent --type wait): when it ends, as a duration from now (45m, 2h) or an RFC 3339 time. Until then
      * the daemon holds its nudge for the agent (a wake still ends the wait early); it is capped at
      * accountability.wait_max, and without it a wait lasts that long. A negative, zero or unparsable value, or one
-     * on another message type, is refused.
+     * on another message type or a wait to anyone but your parent, is refused.
      * </pre>
      *
      * <code>string until = 5 [json_name = "until"];</code>

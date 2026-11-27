@@ -177,21 +177,29 @@ func (a *acct) sendUntil(typ v1.MessageType, until string) (*v1.Message, error) 
 }
 
 // A wait with a deadline of its own holds the nudge until then, not for wait_max; after it the agent is nudged
-// as any silent one.
+// as any silent one. The deadline is moved in the store, not waited for, so no wall-clock margin matters.
 func TestAWaitWithItsOwnDeadlineHoldsTheNudgeUntilThen(t *testing.T) {
 	a := newAcct(t)
 	a.setting("accountability.nudge_after", 1.0)
 	a.state(v1.AgentState_AGENT_STATE_IDLE, time.Now())
 	a.taskRead()
-	if _, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, "2s"); err != nil {
+	waitMsg, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, "1h")
+	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(1200 * time.Millisecond)
+	time.Sleep(1200 * time.Millisecond) // past nudge_after
 	a.pass()
 	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 0 {
 		t.Fatalf("nudged before the wait's deadline: %d", n)
 	}
-	time.Sleep(1200 * time.Millisecond)
+	// The deadline passes (the stored time moves into the past).
+	err = a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
+		waitMsg.WaitUntil = timestamppb.New(time.Now().Add(-time.Second))
+		return tx.PutMessage(waitMsg)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	a.pass()
 	if n := a.mailOf("a-w1", "[mesh nudge]"); n != 1 {
 		t.Fatalf("nudges after the deadline: %d, want 1", n)
@@ -225,6 +233,23 @@ func TestAWaitsUntilIsCappedAndBadOnesAreRefused(t *testing.T) {
 	}
 	if msg, err := a.sendUntil(v1.MessageType_MESSAGE_TYPE_WAIT, time.Now().Add(30*time.Minute).UTC().Format(time.RFC3339)); err != nil || msg.WaitUntil == nil {
 		t.Errorf("an RFC 3339 until: %v, %v", msg, err)
+	}
+}
+
+// A deadline on a wait the nudge never reads (to a sibling, or from a root) is refused, not stored to hold nothing.
+func TestUntilIsRefusedOnAWaitThatIsNotToTheSendersParent(t *testing.T) {
+	a := newAcct(t)
+	a.taskRead()
+	// From the root: it has no parent.
+	_, err := a.as(a.rootTok).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "repo-one",
+		Type: v1.MessageType_MESSAGE_TYPE_WAIT, Body: "x", Until: "5m"}))
+	if code(err) != connect.CodeInvalidArgument {
+		t.Errorf("until on a root's wait: %v", err)
+	}
+	// From the worker to its own parent, named rather than "parent": accepted.
+	if _, err := a.as(a.workerTok).SendMessage(context.Background(), connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: "a-root",
+		Type: v1.MessageType_MESSAGE_TYPE_WAIT, Body: "x", Until: "5m"})); err != nil {
+		t.Errorf("until on a wait to the worker's parent by id: %v", err)
 	}
 }
 

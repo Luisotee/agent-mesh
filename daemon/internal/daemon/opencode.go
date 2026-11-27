@@ -37,6 +37,7 @@ type openCodePollState struct {
 	lastMsgID     string
 	lastMsgStatus string
 	stallChecked  time.Time // the last time a quiet terminal's open reply was looked at for a stall
+	stalledFor    time.Time // the reply's UpdatedAt a stall was last told for: not looked at again until it moves
 }
 
 type openCodeEvidenceKey struct {
@@ -533,8 +534,15 @@ const openCodeStallRecheck = time.Minute
 // without it the agent stays WORKING until the ask times out (a limit is read from the DB or the screen before
 // this). One long tool call looks the same, which the text says.
 func (d *Daemon) openCodeStalled(ctx context.Context, a *v1.Agent, info opencode.SessionInfo) {
-	if !owesParent(a) || info.Status != "working" || info.UpdatedAt.IsZero() || a.State != v1.AgentState_AGENT_STATE_WORKING {
-		return // a root has no parent to tell: nothing is read or written for it
+	if !owesParent(a) || info.Status != "working" || info.UpdatedAt.IsZero() || a.State != v1.AgentState_AGENT_STATE_WORKING ||
+		d.view(a).State == v1.AgentState_AGENT_STATE_UNKNOWN {
+		return // a root has no parent to tell, and a hang the view calls UNKNOWN is told by that alert: nothing is read or written
+	}
+	d.rt.openCode.mu.Lock()
+	told := d.rt.openCode.polled[a.Id] != nil && !info.UpdatedAt.After(d.rt.openCode.polled[a.Id].stalledFor)
+	d.rt.openCode.mu.Unlock()
+	if told {
+		return // this stretch of the reply was told (or found told): the next poll of it reads nothing
 	}
 	r := d.store.Read(ctx)
 	after := d.openCodeStallAfter(r)
@@ -544,14 +552,22 @@ func (d *Daemon) openCodeStalled(ctx context.Context, a *v1.Agent, info opencode
 	if idle := d.now().Sub(info.UpdatedAt); idle < after {
 		return
 	}
-	err := d.alertOnce(ctx, r, a, "stalled", func(ctx context.Context) string {
+	err := d.alertOnceSince(ctx, r, a, "stalled", info.UpdatedAt, func(ctx context.Context) string {
 		return fmt.Sprintf("%s's OpenCode reply has been open for %s with no new part or token (a stalled or silently failing stream, "+
 			"or one long tool call). Look at its terminal; if it is stuck, interrupt it (esc) and send it a task to go on.",
 			a.Name, ago(d.now().Sub(info.UpdatedAt))) + d.afterwards(ctx, a)
 	})
-	if err != nil && ctx.Err() == nil {
-		d.log.Warn("opencode stall alert", "agent", a.Name, "err", err)
+	if err != nil {
+		if ctx.Err() == nil {
+			d.log.Warn("opencode stall alert", "agent", a.Name, "err", err)
+		}
+		return
 	}
+	d.rt.openCode.mu.Lock()
+	if ps := d.rt.openCode.polled[a.Id]; ps != nil {
+		ps.stalledFor = info.UpdatedAt
+	}
+	d.rt.openCode.mu.Unlock()
 }
 
 // openCodeStallAfter is `opencode.stall_after` as a duration; 0 when it is off (or can't be read).

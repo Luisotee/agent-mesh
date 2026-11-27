@@ -592,6 +592,13 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				msgBody += d.reviewFooter(t.Reader, self, req.Msg.Body, hasWork)
 			}
 		}
+		if !waitFor.IsZero() {
+			// Only a wait to its own parent is read by the nudge: a deadline on any other would hold nothing.
+			self, serr := t.Reader.GetAgent(actor.Id)
+			if !IsAgent(actor.Class) || serr != nil || self.ParentId == "" || to.Id != self.ParentId {
+				return invalid("until only applies to a wait to your own parent (mesh send parent --type wait --until 45m)")
+			}
+		}
 		msg := &v1.Message{Id: ids.New("m", 10), RunId: to.RunId, From: actor, ToId: to.Id, ToName: to.Name,
 			Type: req.Msg.Type, Body: msgBody, CreatedAt: tsOf(t.Now())}
 		if asked != nil && (req.Msg.Type == v1.MessageType_MESSAGE_TYPE_DONE || req.Msg.Type == v1.MessageType_MESSAGE_TYPE_FAILED) {

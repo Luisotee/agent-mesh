@@ -124,6 +124,9 @@ func (g *stallRig) part(at time.Time) {
 // outputAt is the terminal's last output.
 func (g *stallRig) outputAt(at time.Time) {
 	g.term.terminals[0].LastOutput = timestamppb.New(at)
+	g.d.rt.mu.Lock()
+	g.d.rt.lastOutput["t1"] = at // what the daemon's terminal watch records: a drawing screen is not UNKNOWN
+	g.d.rt.mu.Unlock()
 }
 
 func (g *stallRig) alerts() int {
@@ -141,30 +144,30 @@ func (g *stallRig) alerts() int {
 	return n
 }
 
-// An OpenCode reply open for opencode.stall_after with no new part or token is told to the parent once; a part
-// that arrives, or a shorter time, is not a stall.
+// An OpenCode reply open for opencode.stall_after (15 min) with no new part or token is told to the parent once; a
+// part that arrives, or a shorter time, is not a stall.
 func TestAnOpenOpenCodeReplyWithNothingNewForStallAfterIsToldOnce(t *testing.T) {
 	g := newStallRig(t, nil)
 	ctx := context.Background()
-	g.clock = g.clock.Add(9 * time.Minute)
+	g.clock = g.clock.Add(14 * time.Minute)
 	g.outputAt(g.clock) // a spinner keeps the screen moving
 	g.d.pollOpenCode(ctx)
 	if n := g.alerts(); n != 0 {
-		t.Fatalf("a stall alert after 9 minutes: %d", n)
+		t.Fatalf("a stall alert after 14 minutes: %d", n)
 	}
 	// A part streams in: the reply is alive again.
 	g.part(g.clock)
-	g.clock = g.clock.Add(9 * time.Minute)
+	g.clock = g.clock.Add(14 * time.Minute)
 	g.outputAt(g.clock)
 	g.d.pollOpenCode(ctx)
 	if n := g.alerts(); n != 0 {
-		t.Fatalf("a stall alert 9 minutes after a part: %d", n)
+		t.Fatalf("a stall alert 14 minutes after a part: %d", n)
 	}
 	g.clock = g.clock.Add(2 * time.Minute)
 	g.outputAt(g.clock)
 	g.d.pollOpenCode(ctx)
 	if n := g.alerts(); n != 1 {
-		t.Fatalf("stall alerts after 11 minutes with no new part: %d, want 1", n)
+		t.Fatalf("stall alerts after 16 minutes with no new part: %d, want 1", n)
 	}
 	g.clock = g.clock.Add(time.Minute)
 	g.outputAt(g.clock)
@@ -180,31 +183,63 @@ func TestAnOpenOpenCodeReplyWithNothingNewForStallAfterIsToldOnce(t *testing.T) 
 	}
 }
 
-// A terminal with nothing new drawn is looked at too, once it has been quiet as long as a stall takes.
+// The same reply that stalls, recovers and stalls again is told twice: no event moves the agent's activity, so the
+// reply's own update time keys the dedupe. A stretch already told is not read again by the next poll.
+func TestAReplyThatStallsRecoversAndStallsAgainIsToldAgain(t *testing.T) {
+	g := newStallRig(t, nil)
+	ctx := context.Background()
+	g.clock = g.clock.Add(16 * time.Minute)
+	g.outputAt(g.clock)
+	g.d.pollOpenCode(ctx)
+	if n := g.alerts(); n != 1 {
+		t.Fatalf("first stall: %d alerts, want 1", n)
+	}
+	g.d.rt.openCode.mu.Lock()
+	told := g.d.rt.openCode.polled["a1"].stalledFor
+	g.d.rt.openCode.mu.Unlock()
+	if told.IsZero() {
+		t.Fatal("the told stretch is not remembered")
+	}
+	// Recovers (a part lands in the same message), then stalls again.
+	g.clock = g.clock.Add(5 * time.Minute)
+	g.part(g.clock)
+	g.outputAt(g.clock)
+	g.d.pollOpenCode(ctx)
+	g.clock = g.clock.Add(16 * time.Minute)
+	g.outputAt(g.clock)
+	g.d.pollOpenCode(ctx)
+	g.d.pollOpenCode(ctx)
+	if n := g.alerts(); n != 2 {
+		t.Fatalf("after the second stall: %d alerts, want 2", n)
+	}
+}
+
+// A terminal with nothing new drawn is looked at too, once it has been quiet as long as a stall takes (here a
+// stall_after under the 10 minutes after which the agent shows as UNKNOWN).
 func TestAQuietTerminalsOpenReplyIsCheckedForAStallToo(t *testing.T) {
 	g := newStallRig(t, nil)
 	ctx := context.Background()
+	if err := g.st.Write(ctx, nil, "", func(tx *store.Tx) error { return tx.PutSetting("opencode.stall_after", "300") }); err != nil {
+		t.Fatal(err)
+	}
 	g.d.pollOpenCode(ctx) // takes the screen's output in: the reply is working
-	g.clock = g.clock.Add(11 * time.Minute)
+	g.clock = g.clock.Add(6 * time.Minute)
 	g.d.pollOpenCode(ctx) // no new output at all
 	if n := g.alerts(); n != 1 {
 		t.Fatalf("stall alerts on a silent terminal: %d, want 1", n)
 	}
 }
 
-func TestStallAfterZeroNeverTells(t *testing.T) {
+// One hang is one alert: an agent the view shows as UNKNOWN (nothing heard for UnknownAfter) is told by that alert,
+// and the stall alert stays quiet.
+func TestAHangTheViewCallsUnknownGetsNoStallAlert(t *testing.T) {
 	g := newStallRig(t, nil)
-	if err := g.d.store.Write(context.Background(), nil, "", func(tx *store.Tx) error {
-		return tx.PutSetting("opencode.stall_after", "0")
-	}); err != nil {
-		t.Fatal(err)
-	}
-	g.d.pollOpenCode(context.Background())
-	g.clock = g.clock.Add(3 * time.Hour)
-	g.outputAt(g.clock)
-	g.d.pollOpenCode(context.Background())
+	ctx := context.Background()
+	g.d.pollOpenCode(ctx)
+	g.clock = g.clock.Add(16 * time.Minute) // past stall_after and past UnknownAfter, no output at all
+	g.d.pollOpenCode(ctx)
 	if n := g.alerts(); n != 0 {
-		t.Fatalf("stall alerts with stall_after 0: %d", n)
+		t.Fatalf("a stall alert for an UNKNOWN agent: %d", n)
 	}
 }
 
