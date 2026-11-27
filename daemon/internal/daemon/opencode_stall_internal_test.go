@@ -207,3 +207,71 @@ func TestStallAfterZeroNeverTells(t *testing.T) {
 		t.Fatalf("stall alerts with stall_after 0: %d", n)
 	}
 }
+
+// A short stall_after is not made to wait a whole minute on a quiet terminal.
+func TestAQuietTerminalIsCheckedAtStallAfterWhenThatIsUnderAMinute(t *testing.T) {
+	g := newStallRig(t, nil)
+	ctx := context.Background()
+	if err := g.st.Write(ctx, nil, "", func(tx *store.Tx) error { return tx.PutSetting("opencode.stall_after", "20") }); err != nil {
+		t.Fatal(err)
+	}
+	g.d.pollOpenCode(ctx)
+	g.clock = g.clock.Add(25 * time.Second)
+	g.d.pollOpenCode(ctx)
+	if n := g.alerts(); n != 1 {
+		t.Fatalf("stall alerts 25 s into a 20 s stall_after on a silent terminal: %d, want 1", n)
+	}
+}
+
+// A row whose time_updated says 0 says nothing: it is not a stall of fifty years.
+func TestAReplyRowWithZeroUpdatedIsNotAStall(t *testing.T) {
+	g := newStallRig(t, nil)
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", "file:"+g.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE message SET time_updated = 0`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	g.clock = g.clock.Add(time.Minute)
+	g.outputAt(g.clock)
+	g.d.pollOpenCode(ctx)
+	if n := g.alerts(); n != 0 {
+		t.Fatalf("a stall alert from time_updated 0: %d", n)
+	}
+}
+
+// A root has no parent: its stall (or any alert) builds no text, reads no screen and opens no write.
+func TestAnAlertForARootBuildsNothing(t *testing.T) {
+	g := newStallRig(t, nil)
+	ctx := context.Background()
+	root, err := g.st.Read(ctx).GetAgent("root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	if err := g.d.alertOnce(ctx, g.st.Read(ctx), root, "stalled", func(context.Context) string { calls++; return "x" }); err != nil || calls != 0 {
+		t.Fatalf("alertOnce for a root: %d text builds, %v", calls, err)
+	}
+	// And the stall path itself: an OpenCode root whose reply is old gets nothing, however often it is polled.
+	if err := g.st.Write(ctx, nil, "", func(tx *store.Tx) error {
+		a, err := tx.GetAgent("a1")
+		if err != nil {
+			return err
+		}
+		a.Role, a.ParentId = v1.AgentRole_AGENT_ROLE_ROOT, ""
+		return tx.PutAgent(a)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	g.clock = g.clock.Add(time.Hour)
+	g.outputAt(g.clock)
+	seq := g.st.Generation()
+	g.d.pollOpenCode(ctx)
+	g.d.pollOpenCode(ctx)
+	if n := g.alerts(); n != 0 || g.st.Generation() != seq {
+		t.Fatalf("a root's stall: %d alerts", n)
+	}
+}

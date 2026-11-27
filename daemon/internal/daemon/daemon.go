@@ -449,21 +449,13 @@ func (d *Daemon) Serve(ctx context.Context) error {
 	defer stopBG()
 	d.runBackground(bg)
 	// In bgWG: close() closes the store only once the pusher and its senders, which read it, have stopped.
-	d.bgWG.Add(1)
-	go func() {
-		defer d.bgWG.Done()
-		d.push.run(bg)
-	}()
+	d.goBG(func() { d.push.run(bg) })
 	if d.cfg.Tailnet != nil {
 		d.serveTailnet(bg, tlsSrv)
 	}
 	if d.relay != nil {
 		// In bgWG: close() closes the store only once the connector, which reads it for the token set, has stopped.
-		d.bgWG.Add(1)
-		go func() {
-			defer d.bgWG.Done()
-			_ = d.relay.Run(bg)
-		}()
+		d.goBG(func() { _ = d.relay.Run(bg) })
 		go func() {
 			if err := tlsSrv.ServeTLS(d.relay.Listener(), "", ""); err != nil &&
 				!errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
@@ -527,6 +519,12 @@ func (d *Daemon) goBG(f func()) bool {
 // stopCtx is a context that ends when the daemon stops, for work that outlives its caller's request.
 func (d *Daemon) stopCtx() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
+	select {
+	case <-d.stopping:
+		cancel() // already stopped: no watcher, and the context is ended before the caller sees it
+		return ctx, cancel
+	default:
+	}
 	go func() {
 		select {
 		case <-d.stopping:

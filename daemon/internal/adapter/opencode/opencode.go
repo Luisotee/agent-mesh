@@ -790,6 +790,9 @@ func replyUpdatedAt(db *sql.DB, messageID string) time.Time {
 	if err := db.QueryRow(`SELECT MAX(time_updated) FROM part WHERE message_id = ?`, messageID).Scan(&pms); err == nil && pms.Valid && pms.Int64 > latest {
 		latest = pms.Int64
 	}
+	if latest <= 0 {
+		return time.Time{} // a row that says 0 says nothing: never a stall of fifty years
+	}
 	return time.UnixMilli(latest)
 }
 

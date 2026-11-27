@@ -325,6 +325,7 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 		byID[tm.Id] = tm
 	}
 
+	stallEvery := d.openCodeStallRecheckEvery(ctx)
 	for _, a := range live {
 		if ctx.Err() != nil {
 			return
@@ -355,10 +356,10 @@ func (d *Daemon) pollOpenCode(ctx context.Context) {
 			d.clearOpenCodeEvidenceLocked(a.Id)
 		}
 		if !lastOut.After(ps.lastOutput) {
-			// A terminal with nothing new on it can still be a stalled reply: look at the DB now and then, once the
-			// screen has been quiet as long as a stall takes.
-			quiet := ps.lastMsgStatus == "working" && a.State == v1.AgentState_AGENT_STATE_WORKING &&
-				d.now().Sub(lastOut) >= openCodeStallRecheck && d.now().Sub(ps.stallChecked) >= openCodeStallRecheck
+			// A terminal with nothing new on it can still be a stalled reply: look at the DB once the screen has been
+			// quiet for openCodeStallRecheck (or the stall time, when that is shorter), and then that often.
+			quiet := stallEvery > 0 && ps.lastMsgStatus == "working" && a.State == v1.AgentState_AGENT_STATE_WORKING &&
+				d.now().Sub(lastOut) >= stallEvery && d.now().Sub(ps.stallChecked) >= stallEvery
 			if quiet {
 				ps.stallChecked = d.now()
 			}
@@ -532,19 +533,18 @@ const openCodeStallRecheck = time.Minute
 // without it the agent stays WORKING until the ask times out (a limit is read from the DB or the screen before
 // this). One long tool call looks the same, which the text says.
 func (d *Daemon) openCodeStalled(ctx context.Context, a *v1.Agent, info opencode.SessionInfo) {
-	if info.Status != "working" || info.UpdatedAt.IsZero() || a.State != v1.AgentState_AGENT_STATE_WORKING {
-		return
+	if !owesParent(a) || info.Status != "working" || info.UpdatedAt.IsZero() || a.State != v1.AgentState_AGENT_STATE_WORKING {
+		return // a root has no parent to tell: nothing is read or written for it
 	}
 	r := d.store.Read(ctx)
-	v, err := d.Setting(r, "opencode.stall_after")
-	if err != nil || v.(float64) <= 0 {
+	after := d.openCodeStallAfter(r)
+	if after <= 0 {
 		return
 	}
-	after := time.Duration(v.(float64) * float64(time.Second))
 	if idle := d.now().Sub(info.UpdatedAt); idle < after {
 		return
 	}
-	err = d.alertOnce(ctx, r, a, "stalled", func(ctx context.Context) string {
+	err := d.alertOnce(ctx, r, a, "stalled", func(ctx context.Context) string {
 		return fmt.Sprintf("%s's OpenCode reply has been open for %s with no new part or token (a stalled or silently failing stream, "+
 			"or one long tool call). Look at its terminal; if it is stuck, interrupt it (esc) and send it a task to go on.",
 			a.Name, ago(d.now().Sub(info.UpdatedAt))) + d.afterwards(ctx, a)
@@ -552,4 +552,23 @@ func (d *Daemon) openCodeStalled(ctx context.Context, a *v1.Agent, info opencode
 	if err != nil && ctx.Err() == nil {
 		d.log.Warn("opencode stall alert", "agent", a.Name, "err", err)
 	}
+}
+
+// openCodeStallAfter is `opencode.stall_after` as a duration; 0 when it is off (or can't be read).
+func (d *Daemon) openCodeStallAfter(r store.Reader) time.Duration {
+	v, err := d.Setting(r, "opencode.stall_after")
+	if err != nil || v.(float64) <= 0 {
+		return 0
+	}
+	return time.Duration(v.(float64) * float64(time.Second))
+}
+
+// openCodeStallRecheckEvery is how often a quiet terminal's open reply is looked at: openCodeStallRecheck, or the
+// stall time when that is shorter; 0 when stall alerts are off.
+func (d *Daemon) openCodeStallRecheckEvery(ctx context.Context) time.Duration {
+	after := d.openCodeStallAfter(d.store.Read(ctx))
+	if after <= 0 {
+		return 0
+	}
+	return min(after, openCodeStallRecheck)
 }

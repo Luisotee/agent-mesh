@@ -355,6 +355,9 @@ func (d *Daemon) limitedText(ctx context.Context, a *v1.Agent) string {
 // alertOnce tells the parent about an agent once per stretch of silence: the same alert is not repeated while
 // the agent's last activity is older than it.
 func (d *Daemon) alertOnce(ctx context.Context, r store.Reader, a *v1.Agent, kind string, text func(context.Context) string) error {
+	if !owesParent(a) {
+		return nil // no parent to tell: nothing to read, build or write
+	}
 	since := time.Time{}
 	if a.LastActivity != nil {
 		since = a.LastActivity.AsTime()

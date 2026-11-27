@@ -94,20 +94,13 @@ func (d *Daemon) sweepAsync(agents []*v1.Agent) {
 	if len(agents) == 0 {
 		return
 	}
-	d.bgWG.Add(1)
-	go func() {
-		defer d.bgWG.Done()
-		ctx, cancel := context.WithCancel(context.Background())
+	// Refused once close() began (a retire that finishes during shutdown): the leftover processes are then the
+	// next start's to find, not a goroutine reading a store that is closing.
+	d.goBG(func() {
+		ctx, cancel := d.stopCtx()
 		defer cancel()
-		go func() {
-			select {
-			case <-d.stopping:
-				cancel()
-			case <-ctx.Done():
-			}
-		}()
 		d.sweepWorktrees(ctx, agents)
-	}()
+	})
 }
 
 // finishRetire stops a retired agent's process synchronously and sweeps any leftover processes in its worktree
