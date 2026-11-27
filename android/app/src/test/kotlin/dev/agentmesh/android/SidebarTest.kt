@@ -319,9 +319,11 @@ class SidebarTest {
         val rt = host("wsl", runs, team)
         rt.onFrame(userNotice(7, "plan", title = "shop-fix sent a plan"))
         rt.onFrame(userNotice(8, "report", forUser = false))
+        rt.onFrame(userNotice(9, "input", title = "shop-fix needs you"))
         drawer()
+        // What is not for the user is in the list but is not counted.
         waitForText("Activity (2)")
-        container.prefs.markActivitySeen(rt.hostId, 8)
+        container.prefs.markActivitySeen(rt.hostId, 9)
         waitForText("Activity")
         compose.onAllNodesWithText("Activity (2)").assertCountEquals(0)
     }

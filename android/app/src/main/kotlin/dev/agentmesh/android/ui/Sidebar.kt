@@ -136,7 +136,8 @@ fun rememberSidebar(): SidebarModel {
                 side.add(SidebarHost(rt.hostId, name, up, !s.synced && s.conn !is ConnState.Stopped && s.conn !is ConnState.Reconnecting, s.runs, s.agents, w.mapTo(HashSet()) { it.agent.id }, s.shells.orEmpty().map { ShellRow(it.id, it.repo, if (it.hasStartedAt()) it.startedAt.seconds * 1000 else 0L, it.exited) }))
                 status.add(HostStatus(rt.hostId, name, up, !s.synced && s.conn !is ConnState.Stopped && s.conn !is ConnState.Reconnecting, isReadOnlyDevice(s), noteOf(s.conn)))
                 w.forEach { waiting.add(WaitingItem(rt, it)) }
-                unread += s.activity.count { it.seq > (seen[rt.hostId] ?: 0L) }
+                // Only what is for the user counts: the rest is in the list, but is no news.
+                unread += s.activity.count { it.notice.forUser && it.seq > (seen[rt.hostId] ?: 0L) }
             }
             SidebarModel(status, buildProjects(side, pins), waiting, unread)
         }.flowOn(Dispatchers.Default).distinctUntilChanged()

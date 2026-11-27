@@ -220,10 +220,15 @@ private fun applyEvent(s: HostState, e: Event): HostState {
         Event.PayloadCase.RUN_RENAMED -> s.runs[e.runId]?.let { r ->
             next.copy(runs = s.runs + (r.id to r.toBuilder().setTitle(e.runRenamed.title).build()))
         } ?: next
+        // The Activity list. A host's event always has a seq (without one it could not be ordered, keyed or marked seen); a frame
+        // seen twice (a resume replays) is listed once; a later notice with the same tag replaces the earlier (`UserNotice.tag`).
+        Event.PayloadCase.USER_NOTICE -> if (e.seq <= 0 || s.activity.any { it.seq == e.seq }) next
+        else {
+            val tag = e.userNotice.tag
+            val kept = if (tag.isEmpty()) s.activity else s.activity.filter { it.notice.tag != tag }
+            next.copy(activity = (kept + ActivityItem(e.seq, if (e.hasTime()) e.time.toMillis() else 0L, e.userNotice)).takeLast(MAX_ACTIVITY))
+        }
         // The chat's queue: a prompt joins it, and leaves it once typed or taken back.
-        // A frame seen twice (a resume replays) is listed once.
-        Event.PayloadCase.USER_NOTICE -> if (e.seq > 0 && s.activity.any { it.seq == e.seq }) next
-        else next.copy(activity = (s.activity + ActivityItem(e.seq, if (e.hasTime()) e.time.toMillis() else 0L, e.userNotice)).takeLast(MAX_ACTIVITY))
         Event.PayloadCase.PROMPT_QUEUED -> if (e.promptQueued.hasPrompt()) {
             val q = e.promptQueued.prompt
             // A requeue (its typing never reached the terminal) is queued again, so it is no longer done.

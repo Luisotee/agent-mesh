@@ -181,7 +181,8 @@ fun waitingFrom(list: List<dev.agentmesh.gen.agentmesh.v1.Waiting>, runs: Map<St
 
 /**
  * What waits on the user: the host's own answer (`ListWaiting`, so both apps agree) once it has given one, and until then
- * (or on a host too old to have the action) what [waitingOnYou] derives from the messages.
+ * (or on a host too old to have the action) what [waitingOnYou] derives from the messages: that fallback knows nothing of `for_user`, so for
+ * a moment after connecting a worker's plan to a lead that decides it can show, until the host's list replaces it.
  */
 fun waitingFor(s: HostState): List<Waiting> = s.waiting?.let { waitingFrom(it, s.runs, s.agents) } ?: waitingOnYou(s.runs, s.agents, s.messages)
 

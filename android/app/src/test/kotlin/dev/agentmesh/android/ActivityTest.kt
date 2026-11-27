@@ -57,6 +57,14 @@ class ActivityTest {
         assertEquals("n${MAX_ACTIVITY + 10}", s.activity.last().notice.title)
     }
 
+    @Test fun `a later notice with the same tag replaces the earlier, and one without a seq is not listed`() {
+        var s = applyFrame(HostState(), userNotice(1, "input", tag = "a1", title = "first", at = 1_000))
+        s = applyFrame(s, userNotice(2, "plan", tag = "", title = "plain", at = 2_000))
+        s = applyFrame(s, userNotice(3, "input", tag = "a1", title = "again", at = 3_000))
+        s = applyFrame(s, userNotice(0, "plan", title = "no seq", at = 4_000))
+        assertEquals(listOf("plain", "again"), s.activity.map { it.notice.title })
+    }
+
     @Test fun `a frame replayed after a resume is listed once`() {
         var s = applyFrame(HostState(), userNotice(1, "plan", title = "a", at = 1_000))
         s = applyFrame(s, userNotice(1, "plan", title = "a", at = 1_000))
