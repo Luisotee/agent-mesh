@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the Windows installer and zip on the Windows side of a WSL machine, natively, with the Node and pnpm on the
-# Windows PATH (nvm-windows: see the error it prints if they are missing). The committed source of desktop/ is copied
+# Windows PATH (nvm-windows: see the error it prints if they are missing). The committed source of desktop/ and shared/ is copied
 # to %USERPROFILE%\agent-mesh-build\src (never built from a \\wsl$ path), `pnpm run pack` runs there, and the results are
 # copied to the Downloads folder. No admin prompt.
 #
@@ -22,7 +22,8 @@ mkdir -p "$root"
 if [ -n "$(git -C "$repo" status --porcelain -- desktop)" ]; then
   echo "note: desktop/ has uncommitted changes, which are not in the build" >&2
 fi
-git -C "$repo" archive --format=tar -o "$root/src.tar" HEAD desktop
+# shared/ too: the themes are read from ../shared/themes, and a build without them starts as a blank window.
+git -C "$repo" archive --format=tar -o "$root/src.tar" HEAD desktop shared
 
 cat > "$root/build.ps1" <<'PS'
 $ErrorActionPreference = 'Continue'
