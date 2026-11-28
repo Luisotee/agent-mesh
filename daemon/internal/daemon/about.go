@@ -197,6 +197,12 @@ func (d *Daemon) derivedAbout(r store.Reader, a *v1.Agent) string {
 		}
 		return ""
 	}
+	if a.Peer { // a peer's line is the one its own record carries
+		if p, err := r.GetPeer(a.Name); err == nil {
+			return capAbout(p.About)
+		}
+		return ""
+	}
 	msgs, err := r.RunMessages(a.RunId, "", -1)
 	if err != nil {
 		return ""
@@ -342,7 +348,12 @@ func spawnAbout(m *v1.SpawnAgentRequest, role v1.AgentRole, run *v1.Run) (string
 }
 
 // askAbout is what a question asker is for: the question's first line.
-func askAbout(body string) string { return capAbout("Question: " + taskAbout(body)) }
+func askAbout(body string) string {
+	if t := taskAbout(body); t != "" {
+		return capAbout("Question: " + t)
+	}
+	return ""
+}
 
 // reviewAbout is what a reviewer is for: the PR it reviews, and that it is a later round when it narrows to what
 // changed since one.

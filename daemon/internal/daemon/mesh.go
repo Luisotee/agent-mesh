@@ -270,12 +270,14 @@ func (d *Daemon) RenameRun(ctx context.Context, req *connect.Request[v1.RenameRu
 			return err
 		}
 		// A lead whose line is its run's title follows a rename.
-		if agents, err := t.Reader.ListAgents(run.Id); err == nil {
-			for _, a := range agents {
-				if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && (a.AboutSource == aboutRun || a.AboutSource == "") {
-					if err := setAbout(t, a, title, aboutRun); err != nil {
-						return err
-					}
+		agents, err := t.Reader.ListAgents(run.Id)
+		if err != nil {
+			return err
+		}
+		for _, a := range agents {
+			if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && (a.AboutSource == aboutRun || a.AboutSource == "") {
+				if err := setAbout(t, a, title, aboutRun); err != nil {
+					return err
 				}
 			}
 		}
@@ -775,11 +777,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return err
 		}
 		out.Message = msg
-		if note, err := d.noteAbout(t, to.Id, msg, req.Msg.About); err != nil {
+		note, err := d.noteAbout(t, to.Id, msg, req.Msg.About)
+		if err != nil {
 			return err
-		} else {
-			out.AboutNote = note
 		}
+		out.AboutNote = note
 		if asked != nil {
 			if err := d.settleReport(t, asked, req.Msg.Type, req.Msg.Body); err != nil {
 				return err

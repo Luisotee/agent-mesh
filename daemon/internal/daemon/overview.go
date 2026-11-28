@@ -63,7 +63,7 @@ func nowText(a *v1.Agent, w *v1.AgentWait) string {
 		case v1.AgentWaitKind_AGENT_WAIT_KIND_REPORTED:
 			return "Reported to " + orDefault(w.From, "its parent") + ", nothing owed"
 		}
-		return "Idle, waiting for a task from " + orDefault(w.From, "its parent")
+		return "Idle"
 	case v1.AgentState_AGENT_STATE_LIMITED:
 		return detail("Hit a usage limit")
 	case v1.AgentState_AGENT_STATE_ERROR:
@@ -190,12 +190,14 @@ func (d *Daemon) GetRunOverview(ctx context.Context, req *connect.Request[v1.Get
 			// Over: what it did shows in the pull requests and reports below.
 		case inTrouble(a):
 			out.Trouble = append(out.Trouble, row)
+		case a.Peer && a.State == v1.AgentState_AGENT_STATE_IDLE:
+			// A peer between asks is standing by, not part of the run's work.
 		case a.State == v1.AgentState_AGENT_STATE_IDLE:
 			out.Idle = append(out.Idle, row)
 		default:
 			out.Working = append(out.Working, row)
 		}
-		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT && len(prs) == 0 && row.ReportType == v1.MessageType_MESSAGE_TYPE_DONE {
+		if a.Role == v1.AgentRole_AGENT_ROLE_WORKER && len(prs) == 0 && row.ReportType == v1.MessageType_MESSAGE_TYPE_DONE {
 			out.DoneReports = append(out.DoneReports, row)
 		}
 	}
@@ -212,26 +214,17 @@ func (d *Daemon) GetRunOverview(ctx context.Context, req *connect.Request[v1.Get
 		return nil, err
 	}
 	if run.HeadlineSeq > 0 {
-		evs, err := r.EventsAfter(run.HeadlineSeq, runID, overviewEventLimit)
-		if err != nil {
-			return nil, err
-		}
-		for _, ev := range evs {
-			if ev.RunId == runID && matters(ev) {
+		if err := eachEventAfter(r, run.HeadlineSeq, runID, func(ev *v1.Event) {
+			if matters(ev) {
 				out.EventsSinceHeadline++
 			}
+		}); err != nil {
+			return nil, err
 		}
 	}
 	if since := req.Msg.SinceSeq; since > 0 {
 		out.Since = &v1.OverviewSince{}
-		evs, err := r.EventsAfter(since, runID, overviewEventLimit)
-		if err != nil {
-			return nil, err
-		}
-		for _, ev := range evs {
-			if ev.RunId != runID {
-				continue
-			}
+		if err := eachEventAfter(r, since, runID, func(ev *v1.Event) {
 			switch p := ev.Payload.(type) {
 			case *v1.Event_AgentSpawned:
 				if !p.AgentSpawned.GetAgent().GetPeer() {
@@ -254,9 +247,31 @@ func (d *Daemon) GetRunOverview(ctx context.Context, req *connect.Request[v1.Get
 					out.Since.Failed++
 				}
 			}
+		}); err != nil {
+			return nil, err
 		}
 	}
 	return connect.NewResponse(&v1.GetRunOverviewResponse{Overview: out}), nil
+}
+
+// eachEventAfter calls fn for every event of the run after seq, a page at a time: a busy run holds more events than
+// one page, and a count of what happened since must not stop at the first.
+func eachEventAfter(r store.Reader, seq int64, runID string, fn func(*v1.Event)) error {
+	for {
+		evs, err := r.EventsAfter(seq, runID, overviewEventLimit)
+		if err != nil {
+			return err
+		}
+		for _, ev := range evs {
+			if ev.RunId == runID {
+				fn(ev)
+			}
+			seq = ev.Seq
+		}
+		if len(evs) < overviewEventLimit {
+			return nil
+		}
+	}
 }
 
 // lastReports is each agent's newest report to its parent (plan, question, done or failed) since the last task or answer
@@ -281,13 +296,12 @@ func (d *Daemon) overviewBrief(r store.Reader, run *v1.Run) []string {
 		age := ago(d.now().Sub(run.HeadlineAt.AsTime()))
 		stale := ""
 		if run.HeadlineSeq > 0 {
-			if evs, err := r.EventsAfter(run.HeadlineSeq, run.Id, overviewEventLimit); err == nil {
-				n := 0
-				for _, ev := range evs {
-					if ev.RunId == run.Id && matters(ev) {
-						n++
-					}
+			n := 0
+			if err := eachEventAfter(r, run.HeadlineSeq, run.Id, func(ev *v1.Event) {
+				if matters(ev) {
+					n++
 				}
+			}); err == nil {
 				if n > 0 {
 					stale = fmt.Sprintf(", %d things happened since: update it with `mesh headline`", n)
 				}

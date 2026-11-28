@@ -32,3 +32,13 @@ func TestTheTaskAndPlanSayWhatAnAgentIsFor(t *testing.T) {
 		t.Errorf("cutLines keeps three lines: %q", got)
 	}
 }
+
+// An ask whose body has no usable text gets no "Question:" stub: the derived line takes over.
+func TestAnAskWithNoUsableTextHasNoStubAbout(t *testing.T) {
+	if got := askAbout("---"); got != "" {
+		t.Errorf("askAbout of a body of markdown noise = %q, want empty", got)
+	}
+	if got := askAbout("How does X work?"); got != "Question: How does X work?" {
+		t.Errorf("askAbout = %q", got)
+	}
+}
