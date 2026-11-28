@@ -89,6 +89,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -203,9 +204,10 @@ fun ChatTab(
     val outbox by runtime.outbox.collectAsStateWithLifecycleCompat()
     val outgoing = remember(outbox, agentId) { outbox.filter { it.agentId == agentId } }
     val sentCount = outgoing.count { it.state == OutState.Sent }
+    val sendingCount = outgoing.count { it.state == OutState.Sending }
     val stamps = remember(entries) { stamped(entries) }
     // A prompt the host typed is shown until the record has it (read again shortly after it was sent), and for 30 s at most.
-    LaunchedEffect(blocks, chat.loaded, sentCount) { runtime.settleOutbox(agentId, blocks, chat.loaded) }
+    LaunchedEffect(blocks, chat.loaded, sentCount, sendingCount) { runtime.settleOutbox(agentId, blocks, chat.loaded) }
     LaunchedEffect(sentCount) { if (sentCount > 0) { sync.afterSend(); delay(SENT_SHOWN_MS + 500); runtime.settleOutbox(agentId, blocks, chat.loaded) } }
     // The cards' bodies are parsed ahead as well (the newest first), as the transcript's replies are by the sync.
     LaunchedEffect(messages) { MarkdownCache.warm(messages.takeLast(30).reversed().map { if (isLong(it.body)) preview(it.body) else it.body }) }
@@ -494,8 +496,10 @@ private fun PromptComposer(
     val blank = draft.text.isBlank()
     // Not at a prompt: Esc there would deny or dismiss the dialog the agent waits on, not stop a turn.
     // Not for a moment after a send either: the box is empty then, and a second tap on the same spot must not stop the turn.
+    var sends by remember { mutableIntStateOf(0) }
     var justSent by remember { mutableStateOf(false) }
-    LaunchedEffect(justSent) { if (justSent) { delay(1_000); justSent = false } }
+    // Keyed on the count, so a second send within the second restarts the wait.
+    LaunchedEffect(sends) { if (sends > 0) { justSent = true; delay(1_000); justSent = false } }
     val asStop = working && !atPrompt && canStop && blank && !justSent && why.isEmpty()
     fun send() {
         val body = draft.text.toString().trim()
@@ -506,6 +510,7 @@ private fun PromptComposer(
         // left is not the one in flight. A refusal stays on its bubble, with Retry and Edit.
         draft.clearText()
         justSent = true
+        sends++
         onSending()
         runtime.say(agent.id, body)
     }

@@ -384,6 +384,26 @@ class AgentChatScreenTest {
         assertTrue(rt.outbox.value.isEmpty())
     }
 
+    @Test fun `a record that has the prompt before the host's answer is back still ends its bubble, and a prompt that is out can't be taken back`() {
+        fresh()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.promptGate = gate
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("prompt").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("prompt").performTextInput("echoed early")
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-sending").fetchSemanticsNodes().isNotEmpty() }
+        // Out, so the host has it already: taking it back would send it twice.
+        assertEquals(null, rt.takeOutgoing(rt.outbox.value.single().id))
+        assertEquals(1, rt.outbox.value.size)
+        // The snapshot is taken while it is out, so a record that shows the prompt before the answer is back is not taken for older.
+        compose.waitUntil(5_000) { rt.outbox.value.single().seen != null }
+        api.transcript = { _, _, _ -> page(listOf(entry("1", TranscriptKind.TRANSCRIPT_KIND_USER, "echoed early"))) }
+        gate.complete(Unit)
+        compose.waitUntil(8_000) { rt.outbox.value.isEmpty() }
+    }
+
     @Test fun `a refused send stays on its bubble with Retry and Edit, and the refusal is the host's words`() {
         fresh()
         api.failPrompt = RuntimeException("its input box holds a draft")

@@ -47,6 +47,9 @@ class Outgoing(
         Outgoing(id, agentId, text, atMs, state, error, sentMs, seen)
 }
 
+/** A call to the host with no answer after this long is not waited for: its prompt is marked not sent (it may or may not have it). */
+const val SEND_TIMEOUT_MS = 30_000L
+
 /** A bubble the record never shows (the prompt went nowhere) goes after this long. */
 const val SENT_SHOWN_MS = 30_000L
 

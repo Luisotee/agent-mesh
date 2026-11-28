@@ -228,10 +228,14 @@ class HostRuntime(
     private val sendLock = kotlinx.coroutines.sync.Mutex()
     private val sendJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
     private val outSeq = AtomicInteger(0)
+    private val outboxLock = Any()
 
     private fun changeOutbox(change: (List<dev.agentmesh.android.chat.Outgoing>) -> List<dev.agentmesh.android.chat.Outgoing>) {
-        val after = _outbox.updateAndGet(change)
-        outboxStore?.save(hostId, dev.agentmesh.android.chat.outgoingToJson(after))
+        // The update and the save are one step: two changes close together must not be stored out of order.
+        synchronized(outboxLock) {
+            val after = _outbox.updateAndGet(change)
+            outboxStore?.save(hostId, dev.agentmesh.android.chat.outgoingToJson(after))
+        }
     }
 
     private fun changeOne(id: String, change: (dev.agentmesh.android.chat.Outgoing) -> dev.agentmesh.android.chat.Outgoing) =
@@ -269,7 +273,15 @@ class HostRuntime(
                         changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Sending) }
                         try {
                             val api = connectedApi()
-                            val q = scope.async(SupervisorJob(scope.coroutineContext[Job])) { api.promptAgent(o.agentId, o.text) }.await()
+                            val call = scope.async(SupervisorJob(scope.coroutineContext[Job])) { api.promptAgent(o.agentId, o.text) }
+                            // A call with no answer must not hold every later prompt behind it: the host may or may not have this one.
+                            val answered = kotlinx.coroutines.withTimeoutOrNull(dev.agentmesh.android.chat.SEND_TIMEOUT_MS) { call.await() to true }
+                            if (answered == null) {
+                                call.cancel()
+                                changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Failed, error = "No answer from the host in ${dev.agentmesh.android.chat.SEND_TIMEOUT_MS / 1000} s: it may or may not have this: look in the chat before sending it again.") }
+                                return@withLock
+                            }
+                            val q = answered.first
                             if (q != null) {
                                 // Queued by the host: its bubble takes this one's place.
                                 noteQueued(q)
@@ -296,13 +308,15 @@ class HostRuntime(
     /** Sends a refused prompt again. */
     fun retryOutgoing(id: String) {
         if (_outbox.value.none { it.id == id && it.state == dev.agentmesh.android.chat.OutState.Failed }) return
-        changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Sending, error = "") }
+        changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Sending, error = "", seen = null) }
         deliver(id)
     }
 
     /** Takes a prompt back (it is not sent if it has not been): the text, or null when there is none by that id. */
     fun takeOutgoing(id: String): String? {
         val o = _outbox.value.firstOrNull { it.id == id } ?: return null
+        // One that is out (Sending) or typed (Sent) is the host's already: taking it back would send it twice.
+        if (o.state != dev.agentmesh.android.chat.OutState.Waiting && o.state != dev.agentmesh.android.chat.OutState.Failed) return null
         sendJobs.remove(id)?.cancel()
         changeOutbox { l -> l.filter { it.id != id } }
         return o.text
@@ -311,13 +325,15 @@ class HostRuntime(
     /** The chat's view of what it has shown: ends the typed prompts the record now has, and gives the new ones their snapshot. */
     fun settleOutbox(agentId: String, blocks: List<dev.agentmesh.android.chat.Block>, loaded: Boolean) {
         val cur = _outbox.value
-        if (cur.none { it.agentId == agentId && it.state == dev.agentmesh.android.chat.OutState.Sent }) return
+        if (cur.none { it.agentId == agentId && (it.state == dev.agentmesh.android.chat.OutState.Sent || it.state == dev.agentmesh.android.chat.OutState.Sending) }) return
         changeOutbox { all ->
             val mine = all.filter { it.agentId == agentId }
             var next = mine
-            if (loaded && next.any { it.state == dev.agentmesh.android.chat.OutState.Sent && it.seen == null }) {
+            // The snapshot is of what the chat held when the prompt went out (as the desktop's, taken at the tap), not after the call.
+            fun open(o: dev.agentmesh.android.chat.Outgoing) = o.seen == null && (o.state == dev.agentmesh.android.chat.OutState.Sent || o.state == dev.agentmesh.android.chat.OutState.Sending)
+            if (loaded && next.any(::open)) {
                 val snap = dev.agentmesh.android.chat.snapshotOf(blocks)
-                next = next.map { if (it.state == dev.agentmesh.android.chat.OutState.Sent && it.seen == null) it.with(seen = snap) else it }
+                next = next.map { if (open(it)) it.with(seen = snap) else it }
             }
             next = dev.agentmesh.android.chat.settleSent(next, blocks, now())
             if (next == mine) all else all.filter { it.agentId != agentId } + next
