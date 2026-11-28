@@ -133,6 +133,17 @@ func (w *world) startMeshd() {
 		info, err := statedir.ReadInfo(w.state)
 		return err == nil && info.PID == cmd.Process.Pid
 	})
+	w.guardsOff()
+}
+
+// guardsOff turns the memory guard off in this meshd: it reads the HOST's /proc/pressure/memory and /proc/meminfo, and
+// with several gates running at once the host's pressure refuses the suite's spawns ("memory pressure is high"). The
+// guard's own tests (internal/daemon) point it at fake files.
+func (w *world) guardsOff() {
+	w.t.Helper()
+	for _, key := range []string{"memory_pressure_max", "min_free_mb"} {
+		w.ctl("set", "--key", key, "--value", "0")
+	}
 }
 
 func (w *world) killMeshd() {
@@ -741,6 +752,7 @@ func TestRelayAndPairingEndToEnd(t *testing.T) {
 		info, err := statedir.ReadInfo(w.state)
 		return err == nil && info.PID == cmd.Process.Pid && info.Listen != "" && info.CertFingerprint != ""
 	})
+	w.guardsOff()
 
 	// Create a pairing via real mesh pair.
 	pairOut := w.ctl("pair", "--name", "e2e-phone", "--format", "json")
