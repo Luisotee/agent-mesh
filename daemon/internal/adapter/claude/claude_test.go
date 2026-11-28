@@ -137,6 +137,36 @@ func TestPlanLaunchResumesAndDeniesAPlanner(t *testing.T) {
 	}
 }
 
+// A worker in its plan phase starts in Claude Code's own plan mode on top of the deny list; with skip-permissions the
+// bypass mode stays in the cycle (so its shell runs without prompts) instead of being the start mode.
+func TestPlanLaunchInPlanModeKeepsTheDenyListAndAllowsBypass(t *testing.T) {
+	a := New()
+	launch := func(skip, plan bool) []string {
+		res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+			Binary: "claude", Model: "opus", ResumeSessionId: "sid-7", DenyEdits: true, PlanMode: plan, SkipPermissions: skip,
+			Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: t.TempDir()}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Argv
+	}
+	has := func(argv []string, s string) bool {
+		return strings.Contains(" "+strings.Join(argv, " ")+" ", " "+s+" ")
+	}
+	both := launch(true, true)
+	if !has(both, "--permission-mode plan") || !has(both, "--allow-dangerously-skip-permissions") || has(both, "--dangerously-skip-permissions") ||
+		!has(both, "--disallowedTools") {
+		t.Errorf("plan mode with skip-permissions: %v", both)
+	}
+	only := launch(false, true)
+	if !has(only, "--permission-mode plan") || has(only, "--allow-dangerously-skip-permissions") || has(only, "--dangerously-skip-permissions") {
+		t.Errorf("plan mode: %v", only)
+	}
+	if off := launch(true, false); has(off, "--permission-mode plan") || !has(off, "--dangerously-skip-permissions") {
+		t.Errorf("no plan mode: %v", off)
+	}
+}
+
 // A reopen of a session Claude Code has no conversation for (it writes one with the first prompt, and deletes old ones)
 // launches the same id fresh: `--resume` of it exits 1.
 func TestPlanLaunchStartsAMissingConversationFreshUnderItsId(t *testing.T) {

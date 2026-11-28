@@ -346,7 +346,14 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if share != "" {
 		argv = append(argv, "--plugin-dir", share)
 	}
-	if m.SkipPermissions {
+	switch {
+	case m.PlanMode && m.SkipPermissions:
+		// Claude Code's own plan mode, with bypass kept in the mode cycle so the worker's shell (the mesh, tests) still runs
+		// without prompts: the deny list above is what stops an edit, not plan mode.
+		argv = append(argv, "--permission-mode", "plan", "--allow-dangerously-skip-permissions")
+	case m.PlanMode:
+		argv = append(argv, "--permission-mode", "plan")
+	case m.SkipPermissions:
 		argv = append(argv, "--dangerously-skip-permissions")
 	}
 	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid, ResumeMissing: resumeMissing}), nil

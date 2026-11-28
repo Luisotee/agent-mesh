@@ -3616,7 +3616,13 @@ type SendMessageRequest struct {
 	After string `protobuf:"bytes,7,opt,name=after,proto3" json:"after,omitempty"`
 	// Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
 	// it the agent keeps the about line it has, and the response says which (`about_note`).
-	About         string `protobuf:"bytes,8,opt,name=about,proto3" json:"about,omitempty"`
+	About string `protobuf:"bytes,8,opt,name=about,proto3" json:"about,omitempty"`
+	// Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+	// same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+	// effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+	Plan          bool   `protobuf:"varint,9,opt,name=plan,proto3" json:"plan,omitempty"`
+	Tier          string `protobuf:"bytes,10,opt,name=tier,proto3" json:"tier,omitempty"`
+	Effort        string `protobuf:"bytes,11,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3703,6 +3709,27 @@ func (x *SendMessageRequest) GetAfter() string {
 func (x *SendMessageRequest) GetAbout() string {
 	if x != nil {
 		return x.About
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetPlan() bool {
+	if x != nil {
+		return x.Plan
+	}
+	return false
+}
+
+func (x *SendMessageRequest) GetTier() string {
+	if x != nil {
+		return x.Tier
+	}
+	return ""
+}
+
+func (x *SendMessageRequest) GetEffort() string {
+	if x != nil {
+		return x.Effort
 	}
 	return ""
 }
@@ -10501,7 +10528,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\">\n" +
 	"\x11StopAgentResponse\x12)\n" +
-	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"\xe8\x01\n" +
+	"\x05agent\x18\x01 \x01(\v2\x13.agentmesh.v1.AgentR\x05agent\"\xa8\x02\n" +
 	"\x12SendMessageRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12-\n" +
@@ -10510,7 +10537,11 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x05until\x18\x05 \x01(\tR\x05until\x12\x0e\n" +
 	"\x02re\x18\x06 \x01(\tR\x02re\x12\x14\n" +
 	"\x05after\x18\a \x01(\tR\x05after\x12\x14\n" +
-	"\x05about\x18\b \x01(\tR\x05about\"\xcc\x01\n" +
+	"\x05about\x18\b \x01(\tR\x05about\x12\x12\n" +
+	"\x04plan\x18\t \x01(\bR\x04plan\x12\x12\n" +
+	"\x04tier\x18\n" +
+	" \x01(\tR\x04tier\x12\x16\n" +
+	"\x06effort\x18\v \x01(\tR\x06effort\"\xcc\x01\n" +
 	"\x13SendMessageResponse\x12/\n" +
 	"\amessage\x18\x01 \x01(\v2\x15.agentmesh.v1.MessageR\amessage\x12.\n" +
 	"\aresumed\x18\x02 \x01(\v2\x14.agentmesh.v1.ReopenR\aresumed\x12!\n" +

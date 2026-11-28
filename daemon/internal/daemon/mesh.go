@@ -21,6 +21,7 @@ import (
 	"github.com/Luisotee/agent-mesh/daemon/internal/adapter/opencode"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
 	"github.com/Luisotee/agent-mesh/daemon/internal/ids"
+	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -431,6 +432,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	if strings.TrimSpace(req.Msg.About) != "" && req.Msg.Type != v1.MessageType_MESSAGE_TYPE_TASK {
 		return nil, invalid("--about goes with a task (to change an agent's line alone: `mesh about <agent> --text …`)")
 	}
+	if err := checkReplanArgs(req.Msg); err != nil {
+		return nil, err
+	}
 	waitFor, err := parseWaitUntil(req.Msg.Type, req.Msg.Until, d.now())
 	if err != nil {
 		return nil, err
@@ -481,6 +485,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	d.learnSession(ctx, actor, req.Msg.To, func(to *v1.Agent) bool {
 		if stopped(to) {
 			return resumes(req.Msg.Type)
+		}
+		if req.Msg.Plan && (!IsAgent(actor.Class) || to.ParentId == actor.Id) {
+			return true // a re-plan reopens a live worker into planning
 		}
 		if req.Msg.Type != v1.MessageType_MESSAGE_TYPE_TASK || !isDirectTask(req.Msg.Body) ||
 			IsAgent(actor.Class) && to.ParentId != actor.Id {
@@ -620,7 +627,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		if reTask == "" && strings.TrimSpace(req.Msg.Re) != "" {
 			return invalid("--re names the task a report answers: only a plan, question, done or failed to your parent takes it")
 		}
-		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
+		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role != v1.AgentRole_AGENT_ROLE_ROOT && !req.Msg.Plan {
 			model, effort, _ := target(to)
 			if err := d.reserveCheck(t.Reader, to.RunId, to.Kind, model, effort, "sending a task to "+to.Name, d.reviewWork(t.Reader, to, req.Msg.Body)); err != nil {
 				return err
@@ -633,6 +640,17 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		// as it was and nothing is requested twice.
 		fromParent := !IsAgent(actor.Class) || to.ParentId == actor.Id
 		direct := req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && isDirectTask(req.Msg.Body) && fromParent
+		replan := req.Msg.Plan
+		if replan {
+			switch {
+			case !fromParent:
+				return denied("only a worker's parent, or a device, sends it back to planning")
+			case to.Role == v1.AgentRole_AGENT_ROLE_ROOT:
+				return invalid("%s is a run's root: it has no plan phase to go back to", to.Name)
+			case adapter.ReadOnly(to.Role):
+				return invalid("%s is read-only (an asker or reviewer): it has no plan phase", to.Name)
+			}
+		}
 		if direct {
 			// An addition to a planner at work on its plan (a turn running, no plan or question from it since its
 			// task) is more work for the plan it is making, not a decision to skip it: it ends no phase and
@@ -660,6 +678,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				return err
 			}
 		}
+		if replan && !stopped(to) {
+			if err := d.replanTask(t, to, req.Msg.Tier, req.Msg.Effort); err != nil {
+				return err
+			}
+		}
 		if !stopped(to) { // a follow-up round for a finished Claude worker: compacted before the message rings
 			if err := d.requestFollowupCompaction(t, to, req.Msg.Type, req.Msg.Body); err != nil {
 				return err
@@ -668,6 +691,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		msgBody := req.Msg.Body
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK {
 			msgBody = withOpenCodeBodyNote(to.Kind, req.Msg.Body)
+		}
+		if replan {
+			msgBody += "\n\n" + d.replanNote(t.Reader, to)
 		}
 		willPrep := stopped(to) && resumes(req.Msg.Type) && prep != nil && prepTarget != nil && to.Id == prepTarget.Id
 		// A task, answer or question to an agent whose process is gone brings it back, in its own conversation,
@@ -678,7 +704,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			if prepErr != nil && to.Id == prepCandID {
 				out.ResumeError = fmt.Sprintf("preparing worktree for %s: %v", to.Name, prepErr)
 			} else {
-				spec := reviveSpec{task: direct, taskText: req.Msg.Body, capShared: capShared(ctx)}
+				spec := reviveSpec{task: direct, plan: replan, tier: req.Msg.Tier, effort: req.Msg.Effort, taskText: req.Msg.Body, capShared: capShared(ctx)}
 				// The guards answer before anything is written: a refusal keeps the message and says why the agent
 				// stayed stopped (a report to a retired parent must not be lost to the host's cap).
 				switch rv, err := d.revive(t, to, spec); {
@@ -962,4 +988,38 @@ func parseWaitUntil(typ v1.MessageType, until string, now time.Time) (time.Time,
 		return time.Time{}, invalid("until %s is not in the future", strconv.Quote(until))
 	}
 	return at, nil
+}
+
+// checkReplanArgs refuses a send that names a plan tier or effort without `--plan`, or a re-plan that cannot be one:
+// not a task, a direct task (no plan), held for later, or to the sender's parent.
+func checkReplanArgs(m *v1.SendMessageRequest) error {
+	if !m.Plan {
+		if m.Tier != "" || m.Effort != "" {
+			return invalid("--tier and --effort on a send name the plan tier of a re-plan: add --plan (to move a worker without a plan, `mesh switch`)")
+		}
+		return nil
+	}
+	switch {
+	case m.Type != v1.MessageType_MESSAGE_TYPE_TASK:
+		return invalid("--plan goes with a task (--type task)")
+	case m.To == "" || m.To == "parent":
+		return invalid("--plan sends a worker back to planning: name the worker (--to <agent>)")
+	case m.After != "":
+		return invalid("a re-plan can't be held for another task yet: send it when the worker is free")
+	case isDirectTask(m.Body):
+		return invalid("a `Direct task` is for work with no plan: drop --plan or the direct marker")
+	case m.Effort != "" && !validEffort(m.Effort):
+		return invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
+	}
+	return nil
+}
+
+// replanNote is what a task that sends a worker back to planning adds to its body.
+func (d *Daemon) replanNote(r store.Reader, a *v1.Agent) string {
+	s := "This task is a re-plan: you are back in your plan phase (your worktree is read-only until your parent approves). " +
+		"Research it, write the plan (PLAN_TEMPLATE.md), run `check-plan`, and send it with `mesh send parent --type plan`; change nothing before the answer is `approved`."
+	if a.Kind == "claude" && d.planModeFor(r, a.Kind) {
+		s += " In Claude Code's plan mode, calling ExitPlanMode with the plan sends it to your parent for you: end your turn after it."
+	}
+	return s
 }

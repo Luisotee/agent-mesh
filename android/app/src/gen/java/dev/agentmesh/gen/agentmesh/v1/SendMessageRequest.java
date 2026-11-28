@@ -21,6 +21,8 @@ public  final class SendMessageRequest extends
     re_ = "";
     after_ = "";
     about_ = "";
+    tier_ = "";
+    effort_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -547,6 +549,144 @@ public  final class SendMessageRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     about_ = value.toStringUtf8();
+
+  }
+
+  public static final int PLAN_FIELD_NUMBER = 9;
+  private boolean plan_;
+  /**
+   * <pre>
+   * Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+   * same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+   * effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+   * </pre>
+   *
+   * <code>bool plan = 9 [json_name = "plan"];</code>
+   * @return The plan.
+   */
+  @java.lang.Override
+  public boolean getPlan() {
+    return plan_;
+  }
+  /**
+   * <pre>
+   * Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+   * same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+   * effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+   * </pre>
+   *
+   * <code>bool plan = 9 [json_name = "plan"];</code>
+   * @param value The plan to set.
+   */
+  private void setPlan(boolean value) {
+    
+    plan_ = value;
+  }
+  /**
+   * <pre>
+   * Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+   * same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+   * effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+   * </pre>
+   *
+   * <code>bool plan = 9 [json_name = "plan"];</code>
+   */
+  private void clearPlan() {
+
+    plan_ = false;
+  }
+
+  public static final int TIER_FIELD_NUMBER = 10;
+  private java.lang.String tier_;
+  /**
+   * <code>string tier = 10 [json_name = "tier"];</code>
+   * @return The tier.
+   */
+  @java.lang.Override
+  public java.lang.String getTier() {
+    return tier_;
+  }
+  /**
+   * <code>string tier = 10 [json_name = "tier"];</code>
+   * @return The bytes for tier.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTierBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(tier_);
+  }
+  /**
+   * <code>string tier = 10 [json_name = "tier"];</code>
+   * @param value The tier to set.
+   */
+  private void setTier(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    tier_ = value;
+  }
+  /**
+   * <code>string tier = 10 [json_name = "tier"];</code>
+   */
+  private void clearTier() {
+
+    tier_ = getDefaultInstance().getTier();
+  }
+  /**
+   * <code>string tier = 10 [json_name = "tier"];</code>
+   * @param value The bytes for tier to set.
+   */
+  private void setTierBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    tier_ = value.toStringUtf8();
+
+  }
+
+  public static final int EFFORT_FIELD_NUMBER = 11;
+  private java.lang.String effort_;
+  /**
+   * <code>string effort = 11 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  @java.lang.Override
+  public java.lang.String getEffort() {
+    return effort_;
+  }
+  /**
+   * <code>string effort = 11 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEffortBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(effort_);
+  }
+  /**
+   * <code>string effort = 11 [json_name = "effort"];</code>
+   * @param value The effort to set.
+   */
+  private void setEffort(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    effort_ = value;
+  }
+  /**
+   * <code>string effort = 11 [json_name = "effort"];</code>
+   */
+  private void clearEffort() {
+
+    effort_ = getDefaultInstance().getEffort();
+  }
+  /**
+   * <code>string effort = 11 [json_name = "effort"];</code>
+   * @param value The bytes for effort to set.
+   */
+  private void setEffortBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    effort_ = value.toStringUtf8();
 
   }
 
@@ -1190,6 +1330,150 @@ public  final class SendMessageRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+     * same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+     * effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+     * </pre>
+     *
+     * <code>bool plan = 9 [json_name = "plan"];</code>
+     * @return The plan.
+     */
+    @java.lang.Override
+    public boolean getPlan() {
+      return instance.getPlan();
+    }
+    /**
+     * <pre>
+     * Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+     * same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+     * effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+     * </pre>
+     *
+     * <code>bool plan = 9 [json_name = "plan"];</code>
+     * @param value The plan to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlan(boolean value) {
+      copyOnWrite();
+      instance.setPlan(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+     * same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+     * effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+     * </pre>
+     *
+     * <code>bool plan = 9 [json_name = "plan"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlan() {
+      copyOnWrite();
+      instance.clearPlan();
+      return this;
+    }
+
+    /**
+     * <code>string tier = 10 [json_name = "tier"];</code>
+     * @return The tier.
+     */
+    @java.lang.Override
+    public java.lang.String getTier() {
+      return instance.getTier();
+    }
+    /**
+     * <code>string tier = 10 [json_name = "tier"];</code>
+     * @return The bytes for tier.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTierBytes() {
+      return instance.getTierBytes();
+    }
+    /**
+     * <code>string tier = 10 [json_name = "tier"];</code>
+     * @param value The tier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTier(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTier(value);
+      return this;
+    }
+    /**
+     * <code>string tier = 10 [json_name = "tier"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTier() {
+      copyOnWrite();
+      instance.clearTier();
+      return this;
+    }
+    /**
+     * <code>string tier = 10 [json_name = "tier"];</code>
+     * @param value The bytes for tier to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTierBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setTierBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>string effort = 11 [json_name = "effort"];</code>
+     * @return The effort.
+     */
+    @java.lang.Override
+    public java.lang.String getEffort() {
+      return instance.getEffort();
+    }
+    /**
+     * <code>string effort = 11 [json_name = "effort"];</code>
+     * @return The bytes for effort.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEffortBytes() {
+      return instance.getEffortBytes();
+    }
+    /**
+     * <code>string effort = 11 [json_name = "effort"];</code>
+     * @param value The effort to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEffort(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setEffort(value);
+      return this;
+    }
+    /**
+     * <code>string effort = 11 [json_name = "effort"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEffort() {
+      copyOnWrite();
+      instance.clearEffort();
+      return this;
+    }
+    /**
+     * <code>string effort = 11 [json_name = "effort"];</code>
+     * @param value The bytes for effort to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEffortBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setEffortBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SendMessageRequest)
   }
   @java.lang.Override
@@ -1215,10 +1499,14 @@ public  final class SendMessageRequest extends
             "re_",
             "after_",
             "about_",
+            "plan_",
+            "tier_",
+            "effort_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
-              "\f\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u0208\u0003\f\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0007\n" +
+              "\u0208\u000b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

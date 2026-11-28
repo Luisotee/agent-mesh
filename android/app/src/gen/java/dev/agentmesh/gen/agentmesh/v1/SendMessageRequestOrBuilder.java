@@ -165,4 +165,40 @@ public interface SendMessageRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAboutBytes();
+
+  /**
+   * <pre>
+   * Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+   * same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+   * effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+   * </pre>
+   *
+   * <code>bool plan = 9 [json_name = "plan"];</code>
+   * @return The plan.
+   */
+  boolean getPlan();
+
+  /**
+   * <code>string tier = 10 [json_name = "tier"];</code>
+   * @return The tier.
+   */
+  java.lang.String getTier();
+  /**
+   * <code>string tier = 10 [json_name = "tier"];</code>
+   * @return The bytes for tier.
+   */
+  com.google.protobuf.ByteString
+      getTierBytes();
+
+  /**
+   * <code>string effort = 11 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  java.lang.String getEffort();
+  /**
+   * <code>string effort = 11 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  com.google.protobuf.ByteString
+      getEffortBytes();
 }

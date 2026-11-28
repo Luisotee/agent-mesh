@@ -1765,6 +1765,12 @@ message SendMessageRequest {
   // Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
   // it the agent keeps the about line it has, and the response says which (`about_note`).
   string about = 8;
+  // Only for a task from the worker's parent or a device, to a worker (not a root): put it back into planning in the
+  // same conversation. It plans under the deny list, on `tier` (empty: the tier it planned on, else strong) at its
+  // effort or `effort`, and `ApproveAgent` moves it to execution as after a first plan. Not with a `Direct task`.
+  bool plan = 9;
+  string tier = 10;
+  string effort = 11;
 }
 
 message SendMessageResponse {

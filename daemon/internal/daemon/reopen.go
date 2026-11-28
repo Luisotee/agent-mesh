@@ -207,6 +207,84 @@ func endPlanPhase(tx *store.Tx, a *v1.Agent, why string) error {
 	return setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_UNSPECIFIED, why)
 }
 
+// backTier is the tier an agent goes back to when it executes after a re-plan: the one it executes on now, or has run
+// on (none for a named model, which approve then names). A planner keeps the one it has.
+func backTier(a *v1.Agent) string {
+	switch a.Phase {
+	case v1.AgentPhase_AGENT_PHASE_EXECUTING, v1.AgentPhase_AGENT_PHASE_PLANNING:
+		return a.ExecTier
+	}
+	return a.Tier
+}
+
+// replanTier is the tier a re-plan runs on when none is named: the one the agent planned on (still its Tier while it
+// executes), else strong, which is where research and design are planned.
+func replanTier(a *v1.Agent) string {
+	if a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING && a.Tier != "" {
+		return a.Tier
+	}
+	return "strong"
+}
+
+// replanTarget is the model, effort and tier an agent plans on again. A model or tier named is taken as given; an
+// effort alone is a step up on the model it is on (the tier it runs on, kept for `next`); nothing named is its plan
+// tier (replanTier).
+func (d *Daemon) replanTarget(r store.Reader, a *v1.Agent, tier, model, effort string) (string, string, string, error) {
+	what := a.Name + "'s planning"
+	switch {
+	case model != "":
+		m, e, err := d.pickFor(r, a, "", model, effort, what)
+		return m, e, "", err
+	case tier == "" && effort != "":
+		cm, _, _ := target(a)
+		if err := d.checkKept(r, a, cm); err != nil {
+			return "", "", "", err
+		}
+		keep := a.Tier
+		if a.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING {
+			keep = a.ExecTier
+		}
+		return cm, effort, keep, nil
+	}
+	if tier == "" {
+		tier = replanTier(a)
+	}
+	m, e, err := d.pickFor(r, a, tier, "", effort, what)
+	return m, e, tier, err
+}
+
+// replanTask puts a live worker back into planning in its own conversation: its plan phase, the planning deny list
+// and the plan tier's model (or the effort given), by a reopen; ApproveAgent then moves it to execution as after a
+// first plan. A worker already planning with nothing to change takes the task as more work for its plan.
+func (d *Daemon) replanTask(tx *store.Tx, a *v1.Agent, tier, effort string) error {
+	if a.Phase == v1.AgentPhase_AGENT_PHASE_PLANNING && tier == "" && effort == "" {
+		return nil
+	}
+	cm, ce, cd := target(a)
+	back := backTier(a)
+	model, eff, planTier, err := d.replanTarget(tx.Reader, a, tier, "", effort)
+	if err != nil {
+		return err
+	}
+	if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, eff, "re-planning "+a.Name, isReviewer(a)); err != nil {
+		return err
+	}
+	if (model != cm || eff != ce || !cd) && a.SessionId == "" {
+		return failedPrecondition("%s's conversation id is not known yet, so it can't be reopened into planning: "+
+			"send the task again once it has started", a.Name)
+	}
+	a.Tier, a.ExecTier, a.Pinned = planTier, back, false
+	if err := setPhase(tx, a, v1.AgentPhase_AGENT_PHASE_PLANNING, "re-plan"); err != nil {
+		return err
+	}
+	if model != cm || eff != ce || !cd {
+		if _, err := requestReopen(tx, a, model, eff, true, "re-plan", ""); err != nil {
+			return err
+		}
+	}
+	return tx.PutAgent(a)
+}
+
 // directStartRe is how a direct task begins (bin/mesh's DIRECT_RE, DIRECT_PREFIX): "Direct task" and then
 // "(no plan)", a colon, a period before whitespace or the end, or the end of its line. The daemon reads it as
 // bin/mesh does, to tell a task with no plan phase from one the agent plans: "Direct tasks are…" and "Direct
@@ -816,7 +894,8 @@ func (d *Daemon) previewReviveTarget(r store.Reader, a *v1.Agent, spec reviveSpe
 	kept := func() (string, string, error) { return model, effort, d.checkKept(r, a, model) }
 	switch {
 	case spec.plan:
-		return d.pickFor(r, a, spec.tier, spec.model, spec.effort, a.Name+"'s planning")
+		m, e, _, err := d.replanTarget(r, a, spec.tier, spec.model, spec.effort)
+		return m, e, err
 	case spec.task:
 		if spec.tier != "" || spec.model != "" {
 			return d.pickFor(r, a, spec.tier, spec.model, spec.effort, a.Name)
@@ -1249,16 +1328,13 @@ func (d *Daemon) reviveAs(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reope
 	}
 	switch {
 	case spec.plan:
-		// A task it plans: on the tier or model given, never a default (the tier it had may be the execution
-		// tier's, which is not where plans are made).
-		tier := spec.tier
-		if model, effort, err = d.pickFor(tx.Reader, a, tier, spec.model, spec.effort, a.Name+"'s planning"); err != nil {
+		// A task it plans: on the tier or model given, else the tier it planned on (replanTarget).
+		back := backTier(a)
+		var tier string
+		if model, effort, tier, err = d.replanTarget(tx.Reader, a, spec.tier, spec.model, spec.effort); err != nil {
 			return nil, err
 		}
-		if spec.model != "" {
-			tier = "" // a named model has no chain to walk
-		}
-		a.Tier, a.ExecTier, a.Pinned, deny = tier, "", false, true
+		a.Tier, a.ExecTier, a.Pinned, deny = tier, back, false, true
 		if a.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			if err := d.reserveCheck(tx.Reader, a.RunId, a.Kind, model, effort, "resuming "+a.Name, isReviewer(a)); err != nil {
 				return nil, err
