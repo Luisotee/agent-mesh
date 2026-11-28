@@ -81,8 +81,8 @@ func TestAMachineRestartResumesTheRunRootFirstAndTellsEachWhatDied(t *testing.T)
 	w := startReopen(t, quickRestart)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{Task: "do the thing"})
-	reporter := w.spawnUnder(t, asLead, "reported", &v1.SpawnAgentRequest{Task: "do the other thing"})
+	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{About: "test worker", Task: "do the thing"})
+	reporter := w.spawnUnder(t, asLead, "reported", &v1.SpawnAgentRequest{About: "test worker", Task: "do the other thing"})
 	w.sendToParent(t, reporter, v1.MessageType_MESSAGE_TYPE_DONE)
 	oldTerminals := map[string]string{lead.Id: w.agent(lead.Id).TerminalId, worker.Id: w.agent(worker.Id).TerminalId}
 
@@ -119,7 +119,7 @@ func TestAMachineRestartResumesNothingWhenTheSettingIsOff(t *testing.T) {
 	w := startReopen(t, quickRestart)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{Task: "do the thing"})
+	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{About: "test worker", Task: "do the thing"})
 	w.set(t, "restart.resume", false)
 
 	w.machineRestart(t)
@@ -208,7 +208,7 @@ func TestWhatIsNotResumedWhenTheDaemonStopsIsToldToItsParent(t *testing.T) {
 	})
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{About: "test worker"})
 	// It crashed earlier in the run and was told once; it was resumed by hand since. Losing it again must tell again.
 	w.typeInto(worker, "/crash\r")
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_EXITED)
@@ -244,7 +244,7 @@ func TestAWorkerResumedByHandBeforeThePassReachesItIsNotHeldSilent(t *testing.T)
 	})
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{About: "test worker"})
 	oldLead, oldWorker := w.agent(lead.Id).TerminalId, w.agent(worker.Id).TerminalId
 
 	w.machineRestart(t)
