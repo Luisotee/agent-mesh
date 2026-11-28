@@ -64,7 +64,7 @@ func TestTokenTotalLeavesCacheReadsApart(t *testing.T) {
 	}
 	r := buildCostReport("run x", func() *costTally {
 		ct := newCostTally(true)
-		ct.add("s", costCall{model: "claude-opus-5-5", input: 1, w1: 2, w5: 3, read: 1_000_000, output: 4}, "worker", agentKey{name: "a"}, "", false, false, false, "")
+		ct.add("s", costCall{model: "claude-opus-5-5", input: 1, w1: 2, w5: 3, read: 1_000_000, output: 4}, "worker", agentKey{name: "a"}, "", false, false, false, "", "")
 		return ct
 	}(), newCostTally(false), nil, 0, nil, nil)
 	if r.TotalTokens != 10 || r.TotalRead != 1_000_000 || r.Agents[0].Total != 10 {
@@ -94,8 +94,8 @@ func TestTheEmptiedTokenListsAreMarkedDeprecated(t *testing.T) {
 func TestWrite5mShareIsClaudesOnly(t *testing.T) {
 	tally := newCostTally(true)
 	tokens := newCostTally(false)
-	tally.add("c", costCall{model: "claude-opus-5-5", w1: 300, w5: 100}, "worker", agentKey{name: "a"}, "", false, false, false, "")
-	tokens.add("o", costCall{model: "p/m", cli: "opencode", w5: 5000}, "opencode worker", agentKey{name: "b"}, "", false, false, false, "")
+	tally.add("c", costCall{model: "claude-opus-5-5", w1: 300, w5: 100}, "worker", agentKey{name: "a"}, "", false, false, false, "", "")
+	tokens.add("o", costCall{model: "p/m", cli: "opencode", w5: 5000}, "opencode worker", agentKey{name: "b"}, "", false, false, false, "", "")
 	r := buildCostReport("run x", tally, tokens, nil, 0, nil, nil)
 	for _, k := range r.Kinds {
 		switch k.Kind {
@@ -108,5 +108,38 @@ func TestWrite5mShareIsClaudesOnly(t *testing.T) {
 				t.Errorf("opencode worker = %+v, want its writes counted and no 5m share", k)
 			}
 		}
+	}
+}
+
+// A call is placed on the model and the effort the agent ran at then (a switch changes both), and the verdict rows
+// are per effort as well.
+func TestCostKeepsTheEffortWithTheModelAndTheVerdicts(t *testing.T) {
+	t0 := time.Date(2026, 11, 28, 10, 0, 0, 0, time.UTC)
+	seg := &costSegment{models: []modelMark{
+		{model: "opus", effort: "high"},
+		{at: t0.Add(time.Hour), model: "opus", effort: "medium"},
+		{at: t0.Add(2 * time.Hour), model: "sonnet", effort: "high"},
+	}}
+	for _, tc := range []struct {
+		at            time.Time
+		model, effort string
+	}{{t0, "opus", "high"}, {t0.Add(90 * time.Minute), "opus", "medium"}, {t0.Add(3 * time.Hour), "sonnet", "high"}} {
+		if m, e := modelEffortAt(seg, tc.at); m != tc.model || e != tc.effort {
+			t.Errorf("at %v: %s %s, want %s %s", tc.at, m, e, tc.model, tc.effort)
+		}
+	}
+	ct := newCostTally(true)
+	call := costCall{model: "claude-opus-5-5", input: 1, w5: 2, output: 3}
+	ct.add("s", call, "worker", agentKey{name: "a"}, "exec", false, false, false, "", "high")
+	ct.add("s", call, "worker", agentKey{name: "a"}, "exec", false, false, false, "", "medium")
+	if len(ct.models) != 2 {
+		t.Errorf("one model at two efforts is %d rows, want 2", len(ct.models))
+	}
+	rows := verdictRows([]*v1.Verdict{
+		{Kind: "claude", Model: "claude-opus-5-5", Tier: "strong", Effort: "medium", Agree: 3},
+		{Kind: "claude", Model: "claude-opus-5-5", Tier: "strong", Effort: "high", Agree: 2},
+		{Kind: "claude", Model: "claude-opus-5-5", Tier: "strong", Effort: "high", Agree: 1, Blocking: 1}})
+	if len(rows) != 2 {
+		t.Fatalf("verdict rows %v, want one per effort", rows)
 	}
 }

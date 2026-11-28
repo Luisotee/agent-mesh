@@ -314,3 +314,41 @@ func TestTheBriefPrintsThePlansAndTheStrengthsOfTheTiersModels(t *testing.T) {
 		t.Errorf("a worker's brief carries the routing facts:\n%s", got)
 	}
 }
+
+// The root's brief shows each reviewer model's record at each effort over the last 30 days: reviews, the share of
+// findings agreed or useful, blocking findings per review.
+func TestTheBriefShowsTheReviewersRecordByModelAndEffort(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	brief := func() string {
+		res, err := w.asRoot.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Text
+	}
+	if strings.Contains(brief(), "reviewers, last 30 days") {
+		t.Errorf("a record with no verdicts:\n%s", brief())
+	}
+	w.pr.push(t, "the feature")
+	round := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "strong", Reviewers: "claude,agy"})
+	for _, a := range round.Agents {
+		if _, err := w.asRoot.RecordVerdict(ctx, connect.NewRequest(&v1.RecordVerdictRequest{Meta: meta(""), Pr: w.pr.url(), Reviewer: a.Name, Agree: 3, Other: 0, Disagree: 1, Blocking: 1})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := brief()
+	for _, want := range []string{"reviewers, last 30 days, by model and effort", "claude opus, medium: 1 reviews, 75% agreed, 1.0 blocking per review", "agy neon, medium: 1 reviews, 75% agreed"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, got)
+		}
+	}
+	wk := w.worker(t, "wk")
+	res, err := w.as(w.token(t, wk.Id)).GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Msg.Text, "reviewers, last 30 days") {
+		t.Errorf("a worker's brief carries the reviewers' record:\n%s", res.Msg.Text)
+	}
+}

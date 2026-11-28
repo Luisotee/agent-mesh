@@ -411,8 +411,9 @@ type phaseMark struct {
 }
 
 type modelMark struct {
-	at    time.Time
-	model string
+	at     time.Time
+	model  string
+	effort string
 }
 
 type costSegment struct {
@@ -763,7 +764,7 @@ func (d *Daemon) buildCostSegments(r store.Reader) (map[string][]*costSegment, m
 				segStart = a.CreatedAt.AsTime()
 			}
 
-			var initialModel string
+			var initialModel, initialEffort string
 			var marks []phaseMark
 			var models []modelMark
 			var firstPhaseFrom string
@@ -778,14 +779,14 @@ func (d *Daemon) buildCostSegments(r store.Reader) (map[string][]*costSegment, m
 					}
 					if p.AgentSpawned.Agent != nil {
 						if initialModel == "" {
-							initialModel = p.AgentSpawned.Agent.Model
+							initialModel, initialEffort = p.AgentSpawned.Agent.Model, p.AgentSpawned.Agent.Effort
 						}
 						addSess(p.AgentSpawned.Agent.SessionId)
 					}
 				case *v1.Event_AgentReopened:
 					addSess(p.AgentReopened.SessionId)
 					if p.AgentReopened.Reopen != nil && p.AgentReopened.Reopen.Model != "" {
-						models = append(models, modelMark{at: et, model: p.AgentReopened.Reopen.Model})
+						models = append(models, modelMark{at: et, model: p.AgentReopened.Reopen.Model, effort: p.AgentReopened.Reopen.Effort})
 					}
 				case *v1.Event_AgentPhaseChanged:
 					if !hasPhaseChange {
@@ -797,10 +798,10 @@ func (d *Daemon) buildCostSegments(r store.Reader) (map[string][]*costSegment, m
 			}
 
 			if initialModel == "" {
-				initialModel = a.Model
+				initialModel, initialEffort = a.Model, a.Effort
 			}
 			if initialModel != "" {
-				models = append([]modelMark{{at: time.Time{}, model: initialModel}}, models...)
+				models = append([]modelMark{{at: time.Time{}, model: initialModel, effort: initialEffort}}, models...)
 			}
 
 			var phaseMarksOut []phaseMark
@@ -945,13 +946,19 @@ func phaseAt(marks []phaseMark, t time.Time) string {
 }
 
 func modelAt(seg *costSegment, t time.Time) string {
-	found := ""
+	m, _ := modelEffortAt(seg, t)
+	return m
+}
+
+// modelEffortAt is the model and the effort the agent ran at when a call was made: the latest mark at or before it
+// (the first when none is).
+func modelEffortAt(seg *costSegment, t time.Time) (model, effort string) {
 	for _, m := range seg.models {
-		if !m.at.After(t) || found == "" {
-			found = m.model
+		if !m.at.After(t) || model == "" {
+			model, effort = m.model, m.effort
 		}
 	}
-	return found
+	return model, effort
 }
 
 // ── Tally ──
@@ -982,7 +989,7 @@ func newBucket(kind string) *tallyBucket {
 }
 
 type agentKey struct{ run, name string }
-type modelPhaseKey struct{ model, phase string }
+type modelPhaseKey struct{ model, phase, effort string }
 
 type costTally struct {
 	agents map[agentKey]*tallyBucket
@@ -1002,7 +1009,7 @@ func newCostTally(priced bool) *costTally {
 	}
 }
 
-func (ct *costTally) add(session string, call costCall, kind string, ag agentKey, phase string, sub, cold, first bool, overrideModel string) {
+func (ct *costTally) add(session string, call costCall, kind string, ag agentKey, phase string, sub, cold, first bool, overrideModel, effort string) {
 	usd := call.usd
 	if ct.priced {
 		usd = claudeCallCost(call.model, call.input, call.w5, call.w1, call.read, call.output)
@@ -1020,7 +1027,7 @@ func (ct *costTally) add(session string, call costCall, kind string, ag agentKey
 	if modelName == "" {
 		modelName = call.model
 	}
-	mp := modelPhaseKey{model: costModelFamily(modelName), phase: phase}
+	mp := modelPhaseKey{model: costModelFamily(modelName), phase: phase, effort: effort}
 	mb := ct.models[mp]
 	if mb == nil {
 		mb = newBucket("")
@@ -1084,10 +1091,11 @@ func (ct *costTally) add(session string, call costCall, kind string, ag agentKey
 }
 
 type placedCall struct {
-	kind  string
-	agent agentKey
-	phase string
-	model string
+	kind   string
+	agent  agentKey
+	phase  string
+	model  string
+	effort string
 }
 
 func tallySession(ct *costTally, session string, calls []costCall, sub bool, place func(costCall) *placedCall, since, until time.Time, seen map[string]bool) {
@@ -1117,7 +1125,7 @@ func tallySession(ct *costTally, session string, calls []costCall, sub bool, pla
 			continue
 		}
 		if p := place(call); p != nil {
-			ct.add(session, call, p.kind, p.agent, p.phase, sub, cold, i == 0 && !sub, p.model)
+			ct.add(session, call, p.kind, p.agent, p.phase, sub, cold, i == 0 && !sub, p.model, p.effort)
 		}
 	}
 }
@@ -1407,14 +1415,16 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					}
 					// The model the conversation's own record names; the agent's recorded model only where it names none.
 					m := c.model
+					segModel, effort := modelEffortAt(seg, c.t)
 					if m == "" {
-						m = modelAt(seg, c.t)
+						m = segModel
 					}
 					return &placedCall{
-						kind:  seg.kind,
-						agent: agentKey{run: seg.run, name: seg.name},
-						phase: phaseAt(seg.marks, c.t),
-						model: m,
+						kind:   seg.kind,
+						agent:  agentKey{run: seg.run, name: seg.name},
+						phase:  phaseAt(seg.marks, c.t),
+						model:  m,
+						effort: effort,
 					}
 				}
 				if runID != "" {
@@ -1449,14 +1459,16 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 						return nil
 					}
 					m := c.model
+					segModel, effort := modelEffortAt(seg, c.t)
 					if m == "" {
-						m = modelAt(seg, c.t)
+						m = segModel
 					}
 					return &placedCall{
-						kind:  seg.kind,
-						agent: agentKey{run: seg.run, name: seg.name},
-						phase: phaseAt(seg.marks, c.t),
-						model: m,
+						kind:   seg.kind,
+						agent:  agentKey{run: seg.run, name: seg.name},
+						phase:  phaseAt(seg.marks, c.t),
+						model:  m,
+						effort: effort,
 					}
 				}
 				if runID != "" {
@@ -1491,14 +1503,16 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 						return nil
 					}
 					m := c.model
+					segModel, effort := modelEffortAt(seg, c.t)
 					if m == "" {
-						m = modelAt(seg, c.t)
+						m = segModel
 					}
 					return &placedCall{
-						kind:  seg.kind,
-						agent: agentKey{run: seg.run, name: seg.name},
-						phase: phaseAt(seg.marks, c.t),
-						model: m,
+						kind:   seg.kind,
+						agent:  agentKey{run: seg.run, name: seg.name},
+						phase:  phaseAt(seg.marks, c.t),
+						model:  m,
+						effort: effort,
 					}
 				}
 				if runID != "" {
@@ -1754,6 +1768,7 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 		byModel = append(byModel, &v1.ModelPhaseCost{
 			Model:      mp.model,
 			Phase:      mp.phase,
+			Effort:     mp.effort,
 			Calls:      b.calls,
 			Usd:        round2(b.usd),
 			CtxPerCall: ctxPerCall,
@@ -1776,7 +1791,10 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 		if byModel[i].Model != byModel[j].Model {
 			return byModel[i].Model < byModel[j].Model
 		}
-		return byModel[i].Phase < byModel[j].Phase
+		if byModel[i].Phase != byModel[j].Phase {
+			return byModel[i].Phase < byModel[j].Phase
+		}
+		return byModel[i].Effort < byModel[j].Effort
 	})
 
 	clis := make([]*v1.CliCost, 0, len(allCLIs))
@@ -1848,13 +1866,13 @@ func buildCostReport(scope string, tally, tokenTally *costTally, reviewed map[st
 }
 
 func verdictRows(verdicts []*v1.Verdict) []*v1.VerdictCostSummary {
-	type vKey struct{ kind, model, tier string }
+	type vKey struct{ kind, model, tier, effort string }
 	rows := map[vKey]*v1.VerdictCostSummary{}
 	for _, v := range verdicts {
-		k := vKey{kind: v.Kind, model: costModelFamily(v.Model), tier: v.Tier}
+		k := vKey{kind: v.Kind, model: costModelFamily(v.Model), tier: v.Tier, effort: v.Effort}
 		row := rows[k]
 		if row == nil {
-			row = &v1.VerdictCostSummary{Kind: k.kind, Model: k.model, Tier: k.tier}
+			row = &v1.VerdictCostSummary{Kind: k.kind, Model: k.model, Tier: k.tier, Effort: k.effort}
 			rows[k] = row
 		}
 		row.Reviews++
@@ -1882,7 +1900,13 @@ func verdictRows(verdicts []*v1.Verdict) []*v1.VerdictCostSummary {
 		if out[i].Kind != out[j].Kind {
 			return out[i].Kind < out[j].Kind
 		}
-		return out[i].Model < out[j].Model
+		if out[i].Model != out[j].Model {
+			return out[i].Model < out[j].Model
+		}
+		if out[i].Tier != out[j].Tier {
+			return out[i].Tier < out[j].Tier
+		}
+		return out[i].Effort < out[j].Effort
 	})
 	return out
 }

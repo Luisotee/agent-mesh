@@ -390,7 +390,7 @@ func renderCost(m proto.Message, w io.Writer) {
 		printTable(w, []string{"kind", "sessions", "calls", "input", "cache write", "output", "total", "cache read", "% of tokens", "≈ $", "ctx/call", "out/call", "5m %", "prefix", "cold"}, rows)
 	}
 	if len(r.ByModel) > 0 {
-		fmt.Fprintln(w, "\nby model and phase:")
+		fmt.Fprintln(w, "\nby model, effort and phase:")
 		rows := make([][]string, 0, len(r.ByModel))
 		for _, bm := range r.ByModel {
 			phase := bm.Phase
@@ -398,12 +398,12 @@ func renderCost(m proto.Message, w io.Writer) {
 				phase = "-"
 			}
 			rows = append(rows, []string{
-				bm.Model, phase, fmt.Sprint(bm.Calls),
+				bm.Model, dash(bm.Effort), phase, fmt.Sprint(bm.Calls),
 				tokensText(bm.Input), tokensText(bm.W1 + bm.W5), tokensText(bm.Output), tokensText(bm.Total), tokensText(bm.Read),
 				fmt.Sprintf("%.2f", bm.Usd), tokensText(bm.CtxPerCall), fmt.Sprint(bm.OutPerCall),
 			})
 		}
-		printTable(w, []string{"model", "phase", "calls", "input", "cache write", "output", "total", "cache read", "≈ $", "ctx/call", "out/call"}, rows)
+		printTable(w, []string{"model", "effort", "phase", "calls", "input", "cache write", "output", "total", "cache read", "≈ $", "ctx/call", "out/call"}, rows)
 	}
 	if len(r.Verdicts) > 0 {
 		fmt.Fprintln(w, "\nreview findings, by the judge's verdict (`mesh verdict`; the PR author's unless the root changed it):")
@@ -413,9 +413,9 @@ func renderCost(m proto.Message, w io.Writer) {
 			if v.HasAgreedPct {
 				agreed = fmt.Sprintf("%d%%", v.AgreedPct)
 			}
-			rows = append(rows, []string{v.Kind, v.Model, v.Tier, fmt.Sprint(v.Reviews), fmt.Sprint(v.ByAuthor), fmt.Sprint(v.Findings), agreed, fmt.Sprint(v.Blocking)})
+			rows = append(rows, []string{v.Kind, v.Model, v.Tier, dash(v.Effort), fmt.Sprint(v.Reviews), fmt.Sprint(v.ByAuthor), fmt.Sprint(v.Findings), agreed, fmt.Sprint(v.Blocking)})
 		}
-		printTable(w, []string{"kind", "model", "tier", "reviews", "by author", "findings", "agreed", "blocking"}, rows)
+		printTable(w, []string{"kind", "model", "tier", "effort", "reviews", "by author", "findings", "agreed", "blocking"}, rows)
 	}
 	if rev := r.Reviews; rev != nil && (rev.ReviewedPrs > 0 || rev.Prs > 0) {
 		fmt.Fprintln(w)
@@ -795,4 +795,12 @@ func renderAsks(m proto.Message, w io.Writer) {
 			fmt.Fprintln(w, "    no answers file: the answers are in `mesh asks --format json` (each member's text)")
 		}
 	}
+}
+
+// dash is "-" for an empty value, so a table column stays a column.
+func dash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }

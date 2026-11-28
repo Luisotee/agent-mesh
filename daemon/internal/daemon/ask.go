@@ -332,7 +332,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		Head: pr.Head, Since: last, Size: m.Size, Tier: m.Tier, Body: body, CreatedAt: timestamppb.New(now), FinishedAt: timestamppb.New(now),
 		Members: []*v1.AskMember{{AgentId: res.Msg.Agent.Id, Name: res.Msg.Agent.Name, Kind: res.Msg.Agent.Kind, How: "fresh",
 			Status: v1.AskMemberStatus_ASK_MEMBER_STATUS_PENDING, Line: "asked alone: its `done` comes to you directly",
-			Model: res.Msg.Agent.Model, Tier: m.Tier, Head: pr.Head}}}
+			Model: res.Msg.Agent.Model, Effort: res.Msg.Agent.Effort, Tier: m.Tier, Head: pr.Head}}}
 	out := &v1.AskResponse{Ask: ask, Agents: []*v1.Agent{res.Msg.Agent}}
 	if _, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceAskProcedure, out, func(tx *store.Tx) error {
 		// The check again, where the ask is stored: another request may have stored one since the first.
@@ -711,7 +711,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			return fail(reuse.Name, "could not be resumed: "+res.Msg.ResumeError)
 		}
 		member.AgentId = reuse.Id // only a reviewer that took the task is the member's agent
-		member.How, member.Model = "asked", reuse.Model
+		member.How, member.Model, member.Effort = "asked", reuse.Model, reuse.Effort
 		member.Tier = reuse.Tier
 		if reuse.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING && reuse.ExecTier != "" {
 			member.Tier = reuse.ExecTier
@@ -766,7 +766,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		}
 		return fail(member.Name, msg)
 	}
-	member.AgentId, member.Name, member.How, member.Model = res.Msg.Agent.Id, res.Msg.Agent.Name, "fresh", res.Msg.Agent.Model
+	member.AgentId, member.Name, member.How, member.Model, member.Effort = res.Msg.Agent.Id, res.Msg.Agent.Name, "fresh", res.Msg.Agent.Model, res.Msg.Agent.Effort
 	if notReused != nil {
 		// The earlier reviewer, on a model its repo no longer allows, is not left running beside its replacement.
 		if _, err := d.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: subMeta(j.meta, "retire-"+j.kind), Agent: notReused.Id})); err != nil {
@@ -889,7 +889,7 @@ func (d *Daemon) RecordVerdict(ctx context.Context, req *connect.Request[v1.Reco
 					tier = a.ExecTier
 				}
 				v := &v1.Verdict{Reviewer: mem.Name, Kind: mem.Kind, Model: mem.Model, Tier: tier, Agree: m.Agree, Other: m.Other,
-					Disagree: m.Disagree, Blocking: m.Blocking, DeclinedBlocking: m.DeclinedBlocking, At: timestamppb.New(tx.Now()), Judge: judge}
+					Disagree: m.Disagree, Blocking: m.Blocking, DeclinedBlocking: m.DeclinedBlocking, At: timestamppb.New(tx.Now()), Judge: judge, Effort: mem.Effort}
 				kept := ask.Verdicts[:0]
 				for _, old := range ask.Verdicts {
 					if old.Reviewer != mem.Name {

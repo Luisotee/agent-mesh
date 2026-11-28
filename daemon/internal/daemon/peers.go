@@ -933,7 +933,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			cur = mine
 		}
 		agent = d.view(cur)
-		member.AgentId, member.Model = mine.Id, mine.Model
+		member.AgentId, member.Model, member.Effort = mine.Id, mine.Model, mine.Effort
 	} else {
 		a, missing, err := d.launchPeerAgent(ctx, actor, p, m.Tier, task)
 		if err != nil {
@@ -952,7 +952,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 				member.How = "fresh (its conversation was not found)"
 			}
 		}
-		member.AgentId, member.Model = a.Id, a.Model
+		member.AgentId, member.Model, member.Effort = a.Id, a.Model, a.Effort
 		agent = a
 		p.SessionId = a.SessionId
 	}

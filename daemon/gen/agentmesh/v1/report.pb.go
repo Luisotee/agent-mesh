@@ -619,7 +619,9 @@ type ModelPhaseCost struct {
 	Read       int64                  `protobuf:"varint,10,opt,name=read,proto3" json:"read,omitempty"`
 	Output     int64                  `protobuf:"varint,11,opt,name=output,proto3" json:"output,omitempty"`
 	// input + w1 + w5 + output, as AgentCost.total.
-	Total         int64 `protobuf:"varint,12,opt,name=total,proto3" json:"total,omitempty"`
+	Total int64 `protobuf:"varint,12,opt,name=total,proto3" json:"total,omitempty"`
+	// The effort the agent ran at when it spent these tokens; empty for a conversation no event records an effort for.
+	Effort        string `protobuf:"bytes,13,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -736,6 +738,13 @@ func (x *ModelPhaseCost) GetTotal() int64 {
 		return x.Total
 	}
 	return 0
+}
+
+func (x *ModelPhaseCost) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
 }
 
 // Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
@@ -947,7 +956,9 @@ type VerdictCostSummary struct {
 	AgreedPct    int32                  `protobuf:"varint,10,opt,name=agreed_pct,json=agreedPct,proto3" json:"agreed_pct,omitempty"`
 	HasAgreedPct bool                   `protobuf:"varint,11,opt,name=has_agreed_pct,json=hasAgreedPct,proto3" json:"has_agreed_pct,omitempty"`
 	// Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
-	ByAuthor      int64 `protobuf:"varint,12,opt,name=by_author,json=byAuthor,proto3" json:"by_author,omitempty"`
+	ByAuthor int64 `protobuf:"varint,12,opt,name=by_author,json=byAuthor,proto3" json:"by_author,omitempty"`
+	// The effort the reviewers ran at; rows are per kind, model, tier and effort.
+	Effort        string `protobuf:"bytes,13,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1064,6 +1075,13 @@ func (x *VerdictCostSummary) GetByAuthor() int64 {
 		return x.ByAuthor
 	}
 	return 0
+}
+
+func (x *VerdictCostSummary) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
 }
 
 // One CLI's tokens in the measured span, and how far to trust them.
@@ -2058,7 +2076,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x05input\x18\x04 \x01(\x03R\x05input\x12\x12\n" +
 	"\x04read\x18\x05 \x01(\x03R\x04read\x12\x16\n" +
 	"\x06output\x18\x06 \x01(\x03R\x06output\x12\x10\n" +
-	"\x03usd\x18\a \x01(\x01R\x03usd:\x02\x18\x01\"\xa0\x02\n" +
+	"\x03usd\x18\a \x01(\x01R\x03usd:\x02\x18\x01\"\xb8\x02\n" +
 	"\x0eModelPhaseCost\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x14\n" +
@@ -2074,7 +2092,8 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x04read\x18\n" +
 	" \x01(\x03R\x04read\x12\x16\n" +
 	"\x06output\x18\v \x01(\x03R\x06output\x12\x14\n" +
-	"\x05total\x18\f \x01(\x03R\x05total\"\xaf\x01\n" +
+	"\x05total\x18\f \x01(\x03R\x05total\x12\x16\n" +
+	"\x06effort\x18\r \x01(\tR\x06effort\"\xaf\x01\n" +
 	"\x13TokenModelPhaseCost\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12\x14\n" +
 	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x14\n" +
@@ -2096,7 +2115,7 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\n" +
 	"ByCliEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xce\x02\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xe6\x02\n" +
 	"\x12VerdictCostSummary\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x12\n" +
@@ -2111,7 +2130,8 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"agreed_pct\x18\n" +
 	" \x01(\x05R\tagreedPct\x12$\n" +
 	"\x0ehas_agreed_pct\x18\v \x01(\bR\fhasAgreedPct\x12\x1b\n" +
-	"\tby_author\x18\f \x01(\x03R\bbyAuthor\"\xd1\x01\n" +
+	"\tby_author\x18\f \x01(\x03R\bbyAuthor\x12\x16\n" +
+	"\x06effort\x18\r \x01(\tR\x06effort\"\xd1\x01\n" +
 	"\aCliCost\x12\x10\n" +
 	"\x03cli\x18\x01 \x01(\tR\x03cli\x12\x14\n" +
 	"\x05calls\x18\x02 \x01(\x03R\x05calls\x12\x14\n" +

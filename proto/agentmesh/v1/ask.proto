@@ -66,6 +66,8 @@ message AskMember {
   string peer_repo = 12;
   int32 upstream_new = 13;
   string about = 14;
+  // The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+  string effort = 15;
 }
 
 // Verdict is the judgement of one reviewer's findings on a round (`mesh verdict`): the PR author's, or the root's.
@@ -86,6 +88,8 @@ message Verdict {
   // How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
   // is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
   int32 declined_blocking = 11;
+  // The effort the reviewer ran at (`mesh cost` and the root's brief show verdicts per model and effort).
+  string effort = 12;
 }
 
 // Ask is the record of one `mesh ask` that started or reached agents.

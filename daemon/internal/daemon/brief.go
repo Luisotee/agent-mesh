@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -159,6 +161,7 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 	if isRoot {
 		out = append(out, d.tierLeanLine(r))
 		out = append(out, d.routingFacts(r)...)
+		out = append(out, d.reviewerRecord(r)...)
 	}
 	if isRoot { // the user's brakes: repos they merge or approve plans in, and what to ask before
 		out = append(out, d.autonomyBrief(r, run)...)
@@ -422,4 +425,81 @@ func (d *Daemon) routingFacts(r store.Reader) []string {
 		out = append(out, strengths...)
 	}
 	return out
+}
+
+// reviewerRecord is what the last 30 days' verdicts say about each reviewer model at each effort, so the root
+// weighs a reviewer by how its findings held up: reviews, the share of findings the judge agreed with or found
+// useful, and blocking findings per review. The effort is the one the reviewer ran at; a verdict from before
+// efforts were recorded has none.
+func (d *Daemon) reviewerRecord(r store.Reader) []string {
+	const days, shown = 30, 8
+	since := d.nowTime().Add(-days * 24 * time.Hour)
+	runs, err := r.ListRuns(true)
+	if err != nil {
+		return nil
+	}
+	type key struct{ kind, model, effort string }
+	type tally struct{ reviews, agree, findings, blocking int }
+	rows := map[key]*tally{}
+	for _, run := range runs {
+		asks, err := r.RunAsks(run.Id)
+		if err != nil {
+			continue
+		}
+		for _, ask := range asks {
+			for _, v := range ask.Verdicts {
+				if v.At != nil && v.At.AsTime().Before(since) {
+					continue
+				}
+				k := key{v.Kind, costModelFamily(v.Model), v.Effort}
+				t := rows[k]
+				if t == nil {
+					t = &tally{}
+					rows[k] = t
+				}
+				t.reviews++
+				t.agree += int(v.Agree + v.Other)
+				t.findings += int(v.Agree + v.Other + v.Disagree)
+				t.blocking += int(v.Blocking)
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	keys := make([]key, 0, len(rows))
+	for k := range rows {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := rows[keys[i]], rows[keys[j]]
+		if a.reviews != b.reviews {
+			return a.reviews > b.reviews
+		}
+		return fmt.Sprint(keys[i]) < fmt.Sprint(keys[j])
+	})
+	out := []string{"reviewers, last 30 days, by model and effort (reviews, findings agreed or useful, blocking per review; `mesh cost`):"}
+	for _, k := range capKeys(keys, shown) {
+		t := rows[k]
+		agreed := "no findings"
+		if t.findings > 0 {
+			agreed = fmt.Sprintf("%d%% agreed", int(math.Round(100*float64(t.agree)/float64(t.findings))))
+		}
+		effort := k.effort
+		if effort == "" {
+			effort = "effort not recorded"
+		}
+		out = append(out, fmt.Sprintf("  %s %s, %s: %d reviews, %s, %.1f blocking per review", k.kind, orDash(k.model), effort, t.reviews, agreed, float64(t.blocking)/float64(t.reviews)))
+	}
+	if len(keys) > shown {
+		out = append(out, fmt.Sprintf("  … %d more: `mesh cost --since 30d`", len(keys)-shown))
+	}
+	return out
+}
+
+func capKeys[K any](keys []K, n int) []K {
+	if len(keys) > n {
+		return keys[:n]
+	}
+	return keys
 }
