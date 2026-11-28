@@ -54,6 +54,9 @@ type openCodeRuntime struct {
 	polled       map[string]*openCodePollState
 	seenEvidence map[openCodeEvidenceKey]bool
 	freeModels   []string
+	// listed is every model the last good listing named; nil until one was read. A tier chain skips a model
+	// not in it (a free model that left OpenCode's list) instead of launching on it.
+	listed map[string]bool
 	// costs is each listed model's cost class (opencode.CostClasses); nil until a listing was read.
 	costs        map[string]string
 	lastWarmFail time.Time
@@ -147,6 +150,10 @@ func (d *Daemon) warmOpenCodeModels(ctx context.Context, kind string) {
 	if err == nil {
 		// What OpenCode reports as each model's cost, for `repos.no_free_models` (freemodels.go).
 		d.rt.openCode.costs = opencode.CostClasses(listing)
+		d.rt.openCode.listed = make(map[string]bool, len(listing))
+		for m := range listing {
+			d.rt.openCode.listed[m] = true
+		}
 	}
 	if err != nil || len(expanded) == 0 {
 		d.rt.openCode.lastWarmFail = d.nowTime()
@@ -174,13 +181,15 @@ func (d *Daemon) openCodeNoFreeError() string {
 
 // expandChain replaces any `free` entry in an OpenCode tier chain with the cached expanded `opencode/*` free
 // models, deduplicating while preserving order. When the cache is empty, `free` is dropped rather than
-// returning the literal family name so no agent ever launches on `"free"`.
+// returning the literal family name so no agent ever launches on `"free"`. Once a listing was read, a named model
+// OpenCode no longer lists is dropped too (the free models rotate: a chain may name one that has left).
 func (d *Daemon) expandChain(kind string, chain []string) []string {
 	if kind != opencode.Kind {
 		return chain
 	}
 	d.rt.openCode.mu.Lock()
 	free := append([]string(nil), d.rt.openCode.freeModels...)
+	listed := d.rt.openCode.listed
 	d.rt.openCode.mu.Unlock()
 	var out []string
 	seen := map[string]bool{}
@@ -190,7 +199,7 @@ func (d *Daemon) expandChain(kind string, chain []string) []string {
 			cands = free
 		}
 		for _, m := range cands {
-			if m == "" || seen[m] {
+			if m == "" || seen[m] || (listed != nil && item != opencode.FreeFamily && !listed[m]) {
 				continue
 			}
 			seen[m] = true

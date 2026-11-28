@@ -299,9 +299,17 @@ func Check(l Leaf, v any) (any, error) {
 // on when to pick it. Only Claude has `top`, used when the user names it.
 var tierNotes = map[string]string{
 	"light":  "trivial tasks (copy, translations, a version bump, config) and short mechanical text",
-	"mid":    "executing a clear plan, small tasks, routine questions and peer follow-ups, small-PR reviews",
-	"strong": "planning, unclear or risky work (auth, money, data migrations, concurrency), large-PR reviews",
+	"mid":    "executing a clear plan, small tasks, routine questions and follow-ups, reviews of routine PRs (small or large)",
+	"strong": "planning, unclear or risky work (auth, money, data migrations, concurrency), a bug of unknown cause, reviews of risky PRs",
 	"top":    "only when the user names it",
+}
+
+// noteOf is a tier's note: its own when the row sets one, else the tier's shared one.
+func noteOf(tier, own string) string {
+	if own != "" {
+		return own
+	}
+	return tierNotes[tier]
 }
 
 func chain(models ...string) []any {
@@ -312,30 +320,45 @@ func chain(models ...string) []any {
 	return out
 }
 
-// OpenCode runs on the one free model whose findings were worth checking (cost study,
-// docs/cost-research/roles-and-reviews.md), with no `free` fallback: the others' were mostly rejected.
-var opencodeChain = []string{"opencode/deepseek-v4.1-flash-free"}
+// OpenCode's free models, best first (docs/model-routing-research.md, section 3): DeepSeek is the strongest and the
+// only one that does real execution, then the ones that did well in our own reviews, and beam and flint last (beam
+// scores 3.0 on the independent Terminal-Bench and was weak in our reviews). `free` last adds whatever else is free
+// now, so a new one is tried after the named ones; a model that left OpenCode's list is skipped by the pick.
+var opencodeChain = []string{"opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free", "opencode/seaglass-alpha-free",
+	"opencode/mimo-v2.6-flash-free", "opencode/beam-free", "opencode/flint-40b-free", "free"}
 
-// tierDefaults mirrors `bin/mesh`'s TIER_DEFAULTS.
+// opencodeLight is trivial work: DeepSeek, then the fast one.
+var opencodeLight = []string{"opencode/deepseek-v4.1-flash-free", "opencode/hy4-flash-free"}
+
+// tierDefaults are the shipped tiers (docs/model-routing-research.md, section 5). effort is what the tier plans and
+// works at; exec is what a planned task executes at once `mesh approve` picks the tier without an effort (Opus
+// executes a plan at medium, which beats Sonnet at high for about its cost); review is a fresh reviewer's effort on
+// the tier (Opus medium, Sonnet high, agy medium, DeepSeek high: the effort of one review is not the author's).
+// note, when set, replaces the tier's shared note (tierNotes).
 var tierDefaults = []struct {
-	kind, tier string
-	models     []string
-	effort     string
+	kind, tier         string
+	models             []string
+	effort, exec, revw string
+	note               string
 }{
-	{"claude", "light", []string{"haiku"}, "medium"},
-	{"claude", "mid", []string{"sonnet"}, "high"},
-	{"claude", "strong", []string{"opus"}, "high"},
-	{"claude", "top", []string{"fable"}, "high"},
-	{"agy", "light", []string{"flash"}, "low"},
-	{"agy", "mid", []string{"hydrogen"}, "high"},
-	{"agy", "strong", []string{"neon", "opus", "carbon", "hydrogen"}, "high"},
-	{"copilot", "light", []string{"auto"}, "low"},
-	{"copilot", "mid", []string{"auto"}, "medium"},
-	{"copilot", "strong", []string{"auto"}, "high"},
-	{"opencode", "light", opencodeChain, "low"},
-	{"opencode", "mid", opencodeChain, "high"},
-	{"opencode", "strong", opencodeChain, "high"},
+	{"claude", "light", []string{"haiku"}, "medium", "medium", "medium", ""},
+	{"claude", "mid", []string{"sonnet"}, "high", "high", "high", ""},
+	{"claude", "strong", []string{"opus"}, "high", "medium", "medium", ""},
+	{"claude", "top", []string{"fable"}, "medium", "high", "medium", ""},
+	{"agy", "light", []string{"hydrogen"}, "medium", "medium", "medium", agyLightNote},
+	{"agy", "mid", []string{"hydrogen"}, "high", "high", "medium", ""},
+	{"agy", "strong", []string{"neon", "opus", "carbon", "hydrogen"}, "high", "high", "medium", ""},
+	{"copilot", "light", []string{"auto"}, "low", "low", "low", ""},
+	{"copilot", "mid", []string{"auto"}, "medium", "medium", "medium", ""},
+	{"copilot", "strong", []string{"auto"}, "high", "high", "high", ""},
+	{"opencode", "light", opencodeLight, "low", "low", "high", ""},
+	{"opencode", "mid", opencodeChain, "high", "high", "high", ""},
+	{"opencode", "strong", opencodeChain, "high", "high", "high", ""},
 }
+
+// agyLightNote: agy's plan is small and its light model scores below Claude's and the free ones, so trivial work goes
+// to Claude light or OpenCode first.
+const agyLightNote = "trivial work, when Claude and OpenCode are out: agy's plan is small, keep it for a second family and for relieving Claude"
 
 // The lean Claude defaults (bin/mesh's LEAN_*; design §11). Tools by name; bundled skills; plugins nothing in a
 // mesh uses. A worker's skills are the share plugin's, bare and namespaced (`agent-mesh:`), because
@@ -368,12 +391,16 @@ func DefaultLeaves() []Leaf {
 			Leaf{Key: p + "model", Label: name + "models", Group: GroupAgents, Type: Chain, Default: chain(t.models...),
 				Summary: who + "the models to try in order (the next when one is at its quota)"},
 			Leaf{Key: p + "effort", Label: name + "effort", Group: GroupAgents, Type: Effort, Default: t.effort, Choices: Efforts, Summary: who + "reasoning effort"},
-			Leaf{Key: p + "note", Label: name + "when to pick it", Group: GroupAgents, Advanced: true, Type: String, Default: tierNotes[t.tier], Summary: who + "when the root should pick it"})
+			Leaf{Key: p + "exec_effort", Label: name + "execution effort", Group: GroupAgents, Advanced: true, Type: Effort, Default: t.exec, Choices: Efforts,
+				Summary: who + "the effort a planned task executes at when `mesh approve` picks this tier and names no effort (`--effort` wins; `--keep-model` keeps the planning one)"},
+			Leaf{Key: p + "review_effort", Label: name + "review effort", Group: GroupReviews, Advanced: true, Type: Effort, Default: t.revw, Choices: Efforts,
+				Summary: who + "the effort of a fresh reviewer on this tier, unless the review names one (a relay step takes `review.effort.relay`)"},
+			Leaf{Key: p + "note", Label: name + "when to pick it", Group: GroupAgents, Advanced: true, Type: String, Default: noteOf(t.tier, t.note), Summary: who + "when the root should pick it"})
 	}
 	reviewLevel := map[string]string{"trivial": "medium", "small": "medium", "large": "high"}
 	selfLevel := map[string]string{"trivial": "low", "small": "low", "large": "medium"}
-	ls = append(ls, Leaf{Key: "review.effort", Label: "Reviewer effort", Group: GroupReviews, Type: Effort, Default: "high", Choices: Efforts,
-		Summary: "effort of a fresh reviewer, whatever its tier, unless the review names another"})
+	ls = append(ls, Leaf{Key: "review.effort.relay", Label: "Reviewer effort in a relay", Group: GroupReviews, Type: Effort, Default: "high", Choices: Efforts,
+		Summary: "effort of every step of a risky PR's relay, whatever the CLI (a fresh reviewer otherwise runs at its tier's `review_effort`), unless the review names another"})
 	for _, sz := range sizes {
 		ls = append(ls,
 			Leaf{Key: "review.level." + sz, Label: "Review level, " + sz + " PR", Group: GroupReviews, Advanced: true, Type: Effort, Default: reviewLevel[sz], Choices: Efforts,
@@ -382,11 +409,11 @@ func DefaultLeaves() []Leaf {
 				Summary: "the /code-review level of a worker's self-review of a " + sz + " PR, before its done"})
 	}
 	ls = append(ls,
-		Leaf{Key: "review.reviewers.small", Label: "Reviewers of a small PR", Group: GroupReviews, Type: Slots, Default: []any{chain("opencode", "agy", "claude")}, Choices: AgentKinds,
-			Summary: "reviewer slots of a small PR: each takes its first available kind not picked yet"},
-		Leaf{Key: "review.reviewers.large", Label: "Reviewers of a large PR", Group: GroupReviews, Type: Slots, Default: []any{chain("agy", "claude", "opencode")},
+		Leaf{Key: "review.reviewers.small", Label: "Reviewers of a small PR", Group: GroupReviews, Type: Slots, Default: []any{chain("opencode", "claude", "agy")}, Choices: AgentKinds,
+			Summary: "reviewer slots of a small PR: each takes its first available kind not picked yet (one slot: a free model first, then Claude, then agy, whose plan is small)"},
+		Leaf{Key: "review.reviewers.large", Label: "Reviewers of a large PR", Group: GroupReviews, Type: Slots, Default: []any{chain("opencode", "claude", "agy"), chain("claude", "agy", "opencode")},
 			Choices: AgentKinds,
-			Summary: "reviewer slots of a large PR: each takes its first available kind not picked yet"},
+			Summary: "reviewer slots of a large PR: each takes its first available kind not picked yet (two slots: a free model, and a Claude reviewer, or another family when Claude wrote the PR and agy has quota; a risky PR gets a relay instead)"},
 		Leaf{Key: "review.re_review.skip", Label: "Reviewers not asked again after a fix", Group: GroupReviews, Type: Kinds, Default: chain("copilot"), Choices: AgentKinds,
 			Summary: "kinds that review a PR once and are not asked again after a fix"},
 		Leaf{Key: "review.re_review.keep.small", Label: "Asked again after a fix, small PR", Group: GroupReviews, Advanced: true, Type: Kinds, Default: []any{}, Choices: AgentKinds,
@@ -397,8 +424,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "who runs the review rounds of a worker's PR: the worker itself (once its self-review is done), or its parent, the root (the user's override); a risky PR's worker runs a relay itself: `mesh spawn --reviews relay` and `mesh approve --reviews relay` (also `worker`, `root`) set it per worker"},
 		Leaf{Key: "review.tier.small", Label: "Reviewer tier, small PR", Group: GroupReviews, Type: String, Default: "mid", Choices: []string{"light", "mid", "strong"},
 			Summary: "the tier the reviewers of a small PR run on when the round names none (a worker's own round)"},
-		Leaf{Key: "review.tier.large", Label: "Reviewer tier, large PR", Group: GroupReviews, Type: String, Default: "strong", Choices: []string{"light", "mid", "strong"},
-			Summary: "the tier the reviewers of a large PR run on when the round names none (a worker's own round)"},
+		Leaf{Key: "review.tier.large", Label: "Reviewer tier, large PR", Group: GroupReviews, Type: String, Default: "mid", Choices: []string{"light", "mid", "strong"},
+			Summary: "the tier the reviewers of a large PR run on when the round names none (a worker's own round): risk, not size, buys `strong` (a risky PR's relay)"},
 		Leaf{Key: "review.wait_room", Label: "Wait for room to review", Group: GroupReviews, Advanced: true, Type: Seconds, Default: 300.0,
 			Summary: "seconds a review round waits, its `mesh ask` staying open, for room to start its first reviewer (the agent cap `caps.agents` or the memory floor) before it is refused as before; a quota is not waited for; 0 refuses at once"},
 		Leaf{Key: "review.rounds.small", Label: "Review rounds, small PR", Group: GroupReviews, Type: Int, Default: 1.0,

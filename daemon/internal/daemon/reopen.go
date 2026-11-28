@@ -492,7 +492,14 @@ func (d *Daemon) ApproveAgent(ctx context.Context, req *connect.Request[v1.Appro
 			if tier == "" && m.Model == "" {
 				return invalid("name %s's execution tier (read its plan first), or a model", a.Name)
 			}
-			if model, effort, err = d.pickFor(tx.Reader, a, tier, m.Model, m.Effort, a.Name+"'s execution"); err != nil {
+			// A tier picked with no effort executes at its own execution effort (Opus after a plan at medium).
+			named := m.Effort
+			if named == "" && m.Model == "" {
+				if named, err = d.execEffort(tx.Reader, a.Kind, tier); err != nil {
+					return err
+				}
+			}
+			if model, effort, err = d.pickFor(tx.Reader, a, tier, m.Model, named, a.Name+"'s execution"); err != nil {
 				return err
 			}
 			execTier = tier
