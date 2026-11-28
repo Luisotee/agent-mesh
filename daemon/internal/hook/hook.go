@@ -54,7 +54,7 @@ type Options struct {
 	// DialTimeout and CallTimeout bound how long a down daemon holds the CLI up.
 	DialTimeout time.Duration
 	CallTimeout time.Duration
-	// PermissionTimeout bounds how long a PermissionRequest waits for its parent's answer (default: just under
+	// PermissionTimeout bounds how long a PermissionRequest waits for the answer of its parent or the user (default: just under
 	// the hook's own timeout).
 	PermissionTimeout time.Duration
 }

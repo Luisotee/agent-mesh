@@ -407,7 +407,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
                 {b.kind === 'message' ? (
                   <MessageCard host={host} message={b.message} open={open.has(b.message.id)} />
                 ) : (
-                  <ChatBlock block={b} agentId={agentId} running={b === lastTools && working && b.kind === 'tools' && b.calls.some((c) => !c.result)} waiting={b.kind === 'asked' && prompts.some((p) => p.toolUseId === b.call.toolUseId)} />
+                  <ChatBlock block={b} agentId={agentId} running={b === lastTools && working && b.kind === 'tools' && b.calls.some((c) => !c.result)} waiting={b.kind === 'asked' && b.call.toolUseId !== '' && prompts.some((p) => p.toolUseId === b.call.toolUseId)} />
                 )}
               </li>
             ))}

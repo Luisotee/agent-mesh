@@ -79,6 +79,11 @@ func buildAnswers(questions []*v1.PromptQuestion, in []*v1.PromptAnswer) (map[st
 			if !labels[l] {
 				return nil, invalid("%q is not an option of %q", l, q.Question)
 			}
+			for _, p := range parts {
+				if p == l {
+					return nil, invalid("%q is chosen twice for %q", l, q.Question)
+				}
+			}
 			parts = append(parts, l)
 		}
 		other := strings.TrimSpace(a.Other)

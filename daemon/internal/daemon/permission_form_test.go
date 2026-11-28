@@ -57,6 +57,7 @@ func TestAQuestionForTheUserIsAnsweredFromADevice(t *testing.T) {
 		"a label and other":    {ans(color, "mine", "Red"), ans(toppings, "", "Cheese")},
 		"an empty answer":      {ans(color, "  "), ans(toppings, "", "Cheese")},
 		"an unknown question":  {ans(color, "", "Red"), ans(toppings, "", "Cheese"), ans("Why?", "", "x")},
+		"a label twice":        {ans(color, "", "Red"), ans(toppings, "", "Cheese", "Cheese")},
 		"a question twice":     {ans(color, "", "Red"), ans(color, "", "Blue"), ans(toppings, "", "Cheese")},
 	} {
 		if err := w.decideForm(w.device.Mesh, &v1.DecidePermissionRequest{Id: p.Id, Decision: "allow", Answers: bad}); code(err) != connect.CodeInvalidArgument {
