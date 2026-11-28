@@ -119,6 +119,27 @@ describe('ProjectSidebar', () => {
     expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1' })
   })
 
+  it('keeps ended agents out of a run\'s tree, in one quiet "Ended" fold that still reaches them', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, old: agent('old', { name: 'app-old', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.RETIRED }), lost: agent('lost', { name: 'app-lost', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.EXITED }) } }))
+    render(wrap(<ProjectSidebar />))
+    const project = screen.getByRole('listitem', { name: 'app' })
+    await userEvent.click(within(project).getByRole('button', { name: 'Show the workers of ship it' }))
+    expect(within(project).getByRole('button', { name: 'app-fix' })).toBeInTheDocument()
+    expect(within(project).queryByRole('button', { name: 'app-old' })).toBeNull()
+    const fold = within(project).getByRole('button', { name: /Ended\s*2/ })
+    expect(fold).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(fold)
+    const old = within(project).getByRole('button', { name: 'app-old' })
+    expect(old).toHaveTextContent('Retired')
+    await userEvent.click(old)
+    expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'old' })
+    // The open agent is in the fold: it stays open for it, and a click on the header still folds it.
+    expect(within(project).getByRole('button', { name: /Ended\s*2/ })).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(within(project).getByRole('button', { name: /Ended\s*2/ }))
+    expect(within(project).getByRole('button', { name: /Ended\s*2/ })).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('folds reviewers and askers into a chip on their worker, and tags a worker in another repo', async () => {
     const { host, wrap } = fixture()
     host.store.setState((s) => ({
