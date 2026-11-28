@@ -29,7 +29,7 @@ func TestApprovingOntoATierExecutesAtTheTiersExecutionEffort(t *testing.T) {
 			run := startRun(t, w.device.Mesh, "")
 			_, asLead := w.root(t, run.Id)
 			res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
-				Tier: "strong", Plan: true, Task: "plan the fix"}))
+				Tier: "strong", Plan: true, Task: "plan the fix", About: "plan a fix"}))
 			if err != nil {
 				t.Fatal(err)
 			}
