@@ -30,7 +30,7 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	_, asLead := w.root(t, run.Id)
 
 	// Spawn a read-only Claude asker (strict deny list + hooks + skipPermissions) and an agy worker.
-	askRes, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	askRes, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		Repo: gitRepo(t), Slug: "ask", Role: v1.AgentRole_AGENT_ROLE_ASKER, Kind: "claude", Tier: "mid", Task: "read only question",
 	}))
 	if err != nil {
@@ -107,7 +107,7 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 
 	// Stop the asker, remove its clean worktree via StopRun, and test CLI open in EXEC mode:
 	// worktree is recreated and Claude launch omits hooks, deny lists, lean flags, and --dangerously-skip-permissions.
-	agyWorker := w.spawnUnder(t, asLead, "ag", &v1.SpawnAgentRequest{Kind: "agy", Tier: "strong"})
+	agyWorker := w.spawnUnder(t, asLead, "ag", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy", Tier: "strong"})
 	agyWorker = w.agyTurn(t, agyWorker, "hi")
 	hooksPath := filepath.Join(agyWorker.Worktree, ".agents", "hooks.json")
 	if _, err := os.Stat(hooksPath); err != nil {
@@ -248,7 +248,7 @@ func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	repoTracked := gitRepo(t)
 	commitFileIn(t, repoTracked, ".agents/hooks.json", "{\"custom\":{\"Stop\":[{\"type\":\"command\",\"command\":\"echo hi\"}]}}\n", "add repo hooks")
 	run2 := startRun(t, w.device.Mesh, "")
-	trackedWorker := w.spawnUnder(t, w.device.Mesh, "tracked-ag", &v1.SpawnAgentRequest{
+	trackedWorker := w.spawnUnder(t, w.device.Mesh, "tracked-ag", &v1.SpawnAgentRequest{About: "test worker",
 		RunId: run2.Id, Repo: repoTracked, Kind: "agy", Tier: "strong",
 	})
 	trackedWorker = w.agyTurn(t, trackedWorker, "hi")

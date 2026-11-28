@@ -40,6 +40,7 @@ var renderers = map[string]struct {
 	"pair":            {func() proto.Message { return &v1.CreatePairingResponse{} }, renderPair},
 	"ask":             {func() proto.Message { return &v1.AskResponse{} }, renderAsk},
 	"asks":            {func() proto.Message { return &v1.ListAsksResponse{} }, renderAsks},
+	"overview":        {func() proto.Message { return &v1.GetRunOverviewResponse{} }, renderOverview},
 }
 
 type streamState struct {

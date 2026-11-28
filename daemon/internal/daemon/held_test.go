@@ -30,8 +30,8 @@ func startHeld(t *testing.T) *heldWorld {
 	h := &heldWorld{reopenWorld: w}
 	h.run = startRun(t, w.device.Mesh, "")
 	h.lead, h.asLead = w.root(t, h.run.Id)
-	h.a = w.spawnUnder(t, h.asLead, "wa", &v1.SpawnAgentRequest{})
-	h.b = w.spawnUnder(t, h.asLead, "wb", &v1.SpawnAgentRequest{})
+	h.a = w.spawnUnder(t, h.asLead, "wa", &v1.SpawnAgentRequest{About: "test worker"})
+	h.b = w.spawnUnder(t, h.asLead, "wb", &v1.SpawnAgentRequest{About: "test worker"})
 	h.asA, h.asB = w.as(w.token(t, h.a.Id)), w.as(w.token(t, h.b.Id))
 	return h
 }

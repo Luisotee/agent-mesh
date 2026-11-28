@@ -154,7 +154,7 @@ func TestAddingAPeerClonesItDetachesAWorktreeAndRefusesWhatGitMustNotRun(t *test
 		t.Errorf("after the edits %v", list.Msg)
 	}
 	// A worker may read the list but not add.
-	asWorker := w.as(w.token(t, w.spawnUnder(t, w.asRoot, "wk", &v1.SpawnAgentRequest{}).Id))
+	asWorker := w.as(w.token(t, w.spawnUnder(t, w.asRoot, "wk", &v1.SpawnAgentRequest{About: "test worker"}).Id))
 	if _, err := asWorker.ListPeers(ctx, connect.NewRequest(&v1.ListPeersRequest{})); err != nil {
 		t.Errorf("a worker's list: %v", err)
 	}

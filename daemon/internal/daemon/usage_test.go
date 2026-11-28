@@ -71,7 +71,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	})
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
-	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 	}))
 	if err != nil {
@@ -82,7 +82,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	worker := w.spawnClaude(t, run, "w", v1.AgentRole_AGENT_ROLE_WORKER)
 
 	// Spawn a planner with rootCli and have it send a plan so we can test ApproveAgent under reserve.
-	plannerRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	plannerRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "plan", Tier: "light", ExecTier: "strong", Plan: true, Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -98,7 +98,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 
 	// Also spawn & retire a worker to test ResumeAgent(--task vs no task) under reserve, plus an ASKER
 	// (read-only role must also respect reserve on SendMessage(TASK) and ResumeAgent(--task)).
-	retRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	retRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "ret", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -107,7 +107,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	retWorker := w.waitState(retRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 	retWorker = retireStoppedWorker(t, w, retWorker)
 
-	askerRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	askerRes, err := rootCli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "ask", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_ASKER,
 	}))
 	if err != nil {
@@ -136,7 +136,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("exported ReserveGuard code = %v, want ResourceExhausted", err)
 	}
-	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "blocked", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	})); code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "five-hour window") {
 		t.Errorf("SpawnAgent under reserve: %v", err)
@@ -366,7 +366,7 @@ func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 	// Run 1 has only a Claude root (no non-root Claude workers): must NOT receive Claude alerts.
 	runRootOnly := startRun(t, w.device.Mesh, "")
 	leadRootOnly := w.waitState(func() string {
-		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 			RunId: runRootOnly.Id, Repo: repo, Slug: "lead-ro", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 		}))
 		if err != nil {
@@ -378,7 +378,7 @@ func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 	// Run 2 has a Claude root + a Claude sonnet worker: seven_day_opus does not apply to sonnet.
 	runSonnet := startRun(t, w.device.Mesh, "")
 	leadSonnet := w.spawnClaude(t, runSonnet, "lead-so", v1.AgentRole_AGENT_ROLE_ROOT)
-	sonnetRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sonnetRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: runSonnet.Id, Repo: repo, Slug: "w-sonnet", Model: "sonnet", Effort: "high", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -389,7 +389,7 @@ func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 	// Run 3 has a Claude root + a Claude opus worker: receives seven_day_opus alert once quota crosses reserve.
 	runOpus := startRun(t, w.device.Mesh, "")
 	leadOpus := w.spawnClaude(t, runOpus, "lead-op", v1.AgentRole_AGENT_ROLE_ROOT)
-	opusRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	opusRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: runOpus.Id, Repo: repo, Slug: "w-opus", Model: "opus", Effort: "high", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -399,7 +399,7 @@ func TestClaudeReserveAlertsOnlyToRunsWithLiveClaudeAgent(t *testing.T) {
 
 	// Run 4 has only agy agents, no Claude workers.
 	runAgy := startRun(t, w.device.Mesh, "")
-	leadAgyRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	leadAgyRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: runAgy.Id, Repo: repo, Slug: "lead-a", Kind: "agy", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 	}))
 	if err != nil {
@@ -455,7 +455,7 @@ func TestAgyUsageReserveSkipsSpentModelsOnChain(t *testing.T) {
 	}
 
 	// Spawning on tier strong skips neon and lands directly on hydrogen; explicit model neon is refused by ReserveGuard.
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "agy-h", Kind: "agy", Tier: "strong", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -465,7 +465,7 @@ func TestAgyUsageReserveSkipsSpentModelsOnChain(t *testing.T) {
 	if a.Model != "hydrogen" {
 		t.Errorf("spawned agy model = %q, want hydrogen", a.Model)
 	}
-	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "agy-n", Kind: "agy", Model: "neon", Effort: "high", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	})); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("explicit spent agy model: %v, want ResourceExhausted", err)
@@ -495,7 +495,7 @@ func TestPeriodicReserveAlertPostedOnceToRunLead(t *testing.T) {
 	})
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
-	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 	}))
 	if err != nil {
@@ -606,7 +606,7 @@ func TestWarmUsageSkipsAgyWhenQuotaStopDisabledAndRunInvalid(t *testing.T) {
 	run := startRun(t, w.device.Mesh, "")
 
 	// Invalid/missing run stops SpawnAgent before warmUsage calls ReadAgyUsage even with quota_stop < 100.
-	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: "r_missing", Repo: repo, Slug: "miss", Kind: "agy", Tier: "strong", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	})); code(err) != connect.CodeNotFound {
 		t.Fatalf("missing run code = %v, want NotFound", err)
@@ -617,7 +617,7 @@ func TestWarmUsageSkipsAgyWhenQuotaStopDisabledAndRunInvalid(t *testing.T) {
 
 	// With quota_stop = 100, SpawnAgent/SendMessage/SwitchAgent/ResumeAgent never run `agy -p /usage`.
 	w.set(t, "quota_stop", 100)
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "agy-w", Kind: "agy", Tier: "strong", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -679,13 +679,13 @@ func TestAnAgyReserveAlertIsSentOncePerWindowWhateverTheResetEstimate(t *testing
 		}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	lead := w.waitState(leadRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "agy-h", Kind: "agy", Model: "hydrogen", Effort: "high", Role: v1.AgentRole_AGENT_ROLE_WORKER}))
 	if err != nil {
 		t.Fatal(err)

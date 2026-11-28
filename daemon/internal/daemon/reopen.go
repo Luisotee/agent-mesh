@@ -1029,6 +1029,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 					if out.Message, err = storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_TASK, taskBody); err != nil {
 						return err
 					}
+					if out.AboutNote, err = taskAboutOn(tx, a, m.About, taskBody); err != nil {
+						return err
+					}
 				}
 				if out.Reopen, err = d.revive(tx, a, spec); err != nil {
 					return err
@@ -1128,6 +1131,10 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			}
 			if taskBody != "" {
 				if out.Message, err = storeMessage(tx, created, v1.MessageType_MESSAGE_TYPE_TASK, taskBody); err != nil {
+					d.rt.guard.release(created.Id)
+					return err
+				}
+				if out.AboutNote, err = taskAboutOn(tx, created, m.About, taskBody); err != nil {
 					d.rt.guard.release(created.Id)
 					return err
 				}

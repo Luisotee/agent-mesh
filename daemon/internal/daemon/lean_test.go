@@ -87,7 +87,7 @@ func TestAClaudeAgentLaunchesLeanWithTheKeptAndTheNamedMCPServersAndARootKeepsAs
 	}
 
 	// A worker named playwright for its task: it gets context7 and playwright, never sentry.
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "ui",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "ui",
 		Tier: "mid", Mcp: []string{"playwright"}, Task: "build the page"}))
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestSpawnRefusesMCPServersTheUsersConfigLacksAndOnesAnAgentCannotTake(t *te
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 	spawn := func(kind string, mcp ...string) error {
-		_, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "x" + kind,
+		_, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "x" + kind,
 			Kind: kind, Tier: "mid", Mcp: mcp}))
 		return err
 	}

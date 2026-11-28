@@ -210,7 +210,7 @@ func TestAResetRefusesWhileAPlanWaitsAndCancelsOneThatArrives(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid",
 		Task: "Direct task (no plan): fix it"}))
 	if err != nil {
 		t.Fatal(err)
@@ -420,7 +420,7 @@ func TestTheKeeperResetsABigIdleRootAndNotASmallOneOrOneWithMail(t *testing.T) {
 	w := startReset(t, daemon.ResetTimings{Every: 100 * time.Millisecond, Quiet: 300 * time.Millisecond, UserQuiet: 600 * time.Millisecond, Backoff: time.Hour})
 	ctx := context.Background()
 	spawnLive := func(asRoot agentmeshv1connect.MeshServiceClient) {
-		res, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
+		res, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -479,7 +479,7 @@ func TestTheKeeperSkipsARunWithNoLiveWorkers(t *testing.T) {
 
 	retired := startRun(t, w.device.Mesh, "")
 	retiredLead, asRetired := w.root(t, retired.Id)
-	res, err := asRetired.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
+	res, err := asRetired.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +522,7 @@ func TestTheKeeperWaitsLessAfterATurnMeshStarted(t *testing.T) {
 	ctx := context.Background()
 	woken := startRun(t, w.device.Mesh, "")
 	wokenLead, asWoken := w.root(t, woken.Id)
-	res, err := asWoken.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "Direct task (no plan): fix it"}))
+	res, err := asWoken.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "Direct task (no plan): fix it"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestTheKeeperWaitsLessAfterATurnMeshStarted(t *testing.T) {
 
 	typed := startRun(t, w.device.Mesh, "")
 	typedLead, asTyped := w.root(t, typed.Id)
-	tres, err := asTyped.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "Direct task (no plan): fix it"}))
+	tres, err := asTyped.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "Direct task (no plan): fix it"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +588,7 @@ func TestARootCommandCarriesTheContextHintAndNobodyElsesDoes(t *testing.T) {
 	if h := hint(asLead); h != "" {
 		t.Errorf("warm: %q", h)
 	}
-	spawn, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "Direct task (no plan): fix it"}))
+	spawn, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "Direct task (no plan): fix it"}))
 	if err != nil {
 		t.Fatal(err)
 	}

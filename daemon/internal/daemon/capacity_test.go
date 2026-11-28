@@ -26,7 +26,7 @@ func TestAutoAgentCapIsTheHostsAndSpawnSaysWhatFits(t *testing.T) {
 	repo := gitRepo(t)
 	var last *v1.SpawnAgentResponse
 	for _, slug := range []string{"one", "two", "three", "four"} {
-		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("sp-" + slug), RunId: run.Id,
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta("sp-" + slug), RunId: run.Id,
 			Repo: repo, Slug: slug, Tier: "mid"}))
 		if err != nil {
 			t.Fatalf("%s: %v", slug, err)
@@ -37,14 +37,14 @@ func TestAutoAgentCapIsTheHostsAndSpawnSaysWhatFits(t *testing.T) {
 		!strings.Contains(last.Capacity, "1 cores") {
 		t.Errorf("capacity after the fourth spawn: %q", last.Capacity)
 	}
-	_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("sp-five"), RunId: run.Id, Repo: repo,
+	_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta("sp-five"), RunId: run.Id, Repo: repo,
 		Slug: "five", Tier: "mid"}))
 	if code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "caps.agents 4, auto: 1 cores") {
 		t.Fatalf("a fifth agent: %v", err)
 	}
 	// A number the user sets wins, and 0 lifts the cap.
 	w.set(t, "caps.agents", 5)
-	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("sp-five-b"), RunId: run.Id, Repo: repo,
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta("sp-five-b"), RunId: run.Id, Repo: repo,
 		Slug: "five", Tier: "mid"})); err != nil {
 		t.Fatalf("with caps.agents 5: %v", err)
 	}

@@ -350,8 +350,8 @@ func TestAWorkerThatExitsWithoutReportingTellsItsParent(t *testing.T) {
 	w := startReopen(t)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
-	reporter := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{})
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{About: "test worker"})
+	reporter := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{About: "test worker"})
 	w.typeInto(crasher, "/crash\r")
 	w.waitState(crasher.Id, v1.AgentState_AGENT_STATE_EXITED)
 	waitFor(t, "the exit alert", func() bool { return w.alerts(t, lead.Id, "[mesh alert exited "+crasher.Id+"]") == 1 })
@@ -388,7 +388,7 @@ func TestTheExitAlertQuotesWhatTheAgentLastSaid(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{About: "test worker"})
 	say(crasher.Id, "reading the migration")
 	w.typeInto(crasher, "/crash\r")
 	w.waitState(crasher.Id, v1.AgentState_AGENT_STATE_EXITED)
@@ -398,7 +398,7 @@ func TestTheExitAlertQuotesWhatTheAgentLastSaid(t *testing.T) {
 		t.Errorf("exit alert %q", got)
 	}
 
-	killed := w.spawnUnder(t, asLead, "killed", &v1.SpawnAgentRequest{})
+	killed := w.spawnUnder(t, asLead, "killed", &v1.SpawnAgentRequest{About: "test worker"})
 	say(killed.Id, "running the tests")
 	if _, err := asLead.StopAgent(context.Background(), connect.NewRequest(&v1.StopAgentRequest{Meta: meta(""), Agent: killed.Id})); err != nil {
 		t.Fatal(err)
@@ -418,7 +418,7 @@ func TestTheExitAlertQuotesTheAgentsLastReplyFromItsTranscript(t *testing.T) {
 	w := startReopen(t, func(c *daemon.AgentConfig) { c.Env["FAKECLAUDE_TRANSCRIPT"] = "1" })
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{About: "test worker"})
 	long := "step 2 of the migration " + strings.Repeat("and then some more ", 30)
 	w.typeInto(crasher, long+"\r")
 	waitFor(t, "the reply in the transcript", func() bool {
@@ -460,7 +460,7 @@ func TestAnAlertForARetiredParentIsRungWhenItIsResumed(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{About: "test worker"})
 	if _, err := w.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: lead.Id})); err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestAFailedReopenTellsTheParent(t *testing.T) {
 	w := startReopen(t)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "doomed", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "doomed", &v1.SpawnAgentRequest{About: "test worker"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	// An agent of a kind no adapter serves can't be relaunched.
 	err := w.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
@@ -595,7 +595,7 @@ func TestTheNudgeRingsTheWorkersDoorbell(t *testing.T) {
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 	w.set(t, "accountability.nudge_after", 1.0)
-	worker := w.spawnUnder(t, asLead, "slow", &v1.SpawnAgentRequest{Task: "do the thing"})
+	worker := w.spawnUnder(t, asLead, "slow", &v1.SpawnAgentRequest{About: "test worker", Task: "do the thing"})
 	waitFor(t, "the task rung", func() bool { return w.delivered(t, worker.Id, taskIDTo(t, w, worker.Id)) })
 	readInbox(t, w.as(w.token(t, worker.Id)))
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)

@@ -19,7 +19,7 @@ func TestARootsInboxSummarisesLongPlansAndReports(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "strong", Plan: true, Task: "plan it"}))
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "strong", Plan: true, Task: "plan it"}))
 	if err != nil {
 		t.Fatal(err)
 	}

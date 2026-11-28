@@ -38,7 +38,7 @@ func TestAgentProgressNamesTheWaitAndWhereTheDaemonActsOnTheContext(t *testing.T
 	// A worker idle with nothing owed waits for its lead's message, by name; at its own thresholds (the settings are the
 	// host's), those past the 200000 window dropped.
 	w.setSetting(t, "compact.followup", 100000.0)
-	worker := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{About: "test worker"})
 	got = progress(worker.Id)
 	if m := marks(got); len(m) != 1 || m[0] != 100000 || got.Marks[0].Setting != "compact.followup" {
 		t.Errorf("a worker's marks: %v (compact.claude's 300000 is past the window)", got.Marks)

@@ -269,6 +269,16 @@ func (d *Daemon) RenameRun(ctx context.Context, req *connect.Request[v1.RenameRu
 		if err := t.UpdateRun(run); err != nil {
 			return err
 		}
+		// A lead whose line is its run's title follows a rename.
+		if agents, err := t.Reader.ListAgents(run.Id); err == nil {
+			for _, a := range agents {
+				if a.Role == v1.AgentRole_AGENT_ROLE_ROOT && (a.AboutSource == aboutRun || a.AboutSource == "") {
+					if err := setAbout(t, a, title, aboutRun); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		_, err = t.AppendEvent(&v1.Event{RunId: run.Id, Payload: &v1.Event_RunRenamed{RunRenamed: &v1.RunRenamed{Title: title, Previous: prev}}})
 		return err
 	})
@@ -765,6 +775,11 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 			return err
 		}
 		out.Message = msg
+		if note, err := d.noteAbout(t, to.Id, msg, req.Msg.About); err != nil {
+			return err
+		} else {
+			out.AboutNote = note
+		}
 		if asked != nil {
 			if err := d.settleReport(t, asked, req.Msg.Type, req.Msg.Body); err != nil {
 				return err

@@ -17,6 +17,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
   /agentmesh.v1.MeshService/GetPromptSuggestion
+  /agentmesh.v1.MeshService/GetRunOverview
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/HoldPullRequest
@@ -41,6 +42,7 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/OpenView
   /agentmesh.v1.MeshService/ReadInbox
   /agentmesh.v1.MeshService/ReadTranscript
+  /agentmesh.v1.MeshService/RecordDecision
   /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/RemovePeer
   /agentmesh.v1.MeshService/RenameRun
@@ -53,7 +55,9 @@ ACTOR_CLASS_ROOT
   /agentmesh.v1.MeshService/RetireAgent
   /agentmesh.v1.MeshService/RingAgent
   /agentmesh.v1.MeshService/SendMessage
+  /agentmesh.v1.MeshService/SetAgentAbout
   /agentmesh.v1.MeshService/SetReserve
+  /agentmesh.v1.MeshService/SetRunHeadline
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SpawnAgent
   /agentmesh.v1.MeshService/StopAgent
@@ -70,6 +74,7 @@ ACTOR_CLASS_WORKER
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
+  /agentmesh.v1.MeshService/GetRunOverview
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
@@ -101,6 +106,7 @@ ACTOR_CLASS_ASKER
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
+  /agentmesh.v1.MeshService/GetRunOverview
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
@@ -123,6 +129,7 @@ ACTOR_CLASS_REVIEWER
   /agentmesh.v1.MeshService/GetAgent
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
+  /agentmesh.v1.MeshService/GetRunOverview
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgents
@@ -161,6 +168,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
   /agentmesh.v1.MeshService/GetPromptSuggestion
+  /agentmesh.v1.MeshService/GetRunOverview
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/HoldPullRequest
@@ -191,6 +199,7 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/OpenView
   /agentmesh.v1.MeshService/PromptAgent
   /agentmesh.v1.MeshService/ReadTranscript
+  /agentmesh.v1.MeshService/RecordDecision
   /agentmesh.v1.MeshService/RecordVerdict
   /agentmesh.v1.MeshService/RegisterPush
   /agentmesh.v1.MeshService/RemovePeer
@@ -206,7 +215,9 @@ ACTOR_CLASS_DEVICE
   /agentmesh.v1.MeshService/RingAgent
   /agentmesh.v1.MeshService/SendMessage
   /agentmesh.v1.MeshService/SendPromptAnyway
+  /agentmesh.v1.MeshService/SetAgentAbout
   /agentmesh.v1.MeshService/SetReserve
+  /agentmesh.v1.MeshService/SetRunHeadline
   /agentmesh.v1.MeshService/SetSetting
   /agentmesh.v1.MeshService/SetTailnet
   /agentmesh.v1.MeshService/SpawnAgent
@@ -231,6 +242,7 @@ ACTOR_CLASS_READ_ONLY_DEVICE
   /agentmesh.v1.MeshService/GetBrief
   /agentmesh.v1.MeshService/GetCost
   /agentmesh.v1.MeshService/GetPromptSuggestion
+  /agentmesh.v1.MeshService/GetRunOverview
   /agentmesh.v1.MeshService/GetUsage
   /agentmesh.v1.MeshService/Hello
   /agentmesh.v1.MeshService/ListAgentCommands

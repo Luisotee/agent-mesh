@@ -19,7 +19,7 @@ func fastPass(c *daemon.AgentConfig) { c.RetireEvery = 50 * time.Millisecond }
 
 func (w *reopenWorld) spawnClaude(t *testing.T, run *v1.Run, slug string, role v1.AgentRole) *v1.Agent {
 	t.Helper()
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: slug, Tier: "mid", Role: role}))
 	if err != nil {
 		t.Fatal(err)

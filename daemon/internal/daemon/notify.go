@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -294,7 +295,26 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 	if run != nil && run.Title != "" {
 		name = run.Title
 	}
-	return &notice.Notice{Kind: notice.Finished, Title: name + " finished", Body: "Its lead is idle and nothing of the run is left to do.", AgentID: lead.Id, Tab: notice.TabChat, ForUser: true, Tag: "run:" + lead.RunId}
+	body := "Its lead is idle and nothing of the run is left to do."
+	// What the user comes back to: how many pull requests the run merged.
+	merged := 0
+	for _, a := range agents {
+		if prs, err := r.AgentPRs(a.Id); err == nil {
+			for _, p := range prs {
+				if p.State == "merged" {
+					merged++
+				}
+			}
+		}
+	}
+	if merged > 0 {
+		noun := "pull requests"
+		if merged == 1 {
+			noun = "pull request"
+		}
+		body = fmt.Sprintf("%d %s merged. %s", merged, noun, body)
+	}
+	return &notice.Notice{Kind: notice.Finished, Title: name + " finished", Body: body, AgentID: lead.Id, Tab: notice.TabChat, ForUser: true, Tag: "run:" + lead.RunId}
 }
 
 // laterThan reports whether a came after b in the store's order: time to the nanosecond, then id.

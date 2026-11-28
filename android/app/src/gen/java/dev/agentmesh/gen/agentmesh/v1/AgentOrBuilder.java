@@ -696,4 +696,50 @@ public interface AgentOrBuilder extends
    * @return The plain.
    */
   boolean getPlain();
+
+  /**
+   * <pre>
+   * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+   * </pre>
+   *
+   * <code>string about = 44 [json_name = "about"];</code>
+   * @return The about.
+   */
+  java.lang.String getAbout();
+  /**
+   * <pre>
+   * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+   * </pre>
+   *
+   * <code>string about = 44 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  com.google.protobuf.ByteString
+      getAboutBytes();
+
+  /**
+   * <pre>
+   * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+   * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
+   * own description) or "run" (the run's title, for a lead). Empty: none yet.
+   * </pre>
+   *
+   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * @return The aboutSource.
+   */
+  java.lang.String getAboutSource();
+  /**
+   * <pre>
+   * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+   * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
+   * own description) or "run" (the run's title, for a lead). Empty: none yet.
+   * </pre>
+   *
+   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * @return The bytes for aboutSource.
+   */
+  com.google.protobuf.ByteString
+      getAboutSourceBytes();
 }

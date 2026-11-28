@@ -81,7 +81,7 @@ func copilotTweak(t *testing.T, env map[string]string) (tweak func(*daemon.Agent
 
 func (w *reopenWorld) copilotRoot(t *testing.T, run string) (*v1.Agent, agentmeshv1connect.MeshServiceClient) {
 	t.Helper()
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run, Repo: gitRepo(t), Slug: "cp-lead", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "copilot", Tier: "light"}))
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestCopilotEveryReportReachesTheRootAndRingsItsDoorbell(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light", Task: "investigate bug"})
+	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light", Task: "investigate bug"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 
 	launches := copilotLaunches(t, argvLog)
@@ -157,7 +157,7 @@ func TestCopilotGutterBoxAndPlaceholderNeverHoldADoorbellButTypingDoes(t *testin
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 
 	screen := w.screen(t, worker)
@@ -207,7 +207,7 @@ func TestCopilotKeepsItsSessionAndLiftsDenyToolOnApprove(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	worker = w.copilotTurn(t, w.agent(worker.Id), "first turn")
 	sid := worker.SessionId
 	if sid == "" {
@@ -284,7 +284,7 @@ func TestCopilotFolderTrustDialogIsAnsweredBeforeAnyDoorbell(t *testing.T) {
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "trusting", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light", Task: "look around"})
+	worker := w.spawnUnder(t, asLead, "trusting", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light", Task: "look around"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	waitFor(t, "the task doorbell", func() bool {
 		msgs, _ := w.d.Store().Read(context.Background()).Inbox(worker.Id, true)
@@ -307,7 +307,7 @@ func TestCopilotAnUnansweredTrustDialogNeedsInputUntilItIsAnswered(t *testing.T)
 	tweak, _, _ := copilotTweak(t, map[string]string{"FAKECOPILOT_TRUST": "stuck"})
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "stuck", Kind: "copilot", Tier: "light", Task: "look around"}))
 	if err != nil {
 		t.Fatal(err)
@@ -350,7 +350,7 @@ func TestCopilotLimitsHoldTheKindFromQuotaPolicyAndScreen(t *testing.T) {
 			w := startReopen(t, fastPass, tweak)
 			run := startRun(t, w.device.Mesh, "")
 			_, asLead := w.copilotRoot(t, run.Id)
-			worker := w.spawnUnder(t, asLead, "limited", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+			worker := w.spawnUnder(t, asLead, "limited", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 			w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 			w.typeInto(worker, tc.line+"\r")
 			w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
@@ -367,7 +367,7 @@ func TestCopilotAnsweringAgainLiftsTheHoldAndTheLimit(t *testing.T) {
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "recovers", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "recovers", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(worker, "/402\r")
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
@@ -449,7 +449,7 @@ func TestCopilotTurnsFollowAScreenLimitWhoseLineStaysOnScreen(t *testing.T) {
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "stale", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "stale", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(worker, "/limit\r")
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
@@ -469,7 +469,7 @@ func TestCopilotAScreenLimitLineOnScreenDoesNotLimitALongTurnAgain(t *testing.T)
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "slow", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "slow", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(worker, "/limit\r")
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
@@ -493,7 +493,7 @@ func TestCopilotAPerModelScreenLimitHoldsOnlyItsModel(t *testing.T) {
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "onemodel", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "onemodel", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(worker, "/modellimit\r")
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_LIMITED)
@@ -512,7 +512,7 @@ func TestCopilotATurnBiggerThanTheTailStillEnds(t *testing.T) {
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "big", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "big", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(worker, "/bighold\r")
 	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_WORKING)
@@ -529,8 +529,8 @@ func TestCopilotARunningTurnsAnswerDoesNotLiftAFreshHold(t *testing.T) {
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	running := w.spawnUnder(t, asLead, "running", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
-	limited := w.spawnUnder(t, asLead, "limited", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light"})
+	running := w.spawnUnder(t, asLead, "running", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
+	limited := w.spawnUnder(t, asLead, "limited", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light"})
 	w.waitState(running.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.waitState(limited.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(running, "/hold\r")
@@ -560,8 +560,8 @@ func TestCopilotAnAnswerOnOneModelDoesNotLiftAnotherModelsHold(t *testing.T) {
 	w := startReopen(t, fastPass, tweak)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.copilotRoot(t, run.Id)
-	onX := w.spawnUnder(t, asLead, "onx", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light", Model: "model-x"})
-	onY := w.spawnUnder(t, asLead, "ony", &v1.SpawnAgentRequest{Kind: "copilot", Tier: "light", Model: "model-y"})
+	onX := w.spawnUnder(t, asLead, "onx", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light", Model: "model-x"})
+	onY := w.spawnUnder(t, asLead, "ony", &v1.SpawnAgentRequest{About: "test worker", Kind: "copilot", Tier: "light", Model: "model-y"})
 	w.waitState(onX.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.waitState(onY.Id, v1.AgentState_AGENT_STATE_IDLE)
 	// The hold's remaining time by model. A lifted hold on a limited agent is put back for the short default

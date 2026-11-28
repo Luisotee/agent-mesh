@@ -92,7 +92,7 @@ func TestASpawnRacingStopRunIsRefusedNotStartedInAClosedRun(t *testing.T) {
 	t.Cleanup(func() { daemon.OnSpawnPlanned(nil) })
 	errc := make(chan error, 1)
 	go func() {
-		_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id,
+		_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta(""), RunId: run.Id,
 			Repo: gitRepo(t), Slug: "late", Tier: "mid"}))
 		errc <- err
 	}()
@@ -123,7 +123,7 @@ func TestStopRunTakesTheLockOfAnAgentSpawnedWhileItWasLocking(t *testing.T) {
 	<-stopAtLock
 	spawned := make(chan *v1.Agent, 1)
 	go func() {
-		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id,
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta(""), RunId: run.Id,
 			Repo: gitRepo(t), Slug: "new", Tier: "mid"}))
 		if err != nil {
 			t.Error(err)
@@ -186,7 +186,7 @@ func TestStopRunKeepsAStackedBranchWithItsOwnCommits(t *testing.T) {
 	a := w.spawn(run.Id, repo, "base", "")
 	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 	gitIn(t, a.Worktree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "work")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id,
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta(""), RunId: run.Id,
 		Repo: repo, Slug: "stacked", Tier: "mid", Base: a.Branch}))
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +220,7 @@ func TestStoppedAgentsGiveTheirMemoryReservationBack(t *testing.T) {
 			run := startRun(t, w.device.Mesh, "")
 			repo := gitRepo(t)
 			spawn := func(slug string) (*v1.Agent, error) {
-				res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id,
+				res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta(""), RunId: run.Id,
 					Repo: repo, Slug: slug, Tier: "mid"}))
 				if err != nil {
 					return nil, err
@@ -380,7 +380,7 @@ func TestADirectTaskToAStoppedPlannerWithAReopenPendingRequestsOneReopen(t *test
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 	w.report(t, a, v1.MessageType_MESSAGE_TYPE_PLAN)
 	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
 		t.Fatal(err)
@@ -415,7 +415,7 @@ func TestARefusedDirectTaskLeavesAStoppedPlannerPlanning(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 	w.report(t, a, v1.MessageType_MESSAGE_TYPE_PLAN)
 	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
 		t.Fatal(err)
@@ -439,9 +439,9 @@ func TestAChildsDirectTaskDoesNotLiftAStoppedParentsDenyList(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	p := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	p := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 	asP := w.as(w.token(t, p.Id))
-	res, err := asP.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t), Slug: "child",
+	res, err := asP.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: gitRepo(t), Slug: "child",
 		Role: v1.AgentRole_AGENT_ROLE_ASKER, Tier: "mid"}))
 	if err != nil {
 		t.Fatal(err)

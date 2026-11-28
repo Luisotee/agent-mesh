@@ -33,7 +33,7 @@ func TestAReviewRoundIsNeverCutShortByTheCap(t *testing.T) {
 	}
 
 	// The cap still holds for everything else: a spawn past it is refused.
-	_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("spawn-extra"), Repo: w.pr.repo, Slug: "extra", Tier: "mid"}))
+	_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta("spawn-extra"), Repo: w.pr.repo, Slug: "extra", Tier: "mid"}))
 	if code(err) != connect.CodeResourceExhausted || !strings.Contains(err.Error(), "caps.agents 2") {
 		t.Fatalf("a spawn over the cap after the round: %v, want ResourceExhausted naming caps.agents 2", err)
 	}

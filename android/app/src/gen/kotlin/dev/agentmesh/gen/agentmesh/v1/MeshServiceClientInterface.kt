@@ -67,6 +67,29 @@ public interface MeshServiceClientInterface {
   public suspend fun renameRun(request: RenameRunRequest, headers: Headers = emptyMap()): ResponseMessage<RenameRunResponse>
 
   /**
+   *  Say what an agent is for, one line of at most 80 characters (a parent or a device). It is shown beside the agent's
+   *  name; a derived line (from its plan or task) never replaces it.
+   */
+  public suspend fun setAgentAbout(request: SetAgentAboutRequest, headers: Headers = emptyMap()): ResponseMessage<SetAgentAboutResponse>
+
+  /**
+   *  Write the run's headline: where it is and what comes next, one to three lines for the user who comes back to it.
+   */
+  public suspend fun setRunHeadline(request: SetRunHeadlineRequest, headers: Headers = emptyMap()): ResponseMessage<SetRunHeadlineResponse>
+
+  /**
+   *  Record a decision the user may want to revisit (a declined finding, a design pick, a scope cut). `mesh brief` and
+   *  the run's overview list them, so they need no entry in the notes.
+   */
+  public suspend fun recordDecision(request: RecordDecisionRequest, headers: Headers = emptyMap()): ResponseMessage<RecordDecisionResponse>
+
+  /**
+   *  One run as the user who comes back to it needs it: what waits on them, what broke, the lead's headline, who works
+   *  on what, what was merged, what is next, the decisions. Derived from stored state: no GitHub or transcript read.
+   */
+  public suspend fun getRunOverview(request: GetRunOverviewRequest, headers: Headers = emptyMap()): ResponseMessage<GetRunOverviewResponse>
+
+  /**
    *  Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
    *  which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
    *  An agent may ask once in 10 seconds.

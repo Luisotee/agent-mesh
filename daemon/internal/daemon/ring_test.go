@@ -21,8 +21,8 @@ func TestRingAgentRingsUnreadRespectsDraftGuardAndHandlesEmptyInbox(t *testing.T
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "ringme", &v1.SpawnAgentRequest{})
-	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "ringme", &v1.SpawnAgentRequest{About: "test worker"})
+	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// Sibling cannot ring another agent.
 	if _, err := w.as(w.token(t, other.Id)).RingAgent(ctx, connect.NewRequest(&v1.RingAgentRequest{

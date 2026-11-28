@@ -22,7 +22,7 @@ func (w *reopenWorld) approvedOnLight(t *testing.T, lead interface {
 }, slug string) *v1.Agent {
 	t.Helper()
 	ctx := context.Background()
-	res, err := lead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: slug,
+	res, err := lead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: slug,
 		Tier: "strong", Plan: true, ExecTier: "light"}))
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestATaskSentByTheParentEndsThePlanPhase(t *testing.T) {
 	w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 
 	// A planner given a direct task is reopened without the planning deny list.
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "planner",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "planner",
 		Tier: "strong", Plan: true}))
 	if err != nil {
 		t.Fatal(err)
@@ -151,12 +151,12 @@ func TestANamedModelAlongsideATierAndARootsModel(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	for _, effort := range []string{"", "high"} {
-		if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t),
+		if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: gitRepo(t),
 			Slug: "typo", Model: "opus", Tier: "mdi", Effort: effort})); code(err) != connect.CodeInvalidArgument {
 			t.Errorf("a named model with a misspelled tier (effort %q): %v", effort, err)
 		}
 	}
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t),
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: gitRepo(t),
 		Slug: "named", Model: "fable", Tier: "light"}))
 	if err != nil {
 		t.Fatal(err)
@@ -170,13 +170,13 @@ func TestANamedModelAlongsideATierAndARootsModel(t *testing.T) {
 		t.Errorf("next from a named model: %v", err)
 	}
 
-	res, err = w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t),
+	res, err = w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: gitRepo(t),
 		Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT}))
 	if err != nil {
 		t.Fatalf("a root with no tier or model: %v", err)
 	}
 	root := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
-	if rootEffort, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t),
+	if rootEffort, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: gitRepo(t),
 		Slug: "lead2", Role: v1.AgentRole_AGENT_ROLE_ROOT, Effort: "low"})); err != nil || rootEffort.Msg.Agent.Pinned {
 		t.Errorf("a root with an effort only: %v, %v", rootEffort, err)
 	} else {
@@ -264,7 +264,7 @@ func TestAPlannedFollowUpKeepsAPlannerPlanningAndADevicesDirectTaskLiftsItsList(
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "planner",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "planner",
 		Tier: "strong", Plan: true, ExecTier: "light"}))
 	if err != nil {
 		t.Fatal(err)

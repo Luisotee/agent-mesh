@@ -16,8 +16,8 @@ func TestStreamLogFiltersFormatsAndFollowsUntilStop(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "log-demo")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "alpha", &v1.SpawnAgentRequest{})
-	other := w.spawnUnder(t, asLead, "beta", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "alpha", &v1.SpawnAgentRequest{About: "test worker"})
+	other := w.spawnUnder(t, asLead, "beta", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// Send a task to alpha and an alert-tagged info to lead mentioning alpha.
 	if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{

@@ -24,8 +24,8 @@ func TestToolsListAndAddReopensSameConversationWithToolsSkillsPluginsMCPAndSnaps
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "inspect"})
-	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "work"})
+	worker := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Task: "inspect"})
+	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Task: "work"})
 	asWorker := w.as(w.token(t, worker.Id))
 
 	listed, err := asWorker.ListTools(ctx, connect.NewRequest(&v1.ListToolsRequest{}))
@@ -141,7 +141,7 @@ func TestExclusiveMCPLeaseAcrossSpawnAddToolsResumeSendAndRetire(t *testing.T) {
 	_, asLead := w.root(t, run.Id)
 
 	// First spawn takes exclusive playwright.
-	res1, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res1, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		Repo: gitRepo(t), Slug: "browser-1", Tier: "mid", Mcp: []string{"playwright"}, Task: "drive browser",
 	}))
 	if err != nil {
@@ -165,14 +165,14 @@ func TestExclusiveMCPLeaseAcrossSpawnAddToolsResumeSendAndRetire(t *testing.T) {
 	}
 
 	// Second spawn requesting playwright is refused naming w1.
-	if _, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	if _, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		Repo: gitRepo(t), Slug: "browser-2", Tier: "mid", Mcp: []string{"playwright"}, Task: "also browser",
 	})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), w1.Name) {
 		t.Fatalf("expected FailedPrecondition naming %s, got %v", w1.Name, err)
 	}
 
 	// Second worker without playwright cannot add playwright or claude.ai while w1 holds it.
-	w2 := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "code"})
+	w2 := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Task: "code"})
 	asW2 := w.as(w.token(t, w2.Id))
 	if _, err := asW2.AddTools(ctx, connect.NewRequest(&v1.AddToolsRequest{Names: []string{"playwright"}})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), w1.Name) {
 		t.Fatalf("AddTools playwright while held: %v", err)
@@ -250,7 +250,7 @@ func TestExclusiveMCPLeaseConcurrentClaimantsExactlyOneWins(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	plain := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "code"})
+	plain := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Task: "code"})
 	asPlain := w.as(w.token(t, plain.Id))
 	repoA, repoB := gitRepo(t), gitRepo(t)
 
@@ -258,12 +258,12 @@ func TestExclusiveMCPLeaseConcurrentClaimantsExactlyOneWins(t *testing.T) {
 	start := make(chan struct{})
 	go func() {
 		<-start
-		_, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: repoA, Slug: "b1", Tier: "mid", Mcp: []string{"playwright"}, Task: "browse"}))
+		_, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: repoA, Slug: "b1", Tier: "mid", Mcp: []string{"playwright"}, Task: "browse"}))
 		errs <- err
 	}()
 	go func() {
 		<-start
-		_, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: repoB, Slug: "b2", Tier: "mid", Mcp: []string{"playwright"}, Task: "browse"}))
+		_, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: repoB, Slug: "b2", Tier: "mid", Mcp: []string{"playwright"}, Task: "browse"}))
 		errs <- err
 	}()
 	go func() {
@@ -303,12 +303,12 @@ func TestAnExclusiveServerALaunchLoadsUnnamedIsHeld(t *testing.T) {
 	os.MkdirAll(filepath.Join(repo, ".claude"), 0o755)
 	os.WriteFile(filepath.Join(repo, ".mcp.json"), []byte(`{"mcpServers":{"playwright":{"type":"stdio","command":"playwright-cmd"}}}`), 0o600)
 	os.WriteFile(filepath.Join(repo, ".claude", "settings.json"), []byte(`{"enableAllProjectMcpServers":true}`), 0o600)
-	holder := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{Repo: repo, Tier: "mid", Task: "work"})
+	holder := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{About: "test worker", Repo: repo, Tier: "mid", Task: "work"})
 	if got := mcpFileServers(t, filepath.Join(w.state, "agents", holder.Id, "mcp.json")); !slices.Contains(got, "playwright") {
 		t.Fatalf("the repo's server was not loaded: %v", got)
 	}
 
-	if _, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	if _, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		Repo: gitRepo(t), Slug: "other", Tier: "mid", Mcp: []string{"playwright"}, Task: "also browser",
 	})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), holder.Name) {
 		t.Fatalf("want FailedPrecondition naming %s, got %v", holder.Name, err)
@@ -335,8 +335,8 @@ func TestAnAgentWhoseRepoLoadsAHeldExclusiveServerLeavesItOut(t *testing.T) {
 	os.MkdirAll(filepath.Join(repo, ".claude"), 0o755)
 	os.WriteFile(filepath.Join(repo, ".mcp.json"), []byte(`{"mcpServers":{"playwright":{"type":"stdio","command":"playwright-cmd"}}}`), 0o600)
 	os.WriteFile(filepath.Join(repo, ".claude", "settings.json"), []byte(`{"enableAllProjectMcpServers":true}`), 0o600)
-	holder := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{Repo: repo, Tier: "mid", Task: "work"})
-	second := w.spawnUnder(t, asLead, "docs", &v1.SpawnAgentRequest{Repo: repo, Tier: "mid", Task: "more work"})
+	holder := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{About: "test worker", Repo: repo, Tier: "mid", Task: "work"})
+	second := w.spawnUnder(t, asLead, "docs", &v1.SpawnAgentRequest{About: "test worker", Repo: repo, Tier: "mid", Task: "more work"})
 	if got := mcpFileServers(t, filepath.Join(w.state, "agents", second.Id, "mcp.json")); slices.Contains(got, "playwright") {
 		t.Errorf("the second agent loads the held server: %v", got)
 	}
@@ -360,7 +360,7 @@ func TestAWorkersToolsAddTellsItsParentItIsWaiting(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "inspect"})
+	worker := w.spawnUnder(t, asLead, "ui", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Task: "inspect"})
 	asWorker := w.as(w.token(t, worker.Id))
 	waits := func() (n int) {
 		msgs, err := w.d.Store().Read(ctx).Inbox(lead.Id, true)
@@ -383,7 +383,7 @@ func TestAWorkersToolsAddTellsItsParentItIsWaiting(t *testing.T) {
 	w.waitReopened(t, worker.Id, worker.TerminalId)
 
 	// A root adding a child's tools is its own doing: the child tells nobody.
-	child := w.spawnUnder(t, asLead, "api", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "work"})
+	child := w.spawnUnder(t, asLead, "api", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Task: "work"})
 	if _, err := asLead.AddTools(ctx, connect.NewRequest(&v1.AddToolsRequest{Agent: child.Id, Names: []string{"sentry"}})); err != nil {
 		t.Fatal(err)
 	}
@@ -399,11 +399,11 @@ func TestTheHolderOfAnExclusiveServerIsNamedOnlyWithinTheCallersRun(t *testing.T
 	ctx := context.Background()
 	run1 := startRun(t, w.device.Mesh, "")
 	_, lead1 := w.root(t, run1.Id)
-	holder := w.spawnUnder(t, lead1, "browser", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Mcp: []string{"playwright"}, Task: "drive"})
+	holder := w.spawnUnder(t, lead1, "browser", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Mcp: []string{"playwright"}, Task: "drive"})
 
 	run2 := startRun(t, w.device.Mesh, "")
 	_, lead2 := w.root(t, run2.Id)
-	stranger := w.spawnUnder(t, lead2, "plain", &v1.SpawnAgentRequest{Repo: gitRepo(t), Tier: "mid", Task: "code"})
+	stranger := w.spawnUnder(t, lead2, "plain", &v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Tier: "mid", Task: "code"})
 	asStranger := w.as(w.token(t, stranger.Id))
 
 	_, err := asStranger.AddTools(ctx, connect.NewRequest(&v1.AddToolsRequest{Names: []string{"playwright"}}))

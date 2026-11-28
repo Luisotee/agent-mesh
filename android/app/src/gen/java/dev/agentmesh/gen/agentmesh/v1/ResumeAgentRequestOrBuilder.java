@@ -215,4 +215,24 @@ public interface ResumeAgentRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getMcpBytes(int index);
+
+  /**
+   * <pre>
+   * With a task: what the agent is for from now on (see `SendMessageRequest.about`).
+   * </pre>
+   *
+   * <code>string about = 13 [json_name = "about"];</code>
+   * @return The about.
+   */
+  java.lang.String getAbout();
+  /**
+   * <pre>
+   * With a task: what the agent is for from now on (see `SendMessageRequest.about`).
+   * </pre>
+   *
+   * <code>string about = 13 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  com.google.protobuf.ByteString
+      getAboutBytes();
 }

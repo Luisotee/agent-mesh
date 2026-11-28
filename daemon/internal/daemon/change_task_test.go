@@ -17,7 +17,7 @@ import (
 // startAsker starts an agent of a read-only role under a root, idle on its question.
 func startAsker(t *testing.T, w *reopenWorld, asLead agentmeshv1connect.MeshServiceClient, role v1.AgentRole, slug string) *v1.Agent {
 	t.Helper()
-	res, err := asLead.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: slug,
+	res, err := asLead.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: slug,
 		Role: role, Tier: "mid", Task: "Question (read-only): where is the thing?"}))
 	if err != nil {
 		t.Fatal(err)
@@ -196,14 +196,14 @@ func TestAReadOnlyTaskKeepsTheAskerReadOnlyAndAWorkersAskerNeverChangesRole(t *t
 	_, asLead := w.root(t, run.Id)
 
 	// A worker's own asker: a worker never gets a change worker, so nothing it sends changes the role.
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "wk", Tier: "mid",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "wk", Tier: "mid",
 		Task: "Direct task (no plan): do it."}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	worker := w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 	asWorker := w.as(w.token(t, worker.Id))
-	sub, err := asWorker.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "sub",
+	sub, err := asWorker.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "sub",
 		Role: v1.AgentRole_AGENT_ROLE_ASKER, Tier: "mid", Task: "Question (read-only): where?"}))
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestAPinnedAskerGivenAPlannedChangeIsNoLongerPinnedAndAFollowUpPlanPlans(t 
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "named",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "named",
 		Role: v1.AgentRole_AGENT_ROLE_ASKER, Model: "opus", Task: "Question (read-only): where is the thing?"}))
 	if err != nil {
 		t.Fatal(err)

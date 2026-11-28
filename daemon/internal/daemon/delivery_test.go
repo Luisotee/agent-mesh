@@ -118,7 +118,7 @@ func TestEveryReportReachesTheRootAndRingsItsDoorbell(t *testing.T) {
 	w := startReopen(t)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// A wait is not a report: stored for the root to read, it rings no doorbell (PROTOCOL.md).
 	wait := w.sendToParent(t, worker, v1.MessageType_MESSAGE_TYPE_WAIT)
@@ -152,7 +152,7 @@ func TestAReportSentWhileTheRootIsWorkingRingsAtItsNextIdle(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "early", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "early", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// The root is mid-turn (a long one: it waits for a line).
 	w.typeInto(lead, "/hold\r")
@@ -181,7 +181,7 @@ func TestAPlanFromAWorkerResumedIntoPlanningReachesTheRoot(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{About: "test worker"})
 	w.sendToParent(t, worker, v1.MessageType_MESSAGE_TYPE_DONE)
 	waitFor(t, "the first report rung", func() bool {
 		msgs, _ := w.d.Store().Read(ctx).Undelivered(lead.Id)
@@ -222,7 +222,7 @@ func TestAFreshPanesPlaceholderNeverHoldsADoorbell(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// The placeholder is on its screen.
 	screen := w.screen(t, worker)

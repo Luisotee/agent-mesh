@@ -118,4 +118,43 @@ public interface RunOrBuilder extends
    * @return The autonomy.
    */
   dev.agentmesh.gen.agentmesh.v1.RunAutonomy getAutonomy();
+
+  /**
+   * <pre>
+   * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+   * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+   * </pre>
+   *
+   * <code>string headline = 9 [json_name = "headline"];</code>
+   * @return The headline.
+   */
+  java.lang.String getHeadline();
+  /**
+   * <pre>
+   * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+   * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+   * </pre>
+   *
+   * <code>string headline = 9 [json_name = "headline"];</code>
+   * @return The bytes for headline.
+   */
+  com.google.protobuf.ByteString
+      getHeadlineBytes();
+
+  /**
+   * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+   * @return Whether the headlineAt field is set.
+   */
+  boolean hasHeadlineAt();
+  /**
+   * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+   * @return The headlineAt.
+   */
+  com.google.protobuf.Timestamp getHeadlineAt();
+
+  /**
+   * <code>int64 headline_seq = 11 [json_name = "headlineSeq"];</code>
+   * @return The headlineSeq.
+   */
+  long getHeadlineSeq();
 }

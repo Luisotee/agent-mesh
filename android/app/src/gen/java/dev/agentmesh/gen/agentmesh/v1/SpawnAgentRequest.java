@@ -27,6 +27,7 @@ public  final class SpawnAgentRequest extends
     execTier_ = "";
     mcp_ = emptyProtobufList();
     reviews_ = "";
+    about_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -1103,6 +1104,78 @@ public  final class SpawnAgentRequest extends
   private void clearPlain() {
 
     plain_ = false;
+  }
+
+  public static final int ABOUT_FIELD_NUMBER = 17;
+  private java.lang.String about_;
+  /**
+   * <pre>
+   * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+   * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+   * </pre>
+   *
+   * <code>string about = 17 [json_name = "about"];</code>
+   * @return The about.
+   */
+  @java.lang.Override
+  public java.lang.String getAbout() {
+    return about_;
+  }
+  /**
+   * <pre>
+   * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+   * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+   * </pre>
+   *
+   * <code>string about = 17 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAboutBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(about_);
+  }
+  /**
+   * <pre>
+   * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+   * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+   * </pre>
+   *
+   * <code>string about = 17 [json_name = "about"];</code>
+   * @param value The about to set.
+   */
+  private void setAbout(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    about_ = value;
+  }
+  /**
+   * <pre>
+   * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+   * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+   * </pre>
+   *
+   * <code>string about = 17 [json_name = "about"];</code>
+   */
+  private void clearAbout() {
+
+    about_ = getDefaultInstance().getAbout();
+  }
+  /**
+   * <pre>
+   * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+   * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+   * </pre>
+   *
+   * <code>string about = 17 [json_name = "about"];</code>
+   * @param value The bytes for about to set.
+   */
+  private void setAboutBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    about_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.SpawnAgentRequest parseFrom(
@@ -2307,6 +2380,80 @@ public  final class SpawnAgentRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+     * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+     * </pre>
+     *
+     * <code>string about = 17 [json_name = "about"];</code>
+     * @return The about.
+     */
+    @java.lang.Override
+    public java.lang.String getAbout() {
+      return instance.getAbout();
+    }
+    /**
+     * <pre>
+     * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+     * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+     * </pre>
+     *
+     * <code>string about = 17 [json_name = "about"];</code>
+     * @return The bytes for about.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAboutBytes() {
+      return instance.getAboutBytes();
+    }
+    /**
+     * <pre>
+     * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+     * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+     * </pre>
+     *
+     * <code>string about = 17 [json_name = "about"];</code>
+     * @param value The about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAbout(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAbout(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+     * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+     * </pre>
+     *
+     * <code>string about = 17 [json_name = "about"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAbout() {
+      copyOnWrite();
+      instance.clearAbout();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+     * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+     * </pre>
+     *
+     * <code>string about = 17 [json_name = "about"];</code>
+     * @param value The bytes for about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAboutBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SpawnAgentRequest)
   }
   @java.lang.Override
@@ -2340,11 +2487,13 @@ public  final class SpawnAgentRequest extends
             "mcp_",
             "reviews_",
             "plain_",
+            "about_",
           };
           java.lang.String info =
-              "\u0000\u0010\u0000\u0001\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0011\u0000\u0001\u0001\u0011\u0011\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
               "\u0208\u0003\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n" +
-              "\u0208\u000b\u0208\f\u0007\r\u0208\u000e\u021a\u000f\u0208\u0010\u0007";
+              "\u0208\u000b\u0208\f\u0007\r\u0208\u000e\u021a\u000f\u0208\u0010\u0007\u0011\u0208" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
