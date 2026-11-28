@@ -64,7 +64,8 @@ public interface PeerOrBuilder extends
 
   /**
    * <pre>
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    * </pre>
    *
    * <code>string kind = 4 [json_name = "kind"];</code>
@@ -73,7 +74,8 @@ public interface PeerOrBuilder extends
   java.lang.String getKind();
   /**
    * <pre>
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    * </pre>
    *
    * <code>string kind = 4 [json_name = "kind"];</code>
@@ -155,7 +157,8 @@ public interface PeerOrBuilder extends
 
   /**
    * <pre>
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    * </pre>
    *
    * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -164,7 +167,8 @@ public interface PeerOrBuilder extends
   java.lang.String getSessionId();
   /**
    * <pre>
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    * </pre>
    *
    * <code>string session_id = 9 [json_name = "sessionId"];</code>

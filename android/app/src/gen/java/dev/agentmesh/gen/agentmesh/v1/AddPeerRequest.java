@@ -301,7 +301,7 @@ public  final class AddPeerRequest extends
   private java.lang.String kind_;
   /**
    * <pre>
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    * </pre>
    *
    * <code>string kind = 6 [json_name = "kind"];</code>
@@ -313,7 +313,7 @@ public  final class AddPeerRequest extends
   }
   /**
    * <pre>
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    * </pre>
    *
    * <code>string kind = 6 [json_name = "kind"];</code>
@@ -326,7 +326,7 @@ public  final class AddPeerRequest extends
   }
   /**
    * <pre>
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    * </pre>
    *
    * <code>string kind = 6 [json_name = "kind"];</code>
@@ -340,7 +340,7 @@ public  final class AddPeerRequest extends
   }
   /**
    * <pre>
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    * </pre>
    *
    * <code>string kind = 6 [json_name = "kind"];</code>
@@ -351,7 +351,7 @@ public  final class AddPeerRequest extends
   }
   /**
    * <pre>
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    * </pre>
    *
    * <code>string kind = 6 [json_name = "kind"];</code>
@@ -746,7 +746,7 @@ public  final class AddPeerRequest extends
 
     /**
      * <pre>
-     * The CLI its asker runs on (default claude).
+     * Not read: a peer's asker runs on the asker role, or on what the ask names.
      * </pre>
      *
      * <code>string kind = 6 [json_name = "kind"];</code>
@@ -758,7 +758,7 @@ public  final class AddPeerRequest extends
     }
     /**
      * <pre>
-     * The CLI its asker runs on (default claude).
+     * Not read: a peer's asker runs on the asker role, or on what the ask names.
      * </pre>
      *
      * <code>string kind = 6 [json_name = "kind"];</code>
@@ -771,7 +771,7 @@ public  final class AddPeerRequest extends
     }
     /**
      * <pre>
-     * The CLI its asker runs on (default claude).
+     * Not read: a peer's asker runs on the asker role, or on what the ask names.
      * </pre>
      *
      * <code>string kind = 6 [json_name = "kind"];</code>
@@ -786,7 +786,7 @@ public  final class AddPeerRequest extends
     }
     /**
      * <pre>
-     * The CLI its asker runs on (default claude).
+     * Not read: a peer's asker runs on the asker role, or on what the ask names.
      * </pre>
      *
      * <code>string kind = 6 [json_name = "kind"];</code>
@@ -799,7 +799,7 @@ public  final class AddPeerRequest extends
     }
     /**
      * <pre>
-     * The CLI its asker runs on (default claude).
+     * Not read: a peer's asker runs on the asker role, or on what the ask names.
      * </pre>
      *
      * <code>string kind = 6 [json_name = "kind"];</code>

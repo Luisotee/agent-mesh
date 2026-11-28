@@ -98,9 +98,7 @@ func (d *Daemon) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgen
 		wmu.Lock()
 		var peer *v1.Peer
 		if a.Peer {
-			if p, perr := r.GetPeer(a.Name); perr == nil {
-				peer = p
-			}
+			peer = peerOfAgent(r, a)
 		}
 		if peer != nil {
 			branch = ""

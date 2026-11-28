@@ -67,6 +67,9 @@ func (d *Daemon) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (
 	if m.Since != "" && !commitRE.MatchString(m.Since) {
 		return nil, invalid("since %q: a commit id (hex, 7 to 40 characters)", m.Since)
 	}
+	if m.Continue && m.Peers == "" {
+		return nil, invalid("continue is for peers: `mesh ask --peers <names> --continue` goes back to each peer's last conversation (to follow up an asker of this run, `mesh ask <asker> --body …`)")
+	}
 	if m.Relay && (m.Review == "" || m.Agent != "" || m.Peers != "") {
 		return nil, invalid("a relay reviews a pull request of a repo: give --repo and --review, and no agent or peers")
 	}
@@ -170,18 +173,31 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 	if err != nil {
 		return nil, err
 	}
+	// A question that names no tier and no model runs on the asker role (`roles.asker.*`), on the CLI named if any
+	// (the user's MCP servers are Claude's).
+	kind, model, effort := m.Kind, m.Model, m.Effort
 	// A retry of an ask whose spawn went through replays that spawn: no slug or guard to find again.
 	if !d.spawnReplays(ctx, actor, meta) {
-		d.warmOpenCodeModels(ctx, orClaude(m.Kind))
-		if slug, err = d.freeSlug(d.store.Read(ctx), actor.RunId, top, slug); err != nil {
+		r := d.store.Read(ctx)
+		if m.Tier == "" && m.Model == "" {
+			only := m.Kind
+			if only == "" && len(mcpNames) > 0 {
+				only = "claude"
+			}
+			if kind, model, effort, err = d.askerChoice(ctx, r, actor.RunId, top, only, m.Effort, "an asker in "+top); err != nil {
+				return nil, err
+			}
+		}
+		d.warmOpenCodeModels(ctx, orClaude(kind))
+		if slug, err = d.freeSlug(r, actor.RunId, top, slug); err != nil {
 			return nil, err
 		}
-		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, orClaude(m.Kind), m.Model, m.Effort, "an asker in "+top, false); err != nil {
+		if err := d.ReserveGuard(ctx, r, actor.RunId, orClaude(kind), model, effort, "an asker in "+top, false); err != nil {
 			return nil, err
 		}
 	}
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta, Repo: top, Slug: slug,
-		Role: v1.AgentRole_AGENT_ROLE_ASKER, Kind: m.Kind, Model: m.Model, Effort: m.Effort, Tier: m.Tier,
+		Role: v1.AgentRole_AGENT_ROLE_ASKER, Kind: kind, Model: model, Effort: effort, Tier: m.Tier,
 		Task: askPrefix + "\n\n" + body, Mcp: mcpNames, About: askAbout(body)}))
 	if err != nil {
 		return nil, err

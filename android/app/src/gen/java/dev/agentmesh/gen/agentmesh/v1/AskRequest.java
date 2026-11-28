@@ -427,7 +427,8 @@ public  final class AskRequest extends
   private java.lang.String tier_;
   /**
    * <pre>
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -439,7 +440,8 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -452,7 +454,8 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -466,7 +469,8 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -477,7 +481,8 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -861,8 +866,9 @@ public  final class AskRequest extends
   private java.lang.String peers_;
   /**
    * <pre>
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    * </pre>
    *
    * <code>string peers = 14 [json_name = "peers"];</code>
@@ -874,8 +880,9 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    * </pre>
    *
    * <code>string peers = 14 [json_name = "peers"];</code>
@@ -888,8 +895,9 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    * </pre>
    *
    * <code>string peers = 14 [json_name = "peers"];</code>
@@ -903,8 +911,9 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    * </pre>
    *
    * <code>string peers = 14 [json_name = "peers"];</code>
@@ -915,8 +924,9 @@ public  final class AskRequest extends
   }
   /**
    * <pre>
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    * </pre>
    *
    * <code>string peers = 14 [json_name = "peers"];</code>
@@ -1182,6 +1192,50 @@ public  final class AskRequest extends
   private void clearRelay() {
 
     relay_ = false;
+  }
+
+  public static final int CONTINUE_FIELD_NUMBER = 19;
+  private boolean continue_;
+  /**
+   * <pre>
+   * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+   * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+   * the default: ask fresh unless the earlier answer's context is what the question needs.
+   * </pre>
+   *
+   * <code>bool continue = 19 [json_name = "continue"];</code>
+   * @return The continue.
+   */
+  @java.lang.Override
+  public boolean getContinue() {
+    return continue_;
+  }
+  /**
+   * <pre>
+   * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+   * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+   * the default: ask fresh unless the earlier answer's context is what the question needs.
+   * </pre>
+   *
+   * <code>bool continue = 19 [json_name = "continue"];</code>
+   * @param value The continue to set.
+   */
+  private void setContinue(boolean value) {
+    
+    continue_ = value;
+  }
+  /**
+   * <pre>
+   * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+   * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+   * the default: ask fresh unless the earlier answer's context is what the question needs.
+   * </pre>
+   *
+   * <code>bool continue = 19 [json_name = "continue"];</code>
+   */
+  private void clearContinue() {
+
+    continue_ = false;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.AskRequest parseFrom(
@@ -1685,7 +1739,8 @@ public  final class AskRequest extends
 
     /**
      * <pre>
-     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+     * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
      * </pre>
      *
      * <code>string tier = 7 [json_name = "tier"];</code>
@@ -1697,7 +1752,8 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+     * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
      * </pre>
      *
      * <code>string tier = 7 [json_name = "tier"];</code>
@@ -1710,7 +1766,8 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+     * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
      * </pre>
      *
      * <code>string tier = 7 [json_name = "tier"];</code>
@@ -1725,7 +1782,8 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+     * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
      * </pre>
      *
      * <code>string tier = 7 [json_name = "tier"];</code>
@@ -1738,7 +1796,8 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+     * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+     * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
      * </pre>
      *
      * <code>string tier = 7 [json_name = "tier"];</code>
@@ -2133,8 +2192,9 @@ public  final class AskRequest extends
 
     /**
      * <pre>
-     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-     * and `body`; collected into one answers file.
+     * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+     * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+     * collected into one answers file. Needs `body`.
      * </pre>
      *
      * <code>string peers = 14 [json_name = "peers"];</code>
@@ -2146,8 +2206,9 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-     * and `body`; collected into one answers file.
+     * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+     * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+     * collected into one answers file. Needs `body`.
      * </pre>
      *
      * <code>string peers = 14 [json_name = "peers"];</code>
@@ -2160,8 +2221,9 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-     * and `body`; collected into one answers file.
+     * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+     * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+     * collected into one answers file. Needs `body`.
      * </pre>
      *
      * <code>string peers = 14 [json_name = "peers"];</code>
@@ -2176,8 +2238,9 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-     * and `body`; collected into one answers file.
+     * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+     * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+     * collected into one answers file. Needs `body`.
      * </pre>
      *
      * <code>string peers = 14 [json_name = "peers"];</code>
@@ -2190,8 +2253,9 @@ public  final class AskRequest extends
     }
     /**
      * <pre>
-     * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-     * and `body`; collected into one answers file.
+     * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+     * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+     * collected into one answers file. Needs `body`.
      * </pre>
      *
      * <code>string peers = 14 [json_name = "peers"];</code>
@@ -2465,6 +2529,52 @@ public  final class AskRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+     * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+     * the default: ask fresh unless the earlier answer's context is what the question needs.
+     * </pre>
+     *
+     * <code>bool continue = 19 [json_name = "continue"];</code>
+     * @return The continue.
+     */
+    @java.lang.Override
+    public boolean getContinue() {
+      return instance.getContinue();
+    }
+    /**
+     * <pre>
+     * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+     * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+     * the default: ask fresh unless the earlier answer's context is what the question needs.
+     * </pre>
+     *
+     * <code>bool continue = 19 [json_name = "continue"];</code>
+     * @param value The continue to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContinue(boolean value) {
+      copyOnWrite();
+      instance.setContinue(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+     * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+     * the default: ask fresh unless the earlier answer's context is what the question needs.
+     * </pre>
+     *
+     * <code>bool continue = 19 [json_name = "continue"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearContinue() {
+      copyOnWrite();
+      instance.clearContinue();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AskRequest)
   }
   @java.lang.Override
@@ -2500,12 +2610,13 @@ public  final class AskRequest extends
             "timeout_",
             "mcp_",
             "relay_",
+            "continue_",
           };
           java.lang.String info =
-              "\u0000\u0012\u0000\u0001\u0001\u0012\u0012\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
+              "\u0000\u0013\u0000\u0001\u0001\u0013\u0013\u0000\u0001\u0000\u0001\u1009\u0000\u0002" +
               "\u0208\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208" +
               "\n\u0208\u000b\u0208\f\u0208\r\u0208\u000e\u0208\u000f\u0007\u0010\u0004\u0011\u021a" +
-              "\u0012\u0007";
+              "\u0012\u0007\u0013\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

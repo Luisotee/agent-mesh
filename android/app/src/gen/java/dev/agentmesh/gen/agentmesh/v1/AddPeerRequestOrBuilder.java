@@ -87,7 +87,7 @@ public interface AddPeerRequestOrBuilder extends
 
   /**
    * <pre>
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    * </pre>
    *
    * <code>string kind = 6 [json_name = "kind"];</code>
@@ -96,7 +96,7 @@ public interface AddPeerRequestOrBuilder extends
   java.lang.String getKind();
   /**
    * <pre>
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    * </pre>
    *
    * <code>string kind = 6 [json_name = "kind"];</code>

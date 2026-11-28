@@ -223,7 +223,11 @@ func (d *Daemon) settleReport(tx *store.Tx, c *collectRef, typ v1.MessageType, b
 	case v1.MessageType_MESSAGE_TYPE_FAILED:
 		line = "failed: " + lineOf(body)
 	default:
-		line = "sent a " + name + " instead of an answer: answer it with `mesh send " + c.ask.Members[c.idx].Name + " --type answer …`"
+		who := c.ask.Members[c.idx].Name
+		if ag, err := tx.GetAgent(c.ask.Members[c.idx].AgentId); err == nil {
+			who = ag.Name // a peer's asker is named after the peer, then `<peer>-2`, …
+		}
+		line = "sent a " + name + " instead of an answer: answer it with `mesh send " + who + " --type answer …`"
 		body = ""
 	}
 	// The finishing message (if this was the last member) rings with the caller's other mail: SendMessage notifies it.

@@ -10,9 +10,9 @@ Open work is tracked in `TODO.md` as short summaries: the agent doing a task wor
 
 ## Peer projects
 
-If `mesh peers` lists them, the `orchestrators` group is this repo's peers: agent orchestration tools like agent-mesh, cloned under `~/research/orchestrators`. They are standing read-only askers that keep their context between asks (`mesh peers` shows each one's `about`). Ask them before designing a mechanism they may have solved, and for any `Research:` task in `TODO.md`: all at once with `mesh ask --peers orchestrators --tier mid --body @q.md` (one `reports/peers-<stamp>.md`), or one with `mesh ask --peers <name> --tier mid --body "…"`.
+If `mesh peers` lists them, the `orchestrators` group is this repo's peers: agent orchestration tools like agent-mesh, cloned under `~/research/orchestrators`. They are registered projects (`mesh peers` shows each one's `about`); each ask starts a fresh read-only asker on the free models first, and `--continue` goes back to a peer's last conversation (only when the earlier answer's context is what the question needs). Ask them before designing a mechanism they may have solved, and for any `Research:` task in `TODO.md`: all at once with `mesh ask --peers orchestrators --body @q.md` (one `reports/peers-<stamp>.md`), or one with `mesh ask --peers <name> --body "…"`.
 
-- `agents-can-communicate` (asker `agents-can-communica-research`): cross-vendor messages between sessions the user opened, no lead agent. Claude's inbox socket, agy native delivery.
+- `agents-can-communicate`: cross-vendor messages between sessions the user opened, no lead agent. Claude's inbox socket, agy native delivery.
 - `aionui`: Electron desktop for 20+ agent CLIs (agent code in a separate Rust repo), remote control by web UI and chat bots, a dormant Expo app. Many-CLI support, permissions.
 - `ccswarm`: headless one-shot agents driven by a YAML flow state machine, persona quorum votes as gates. Flow/stage design, quorum review, loop caps.
 - `cyclops`: a daemon watching agents in tmux, fused state signals, durable mailboxes with one doorbell per message. Delivery into a human's draft.

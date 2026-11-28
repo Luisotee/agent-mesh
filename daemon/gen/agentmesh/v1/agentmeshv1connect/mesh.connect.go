@@ -458,7 +458,8 @@ type MeshServiceClient interface {
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
-	// The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+	// The peers: registered projects (a clone, a group, what it is for). Each `ask --peers` starts a fresh read-only asker
+	// in the peer's checkout; continuing the last one's conversation is the asking agent's choice (`--continue`).
 	ListPeers(context.Context, *connect.Request[v1.ListPeersRequest]) (*connect.Response[v1.ListPeersResponse], error)
 	// Register a project as a peer: clone a URL (or use a clone that exists) and give it a worktree of its own.
 	AddPeer(context.Context, *connect.Request[v1.AddPeerRequest]) (*connect.Response[v1.AddPeerResponse], error)
@@ -466,8 +467,8 @@ type MeshServiceClient interface {
 	EditPeer(context.Context, *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error)
 	// Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
 	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
-	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
-	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
+	// Register the peers of bin/mesh's peers.json (read only): the clone, group, about and upstream. A conversation of
+	// bin/mesh does not come across (a peer's asker is a fresh one each ask).
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
 	// Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
 	// The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.
@@ -1835,7 +1836,8 @@ type MeshServiceHandler interface {
 	RecordVerdict(context.Context, *connect.Request[v1.RecordVerdictRequest]) (*connect.Response[v1.RecordVerdictResponse], error)
 	// List the asks and review rounds of a run.
 	ListAsks(context.Context, *connect.Request[v1.ListAsksRequest]) (*connect.Response[v1.ListAsksResponse], error)
-	// The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+	// The peers: registered projects (a clone, a group, what it is for). Each `ask --peers` starts a fresh read-only asker
+	// in the peer's checkout; continuing the last one's conversation is the asking agent's choice (`--continue`).
 	ListPeers(context.Context, *connect.Request[v1.ListPeersRequest]) (*connect.Response[v1.ListPeersResponse], error)
 	// Register a project as a peer: clone a URL (or use a clone that exists) and give it a worktree of its own.
 	AddPeer(context.Context, *connect.Request[v1.AddPeerRequest]) (*connect.Response[v1.AddPeerResponse], error)
@@ -1843,8 +1845,8 @@ type MeshServiceHandler interface {
 	EditPeer(context.Context, *connect.Request[v1.EditPeerRequest]) (*connect.Response[v1.EditPeerResponse], error)
 	// Remove a peer from the registry and its worktree (and, if asked, the clone the daemon made).
 	RemovePeer(context.Context, *connect.Request[v1.RemovePeerRequest]) (*connect.Response[v1.RemovePeerResponse], error)
-	// Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
-	// that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
+	// Register the peers of bin/mesh's peers.json (read only): the clone, group, about and upstream. A conversation of
+	// bin/mesh does not come across (a peer's asker is a fresh one each ask).
 	ImportPeers(context.Context, *connect.Request[v1.ImportPeersRequest]) (*connect.Response[v1.ImportPeersResponse], error)
 	// Tokens per agent, kind, model and phase from session files (Claude, agy and OpenCode alike), plus reviewer verdicts.
 	// The total is input + cache writes + output; cache reads are listed apart. Dollars are Claude's at API prices, context only.

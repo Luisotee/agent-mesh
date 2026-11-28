@@ -401,6 +401,7 @@ func DefaultLeaves() []Leaf {
 			Leaf{Key: p + "note", Label: name + "when to pick it", Group: GroupAgents, Advanced: true, Type: String, Default: noteOf(t.tier, t.note), Summary: who + "when the root should pick it"})
 	}
 	ls = append(ls, planLeaves()...)
+	ls = append(ls, roleLeaves()...)
 	reviewLevel := map[string]string{"trivial": "medium", "small": "medium", "large": "high"}
 	selfLevel := map[string]string{"trivial": "low", "small": "low", "large": "medium"}
 	ls = append(ls, Leaf{Key: "review.effort.relay", Label: "Reviewer effort in a relay", Group: GroupReviews, Type: Effort, Default: "high", Choices: Efforts,

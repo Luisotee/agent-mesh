@@ -150,7 +150,8 @@ message AskRequest {
   string review = 5;
   // trivial, small or large: the review's slots (`review.reviewers.<size>`), /code-review level and rounds.
   string size = 6;
-  // The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`.
+  // The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`. A question
+  // (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
   string tier = 7;
   // The CLI of a fresh agent; a round chooses its own.
   string kind = 8;
@@ -163,8 +164,9 @@ message AskRequest {
   string since = 12;
   // Names a fresh agent (<repo>-<slug>); default: from the body.
   string slug = 13;
-  // Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-  // and `body`; collected into one answers file.
+  // Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+  // read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+  // collected into one answers file. Needs `body`.
   string peers = 14;
   // Ask the peers as they are: don't fetch their upstream or move their checkout.
   bool no_refresh = 15;
@@ -178,6 +180,10 @@ message AskRequest {
   // review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
   // 3 steps.
   bool relay = 18;
+  // With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+  // conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+  // the default: ask fresh unless the earlier answer's context is what the question needs.
+  bool continue = 19;
 }
 
 message AskResponse {
@@ -242,7 +248,8 @@ message Peer {
   // The clone.
   string repo = 2;
   string group = 3;
-  // The CLI it runs on.
+  // The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+  // repo: each ask runs a fresh asker on the asker role.
   string kind = 4;
   // What it is and what to ask it, at most 400 characters.
   string about = 5;
@@ -251,7 +258,8 @@ message Peer {
   string worktree = 7;
   // The commit it last looked at.
   string seen = 8;
-  // Its conversation, once it has been asked; empty means never briefed.
+  // The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+  // asked, or the CLI did not report one.
   string session_id = 9;
   google.protobuf.Timestamp added = 10;
   google.protobuf.Timestamp asked = 11;
@@ -292,7 +300,7 @@ message AddPeerRequest {
   string about = 4;
   // Default `<repo>-research`.
   string name = 5;
-  // The CLI its asker runs on (default claude).
+  // Not read: a peer's asker runs on the asker role, or on what the ask names.
   string kind = 6;
 }
 
@@ -329,9 +337,7 @@ message ImportPeersRequest {
   RequestMeta meta = 1;
   // bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
   string from = 2 [(path) = true];
-  // Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-  // default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-  // its answers file come across, so a follow-up resumes it.
+  // Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
   bool unbriefed = 3;
 }
 

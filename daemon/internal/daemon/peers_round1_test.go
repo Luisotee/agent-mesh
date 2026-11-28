@@ -52,7 +52,7 @@ func TestRemovingAPeerDeletesItsCloneOnlyWhenAskedAndWhenTheDaemonMadeIt(t *test
 	}
 }
 
-// A peer's conversation has one process: while run 2's agent holds it, run 1's retired agent for it can't be
+// A peer's conversation has one process: while run 2's agent continues it, run 1's retired agent for it can't be
 // brought back by a message, and a third ask from run 1 is refused the same way.
 func TestARetiredPeerAgentIsNotResumedWhileAnotherRunsHoldsItsConversation(t *testing.T) {
 	w := startPeers(t)
@@ -71,7 +71,7 @@ func TestARetiredPeerAgentIsNotResumedWhileAnotherRunsHoldsItsConversation(t *te
 
 	run2 := startRun(t, w.device.Mesh, "")
 	_, as2 := w.root(t, run2.Id)
-	res2, err := as2.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: p.Name, Tier: "mid", Body: "second?", Timeout: 60}))
+	res2, err := as2.Ask(ctx, connect.NewRequest(&v1.AskRequest{Continue: true, Peers: p.Name, Tier: "mid", Body: "second?", Timeout: 60}))
 	if err != nil || len(res2.Msg.Agents) != 1 {
 		t.Fatalf("run 2's ask: %v %v", res2, err)
 	}
@@ -84,7 +84,7 @@ func TestARetiredPeerAgentIsNotResumedWhileAnotherRunsHoldsItsConversation(t *te
 		t.Errorf("resumed %v (%q)", sent.Msg.Resumed, sent.Msg.ResumeError)
 	}
 	// An ask from run 1 is refused for the same reason, and no task is left in the retired agent's inbox.
-	if _, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: p.Name, Tier: "mid", Body: "fourth?", Timeout: 60})); code(err) != connect.CodeFailedPrecondition ||
+	if _, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Continue: true, Peers: p.Name, Tier: "mid", Body: "fourth?", Timeout: 60})); code(err) != connect.CodeFailedPrecondition ||
 		!strings.Contains(err.Error(), "one process per conversation") {
 		t.Errorf("run 1's ask: %v", err)
 	}

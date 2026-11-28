@@ -70,9 +70,6 @@ func (d *Daemon) wantsBootResume(r store.Reader, a *v1.Agent) (bool, int) {
 			}
 		}
 	}
-	if a.Peer {
-		return false, 0 // a standing asker is brought back by the ask that wants it
-	}
 	return true, 1
 }
 

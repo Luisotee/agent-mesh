@@ -105,7 +105,7 @@ Each reviewer works inside the repo at the PR's head and changes nothing. You ge
 
 ### Learn from projects like yours
 
-`/find-peers` searches GitHub and the web for open-source projects that share your repo's core mechanisms, ranks them by overlap rather than stars, and on your yes clones each one with a standing read-only agent that keeps its context between questions. `/harvest-peers` then asks them all at once for ideas and bugs you may have, checks every finding in your code, and files the survivors in your tracker on your yes.
+`/find-peers` searches GitHub and the web for open-source projects that share your repo's core mechanisms, ranks them by overlap rather than stars, and on your yes clones and registers each one as a peer. `/harvest-peers` then asks them all at once (a fresh read-only asker each, on free models first) for ideas and bugs you may have, checks every finding in your code, and files the survivors in your tracker on your yes.
 
 ### Skills that work on their own
 

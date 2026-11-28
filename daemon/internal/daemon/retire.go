@@ -619,7 +619,7 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 		return o
 	}
 	if peer {
-		o.Reason = "a standing peer's worktree is kept: it is the peer's, not this run's"
+		o.Reason = "a peer's worktree is kept: it is the peer's, not this run's"
 		return o
 	}
 	var status string

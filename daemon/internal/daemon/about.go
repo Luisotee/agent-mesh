@@ -195,7 +195,7 @@ func (d *Daemon) derivedAbout(r store.Reader, a *v1.Agent) string {
 		return ""
 	}
 	if a.Peer { // a peer's line is the one its own record carries
-		if p, err := r.GetPeer(a.Name); err == nil {
+		if p := peerOfAgent(r, a); p != nil {
 			return capAbout(p.About)
 		}
 		return ""

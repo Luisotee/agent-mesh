@@ -3,7 +3,7 @@ name: find-peers
 description: >-
   agent-mesh (daemon): finds open-source projects that share a repo's core mechanisms, to learn from their code and history:
   searches GitHub, awesome lists and the web, ranks by mechanism overlap rather than stars, shows you the shortlist,
-  and on your yes registers each as a standing peer, unbriefed. Use it, typed or not, when the user wants similar
+  and on your yes registers each as a peer. Use it, typed or not, when the user wants similar
   projects, competitors or prior art ("find peer projects", "who else solves this", "find projects to learn from").
   Not for asking registered peers (`harvest-peers` for a round, `delegate` for one question), or a mesh agent (your
   task came by a `📬 [mesh]` doorbell).
@@ -41,6 +41,6 @@ The goal is a few projects that solve the **same problems by similar mechanisms*
 
    - **Names:** each `add-peer` prints the peer's `name` (`<repo>-research`, the repo part cut to 20 characters): report that name, never one you built from the repo's name. Pass `--name <short>-research` when a basename is long, or when two shortlisted projects share one (the second add would fail).
    - A peer is only registered, never asked: its first question is the round the user starts with `harvest-peers`.
-8. **Report and stop:** the peers added, by name and group, with what each is for. Say they haven't been briefed yet, and that `harvest-peers` gives them their first research round when the user wants it. Don't start it yourself: the user decides when to spend that.
+8. **Report and stop:** the peers added, by name and group, with what each is for. Say they haven't been asked yet, and that `harvest-peers` gives them their first research round when the user wants it. Don't start it yourself: the user decides when to spend that.
 
 Without the daemon, do steps 1 to 6 and give the shortlist with the clone commands: the search and the ranking are the part that works anywhere.

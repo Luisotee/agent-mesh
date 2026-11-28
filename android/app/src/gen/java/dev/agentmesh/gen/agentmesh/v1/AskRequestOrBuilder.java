@@ -127,7 +127,8 @@ public interface AskRequestOrBuilder extends
 
   /**
    * <pre>
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -136,7 +137,8 @@ public interface AskRequestOrBuilder extends
   java.lang.String getTier();
   /**
    * <pre>
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
+   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -253,8 +255,9 @@ public interface AskRequestOrBuilder extends
 
   /**
    * <pre>
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    * </pre>
    *
    * <code>string peers = 14 [json_name = "peers"];</code>
@@ -263,8 +266,9 @@ public interface AskRequestOrBuilder extends
   java.lang.String getPeers();
   /**
    * <pre>
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    * </pre>
    *
    * <code>string peers = 14 [json_name = "peers"];</code>
@@ -347,4 +351,16 @@ public interface AskRequestOrBuilder extends
    * @return The relay.
    */
   boolean getRelay();
+
+  /**
+   * <pre>
+   * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+   * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+   * the default: ask fresh unless the earlier answer's context is what the question needs.
+   * </pre>
+   *
+   * <code>bool continue = 19 [json_name = "continue"];</code>
+   * @return The continue.
+   */
+  boolean getContinue();
 }

@@ -16,7 +16,7 @@ The CLI of a new agent is `--kind claude` (the default), `--kind agy`, `--kind o
 
 ### Tiers
 
-You pick every agent's model and effort as a **tier**, from the task: the daemon has no default and refuses a spawn without `--tier` (or a named `--model`). A tier is a model chain (the first with quota) and an effort per CLI, with a note on what it is for (`tiers.<kind>.<tier>.*`).
+You pick every agent's model and effort as a **tier**, from the task: the daemon has no default and refuses a spawn without `--tier` (or a named `--model`). An asker is the exception: a question (`mesh ask --repo`, or `--peers`) that names no tier, kind or model runs on the **asker role** (`roles.asker.*`: the free OpenCode models first, then Sonnet). A tier is a model chain (the first with quota) and an effort per CLI, with a note on what it is for (`tiers.<kind>.<tier>.*`).
 
 | Tier | For |
 |---|---|
@@ -225,20 +225,22 @@ Then:
    - **After the last round's fix,** check the fix commits yourself (`git diff <reviewed head>..<new head>`), and the PR is done: no re-review, unless the user asks. If findings you agree with are still open after the last round, give them to the user with your opinion on each rather than starting another round, and don't turn them into a follow-up PR.
 3. **Turning the answer into a change** in that repo: start a `--role worker` there (`mesh spawn`) and put the asker's findings in its task. Or, to keep its context, send the asker or reviewer itself a task that isn't a read-only one: it becomes a worker in the same conversation. A planned task has it plan under the deny list it already has, and your approval (`mesh approve --tier <execution tier>`) reopens it without; a `Direct task (no plan)` reopens it without at once, or resumes a retired one without. Any task that doesn't start with `Question (read-only)` or `Review (read-only)` counts as a change, so start a follow-up question's text with that prefix (or send it as `--type question`). The one exception: an asker or reviewer a *worker* started never becomes a worker (a worker never gets a change worker): to it every task is a read-only follow-up.
 
-## Standing peer askers
+## Peers
 
-A **peer** is a cloned project kept as a standing read-only asker, for ideas, prior art and bugs from projects like ours. `mesh peers` lists them by group, with what each is for (`about`), when it was last asked and whether its conversation is running anywhere. The user's own session adds them (`mesh add-peer --source <url> --group <group> --about "…"`, the `find-peers` skill) and a root may too; `mesh import-peers` registers the ones bin/mesh knows (`peers.json`, only read) **with their conversations** (from bin/mesh's runs, at the worktree path they ran in), so the first round on the daemon is a follow-up, not a brief; one whose bin/mesh agent may still be running comes across unbriefed (the import says so), and `--unbriefed` brings none.
+A **peer** is a registered project (a clone, a group and what it is for), for ideas, prior art and bugs from projects like ours. It is not a running agent: `mesh peers` lists them by group, with what each is for (`about`), when it was last asked and whether an asker is on its last conversation now. The user's own session adds them (`mesh add-peer --source <url> --group <group> --about "…"`, the `find-peers` skill) and a root may too; `mesh import-peers` registers the ones bin/mesh knows (`peers.json`, only read: clone, group, about and upstream; no conversation comes across).
 
 ```bash
-mesh ask --peers <name>,<group>,… --tier <tier> --body @"$(mesh dir)/tasks/q.md" [--timeout 3600] [--no-refresh]   # or --peers all
-mesh ask --peers <name> --tier mid --body "…"                                                                  # one peer, one question
+mesh ask --peers <name>,<group>,… --body @"$(mesh dir)/tasks/q.md" [--timeout 3600] [--no-refresh]   # or --peers all
+mesh ask --peers <name> --body "…"                                                                 # one peer, one question
+mesh ask --peers <name> --continue --body "…"                                                      # go on in its last asker's conversation
 ```
 
+- **A fresh asker each ask:** every peer asked gets a read-only asker of its own in the peer's worktree (`<state>/worktrees/peers/<name>`, never removed by `mesh stop-run`), named as the peer and then `<peer>-2`, …, on the **asker role** (`roles.asker.*`: the free OpenCode models first, Sonnet when they are out; `mesh settings --prefix roles.asker.`). Name `--tier`, `--kind`, `--model` or `--effort` to choose otherwise (`--kind claude --tier mid` is the ask-again-on-Sonnet fallback). The asker is closed by the idle retire once it has answered; nothing runs between asks.
 - **One message, one file:** like a review round, the peers are asked at once and you end your turn; when the last has answered (or the timeout passed: `ask.timeout`, 30 minutes by default, `--timeout` seconds instead) you get **one** `info` `[mesh answers <id>]` with who answered and the path of `reports/peers-<stamp>.md`, which holds the question and every answer. Read the file, not N inboxes.
-- **Their conversation carries over:** each run that asks a peer gets an agent of its own, named as the peer, that resumes the peer's conversation in the peer's own worktree (`<state>/worktrees/peers/<name>`, never removed by `mesh stop-run`). A peer you have not briefed needs a first brief and a stronger `--tier`; later questions are follow-ups on what it remembers.
-- **What changed upstream** is in the task before your question: the daemon fetches the peer's project, moves its checkout to the new head when it is clean and lists the new commits. `--no-refresh` skips that.
-- **A peer that is not asked** says why in the message. One whose agent is running in another run is not asked from this one (one process per conversation): wait for that run's answer or retire the agent there. One still answering an earlier question of this run is asked again after its `done`.
-- **Peers only answer.** A task that isn't a question never makes a peer a worker. A bug a peer finds is checked against our code first (`harvest-peers`) and then fixed as ordinary work by a worker.
+- **Continuing is your choice, never the default.** A fresh asker reads the project cold; ask fresh unless the earlier answer's context is what the question needs. `--continue` goes back to each named peer's last asker conversation (this run's asker, or an earlier run's resumed in a new one) on that conversation's own CLI (`--kind` or `--model` of another is refused). A peer with no conversation, or whose transcript is gone (Claude Code deletes old ones), is asked fresh, and the message says so. A conversation running in another run is not continued from this one: ask fresh.
+- **What changed upstream** is in the task before your question: the daemon fetches the peer's project, moves its checkout to the new head when it is clean and no other run's asker is reading it, and lists the new commits. `--no-refresh` skips that. A checkout another run's asker holds stays where it is: the note says so and points at `git show <head>:<path>`.
+- **A peer that is not asked** says why in the message (a refused `--continue`, a CLI of the role that can't start, a removed peer).
+- **Peers only answer.** A task that isn't a question never makes a peer's asker a worker. A bug a peer finds is checked against our code first (`harvest-peers`) and then fixed as ordinary work by a worker.
 
 
 ## Follow-ups
