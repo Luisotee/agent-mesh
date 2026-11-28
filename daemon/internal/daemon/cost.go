@@ -804,9 +804,12 @@ func (d *Daemon) buildCostSegments(r store.Reader) (map[string][]*costSegment, m
 			if initialModel != "" {
 				models = append([]modelMark{{at: time.Time{}, model: initialModel, effort: initialEffort}}, models...)
 			}
-			for i := 1; i < len(models); i++ {
+			for i := 1; i < len(models); i++ { // a reopen that names only one of them keeps the other
 				if models[i].model == "" {
 					models[i].model = models[i-1].model
+				}
+				if models[i].effort == "" {
+					models[i].effort = models[i-1].effort
 				}
 			}
 

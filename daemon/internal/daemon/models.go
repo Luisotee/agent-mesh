@@ -39,6 +39,19 @@ type modelCheckState struct {
 	Efforts map[string][]string            `json:"-"`
 }
 
+// mergeOffered is the efforts each CLI offers: this listing's for the CLIs it read, the last good one's for the
+// others (a listing that failed keeps what the last one said).
+func mergeOffered(prev, now map[string]map[string][]string) map[string]map[string][]string {
+	out := map[string]map[string][]string{}
+	for k, v := range prev {
+		out[k] = v
+	}
+	for k, v := range now {
+		out[k] = v
+	}
+	return out
+}
+
 func (d *Daemon) withEfforts(r store.Reader, s modelCheckState) modelCheckState {
 	s.Efforts = d.effortProblems(r, s.Offered)
 	return s
@@ -409,10 +422,7 @@ func (d *Daemon) ModelNotice(ctx context.Context) string {
 			return nil
 		}
 		out = d.computeModelCheck(tx.Reader, listed, cur.Acked, cur, tx.Now())
-		out.Offered = offered
-		if len(offered) == 0 {
-			out.Offered = cur.Offered // a listing that failed keeps what the last good one said
-		}
+		out.Offered = mergeOffered(cur.Offered, offered)
 		return saveModelCheckState(tx, out)
 	})
 	if err != nil {
@@ -513,10 +523,7 @@ func (d *Daemon) CheckModels(ctx context.Context, req *connect.Request[v1.CheckM
 			acked[a.kind] = sortedKeys(set)
 		}
 		next := d.computeModelCheck(tx.Reader, listed, acked, cur, tx.Now())
-		next.Offered = offered
-		if len(offered) == 0 {
-			next.Offered = cur.Offered
-		}
+		next.Offered = mergeOffered(cur.Offered, offered)
 		if err := saveModelCheckState(tx, next); err != nil {
 			return err
 		}

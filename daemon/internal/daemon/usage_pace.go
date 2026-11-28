@@ -38,8 +38,9 @@ const (
 	sizeEvery        = 24 * time.Hour
 	// A reading further than this from the one before it starts a new period: the percent moved in a long gap is
 	// mostly use the mesh's tokens don't show (the user's own sessions), which would make a pool look bigger in
-	// percent and so smaller in tokens.
-	maxReadingGap = 12 * time.Hour
+	// percent and so smaller in tokens. A five-hour window's is tighter than a weekly one's (a night).
+	shortReadingGap  = 2 * time.Hour
+	weeklyReadingGap = 36 * time.Hour
 	// maxSizePeriods are the newest reset periods of a pool its size is worked out from (each costs one `mesh cost` scan).
 	maxSizePeriods = 8
 )
@@ -239,7 +240,7 @@ func (d *Daemon) estimateSizesWith(ctx context.Context, tokensBetween func(ctx c
 		}
 		var points float64
 		var tokens int64
-		periods := periodsOf(samples)
+		periods := periodsOf(samples, readingGapOf(pool))
 		if len(periods) > maxSizePeriods { // each period is a scan of the transcripts: the newest ones tell enough
 			periods = periods[len(periods)-maxSizePeriods:]
 		}
@@ -266,14 +267,14 @@ func (d *Daemon) estimateSizesWith(ctx context.Context, tokensBetween func(ctx c
 // periodsOf splits a pool's readings (oldest first) into reset periods: a reading starts a new one when its reset
 // time is more than 90 minutes from the period's, its use fell (the window reset), or it is more than maxReadingGap
 // after the one before.
-func periodsOf(samples []store.UsageSample) [][]store.UsageSample {
+func periodsOf(samples []store.UsageSample, maxGap time.Duration) [][]store.UsageSample {
 	var out [][]store.UsageSample
 	for _, s := range samples {
 		if n := len(out); n > 0 {
 			cur := out[n-1]
 			first, last := cur[0], cur[len(cur)-1]
 			sameReset := first.Resets.IsZero() || s.Resets.IsZero() || s.Resets.Sub(first.Resets).Abs() <= 90*time.Minute
-			if sameReset && s.Used >= last.Used && s.At.Sub(last.At) <= maxReadingGap {
+			if sameReset && s.Used >= last.Used && s.At.Sub(last.At) <= maxGap {
 				out[n-1] = append(cur, s)
 				continue
 			}
@@ -296,4 +297,13 @@ func (d *Daemon) sizeLoop(ctx context.Context) {
 			t.Reset(sizeEvery)
 		}
 	}
+}
+
+// readingGapOf is how far apart two readings of a pool may be to count as one stretch of use: by the length of its
+// window (a Claude seven-day window or an agy row labelled weekly is a weekly one).
+func readingGapOf(pool string) time.Duration {
+	if pool == "claude:five_hour" || (kindOfPool(pool) == "agy" && !strings.Contains(strings.ToLower(pool), "week")) {
+		return shortReadingGap
+	}
+	return weeklyReadingGap
 }

@@ -43,14 +43,14 @@ func TestPaceWarnsWhenUseRunsAheadOfTheWindow(t *testing.T) {
 	}
 }
 
-func TestPeriodsSplitWhereTheWindowResetsOrTheUseFalls(t *testing.T) {
+func TestPeriodsSplitWhereTheWindowResetsTheUseFallsOrTheGapIsLong(t *testing.T) {
 	t0 := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
 	reset1, reset2 := t0.Add(48*time.Hour), t0.Add(48*time.Hour+7*24*time.Hour)
 	s := func(h int, used float64, resets time.Time) store.UsageSample {
 		return store.UsageSample{Pool: "claude:seven_day", At: t0.Add(time.Duration(h) * time.Hour), Used: used, Resets: resets}
 	}
-	got := periodsOf([]store.UsageSample{s(1, 10, reset1), s(5, 18, reset1.Add(time.Minute)), s(14, 40, reset1), s(60, 3, reset2), s(70, 9, reset2), s(90, 12, reset2)})
-	// The last reading is 20 hours after the one before it: a gap that long starts a period of its own.
+	got := periodsOf([]store.UsageSample{s(1, 10, reset1), s(5, 18, reset1.Add(time.Minute)), s(14, 40, reset1), s(60, 3, reset2), s(70, 9, reset2), s(120, 12, reset2)}, weeklyReadingGap)
+	// The last reading is 50 hours after the one before it, over a weekly pool's 36 hours: a gap that long starts a period of its own.
 	if len(got) != 3 || len(got[0]) != 3 || len(got[1]) != 2 || len(got[2]) != 1 {
 		t.Fatalf("periods %v", got)
 	}
@@ -127,5 +127,24 @@ func TestEstimateSizesDividesTheTokensByThePercentMoved(t *testing.T) {
 	}
 	if _, ok := d.sizeOf(st.Read(ctx), "agy:Gemini:weekly"); ok {
 		t.Error("a pool that moved 2 points was measured")
+	}
+}
+
+func TestTheReadingGapFollowsTheLengthOfTheWindow(t *testing.T) {
+	for pool, want := range map[string]time.Duration{
+		"claude:five_hour": shortReadingGap, "claude:seven_day": weeklyReadingGap,
+		"agy:Gemini 4 Neon:Weekly Limit Remaining": weeklyReadingGap, "agy:Gemini 4 Neon:Neon": shortReadingGap,
+	} {
+		if got := readingGapOf(pool); got != want {
+			t.Errorf("%s: %v, want %v", pool, got, want)
+		}
+	}
+}
+
+func TestOfferedEffortsKeepTheLastListingOfACLIThatFailedThisTime(t *testing.T) {
+	prev := map[string]map[string][]string{"agy": {"hydrogen": {"high"}}, "opencode": {"m": {"high"}}}
+	got := mergeOffered(prev, map[string]map[string][]string{"opencode": {"m": {"high", "max"}}})
+	if len(got["agy"]["hydrogen"]) != 1 || len(got["opencode"]["m"]) != 2 {
+		t.Errorf("merged %v", got)
 	}
 }
