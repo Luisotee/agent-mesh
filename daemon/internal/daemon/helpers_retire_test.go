@@ -15,7 +15,7 @@ func spawnReviewer(t *testing.T, w *reopenWorld, as interface {
 	SpawnAgent(context.Context, *connect.Request[v1.SpawnAgentRequest]) (*connect.Response[v1.SpawnAgentResponse], error)
 }, slug string) *v1.Agent {
 	t.Helper()
-	res, err := as.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: slug,
+	res, err := as.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Tier: "mid", Task: "Review PR 1."}))
 	if err != nil {
 		t.Fatal(err)
@@ -39,8 +39,8 @@ func TestRetiringAWorkerRetiresItsReviewersAndTheRootMayRetireAnyAgentOfItsRun(t
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{})
-	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{About: "test worker"})
+	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{About: "test worker"})
 	asWorker := w.as(w.token(t, worker.Id))
 	rev1 := spawnReviewer(t, w, asWorker, "review-1")
 	rev2 := spawnReviewer(t, w, asWorker, "review-2")

@@ -111,4 +111,24 @@ public interface ResumeAgentResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getLeftPrBytes();
+
+  /**
+   * <pre>
+   * As `SendMessageResponse.about_note`, for a task given with the resume.
+   * </pre>
+   *
+   * <code>string about_note = 6 [json_name = "aboutNote"];</code>
+   * @return The aboutNote.
+   */
+  java.lang.String getAboutNote();
+  /**
+   * <pre>
+   * As `SendMessageResponse.about_note`, for a task given with the resume.
+   * </pre>
+   *
+   * <code>string about_note = 6 [json_name = "aboutNote"];</code>
+   * @return The bytes for aboutNote.
+   */
+  com.google.protobuf.ByteString
+      getAboutNoteBytes();
 }

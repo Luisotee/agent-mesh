@@ -40,7 +40,7 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 
 	// Run 1: lead + worker.
 	run1 := startRun(t, w.device.Mesh, "")
-	root1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	root1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run1.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 	}))
 	if err != nil {
@@ -48,7 +48,7 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 	}
 	root1 := w.waitState(root1Res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 
-	w1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	w1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run1.Id, Repo: repo, Slug: "worker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 		Mcp: []string{"playwright"},
 	}))
@@ -80,7 +80,7 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 
 	// Run 2: new lead root2 and a read-only asker spawned by root2.
 	run2 := startRun(t, w.device.Mesh, "")
-	root2Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	root2Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run2.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 	}))
 	if err != nil {
@@ -89,7 +89,7 @@ func TestRootCrossRunReadsAndFollowUpResume(t *testing.T) {
 	root2 := w.waitState(root2Res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 	root2Cli := agentClient(t, w, root2)
 
-	askerRes, err := root2Cli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	askerRes, err := root2Cli.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run2.Id, Repo: repo, Slug: "asker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_ASKER,
 	}))
 	if err != nil {
@@ -252,7 +252,7 @@ func TestCrossRunResumeClosedRunsOnlyAndClosedBeforeOpenSearch(t *testing.T) {
 
 	// Run 1 (closed): worker "repo-worker".
 	run1 := startRun(t, w.device.Mesh, "")
-	w1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	w1Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run1.Id, Repo: repo, Slug: "worker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -267,7 +267,7 @@ func TestCrossRunResumeClosedRunsOnlyAndClosedBeforeOpenSearch(t *testing.T) {
 
 	// Run 3 (open): another worker also named "repo-worker", stopped/retired inside open run3.
 	run3 := startRun(t, w.device.Mesh, "")
-	w3Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	w3Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run3.Id, Repo: repo, Slug: "worker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -278,7 +278,7 @@ func TestCrossRunResumeClosedRunsOnlyAndClosedBeforeOpenSearch(t *testing.T) {
 
 	// Run 2 (open): lead root2.
 	run2 := startRun(t, w.device.Mesh, "")
-	root2Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	root2Res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run2.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 	}))
 	if err != nil {

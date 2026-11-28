@@ -192,6 +192,69 @@ public class MeshServiceClient(
 
 
   /**
+   *  Say what an agent is for, one line of at most 80 characters (a parent or a device). It is shown beside the agent's
+   *  name; a derived line (from its plan or task) never replaces it.
+   */
+  override suspend fun setAgentAbout(request: SetAgentAboutRequest, headers: Headers): ResponseMessage<SetAgentAboutResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/SetAgentAbout",
+      dev.agentmesh.gen.agentmesh.v1.SetAgentAboutRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.SetAgentAboutResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Write the run's headline: where it is and what comes next, one to three lines for the user who comes back to it.
+   */
+  override suspend fun setRunHeadline(request: SetRunHeadlineRequest, headers: Headers): ResponseMessage<SetRunHeadlineResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/SetRunHeadline",
+      dev.agentmesh.gen.agentmesh.v1.SetRunHeadlineRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.SetRunHeadlineResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Record a decision the user may want to revisit (a declined finding, a design pick, a scope cut). `mesh brief` and
+   *  the run's overview list them, so they need no entry in the notes.
+   */
+  override suspend fun recordDecision(request: RecordDecisionRequest, headers: Headers): ResponseMessage<RecordDecisionResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/RecordDecision",
+      dev.agentmesh.gen.agentmesh.v1.RecordDecisionRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.RecordDecisionResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  One run as the user who comes back to it needs it: what waits on them, what broke, the lead's headline, who works
+   *  on what, what was merged, what is next, the decisions. Derived from stored state: no GitHub or transcript read.
+   */
+  override suspend fun getRunOverview(request: GetRunOverviewRequest, headers: Headers): ResponseMessage<GetRunOverviewResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/GetRunOverview",
+      dev.agentmesh.gen.agentmesh.v1.GetRunOverviewRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.GetRunOverviewResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
    *  which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
    *  An agent may ask once in 10 seconds.

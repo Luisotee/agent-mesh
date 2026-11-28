@@ -218,7 +218,7 @@ func (h *agentsHarness) waitState(id string, want v1.AgentState) *v1.Agent {
 
 func (h *agentsHarness) spawn(run, repo, slug, task string) *v1.Agent {
 	h.t.Helper()
-	res, err := h.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := h.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		Meta: meta("spawn-" + slug), RunId: run, Repo: repo, Slug: slug, Task: task, Tier: "mid"}))
 	if err != nil {
 		h.t.Fatal(err)
@@ -351,11 +351,11 @@ func TestSpawnRunsTheAgentAndItsHooksDriveItsState(t *testing.T) {
 
 	// A worker can't start another worker, but can start a reviewer.
 	worker := h.as(tok)
-	if _, err := worker.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: repo, Slug: "more",
+	if _, err := worker.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: repo, Slug: "more",
 		Role: v1.AgentRole_AGENT_ROLE_WORKER})); code(err) != connect.CodePermissionDenied {
 		t.Errorf("worker starting a worker: %v", err)
 	}
-	rev, err := worker.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: repo, Slug: "review",
+	rev, err := worker.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: repo, Slug: "review",
 		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Tier: "mid"}))
 	if err != nil || rev.Msg.Agent.ParentId != a.Id || rev.Msg.Agent.RunId != run.Id {
 		t.Fatalf("worker starting a reviewer: %v, %v", rev, err)
@@ -631,7 +631,7 @@ func TestAFailedLaunchFreesItsSlug(t *testing.T) {
 	run := startRun(t, h.device.Mesh, "")
 	repo := gitRepo(t)
 	for i := 0; i < 2; i++ {
-		_, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		_, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 			Meta: meta("same"), RunId: run.Id, Repo: repo, Slug: "fix", Tier: "mid"}))
 		if code(err) != connect.CodeFailedPrecondition {
 			t.Fatalf("attempt %d: %v", i, err)
@@ -644,7 +644,7 @@ func TestAFailedLaunchFreesItsSlug(t *testing.T) {
 	if len(agents.Msg.Agents) != 0 {
 		t.Errorf("agents left: %v", agents.Msg.Agents)
 	}
-	if _, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id})); code(err) != connect.CodeInvalidArgument {
+	if _, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id})); code(err) != connect.CodeInvalidArgument {
 		t.Errorf("no repo: %v", err)
 	}
 }

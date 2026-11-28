@@ -182,7 +182,7 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 	}
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta, Repo: top, Slug: slug,
 		Role: v1.AgentRole_AGENT_ROLE_ASKER, Kind: m.Kind, Model: m.Model, Effort: m.Effort, Tier: m.Tier,
-		Task: askPrefix + "\n\n" + body, Mcp: mcpNames}))
+		Task: askPrefix + "\n\n" + body, Mcp: mcpNames, About: askAbout(body)}))
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 		}
 	}
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: spawnMeta, Repo: top, Slug: slug,
-		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: m.Kind, Model: m.Model, Effort: effort, Tier: m.Tier, Base: pr.Head, Task: task, Mcp: mcpNames}))
+		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: m.Kind, Model: m.Model, Effort: effort, Tier: m.Tier, Base: pr.Head, Task: task, Mcp: mcpNames, About: reviewAbout(pr, last)}))
 	if err != nil {
 		return nil, err
 	}
@@ -754,7 +754,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	}
 	task := reviewTask(spec)
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: spawnMeta, Repo: j.top, Slug: slug,
-		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: effort, Tier: j.tier, Base: j.pr.Head, Task: task}))
+		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: effort, Tier: j.tier, Base: j.pr.Head, Task: task, About: reviewAbout(j.pr, spec.last)}))
 	if err != nil {
 		var ce *connect.Error
 		msg := err.Error()

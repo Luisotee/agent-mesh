@@ -36,6 +36,8 @@ public  final class Agent extends
     mcp_ = emptyProtobufList();
     addedTools_ = emptyProtobufList();
     reviewBy_ = "";
+    about_ = "";
+    aboutSource_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -2508,6 +2510,155 @@ public  final class Agent extends
   private void clearHadTurn() {
 
     hadTurn_ = false;
+  }
+
+  public static final int ABOUT_FIELD_NUMBER = 45;
+  private java.lang.String about_;
+  /**
+   * <pre>
+   * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+   * </pre>
+   *
+   * <code>string about = 45 [json_name = "about"];</code>
+   * @return The about.
+   */
+  @java.lang.Override
+  public java.lang.String getAbout() {
+    return about_;
+  }
+  /**
+   * <pre>
+   * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+   * </pre>
+   *
+   * <code>string about = 45 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAboutBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(about_);
+  }
+  /**
+   * <pre>
+   * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+   * </pre>
+   *
+   * <code>string about = 45 [json_name = "about"];</code>
+   * @param value The about to set.
+   */
+  private void setAbout(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    about_ = value;
+  }
+  /**
+   * <pre>
+   * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+   * </pre>
+   *
+   * <code>string about = 45 [json_name = "about"];</code>
+   */
+  private void clearAbout() {
+
+    about_ = getDefaultInstance().getAbout();
+  }
+  /**
+   * <pre>
+   * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+   * </pre>
+   *
+   * <code>string about = 45 [json_name = "about"];</code>
+   * @param value The bytes for about to set.
+   */
+  private void setAboutBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    about_ = value.toStringUtf8();
+
+  }
+
+  public static final int ABOUT_SOURCE_FIELD_NUMBER = 46;
+  private java.lang.String aboutSource_;
+  /**
+   * <pre>
+   * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+   * </pre>
+   *
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+   * @return The aboutSource.
+   */
+  @java.lang.Override
+  public java.lang.String getAboutSource() {
+    return aboutSource_;
+  }
+  /**
+   * <pre>
+   * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+   * </pre>
+   *
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+   * @return The bytes for aboutSource.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAboutSourceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(aboutSource_);
+  }
+  /**
+   * <pre>
+   * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+   * </pre>
+   *
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+   * @param value The aboutSource to set.
+   */
+  private void setAboutSource(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    aboutSource_ = value;
+  }
+  /**
+   * <pre>
+   * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+   * </pre>
+   *
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+   */
+  private void clearAboutSource() {
+
+    aboutSource_ = getDefaultInstance().getAboutSource();
+  }
+  /**
+   * <pre>
+   * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+   * </pre>
+   *
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+   * @param value The bytes for aboutSource to set.
+   */
+  private void setAboutSourceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    aboutSource_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
@@ -5169,6 +5320,159 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+     * </pre>
+     *
+     * <code>string about = 45 [json_name = "about"];</code>
+     * @return The about.
+     */
+    @java.lang.Override
+    public java.lang.String getAbout() {
+      return instance.getAbout();
+    }
+    /**
+     * <pre>
+     * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+     * </pre>
+     *
+     * <code>string about = 45 [json_name = "about"];</code>
+     * @return The bytes for about.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAboutBytes() {
+      return instance.getAboutBytes();
+    }
+    /**
+     * <pre>
+     * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+     * </pre>
+     *
+     * <code>string about = 45 [json_name = "about"];</code>
+     * @param value The about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAbout(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAbout(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+     * </pre>
+     *
+     * <code>string about = 45 [json_name = "about"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAbout() {
+      copyOnWrite();
+      instance.clearAbout();
+      return this;
+    }
+    /**
+     * <pre>
+     * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+     * </pre>
+     *
+     * <code>string about = 45 [json_name = "about"];</code>
+     * @param value The bytes for about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAboutBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+     * </pre>
+     *
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+     * @return The aboutSource.
+     */
+    @java.lang.Override
+    public java.lang.String getAboutSource() {
+      return instance.getAboutSource();
+    }
+    /**
+     * <pre>
+     * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+     * </pre>
+     *
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+     * @return The bytes for aboutSource.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAboutSourceBytes() {
+      return instance.getAboutSourceBytes();
+    }
+    /**
+     * <pre>
+     * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+     * </pre>
+     *
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+     * @param value The aboutSource to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutSource(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAboutSource(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+     * </pre>
+     *
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAboutSource() {
+      copyOnWrite();
+      instance.clearAboutSource();
+      return this;
+    }
+    /**
+     * <pre>
+     * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+     * </pre>
+     *
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
+     * @param value The bytes for aboutSource to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutSourceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAboutSourceBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -5230,15 +5534,17 @@ public  final class Agent extends
             "archived_",
             "plain_",
             "hadTurn_",
+            "about_",
+            "aboutSource_",
           };
           java.lang.String info =
-              "\u0000,\u0000\u0001\u0001,,\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000.\u0000\u0001\u0001..\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
               "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
               "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208(\u0004)\u0003*\u0007" +
-              "+\u0007,\u0007";
+              "+\u0007,\u0007-\u0208.\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

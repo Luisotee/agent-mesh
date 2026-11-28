@@ -58,7 +58,7 @@ test('the live dock: a tile per agent, a new worker pops in without taking focus
 
   // A worker the lead starts pops into the dock marked new. The lead stays open, and no tab is added for it.
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
-  await asLead.spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  await asLead.spawnAgent({ about: 'test worker', repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const fixTile = dock.getByRole('listitem', { name: 'repo-fix in the dock' })
   await fixTile.waitFor()
   await fixTile.getByText('new', { exact: true }).waitFor()

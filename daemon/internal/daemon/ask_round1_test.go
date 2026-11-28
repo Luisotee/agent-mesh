@@ -161,7 +161,7 @@ func TestARetriedRoundReplaysAReviewerSpawnedBeforeItCrashedWhateverTheReserveSa
 	w := startReviews(t, func(c *daemon.AgentConfig) { c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true} })
 	ctx := context.Background()
 	head := w.pr.push(t, "the feature")
-	spawned, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("ask-crash/spawn-claude"),
+	spawned, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta("ask-crash/spawn-claude"),
 		Repo: w.pr.repo, Slug: "review-7-claude", Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: "claude", Tier: "mid",
 		Base: head, Task: "Review (read-only): the PR."}))
 	if err != nil {

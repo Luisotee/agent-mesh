@@ -45,6 +45,7 @@ A map from what someone wants to the command. `mesh help <command>` has the flag
 | Send an agent a message | `mesh send <agent> --type task\|answer\|info --body …` (`parent` for your parent) |
 | Read my mail | `mesh inbox`; a root also `mesh brief` |
 | See the run's agents and their states | `mesh agents`; one: `mesh agent <agent>`; the timeline: `mesh log` (`--follow`) |
+| See the run at a glance (what waits, who does what, what merged, what is next) | `mesh overview`; say what an agent is for: `mesh about <agent> --text "<line>"` (a root) |
 | See what waits on me or the user | `mesh waiting`; permission prompts: `mesh permissions`, answered with `mesh permission --id <id> --decision allow\|deny` |
 | Approve a worker's plan | `mesh approve <worker> --tier <tier>` (root) |
 | See a worker's branch, diff and PR | `mesh check <worker>`; all PRs and their checks: `mesh prs` |

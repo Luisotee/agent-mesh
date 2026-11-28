@@ -123,4 +123,24 @@ public interface HeldTaskOrBuilder extends
    * @return The createdAt.
    */
   com.google.protobuf.Timestamp getCreatedAt();
+
+  /**
+   * <pre>
+   * The `about` the task was sent with, applied when it is sent.
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @return The about.
+   */
+  java.lang.String getAbout();
+  /**
+   * <pre>
+   * The `about` the task was sent with, applied when it is sent.
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  com.google.protobuf.ByteString
+      getAboutBytes();
 }

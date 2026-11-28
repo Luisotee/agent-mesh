@@ -143,4 +143,26 @@ public interface SendMessageRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAfterBytes();
+
+  /**
+   * <pre>
+   * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+   * it the agent keeps the about line it has, and the response says which (`about_note`).
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @return The about.
+   */
+  java.lang.String getAbout();
+  /**
+   * <pre>
+   * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+   * it the agent keeps the about line it has, and the response says which (`about_note`).
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  com.google.protobuf.ByteString
+      getAboutBytes();
 }

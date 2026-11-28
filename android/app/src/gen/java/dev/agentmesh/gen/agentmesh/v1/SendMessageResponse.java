@@ -17,6 +17,7 @@ public  final class SendMessageResponse extends
   private SendMessageResponse() {
     resumeError_ = "";
     held_ = "";
+    aboutNote_ = "";
   }
   private int bitField0_;
   public static final int MESSAGE_FIELD_NUMBER = 1;
@@ -274,6 +275,73 @@ public  final class SendMessageResponse extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     held_ = value.toStringUtf8();
+
+  }
+
+  public static final int ABOUT_NOTE_FIELD_NUMBER = 5;
+  private java.lang.String aboutNote_;
+  /**
+   * <pre>
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * </pre>
+   *
+   * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+   * @return The aboutNote.
+   */
+  @java.lang.Override
+  public java.lang.String getAboutNote() {
+    return aboutNote_;
+  }
+  /**
+   * <pre>
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * </pre>
+   *
+   * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+   * @return The bytes for aboutNote.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAboutNoteBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(aboutNote_);
+  }
+  /**
+   * <pre>
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * </pre>
+   *
+   * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+   * @param value The aboutNote to set.
+   */
+  private void setAboutNote(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    aboutNote_ = value;
+  }
+  /**
+   * <pre>
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * </pre>
+   *
+   * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+   */
+  private void clearAboutNote() {
+
+    aboutNote_ = getDefaultInstance().getAboutNote();
+  }
+  /**
+   * <pre>
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * </pre>
+   *
+   * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+   * @param value The bytes for aboutNote to set.
+   */
+  private void setAboutNoteBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    aboutNote_ = value.toStringUtf8();
 
   }
 
@@ -640,6 +708,75 @@ public  final class SendMessageResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * </pre>
+     *
+     * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+     * @return The aboutNote.
+     */
+    @java.lang.Override
+    public java.lang.String getAboutNote() {
+      return instance.getAboutNote();
+    }
+    /**
+     * <pre>
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * </pre>
+     *
+     * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+     * @return The bytes for aboutNote.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAboutNoteBytes() {
+      return instance.getAboutNoteBytes();
+    }
+    /**
+     * <pre>
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * </pre>
+     *
+     * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+     * @param value The aboutNote to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutNote(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAboutNote(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * </pre>
+     *
+     * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAboutNote() {
+      copyOnWrite();
+      instance.clearAboutNote();
+      return this;
+    }
+    /**
+     * <pre>
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * </pre>
+     *
+     * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+     * @param value The bytes for aboutNote to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutNoteBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAboutNoteBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SendMessageResponse)
   }
   @java.lang.Override
@@ -661,10 +798,11 @@ public  final class SendMessageResponse extends
             "resumed_",
             "resumeError_",
             "held_",
+            "aboutNote_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u1009\u0001\u0003\u0208\u0004\u0208";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
+              "\u1009\u0001\u0003\u0208\u0004\u0208\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -79,7 +79,7 @@ func TestAnAgentWhoseConversationWasDeletedIsToldItStartsWithNoMemoryAndSoIsItsP
 	run := startRun(t, w.device.Mesh, "")
 	lead, root := w.root(t, run.Id)
 	res, err := root.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
-		RunId: run.Id, Repo: gitRepo(t), Slug: "wk", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER}))
+		About: "test worker", RunId: run.Id, Repo: gitRepo(t), Slug: "wk", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER}))
 	if err != nil {
 		t.Fatal(err)
 	}

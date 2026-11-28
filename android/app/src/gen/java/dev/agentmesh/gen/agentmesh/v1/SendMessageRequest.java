@@ -20,6 +20,7 @@ public  final class SendMessageRequest extends
     until_ = "";
     re_ = "";
     after_ = "";
+    about_ = "";
   }
   private int bitField0_;
   public static final int META_FIELD_NUMBER = 1;
@@ -474,6 +475,78 @@ public  final class SendMessageRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     after_ = value.toStringUtf8();
+
+  }
+
+  public static final int ABOUT_FIELD_NUMBER = 8;
+  private java.lang.String about_;
+  /**
+   * <pre>
+   * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+   * it the agent keeps the about line it has, and the response says which (`about_note`).
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @return The about.
+   */
+  @java.lang.Override
+  public java.lang.String getAbout() {
+    return about_;
+  }
+  /**
+   * <pre>
+   * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+   * it the agent keeps the about line it has, and the response says which (`about_note`).
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAboutBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(about_);
+  }
+  /**
+   * <pre>
+   * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+   * it the agent keeps the about line it has, and the response says which (`about_note`).
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @param value The about to set.
+   */
+  private void setAbout(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    about_ = value;
+  }
+  /**
+   * <pre>
+   * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+   * it the agent keeps the about line it has, and the response says which (`about_note`).
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   */
+  private void clearAbout() {
+
+    about_ = getDefaultInstance().getAbout();
+  }
+  /**
+   * <pre>
+   * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+   * it the agent keeps the about line it has, and the response says which (`about_note`).
+   * </pre>
+   *
+   * <code>string about = 8 [json_name = "about"];</code>
+   * @param value The bytes for about to set.
+   */
+  private void setAboutBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    about_ = value.toStringUtf8();
 
   }
 
@@ -1043,6 +1116,80 @@ public  final class SendMessageRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+     * it the agent keeps the about line it has, and the response says which (`about_note`).
+     * </pre>
+     *
+     * <code>string about = 8 [json_name = "about"];</code>
+     * @return The about.
+     */
+    @java.lang.Override
+    public java.lang.String getAbout() {
+      return instance.getAbout();
+    }
+    /**
+     * <pre>
+     * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+     * it the agent keeps the about line it has, and the response says which (`about_note`).
+     * </pre>
+     *
+     * <code>string about = 8 [json_name = "about"];</code>
+     * @return The bytes for about.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAboutBytes() {
+      return instance.getAboutBytes();
+    }
+    /**
+     * <pre>
+     * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+     * it the agent keeps the about line it has, and the response says which (`about_note`).
+     * </pre>
+     *
+     * <code>string about = 8 [json_name = "about"];</code>
+     * @param value The about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAbout(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAbout(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+     * it the agent keeps the about line it has, and the response says which (`about_note`).
+     * </pre>
+     *
+     * <code>string about = 8 [json_name = "about"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAbout() {
+      copyOnWrite();
+      instance.clearAbout();
+      return this;
+    }
+    /**
+     * <pre>
+     * Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+     * it the agent keeps the about line it has, and the response says which (`about_note`).
+     * </pre>
+     *
+     * <code>string about = 8 [json_name = "about"];</code>
+     * @param value The bytes for about to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAboutBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAboutBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.SendMessageRequest)
   }
   @java.lang.Override
@@ -1067,10 +1214,11 @@ public  final class SendMessageRequest extends
             "until_",
             "re_",
             "after_",
+            "about_",
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u1009\u0000\u0002" +
-              "\u0208\u0003\f\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208";
+              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u1009\u0000\u0002\u0208\u0003" +
+              "\f\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

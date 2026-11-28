@@ -17,7 +17,7 @@ func TestCreateWorktreeIsRecordedCheckedForConflictsAndCleanedOnStopRun(t *testi
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "feat", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "feat", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// Only a device or a root may create a standalone worktree; a worker cannot.
 	if _, err := w.as(w.token(t, worker.Id)).CreateWorktree(ctx, connect.NewRequest(&v1.CreateWorktreeRequest{

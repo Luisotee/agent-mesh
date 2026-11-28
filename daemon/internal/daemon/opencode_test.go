@@ -66,7 +66,7 @@ func (w *reopenWorld) waitInfoDelivered(t *testing.T, agentID, substr string) {
 
 func (w *reopenWorld) opencodeRoot(t *testing.T, run string) (*v1.Agent, agentmeshv1connect.MeshServiceClient) {
 	t.Helper()
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run, Repo: gitRepo(t), Slug: "oc-lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 		Kind: "opencode", Tier: "light",
 	}))
@@ -98,7 +98,7 @@ func TestOpenCodeEveryReportReachesTheRootAndRingsItsDoorbell(t *testing.T) {
 	w := startReopen(t, fastPass)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.opencodeRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{Kind: "opencode", Tier: "light", Task: "investigate bug"})
+	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{About: "test worker", Kind: "opencode", Tier: "light", Task: "investigate bug"})
 	inboxMsgs, err := w.d.Store().Read(context.Background()).Inbox(worker.Id, true)
 	if err != nil || len(inboxMsgs) == 0 || !strings.Contains(inboxMsgs[0].Body, "--body @") {
 		t.Fatalf("opencode worker task lacks --body @file instruction: msgs=%v err=%v", inboxMsgs, err)
@@ -130,7 +130,7 @@ func TestOpenCodeReportSentWhileRootIsWorkingRingsAtNextIdle(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.opencodeRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "early", &v1.SpawnAgentRequest{Kind: "opencode", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "early", &v1.SpawnAgentRequest{About: "test worker", Kind: "opencode", Tier: "light"})
 
 	w.typeInto(lead, "/hold\r")
 	w.waitState(lead.Id, v1.AgentState_AGENT_STATE_WORKING)
@@ -153,7 +153,7 @@ func TestOpenCodeResumedPlanningWorkerSendsPlanAndApproveLiftsPermission(t *test
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.opencodeRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{Kind: "opencode", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{About: "test worker", Kind: "opencode", Tier: "light"})
 
 	// First turn creates the session in opencode.db; pollOpenCode records SessionId on IDLE.
 	worker = w.opencodeTurn(t, worker, "first turn")
@@ -244,7 +244,7 @@ func TestOpenCodePlaceholderAndWrappedStatusNeverHoldADoorbellAcrossWidths(t *te
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.opencodeRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{Kind: "opencode", Tier: "light"})
+	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{About: "test worker", Kind: "opencode", Tier: "light"})
 
 	screen := w.screen(t, worker)
 	if want := "Ask anything\u2026"; !contains(screen, want) || !contains(screen, "DeepSeek") {
@@ -320,7 +320,7 @@ func TestOpenCodeLimitsHoldModelsAndRotateInSameSession(t *testing.T) {
 	w.set(t, "tiers.opencode.mid.model", []any{"openai/gpt-5.2", "free"})
 	run := startRun(t, w.device.Mesh, "")
 
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-lim", Kind: opencode.Kind, Tier: "mid",
 	}))
 	if err != nil {
@@ -342,7 +342,7 @@ func TestOpenCodeLimitsHoldModelsAndRotateInSameSession(t *testing.T) {
 	w.waitInfoDelivered(t, re1.Id, "big-pickle")
 
 	// Held model (openai/gpt-5.2) is skipped when spawning a new agent on the same tier.
-	next, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	next, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-skip", Kind: opencode.Kind, Tier: "mid",
 	}))
 	if err != nil {
@@ -478,7 +478,7 @@ func TestOpenCodeRootWithNoModelLaunchesWithoutModelFlag(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-default", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: opencode.Kind,
 	}))
 	if err != nil {
@@ -509,7 +509,7 @@ func TestOpenCodePaneBannerFiresAgainAfterSwitchBack(t *testing.T) {
 	w.set(t, "tiers.opencode.mid.model", []any{"opencode/deepseek-v4.1-flash-free", "opencode/flint-40b-free", "opencode/beam-free", "free"}) // a long chain, to rotate through
 	run := startRun(t, w.device.Mesh, "")
 
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-back", Kind: opencode.Kind, Tier: "mid",
 	}))
 	if err != nil {
@@ -641,7 +641,7 @@ func TestSwitchAgentNextChainChangedAndAllHeld(t *testing.T) {
 	w.set(t, "tiers.opencode.mid.model", []any{"openai/gpt-5.2", "free"})
 	run := startRun(t, w.device.Mesh, "")
 
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-allheld", Kind: opencode.Kind, Tier: "mid",
 	}))
 	if err != nil {
@@ -690,7 +690,7 @@ func TestSwitchAgentNextChainChangedAndAllHeld(t *testing.T) {
 	}
 
 	// Non-OpenCode kinds with i < 0 keep chain[0] even when held.
-	cl, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	cl, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "cl-chain", Kind: "claude", Tier: "mid",
 	}))
 	if err != nil {
@@ -718,7 +718,7 @@ func TestOpenCodeEmptyFreeModelsNeverLaunchAsLiteralFree(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 
-	_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "no-free", Kind: opencode.Kind, Tier: "light",
 	}))
 	if connect.CodeOf(err) != connect.CodeInvalidArgument || !strings.Contains(err.Error(), "zero-cost") {
@@ -732,7 +732,7 @@ func TestOpenCodeFreeModelUsesTierEffortAndSwitchEffortFallback(t *testing.T) {
 	run := startRun(t, w.device.Mesh, "")
 
 	// --model free --tier light picks light's effort ("low"), not namedEffort ("high").
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "free-tier", Kind: opencode.Kind, Tier: "light", Model: opencode.FreeFamily,
 	}))
 	if err != nil {
@@ -744,7 +744,7 @@ func TestOpenCodeFreeModelUsesTierEffortAndSwitchEffortFallback(t *testing.T) {
 	}
 
 	// Explicit effort wins over tier effort.
-	sp2, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp2, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "free-exp", Kind: opencode.Kind, Tier: "light", Model: opencode.FreeFamily, Effort: "medium",
 	}))
 	if err != nil {
@@ -755,7 +755,7 @@ func TestOpenCodeFreeModelUsesTierEffortAndSwitchEffortFallback(t *testing.T) {
 	}
 
 	// --model free with no tier uses namedEffort ("high").
-	sp3, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp3, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "free-notier", Kind: opencode.Kind, Model: opencode.FreeFamily,
 	}))
 	if err != nil {
@@ -766,7 +766,7 @@ func TestOpenCodeFreeModelUsesTierEffortAndSwitchEffortFallback(t *testing.T) {
 	}
 
 	// Root launched with empty model/effort switching to "free" without --effort falls back to namedEffort ("high").
-	rtSp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	rtSp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-root", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: opencode.Kind,
 	}))
 	if err != nil {
@@ -788,7 +788,7 @@ func TestOpenCodeAbortedTurnBecomesIdleNotError(t *testing.T) {
 	w := startReopen(t, fastPass)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "oc-abort", Kind: opencode.Kind, Tier: "light",
 	}))
 	if err != nil {
@@ -827,7 +827,7 @@ func TestOpenCodeFooterLimitLineRotatesTheAgent(t *testing.T) {
 			ctx := context.Background()
 			w.set(t, "tiers.opencode.mid.model", []any{"opencode/beam-free", "opencode/flint-40b-free"})
 			run := startRun(t, w.device.Mesh, "")
-			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 				RunId: run.Id, Repo: gitRepo(t), Slug: "oc-foot", Kind: opencode.Kind, Tier: "mid",
 			}))
 			if err != nil {
@@ -869,7 +869,7 @@ func TestAFooterLimitSeenBeforeTheDBHasTheReplyStillRotatesTheAgent(t *testing.T
 			ctx := context.Background()
 			w.set(t, "tiers.opencode.mid.model", []any{"opencode/beam-free", "opencode/flint-40b-free"})
 			run := startRun(t, w.device.Mesh, "")
-			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 				RunId: run.Id, Repo: gitRepo(t), Slug: "oc-first", Kind: opencode.Kind, Tier: "mid",
 			}))
 			if err != nil {
@@ -903,7 +903,7 @@ func TestALimitedAgentStaysLimitedWhenTheDBsReplyArrivesAfterTheScreensLimit(t *
 			ctx := context.Background()
 			w.set(t, "limits.auto", "off")
 			run := startRun(t, w.device.Mesh, "")
-			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 				RunId: run.Id, Repo: gitRepo(t), Slug: "oc-stay", Kind: opencode.Kind, Tier: "mid",
 			}))
 			if err != nil {

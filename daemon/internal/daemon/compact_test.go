@@ -119,7 +119,7 @@ func (cw *compactWorld) seq(t *testing.T, run, agent string, match func(*v1.Even
 func (cw *compactWorld) stopped(t *testing.T, slug, task string, role v1.AgentRole, tokens int, ttlKey string, age time.Duration) (*v1.Run, *v1.Agent) {
 	t.Helper()
 	run := startRun(t, cw.device.Mesh, "")
-	res, err := cw.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := cw.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: slug, Task: task, Tier: "mid", Role: role}))
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestApproveWithNoPlanCompactsWithoutNamingAPlanFile(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix",
 		Tier: "strong", Plan: true, Task: "plan the fix"}))
 	if err != nil {
 		t.Fatal(err)
@@ -366,7 +366,7 @@ func TestApproveCompactsALivePlannerInItsTerminalBeforeTheReopen(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix",
 		Tier: "strong", Plan: true, Task: "plan the fix"}))
 	if err != nil {
 		t.Fatal(err)
@@ -411,7 +411,7 @@ func approveBig(t *testing.T, w *compactWorld) (run *v1.Run, before *v1.Agent) {
 	ctx := context.Background()
 	run = startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix",
 		Tier: "strong", Plan: true, Task: "plan the fix"}))
 	if err != nil {
 		t.Fatal(err)
@@ -477,7 +477,7 @@ func TestApproveWithoutAReopenCompactsNothing(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "pinned",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "pinned",
 		Model: "opus", Task: "Direct task (no plan): do it"}))
 	if err != nil {
 		t.Fatal(err)
@@ -509,7 +509,7 @@ func followUpWorld(t *testing.T, w *compactWorld) (*v1.Run, *v1.Agent, agentmesh
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix",
 		Tier: "mid", Task: "Direct task (no plan): fix it"}))
 	if err != nil {
 		t.Fatal(err)

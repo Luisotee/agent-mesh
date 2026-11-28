@@ -42,6 +42,7 @@ func (t *Tx) DeleteRun(runID string) ([]string, error) {
 		`DELETE FROM events WHERE run_id = ?`,
 		`DELETE FROM asks WHERE run_id = ?`,
 		`DELETE FROM held_tasks WHERE run_id = ?`,
+		`DELETE FROM run_decisions WHERE run_id = ?`,
 		`DELETE FROM worktrees WHERE run_id = ?`,
 		`DELETE FROM agents WHERE run_id = ?`,
 		`DELETE FROM runs WHERE id = ?`,

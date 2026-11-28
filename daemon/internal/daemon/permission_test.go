@@ -19,7 +19,7 @@ import (
 // worker starts a Claude worker of the run's root and waits for its prompt.
 func (w *reviewWorld) worker(t *testing.T, slug string) *v1.Agent {
 	t.Helper()
-	res, err := w.asRoot.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.asRoot.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		Repo: gitRepo(t), Slug: slug, Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER}))
 	if err != nil {
 		t.Fatal(err)

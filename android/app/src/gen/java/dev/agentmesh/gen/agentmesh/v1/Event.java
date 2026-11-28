@@ -64,6 +64,9 @@ public  final class Event extends
     AGENT_ARCHIVED(41),
     USER_NOTICE(42),
     RUN_DELETED(43),
+    RUN_HEADLINE_CHANGED(44),
+    AGENT_ABOUT_CHANGED(45),
+    DECISION_RECORDED(46),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -113,6 +116,9 @@ public  final class Event extends
         case 41: return AGENT_ARCHIVED;
         case 42: return USER_NOTICE;
         case 43: return RUN_DELETED;
+        case 44: return RUN_HEADLINE_CHANGED;
+        case 45: return AGENT_ABOUT_CHANGED;
+        case 46: return DECISION_RECORDED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -2177,6 +2183,156 @@ public  final class Event extends
    */
   private void clearRunDeleted() {
     if (payloadCase_ == 43) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int RUN_HEADLINE_CHANGED_FIELD_NUMBER = 44;
+  /**
+   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+   */
+  @java.lang.Override
+  public boolean hasRunHeadlineChanged() {
+    return payloadCase_ == 44;
+  }
+  /**
+   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged getRunHeadlineChanged() {
+    if (payloadCase_ == 44) {
+       return (dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+   */
+  private void setRunHeadlineChanged(dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 44;
+  }
+  /**
+   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+   */
+  private void mergeRunHeadlineChanged(dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 44 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged.newBuilder((dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 44;
+  }
+  /**
+   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+   */
+  private void clearRunHeadlineChanged() {
+    if (payloadCase_ == 44) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int AGENT_ABOUT_CHANGED_FIELD_NUMBER = 45;
+  /**
+   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAgentAboutChanged() {
+    return payloadCase_ == 45;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged getAgentAboutChanged() {
+    if (payloadCase_ == 45) {
+       return (dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+   */
+  private void setAgentAboutChanged(dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 45;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+   */
+  private void mergeAgentAboutChanged(dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 45 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged.newBuilder((dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 45;
+  }
+  /**
+   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+   */
+  private void clearAgentAboutChanged() {
+    if (payloadCase_ == 45) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int DECISION_RECORDED_FIELD_NUMBER = 46;
+  /**
+   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+   */
+  @java.lang.Override
+  public boolean hasDecisionRecorded() {
+    return payloadCase_ == 46;
+  }
+  /**
+   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.DecisionRecorded getDecisionRecorded() {
+    if (payloadCase_ == 46) {
+       return (dev.agentmesh.gen.agentmesh.v1.DecisionRecorded) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.DecisionRecorded.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+   */
+  private void setDecisionRecorded(dev.agentmesh.gen.agentmesh.v1.DecisionRecorded value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 46;
+  }
+  /**
+   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+   */
+  private void mergeDecisionRecorded(dev.agentmesh.gen.agentmesh.v1.DecisionRecorded value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 46 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.DecisionRecorded.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.DecisionRecorded.newBuilder((dev.agentmesh.gen.agentmesh.v1.DecisionRecorded) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 46;
+  }
+  /**
+   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+   */
+  private void clearDecisionRecorded() {
+    if (payloadCase_ == 46) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -4290,6 +4446,150 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+     */
+    @java.lang.Override
+    public boolean hasRunHeadlineChanged() {
+      return instance.hasRunHeadlineChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged getRunHeadlineChanged() {
+      return instance.getRunHeadlineChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+     */
+    public Builder setRunHeadlineChanged(dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged value) {
+      copyOnWrite();
+      instance.setRunHeadlineChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+     */
+    public Builder setRunHeadlineChanged(
+        dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRunHeadlineChanged(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+     */
+    public Builder mergeRunHeadlineChanged(dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged value) {
+      copyOnWrite();
+      instance.mergeRunHeadlineChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
+     */
+    public Builder clearRunHeadlineChanged() {
+      copyOnWrite();
+      instance.clearRunHeadlineChanged();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAgentAboutChanged() {
+      return instance.hasAgentAboutChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged getAgentAboutChanged() {
+      return instance.getAgentAboutChanged();
+    }
+    /**
+     * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+     */
+    public Builder setAgentAboutChanged(dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged value) {
+      copyOnWrite();
+      instance.setAgentAboutChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+     */
+    public Builder setAgentAboutChanged(
+        dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAgentAboutChanged(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+     */
+    public Builder mergeAgentAboutChanged(dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged value) {
+      copyOnWrite();
+      instance.mergeAgentAboutChanged(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
+     */
+    public Builder clearAgentAboutChanged() {
+      copyOnWrite();
+      instance.clearAgentAboutChanged();
+      return this;
+    }
+
+    /**
+     * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+     */
+    @java.lang.Override
+    public boolean hasDecisionRecorded() {
+      return instance.hasDecisionRecorded();
+    }
+    /**
+     * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.DecisionRecorded getDecisionRecorded() {
+      return instance.getDecisionRecorded();
+    }
+    /**
+     * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+     */
+    public Builder setDecisionRecorded(dev.agentmesh.gen.agentmesh.v1.DecisionRecorded value) {
+      copyOnWrite();
+      instance.setDecisionRecorded(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+     */
+    public Builder setDecisionRecorded(
+        dev.agentmesh.gen.agentmesh.v1.DecisionRecorded.Builder builderForValue) {
+      copyOnWrite();
+      instance.setDecisionRecorded(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+     */
+    public Builder mergeDecisionRecorded(dev.agentmesh.gen.agentmesh.v1.DecisionRecorded value) {
+      copyOnWrite();
+      instance.mergeDecisionRecorded(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
+     */
+    public Builder clearDecisionRecorded() {
+      copyOnWrite();
+      instance.clearDecisionRecorded();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -4350,15 +4650,18 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.AgentArchived.class,
             dev.agentmesh.gen.agentmesh.v1.UserNotice.class,
             dev.agentmesh.gen.agentmesh.v1.RunDeleted.class,
+            dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged.class,
+            dev.agentmesh.gen.agentmesh.v1.DecisionRecorded.class,
           };
           java.lang.String info =
-              "\u0000)\u0001\u0001\u0001+)\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
+              "\u0000,\u0001\u0001\u0001.,\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
               "\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b<\u0000" +
               "\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000" +
               "\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019" +
               "<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000" +
               " <\u0000!<\u0000\"<\u0000#<\u0000$<\u0000%<\u0000&<\u0000\'<\u0000(<\u0000)<\u0000" +
-              "*<\u0000+<\u0000";
+              "*<\u0000+<\u0000,<\u0000-<\u0000.<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

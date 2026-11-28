@@ -155,7 +155,7 @@ func TestADraftLeftInTheBoxByAUserWhoDetachedHoldsTheDoorbell(t *testing.T) {
 	w.set(t, "delivery.draft_hold_alert", 1)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "drafty", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "drafty", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// The user types half a thought, with no Enter, and detaches: the host sees no client any more.
 	// Non-ASCII, and longer than the 80 characters of it an event keeps: the cut must fall on a character.
@@ -195,7 +195,7 @@ func TestAPlaceholderInTheBoxNeverHoldsADoorbell(t *testing.T) {
 	w.set(t, "delivery.draft_hold_alert", 0.05)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{About: "test worker"})
 	waitFor(t, "the placeholder drawn", func() bool { return strings.Contains(w.screen(t, worker), `Try "fix lint errors"`) })
 	for _, typ := range []v1.MessageType{v1.MessageType_MESSAGE_TYPE_TASK, v1.MessageType_MESSAGE_TYPE_INFO} {
 		msg := send(t, asLead, worker.Id, typ, "hello")
@@ -212,7 +212,7 @@ func TestADoorbellTheAgentDroppedIsTypedAgainWithANewToken(t *testing.T) {
 	w.set(t, "delivery.confirm_after", 1)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "dropper", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "dropper", &v1.SpawnAgentRequest{About: "test worker"})
 	// A turn of its own first: activity from before the doorbell must not confirm it.
 	w.typeInto(worker, "warm up\r")
 	waitFor(t, "the warm-up turn", func() bool { return strings.Contains(w.screen(t, worker), "done: warm up") })
@@ -238,7 +238,7 @@ func TestADoorbellLeftInTheBoxIsSubmittedWithEnterAlone(t *testing.T) {
 	w.set(t, "delivery.confirm_after", 1)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "stuck", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "stuck", &v1.SpawnAgentRequest{About: "test worker"})
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the doorbell left in the box", func() bool { return strings.Contains(w.screen(t, worker), "📬") })
 	if !w.deliveredAt(t, worker.Id, msg.Id).IsZero() {
@@ -261,7 +261,7 @@ func TestAnAgentAtADialogGetsNoSecondEnterAndTheDoorbellIsGivenUp(t *testing.T) 
 	w.set(t, "delivery.ring_tries", 3)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "dialog", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "dialog", &v1.SpawnAgentRequest{About: "test worker"})
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the dialog", func() bool { return strings.Contains(w.screen(t, worker), "Do you want to proceed?") })
 	waitFor(t, "the doorbell given up", func() bool {
@@ -305,7 +305,7 @@ func TestAClaudeAgentIsRungThroughItsInboxSocketNotItsTerminal(t *testing.T) {
 	w, log := inboxWorld(t, nil)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "native", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "native", &v1.SpawnAgentRequest{About: "test worker"})
 	// A user's draft doesn't hold a frame: it never touches the input box (nothing is typed: the log below).
 	w.typeInto(worker, "a draft")
 	waitFor(t, "the draft on the screen", func() bool { return strings.Contains(w.screen(t, worker), "a draft") })
@@ -334,7 +334,7 @@ func TestTheSocketLaneStepsAsideForASettingOrAHeldFrame(t *testing.T) {
 		w.set(t, "delivery.socket", false)
 		run := startRun(t, w.device.Mesh, "")
 		_, asLead := w.root(t, run.Id)
-		worker := w.spawnUnder(t, asLead, "typed", &v1.SpawnAgentRequest{})
+		worker := w.spawnUnder(t, asLead, "typed", &v1.SpawnAgentRequest{About: "test worker"})
 		msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 		waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
 		waitLines(t, log, 1)
@@ -357,7 +357,7 @@ func TestTheSocketLaneStepsAsideForASettingOrAHeldFrame(t *testing.T) {
 		})
 		run := startRun(t, w.device.Mesh, "")
 		_, asLead := w.root(t, run.Id)
-		worker := w.spawnUnder(t, asLead, "held-by-policy", &v1.SpawnAgentRequest{})
+		worker := w.spawnUnder(t, asLead, "held-by-policy", &v1.SpawnAgentRequest{About: "test worker"})
 		msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 		waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
 		waitLines(t, log, 1)
@@ -370,7 +370,7 @@ func TestTheSocketLaneStepsAsideForASettingOrAHeldFrame(t *testing.T) {
 		w.set(t, "delivery.confirm_after", 1)
 		run := startRun(t, w.device.Mesh, "")
 		_, asLead := w.root(t, run.Id)
-		worker := w.spawnUnder(t, asLead, "held-frame", &v1.SpawnAgentRequest{})
+		worker := w.spawnUnder(t, asLead, "held-frame", &v1.SpawnAgentRequest{About: "test worker"})
 		first := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "one")
 		waitFor(t, "the first delivery", func() bool { return !w.deliveredAt(t, worker.Id, first.Id).IsZero() })
 		w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
@@ -407,7 +407,7 @@ func TestABusySessionIsGivenLongerBeforeItsFrameIsTakenForLost(t *testing.T) {
 	w.set(t, "delivery.confirm_after", 0.6)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "spinning", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "spinning", &v1.SpawnAgentRequest{About: "test worker"})
 	sent := time.Now()
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the delivery", func() bool { return !w.deliveredAt(t, worker.Id, msg.Id).IsZero() })
@@ -428,7 +428,7 @@ func TestRingTriesCapsTheSocketWriteAndItsTypedFallbackTogether(t *testing.T) {
 	w.set(t, "delivery.ring_tries", 1)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "capped", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "capped", &v1.SpawnAgentRequest{About: "test worker"})
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the doorbell given up", func() bool {
 		return w.count(t, run.Id, func(ev *v1.Event) bool { return ev.GetDoorbellFailed() != nil }) > 0
@@ -451,7 +451,7 @@ func TestAMessageTheAgentReadsBeforeAnyOtherSignIsDeliveredViaRead(t *testing.T)
 	w.set(t, "delivery.confirm_after", 30)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "reader", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "reader", &v1.SpawnAgentRequest{About: "test worker"})
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the doorbell typed", func() bool { return len(doorbells(lines(t, log))) == 1 })
 	// The agent never acts on the doorbell, but reads its inbox (a hook, or it saw the mail another way).
@@ -474,7 +474,7 @@ func TestAMessageReadAfterTheDoorbellWasGivenUpIsStillDeliveredViaRead(t *testin
 	w.set(t, "delivery.ring_tries", 1)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "late-reader", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "late-reader", &v1.SpawnAgentRequest{About: "test worker"})
 	msg := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "fyi")
 	waitFor(t, "the doorbell given up", func() bool {
 		return w.count(t, run.Id, func(ev *v1.Event) bool { return ev.GetDoorbellFailed() != nil }) > 0
@@ -496,7 +496,7 @@ func TestAReadDoesNotMeanTheProtocolPointerWasSeen(t *testing.T) {
 	w.set(t, "delivery.confirm_after", 30)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "pointer", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "pointer", &v1.SpawnAgentRequest{About: "test worker"})
 	first := send(t, asLead, worker.Id, v1.MessageType_MESSAGE_TYPE_INFO, "one")
 	waitFor(t, "the first doorbell", func() bool { return len(doorbells(lines(t, log))) == 1 })
 	if _, err := w.as(w.token(t, worker.Id)).ReadInbox(context.Background(), connect.NewRequest(&v1.ReadInboxRequest{})); err != nil {

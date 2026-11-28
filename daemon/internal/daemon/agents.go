@@ -1003,6 +1003,10 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if err := checkReviewBy(m.Reviews); err != nil {
 		return nil, err
 	}
+	// A root that starts a change worker says what it is for: the one line the user reads beside its name.
+	if actor.Class == v1.ActorClass_ACTOR_CLASS_ROOT && role == v1.AgentRole_AGENT_ROLE_WORKER && strings.TrimSpace(m.About) == "" {
+		return nil, invalid("say what the worker is for: --about \"<one line, up to %d characters>\"", maxAbout)
+	}
 	// A plain agent is the user's own conversation: a root that gets no task, so the mesh's procedure never reaches it.
 	if m.Plain && (role != v1.AgentRole_AGENT_ROLE_ROOT || strings.TrimSpace(m.Task) != "" || m.Plan) {
 		return nil, invalid("a plain agent is a root with no task and no plan: type to it in its chat instead")
@@ -1191,6 +1195,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	if m.Plan {
 		agent.Phase, agent.ExecTier = v1.AgentPhase_AGENT_PHASE_PLANNING, m.ExecTier
 	}
+	agent.About, agent.AboutSource = spawnAbout(m, role, run)
 	// Held until its terminal is recorded: a reopen asked for meanwhile would see no terminal, take the agent
 	// for stopped, and start a second process on its conversation.
 	mu := d.agentLock(agent.Id)

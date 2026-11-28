@@ -27,7 +27,7 @@ func TestFreeModelsOffRefusesZeroCostOpenCodeModelsForAListedRepo(t *testing.T) 
 		t.Fatal(err)
 	}
 	spawn := func(repo, slug, kind, tier, model string) (*v1.Agent, error) {
-		res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 			RunId: w.run.Id, Repo: repo, Slug: slug, Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: kind, Tier: tier, Model: model,
 		}))
 		if err != nil {
@@ -120,7 +120,7 @@ func TestFreeModelsOffRefusesASwitchOntoAFreeModel(t *testing.T) {
 	w.set(t, "tiers.opencode.mid.model", []any{"openai/gpt-5.2", "free"})
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "oc-sw", Kind: opencode.Kind, Tier: "mid",
 	}))
 	if err != nil {
@@ -167,7 +167,7 @@ func TestFreeModelsOffGoesByTheCostOpenCodeLists(t *testing.T) {
 	repo := gitRepo(t)
 	w.set(t, "repos.no_free_models", []any{repo})
 	spawn := func(slug, model string) error {
-		_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 			RunId: w.run.Id, Repo: repo, Slug: slug, Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Model: model,
 		}))
 		return err
@@ -233,7 +233,7 @@ func TestFreeModelsOffRefusesARootOnTheDefaultModel(t *testing.T) {
 			t.Errorf("a root with %s: want a refusal naming repos.no_free_models, got %v", name, err)
 		}
 	}
-	if err := spawn(&v1.SpawnAgentRequest{Model: "openai/gpt-5.2"}); err != nil {
+	if err := spawn(&v1.SpawnAgentRequest{About: "test worker", Model: "openai/gpt-5.2"}); err != nil {
 		t.Errorf("a root on a paid model: %v", err)
 	}
 }
@@ -244,7 +244,7 @@ func TestFreeModelsOffRefusesResumingAStoppedAgentOnAFreeModel(t *testing.T) {
 	w := startReviews(t)
 	ctx := context.Background()
 	repo := gitRepo(t)
-	a := w.spawnUnder(t, w.asRoot, "oc-stopped", &v1.SpawnAgentRequest{Repo: repo, Kind: opencode.Kind, Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER})
+	a := w.spawnUnder(t, w.asRoot, "oc-stopped", &v1.SpawnAgentRequest{About: "test worker", Repo: repo, Kind: opencode.Kind, Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER})
 	a = w.opencodeTurn(t, a, "hello") // a turn, so the conversation has an id to resume
 	if !strings.HasSuffix(a.Model, "-free") && a.Model != "opencode/big-pickle" {
 		t.Fatalf("started on %q, want a zero-cost model", a.Model)
@@ -315,7 +315,7 @@ func TestFreeModelsOffCoversALinkedWorktree(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "linked")
 	runGit(t, repo, "worktree", "add", "-b", "side", wt)
 	w.set(t, "repos.no_free_models", []any{repo})
-	_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	_, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: w.run.Id, Repo: wt, Slug: "from-wt", Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Tier: "light",
 	}))
 	if err == nil || !strings.Contains(err.Error(), "repos.no_free_models") {
@@ -330,7 +330,7 @@ func TestFreeModelsOffResumesAPaidAgentAfterARestartOnAnAnswer(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "paid-oc", Kind: opencode.Kind, Model: "openai/gpt-5.2",
 	}))
 	if err != nil {
@@ -364,7 +364,7 @@ func TestFreeModelsOffRefusalsLeaveAPlannerAsItWas(t *testing.T) {
 		return w.count(t, w.run.Id, func(ev *v1.Event) bool { return ev.GetAgentPhaseChanged() != nil })
 	}
 	spawn := func(slug string) *v1.Agent {
-		res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 			RunId: w.run.Id, Repo: repo, Slug: slug, Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Tier: "mid", Plan: true, Task: "plan it",
 		}))
 		if err != nil {
@@ -410,7 +410,7 @@ func TestFreeModelsOffRefusesAnEffortOnlySwitchOnAFreeModel(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: repo, Slug: "oc-eff", Kind: opencode.Kind, Tier: "mid"}))
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: repo, Slug: "oc-eff", Kind: opencode.Kind, Tier: "mid"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +430,7 @@ func TestFreeModelsOffTellsTheParentWhenALimitedAgentIsNotReopened(t *testing.T)
 	repo := gitRepo(t)
 	w.set(t, "limits.auto", "continue")
 	w.set(t, "limits.hold", 2) // seconds
-	res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: w.run.Id, Repo: repo, Slug: "oc-lim", Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: opencode.Kind, Tier: "mid",
 	}))
 	if err != nil {

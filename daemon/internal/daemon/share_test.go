@@ -50,7 +50,7 @@ func TestAgentsGetTheShareFolderTheSkillsAndTheProtocolInTheirFirstDoorbell(t *t
 	})
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "newcomer", &v1.SpawnAgentRequest{Task: "do the thing"})
+	worker := w.spawnUnder(t, asLead, "newcomer", &v1.SpawnAgentRequest{About: "test worker", Task: "do the thing"})
 	waitFor(t, "the task rung", func() bool { return w.delivered(t, worker.Id, taskIDTo(t, w, worker.Id)) })
 
 	argv := w.launches(t, worker.SessionId)
@@ -95,7 +95,7 @@ func TestWithoutAShareFolderOrItsManifestNothingIsAdded(t *testing.T) {
 		w := startReopen(t, func(c *daemon.AgentConfig) { c.Share = share })
 		run := startRun(t, w.device.Mesh, "")
 		_, asLead := w.root(t, run.Id)
-		worker := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{Task: "do the thing"})
+		worker := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{About: "test worker", Task: "do the thing"})
 		waitFor(t, name+": the task rung", func() bool { return w.delivered(t, worker.Id, taskIDTo(t, w, worker.Id)) })
 		argv := w.launches(t, worker.SessionId)
 		if len(argv) != 1 || strings.Contains(strings.Join(argv[0], " "), "--plugin-dir") {

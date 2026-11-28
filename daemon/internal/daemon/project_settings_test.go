@@ -40,7 +40,7 @@ func TestAReadOnlyClaudeAgentDoesNotRunTheHeadsProjectHooks(t *testing.T) {
 	}
 	run := startRun(t, w.device.Mesh, "")
 	spawn := func(slug string, role v1.AgentRole) *v1.Agent {
-		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: repo,
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: repo,
 			Slug: slug, Tier: "mid", Role: role, Task: "Question (read-only): where?"}))
 		if err != nil {
 			t.Fatal(err)

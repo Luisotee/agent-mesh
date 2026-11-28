@@ -117,7 +117,7 @@ func (w *reopenWorld) token(t *testing.T, agentID string) string {
 // root starts a root agent, whose token then starts and approves workers.
 func (w *reopenWorld) root(t *testing.T, run string) (*v1.Agent, agentmeshv1connect.MeshServiceClient) {
 	t.Helper()
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run, Repo: gitRepo(t), Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT, Tier: "strong"}))
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +156,7 @@ func TestApproveReopensThePlannersConversationOnItsExecutionTier(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix",
 		Tier: "strong", Plan: true, Task: "plan the fix"}))
 	if err != nil {
 		t.Fatal(err)
@@ -377,8 +377,8 @@ func TestAPlanFromAnAgentWithNoPhaseEntersOneButNotForANamedModel(t *testing.T) 
 		}
 		return w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 	}
-	direct := spawn("direct", &v1.SpawnAgentRequest{Tier: "mid"})
-	pinned := spawn("pinned", &v1.SpawnAgentRequest{Model: "opus"})
+	direct := spawn("direct", &v1.SpawnAgentRequest{About: "test worker", Tier: "mid"})
+	pinned := spawn("pinned", &v1.SpawnAgentRequest{About: "test worker", Model: "opus"})
 	if direct.Phase != v1.AgentPhase_AGENT_PHASE_UNSPECIFIED || direct.Pinned || direct.DenyEdits || !pinned.Pinned || pinned.Effort != "high" {
 		t.Fatalf("direct %v, pinned %v", direct, pinned)
 	}
@@ -523,11 +523,11 @@ func TestASpawnNeedsATierOrANamedModel(t *testing.T) {
 		req  *v1.SpawnAgentRequest
 		want string
 	}{
-		{&v1.SpawnAgentRequest{}, "give a tier"},
-		{&v1.SpawnAgentRequest{Tier: "huge"}, `no "huge" tier: one of light, mid, strong, top`},
-		{&v1.SpawnAgentRequest{Tier: "mid", ExecTier: "light"}, "exec_tier is for a task with a plan phase"},
-		{&v1.SpawnAgentRequest{Tier: "mid", Plan: true, ExecTier: "huge"}, `no "huge" tier`},
-		{&v1.SpawnAgentRequest{Tier: "mid", Effort: "extreme"}, "effort"},
+		{&v1.SpawnAgentRequest{About: "test worker"}, "give a tier"},
+		{&v1.SpawnAgentRequest{About: "test worker", Tier: "huge"}, `no "huge" tier: one of light, mid, strong, top`},
+		{&v1.SpawnAgentRequest{About: "test worker", Tier: "mid", ExecTier: "light"}, "exec_tier is for a task with a plan phase"},
+		{&v1.SpawnAgentRequest{About: "test worker", Tier: "mid", Plan: true, ExecTier: "huge"}, `no "huge" tier`},
+		{&v1.SpawnAgentRequest{About: "test worker", Tier: "mid", Effort: "extreme"}, "effort"},
 	} {
 		c.req.RunId, c.req.Repo, c.req.Slug = run.Id, repo, "x"
 		if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(c.req)); code(err) != connect.CodeInvalidArgument ||
@@ -543,7 +543,7 @@ func TestAPlannerSwitchedBeforeApprovalIsStillApprovedAndAStoppedOneIsNot(t *tes
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "plan",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "plan",
 		Tier: "strong", Plan: true}))
 	if err != nil {
 		t.Fatal(err)
