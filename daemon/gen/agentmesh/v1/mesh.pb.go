@@ -7315,7 +7315,10 @@ type ClaudeUsageWindow struct {
 	// Percent of the window used (0 to 100).
 	Used float64 `protobuf:"fixed64,3,opt,name=used,proto3" json:"used,omitempty"`
 	// When the window resets, if known.
-	ResetsAt      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=resets_at,json=resetsAt,proto3" json:"resets_at,omitempty"`
+	ResetsAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=resets_at,json=resetsAt,proto3" json:"resets_at,omitempty"`
+	// Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+	// the weekly ones.
+	Reserve       int32 `protobuf:"varint,5,opt,name=reserve,proto3" json:"reserve,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7378,14 +7381,23 @@ func (x *ClaudeUsageWindow) GetResetsAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *ClaudeUsageWindow) GetReserve() int32 {
+	if x != nil {
+		return x.Reserve
+	}
+	return 0
+}
+
 type ClaudeUsage struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	Windows   []*ClaudeUsageWindow   `protobuf:"bytes,1,rep,name=windows,proto3" json:"windows,omitempty"`
 	FetchedAt *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=fetched_at,json=fetchedAt,proto3" json:"fetched_at,omitempty"`
 	// Where the reading came from ("statusline", "live", or "cache").
 	Source string `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
-	// Labels of windows currently at or over quota_stop.
-	AtReserve     []string `protobuf:"bytes,4,rep,name=at_reserve,json=atReserve,proto3" json:"at_reserve,omitempty"`
+	// Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
+	AtReserve []string `protobuf:"bytes,4,rep,name=at_reserve,json=atReserve,proto3" json:"at_reserve,omitempty"`
+	// Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+	ReviewsOnly   []string `protobuf:"bytes,5,rep,name=reviews_only,json=reviewsOnly,proto3" json:"reviews_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7448,12 +7460,23 @@ func (x *ClaudeUsage) GetAtReserve() []string {
 	return nil
 }
 
+func (x *ClaudeUsage) GetReviewsOnly() []string {
+	if x != nil {
+		return x.ReviewsOnly
+	}
+	return nil
+}
+
 type AgyUsageRow struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Group         string                 `protobuf:"bytes,1,opt,name=group,proto3" json:"group,omitempty"`
-	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
-	Left          int32                  `protobuf:"varint,3,opt,name=left,proto3" json:"left,omitempty"`
-	Resets        string                 `protobuf:"bytes,4,opt,name=resets,proto3" json:"resets,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Group  string                 `protobuf:"bytes,1,opt,name=group,proto3" json:"group,omitempty"`
+	Label  string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Left   int32                  `protobuf:"varint,3,opt,name=left,proto3" json:"left,omitempty"`
+	Resets string                 `protobuf:"bytes,4,opt,name=resets,proto3" json:"resets,omitempty"`
+	// At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+	AtReserve bool `protobuf:"varint,5,opt,name=at_reserve,json=atReserve,proto3" json:"at_reserve,omitempty"`
+	// Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+	ReviewsOnly   bool `protobuf:"varint,6,opt,name=reviews_only,json=reviewsOnly,proto3" json:"reviews_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7514,6 +7537,20 @@ func (x *AgyUsageRow) GetResets() string {
 		return x.Resets
 	}
 	return ""
+}
+
+func (x *AgyUsageRow) GetAtReserve() bool {
+	if x != nil {
+		return x.AtReserve
+	}
+	return false
+}
+
+func (x *AgyUsageRow) GetReviewsOnly() bool {
+	if x != nil {
+		return x.ReviewsOnly
+	}
+	return false
 }
 
 type AgyTierPick struct {
@@ -7619,7 +7656,15 @@ type GetUsageResponse struct {
 	QuotaStop int32                  `protobuf:"varint,4,opt,name=quota_stop,json=quotaStop,proto3" json:"quota_stop,omitempty"`
 	MinQuota  int32                  `protobuf:"varint,5,opt,name=min_quota,json=minQuota,proto3" json:"min_quota,omitempty"`
 	// What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
-	Notes         []string `protobuf:"bytes,6,rep,name=notes,proto3" json:"notes,omitempty"`
+	Notes []string `protobuf:"bytes,6,rep,name=notes,proto3" json:"notes,omitempty"`
+	// quota_stop_weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+	QuotaStopWeekly int32 `protobuf:"varint,7,opt,name=quota_stop_weekly,json=quotaStopWeekly,proto3" json:"quota_stop_weekly,omitempty"`
+	// quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+	ReviewsOnlyClaude int32 `protobuf:"varint,8,opt,name=reviews_only_claude,json=reviewsOnlyClaude,proto3" json:"reviews_only_claude,omitempty"`
+	ReviewsOnlyAgy    int32 `protobuf:"varint,9,opt,name=reviews_only_agy,json=reviewsOnlyAgy,proto3" json:"reviews_only_agy,omitempty"`
+	// Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+	// a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+	SplitReserves bool `protobuf:"varint,10,opt,name=split_reserves,json=splitReserves,proto3" json:"split_reserves,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7694,6 +7739,34 @@ func (x *GetUsageResponse) GetNotes() []string {
 		return x.Notes
 	}
 	return nil
+}
+
+func (x *GetUsageResponse) GetQuotaStopWeekly() int32 {
+	if x != nil {
+		return x.QuotaStopWeekly
+	}
+	return 0
+}
+
+func (x *GetUsageResponse) GetReviewsOnlyClaude() int32 {
+	if x != nil {
+		return x.ReviewsOnlyClaude
+	}
+	return 0
+}
+
+func (x *GetUsageResponse) GetReviewsOnlyAgy() int32 {
+	if x != nil {
+		return x.ReviewsOnlyAgy
+	}
+	return 0
+}
+
+func (x *GetUsageResponse) GetSplitReserves() bool {
+	if x != nil {
+		return x.SplitReserves
+	}
+	return false
 }
 
 type SetReserveRequest struct {
@@ -9121,24 +9194,29 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"branchKept\x12\x16\n" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\"+\n" +
 	"\x0fGetUsageRequest\x12\x18\n" +
-	"\arefresh\x18\x01 \x01(\bR\arefresh\"\x88\x01\n" +
+	"\arefresh\x18\x01 \x01(\bR\arefresh\"\xa2\x01\n" +
 	"\x11ClaudeUsageWindow\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x12\n" +
 	"\x04used\x18\x03 \x01(\x01R\x04used\x127\n" +
-	"\tresets_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bresetsAt\"\xba\x01\n" +
+	"\tresets_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\bresetsAt\x12\x18\n" +
+	"\areserve\x18\x05 \x01(\x05R\areserve\"\xdd\x01\n" +
 	"\vClaudeUsage\x129\n" +
 	"\awindows\x18\x01 \x03(\v2\x1f.agentmesh.v1.ClaudeUsageWindowR\awindows\x129\n" +
 	"\n" +
 	"fetched_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tfetchedAt\x12\x16\n" +
 	"\x06source\x18\x03 \x01(\tR\x06source\x12\x1d\n" +
 	"\n" +
-	"at_reserve\x18\x04 \x03(\tR\tatReserve\"e\n" +
+	"at_reserve\x18\x04 \x03(\tR\tatReserve\x12!\n" +
+	"\freviews_only\x18\x05 \x03(\tR\vreviewsOnly\"\xa7\x01\n" +
 	"\vAgyUsageRow\x12\x14\n" +
 	"\x05group\x18\x01 \x01(\tR\x05group\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x12\n" +
 	"\x04left\x18\x03 \x01(\x05R\x04left\x12\x16\n" +
-	"\x06resets\x18\x04 \x01(\tR\x06resets\"\xa8\x01\n" +
+	"\x06resets\x18\x04 \x01(\tR\x06resets\x12\x1d\n" +
+	"\n" +
+	"at_reserve\x18\x05 \x01(\bR\tatReserve\x12!\n" +
+	"\freviews_only\x18\x06 \x01(\bR\vreviewsOnly\"\xa8\x01\n" +
 	"\vAgyTierPick\x12\x12\n" +
 	"\x04tier\x18\x01 \x01(\tR\x04tier\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x12\n" +
@@ -9146,7 +9224,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\bhas_left\x18\x04 \x01(\bR\ahasLeft\x12\x14\n" +
 	"\x05notes\x18\x05 \x03(\tR\x05notes\x12\x14\n" +
 	"\x05group\x18\x06 \x01(\tR\x05group\x12\x14\n" +
-	"\x05label\x18\a \x01(\tR\x05label\"\x85\x02\n" +
+	"\x05label\x18\a \x01(\tR\x05label\"\xb2\x03\n" +
 	"\x10GetUsageResponse\x121\n" +
 	"\x06claude\x18\x01 \x01(\v2\x19.agentmesh.v1.ClaudeUsageR\x06claude\x124\n" +
 	"\bagy_rows\x18\x02 \x03(\v2\x19.agentmesh.v1.AgyUsageRowR\aagyRows\x126\n" +
@@ -9154,7 +9232,12 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\n" +
 	"quota_stop\x18\x04 \x01(\x05R\tquotaStop\x12\x1b\n" +
 	"\tmin_quota\x18\x05 \x01(\x05R\bminQuota\x12\x14\n" +
-	"\x05notes\x18\x06 \x03(\tR\x05notes\"m\n" +
+	"\x05notes\x18\x06 \x03(\tR\x05notes\x12*\n" +
+	"\x11quota_stop_weekly\x18\a \x01(\x05R\x0fquotaStopWeekly\x12.\n" +
+	"\x13reviews_only_claude\x18\b \x01(\x05R\x11reviewsOnlyClaude\x12(\n" +
+	"\x10reviews_only_agy\x18\t \x01(\x05R\x0ereviewsOnlyAgy\x12%\n" +
+	"\x0esplit_reserves\x18\n" +
+	" \x01(\bR\rsplitReserves\"m\n" +
 	"\x11SetReserveRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x15\n" +
