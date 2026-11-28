@@ -141,7 +141,10 @@ private val dayAndTime = SimpleDateFormat("EEE HH:mm", Locale.getDefault())
 @Composable
 private fun QuotaSection(v: UsageView, now: Long) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("The host starts nothing new on a quota that is ${v.reserve}% used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("The host starts nothing new on a five-hour quota that is ${v.reserve}% used, or a weekly one that is ${v.reserveWeekly}% used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (v.reviewsOnlyClaude < 100) Text("Claude starts only PR reviews from ${v.reviewsOnlyClaude}% used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (v.reviewsOnlyAgy < 100) Text("agy starts only PR reviews from ${v.reviewsOnlyAgy}% used.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (v.reviewsOnlyWarnings.isNotEmpty()) Text("Only PR reviews: ${v.reviewsOnlyWarnings.joinToString(", ")}", Modifier.testTag("quota-reviews-only"), style = MaterialTheme.typography.bodyMedium)
         if (v.warnings.isNotEmpty()) Text("At the reserve: ${v.warnings.joinToString(", ")}", Modifier.testTag("quota-warning"), color = stateColors.needs, style = MaterialTheme.typography.bodyMedium)
         if (v.claude.isEmpty()) Text("No Claude quota reading on this host.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         v.claude.forEach { Bar(it, now) }

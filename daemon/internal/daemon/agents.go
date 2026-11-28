@@ -1076,7 +1076,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 				return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 			}
 			effort = m.Effort
-		} else if model, effort, err = d.pickIn(r, freeRepo, freeOff, kind, m.Tier, m.Model, m.Effort, "the agent"); err != nil {
+		} else if model, effort, err = d.pickIn(r, freeRepo, freeOff, kind, m.Tier, m.Model, m.Effort, "the agent", role == v1.AgentRole_AGENT_ROLE_REVIEWER); err != nil {
 			return nil, err
 		}
 	}
@@ -1091,7 +1091,7 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	// The reserve, cap and memory floor, early, before a worktree is made for nothing; the launch checks cap and
 	// memory again where the agent is stored (reserving its memory then).
 	if role != v1.AgentRole_AGENT_ROLE_ROOT {
-		if err := d.reserveCheck(r, runID, kind, model, effort, "an agent in "+m.Repo); err != nil {
+		if err := d.reserveCheck(r, runID, kind, model, effort, "an agent in "+m.Repo, role == v1.AgentRole_AGENT_ROLE_REVIEWER); err != nil {
 			return nil, err
 		}
 	}

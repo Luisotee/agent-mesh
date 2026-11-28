@@ -51,4 +51,24 @@ public interface AgyUsageRowOrBuilder extends
    */
   com.google.protobuf.ByteString
       getResetsBytes();
+
+  /**
+   * <pre>
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+   * </pre>
+   *
+   * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
+   * @return The atReserve.
+   */
+  boolean getAtReserve();
+
+  /**
+   * <pre>
+   * Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+   * </pre>
+   *
+   * <code>bool reviews_only = 6 [json_name = "reviewsOnly"];</code>
+   * @return The reviewsOnly.
+   */
+  boolean getReviewsOnly();
 }

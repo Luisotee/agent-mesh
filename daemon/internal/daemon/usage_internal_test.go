@@ -142,7 +142,7 @@ func TestAgyResolveExpiredTTLUsesStaleEntryWithoutExecAndFreshDiskUsesModTime(t 
 	if staleID != "gemini-4-neon-high" || staleDisp != "Gemini 4 Neon (High)" {
 		t.Fatalf("expired TTL with allowExec=false = (%q, %q), want cached display", staleID, staleDisp)
 	}
-	hit := d.agyModelAtReserveCached("neon", "high", 90)
+	hit := d.agyModelAtReserveCached("neon", "high", reserveLimits{short: 90, weekly: 90, reviews: 100}, false)
 	if hit == nil || hit.left != 5 {
 		t.Fatalf("agyModelAtReserveCached after agyResolveTTL = %+v, want Neon 5%% hit", hit)
 	}
