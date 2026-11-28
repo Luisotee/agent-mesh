@@ -1,33 +1,57 @@
 /**
- * Images in a prompt: the composer stores each on the agent's host (`AddAttachment`), and the prompt names the path
- * as `[image: <path>]` on a line of its own, which the CLI reads with its file tool. A thumbnail is kept on this
- * device only, by path, for the images it sent while open (the host's files are never fetched back).
+ * Files in a prompt: the composer stores each on the agent's host (`AddAttachment`), and the prompt names the path on a line of
+ * its own, `[image: <path>]` for an image and `[file: <path>]` for any other file, which the CLI reads with its file tool. A
+ * thumbnail of an image is kept on this device only, by path, for the images it sent while open (the host's files are never
+ * fetched back). A paste or drop into an agent's terminal is stored the same way and its path typed (`terminalAttachText`).
  */
 
-/** The images a prompt may carry, by type, with the extension the host wants. */
+/** The images the host knows by their bytes, by type, with the extension it wants. */
 export const IMAGE_TYPES: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' }
-export const MAX_IMAGE = 10 << 20
+export const MAX_ATTACHMENT = 10 << 20
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i
+
+/** Whether a file name or path is an image the host checks the bytes of. */
+export const isImagePath = (path: string): boolean => IMAGE_EXT.test(path)
 
 /** Why a file can't go in a prompt, or '' when it can. */
-export function imageProblem(f: { type: string; size: number }): string {
-  if (!IMAGE_TYPES[f.type]) return 'Only PNG, JPEG, GIF and WebP images can go in a prompt.'
-  if (f.size > MAX_IMAGE) return 'An image is at most 10 MB.'
-  if (f.size === 0) return 'That image is empty.'
+export function attachProblem(f: { size: number }): string {
+  if (f.size > MAX_ATTACHMENT) return 'A file is at most 10 MB.'
+  if (f.size === 0) return 'That file is empty.'
   return ''
 }
 
-/** The file's name with the extension its type has, for the host's check. */
-export function imageName(f: { name: string; type: string }): string {
-  const ext = IMAGE_TYPES[f.type] ?? ''
+/**
+ * The name the host is sent: an image's by its type (the host checks the bytes against the extension, so a screenshot named
+ * "image" or ".hidden" still gets .png), any other file's as it is.
+ */
+export function attachName(f: { name: string; type: string }): string {
+  const ext = IMAGE_TYPES[f.type]
+  if (!ext) return f.name || 'file'
   const base = f.name.replace(/\.[^./\\]*$/, '') || 'image'
   return base + ext
 }
 
+/**
+ * The files a paste carries as attachments. A clipboard that holds text as well as only images (a spreadsheet or Word selection,
+ * a browser's copy of an image with its alt text) is a text paste, so its text is kept; one with a file that is not an image
+ * (a file copied in the file manager, which also carries its name as text) is a file paste.
+ */
+export function pastedFiles(data: DataTransfer | null): File[] {
+  const files = [...(data?.files ?? [])]
+  if (files.length === 0) return []
+  if (data!.getData('text/plain') && files.every((f) => Object.hasOwn(IMAGE_TYPES, f.type.toLowerCase()) || isImagePath(f.name))) return []
+  return files
+}
+
 export const imageRef = (path: string) => `[image: ${path}]`
+export const fileRef = (path: string) => `[file: ${path}]`
+/** The prompt line for a stored attachment, by what the path is. */
+export const attachRef = (path: string) => (isImagePath(path) ? imageRef(path) : fileRef(path))
 
-const REF = /^\[image: (.+)\]$/
+const REF = /^\[(?:image|file): (.+)\]$/
 
-/** A prompt's image paths and the rest of its text. */
+/** A prompt's attachment paths (images and other files) and the rest of its text. */
 export function splitImages(text: string): { paths: string[]; text: string } {
   const paths: string[] = []
   const rest = text.split('\n').filter((l) => {
@@ -59,11 +83,21 @@ export function keepThumb(path: string, url: string): void {
 }
 
 /**
- * Why an agent's CLI can't take images, or '' when it can. Claude Code reads an image file with its Read tool and
- * Gemini CLI (agy) with read_file; OpenCode's and Copilot's are not checked yet (TODO.md).
+ * Why an agent's CLI can't take attachments in a prompt, or '' when it can. Claude Code reads an image or any file with its
+ * Read tool and Gemini CLI (agy) with read_file; OpenCode's and Copilot's are not checked yet (TODO.md).
  */
 export function imagesUnsupported(kind: string): string {
-  return kind === 'claude' || kind === 'agy' ? '' : `Images aren't available for ${kind} yet: its CLI reading an image file isn't checked.`
+  return kind === 'claude' || kind === 'agy' ? '' : `Attachments aren't available for ${kind} yet: its CLI reading a file isn't checked.`
+}
+
+/**
+ * What is typed into an agent's terminal for a file stored on the host: Claude Code takes the path itself (it attaches an
+ * image path, and reads any other file when asked), the other CLIs their `@path` mention (Gemini CLI, OpenCode and Copilot all
+ * read a file by it). A space in a path is escaped with a backslash, as their prompts take it. A trailing space ends the mention.
+ */
+export function terminalAttachText(kind: string, path: string): string {
+  const p = path.replace(/ /g, '\\ ')
+  return (kind === 'claude' ? p : `@${p}`) + ' '
 }
 
 /** Why an agent's conversation can't be rewound from the app, or '' when it can (`RewindAgent`: Claude Code only). */

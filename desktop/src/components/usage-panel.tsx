@@ -4,6 +4,7 @@ import { getCost, getUsage } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/input'
+import { SkeletonLines } from '@/components/ui/skeleton'
 import { useHostState } from '@/context'
 import type { GetUsageResponse } from '@/gen/agentmesh/v1/mesh_pb'
 import type { GetCostResponse } from '@/gen/agentmesh/v1/report_pb'
@@ -112,7 +113,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
       )}
 
       <Card title="Quota">
-        {usage.kind === 'loading' && <p className="text-xs text-muted-foreground">Reading the quotas…</p>}
+        {usage.kind === 'loading' && <SkeletonLines label="Reading the quotas" lines={3} />}
         {usage.kind === 'failed' && <p role="alert" className="text-xs text-destructive">{usage.error}</p>}
         {usage.kind === 'ready' && usageError && <p role="alert" className="text-xs text-destructive">Last refresh failed: {usageError}. The reading below is from before.</p>}
         {view && (
@@ -180,7 +181,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
           </div>
         }
       >
-        {cost.kind === 'loading' && <p className="text-xs text-muted-foreground">Adding up the sessions…</p>}
+        {cost.kind === 'loading' && <SkeletonLines label="Adding up the sessions" lines={4} />}
         {cost.kind === 'failed' && <p role="alert" className="text-xs text-destructive">{cost.error}</p>}
         {cost.kind === 'ready' && <CostBody cost={cost.value} />}
       </Card>
