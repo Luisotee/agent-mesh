@@ -27,6 +27,9 @@ export interface AgyTier {
   /** What the tier would start on now; empty when every model of it is at the reserve. */
   model: string
   left?: number
+  /** The agy row the tier's model draws on, as the host matched it (empty from an older host, or when none matched). */
+  group: string
+  label: string
   notes: string[]
 }
 
@@ -58,7 +61,7 @@ export function usageView(u: GetUsageResponse): UsageView {
   // agy reports what is left. The host's guard (`agyModelAtReserve`): no reserve at all once `quota_stop` is 100, else a
   // row is at it when no more than `min_quota` (100 - `quota_stop`) is left, so at `quota_stop` 0 every row is.
   const agy = u.agyRows.map((r) => ({ group: r.group, label: r.label, left: r.left, resets: r.resets, atReserve: reserve < 100 && r.left <= u.minQuota }))
-  const tiers = u.agyTiers.map((t) => ({ tier: t.tier, model: t.model, left: t.hasLeft ? t.left : undefined, notes: t.notes }))
+  const tiers = u.agyTiers.map((t) => ({ tier: t.tier, model: t.model, left: t.hasLeft ? t.left : undefined, group: t.group, label: t.label, notes: t.notes }))
   const warnings = [...claude.filter((w) => w.atReserve).map((w) => `Claude ${w.label}`), ...agy.filter((r) => r.atReserve).map((r) => `agy ${r.group} ${r.label}`)]
   return { reserve, claude, claudeSource: u.claude?.source ?? '', claudeFetchedAt: date(u.claude?.fetchedAt), agy, tiers, warnings }
 }
@@ -95,10 +98,14 @@ function windowLabel(key: string, label: string): string {
 
 const minorWindow = (key: string, label: string) => /opus|sonnet/i.test(`${key} ${label}`)
 
-/** Whether a tier of the chain starts on the model an agy row measures: the names overlap, either way round. */
+/**
+ * Whether a tier of the chain starts on the model an agy row measures: the row the host matched to the tier (`agy.QuotaApplies`),
+ * else, from a host that does not say or a tier it matched to none, the names overlapping, either way round.
+ */
 function rowIsUsed(r: AgyRow, tiers: AgyTier[]): boolean {
   const names = [r.group, r.label].map((n) => n.trim().toLowerCase()).filter(Boolean)
   return tiers.some((t) => {
+    if (t.group || t.label) return t.group === r.group && t.label === r.label
     const m = t.model.trim().toLowerCase()
     return m !== '' && names.some((n) => n.includes(m) || m.includes(n))
   })
@@ -106,7 +113,7 @@ function rowIsUsed(r: AgyRow, tiers: AgyTier[]): boolean {
 
 /**
  * What the sidebar's footer shows of the quota, a section per provider: Claude's windows (the short ones, "5h" and "7d")
- * and the agy rows a tier of the chain starts on (the names are matched here, which the host's own rule (`agy.QuotaApplies`) does better: when none matches, the fullest row stands for agy, as before). The minor ones (Claude's Opus and Sonnet windows, an agy pool no tier
+ * and the agy rows a tier of the chain starts on (the row the host matched to the tier, else the names compared here; when none matches, the fullest row stands for agy). The minor ones (Claude's Opus and Sonnet windows, an agy pool no tier
  * uses) are left out until one is at the reserve; Usage and cost has them all. With no reading, no sections.
  */
 export function quotaSections(u: GetUsageResponse): { reserve: number; sections: QuotaSection[] } {

@@ -200,7 +200,8 @@ message AddAttachmentRequest {
   RequestMeta meta = 1;
   // Agent id or name.
   string agent = 2;
-  // The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+  // The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+  // .webp says the bytes are that image, and they must be.
   string name = 3;
   // The file itself, at most 10 MB.
   bytes data = 4;

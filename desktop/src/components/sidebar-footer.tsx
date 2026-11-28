@@ -4,6 +4,7 @@ import { getUsage } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { ActionMenu, type MenuEntry } from '@/components/ui/menu'
 import { Meter, type MeterTone } from '@/components/ui/meter'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
 import { useApp, useAppState, useHostState, useSelectedHost } from '@/context'
 import { displayChord } from '@/keys'
@@ -109,7 +110,15 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
   const usage = usePolled(() => getUsage(host.client), host.info.id, 60_000, up)
   const q = useMemo(() => (usage.value ? quotaSections(usage.value) : undefined), [usage.value])
   // A host with no reading (no Claude account, no agy, a failed or slow read) still has its Usage and cost screen: the way in stays.
-  if (!q && !usage.error) return null
+  // The first reading can take a while (agy's is read from its CLI): bars in its place, so the footer does not jump when it lands.
+  if (!q && !usage.error) {
+    return up ? (
+      <div role="status" aria-label={`Reading the quota${many ? ` of ${host.info.name}` : ''}`} className="mb-1 flex flex-col gap-1.5 px-1.5 py-1">
+        <Skeleton className="h-3 w-1/3" />
+        <Skeleton className="h-1.5 w-full" />
+      </div>
+    ) : null
+  }
   if (!q || q.sections.length === 0) {
     return (
       <Button type="button" size="sm" variant="ghost" className="mb-1 h-6 w-full justify-start px-1.5 text-xs text-muted-foreground" aria-label={`Quota${many ? ` of ${host.info.name}` : ''}: open usage and cost`} onClick={() => toggleUsage(app, host.info.id)}>

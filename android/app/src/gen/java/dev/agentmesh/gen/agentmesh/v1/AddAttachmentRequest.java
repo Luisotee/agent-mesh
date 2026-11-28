@@ -138,7 +138,8 @@ public  final class AddAttachmentRequest extends
   private java.lang.String name_;
   /**
    * <pre>
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    * </pre>
    *
    * <code>string name = 3 [json_name = "name"];</code>
@@ -150,7 +151,8 @@ public  final class AddAttachmentRequest extends
   }
   /**
    * <pre>
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    * </pre>
    *
    * <code>string name = 3 [json_name = "name"];</code>
@@ -163,7 +165,8 @@ public  final class AddAttachmentRequest extends
   }
   /**
    * <pre>
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    * </pre>
    *
    * <code>string name = 3 [json_name = "name"];</code>
@@ -177,7 +180,8 @@ public  final class AddAttachmentRequest extends
   }
   /**
    * <pre>
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    * </pre>
    *
    * <code>string name = 3 [json_name = "name"];</code>
@@ -188,7 +192,8 @@ public  final class AddAttachmentRequest extends
   }
   /**
    * <pre>
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    * </pre>
    *
    * <code>string name = 3 [json_name = "name"];</code>
@@ -455,7 +460,8 @@ public  final class AddAttachmentRequest extends
 
     /**
      * <pre>
-     * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+     * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+     * .webp says the bytes are that image, and they must be.
      * </pre>
      *
      * <code>string name = 3 [json_name = "name"];</code>
@@ -467,7 +473,8 @@ public  final class AddAttachmentRequest extends
     }
     /**
      * <pre>
-     * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+     * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+     * .webp says the bytes are that image, and they must be.
      * </pre>
      *
      * <code>string name = 3 [json_name = "name"];</code>
@@ -480,7 +487,8 @@ public  final class AddAttachmentRequest extends
     }
     /**
      * <pre>
-     * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+     * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+     * .webp says the bytes are that image, and they must be.
      * </pre>
      *
      * <code>string name = 3 [json_name = "name"];</code>
@@ -495,7 +503,8 @@ public  final class AddAttachmentRequest extends
     }
     /**
      * <pre>
-     * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+     * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+     * .webp says the bytes are that image, and they must be.
      * </pre>
      *
      * <code>string name = 3 [json_name = "name"];</code>
@@ -508,7 +517,8 @@ public  final class AddAttachmentRequest extends
     }
     /**
      * <pre>
-     * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+     * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+     * .webp says the bytes are that image, and they must be.
      * </pre>
      *
      * <code>string name = 3 [json_name = "name"];</code>

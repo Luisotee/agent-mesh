@@ -51,7 +51,7 @@ import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/p
 import { AgentCostSchema, GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
 import { CheckModelsResponseSchema, KindModelsSchema, ModelFamilyEntrySchema } from './gen/agentmesh/v1/report_pb'
 import { ShellSchema, ListShellsResponseSchema, OpenShellResponseSchema, CloseShellResponseSchema } from './gen/agentmesh/v1/mesh_pb'
-import { ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
+import { type ListProjectsResponse, ClaudeUsageSchema, ClaudeUsageWindowSchema, GetUsageResponseSchema, ListProjectsResponseSchema, ProjectPullRequestSchema, ProjectSchema } from './gen/agentmesh/v1/mesh_pb'
 
 const noLinks = { take: async () => undefined, onOpen: vi.fn(() => () => {}) }
 const noLocal = { detect: async () => [], connect: vi.fn(), fix: vi.fn() }
@@ -1196,6 +1196,17 @@ describe('SidebarFooter', () => {
     expect(model.store.getState().usageOpen).toBe(true)
   })
 
+  it('shows bars where the quota will be while the first reading is on its way, then the meters', async () => {
+    const { client, wrap } = fixture()
+    let land: (u: unknown) => void = () => {}
+    Object.assign(client, { getUsage: vi.fn(() => new Promise((r) => { land = r })) })
+    render(wrap(<SidebarFooter />))
+    expect(await screen.findByRole('status', { name: 'Reading the quota' })).toBeInTheDocument()
+    land(create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, claude: create(ClaudeUsageSchema, { windows: [create(ClaudeUsageWindowSchema, { label: '5h', used: 42 })] }) }))
+    expect((await screen.findAllByRole('meter')).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('status', { name: 'Reading the quota' })).toBeNull()
+  })
+
   it('keeps the way into Usage and cost when the host has no quota reading, and says an agy reset as it can be read', async () => {
     const { client, wrap, model } = fixture()
     Object.assign(client, { getUsage: vi.fn(async () => create(GetUsageResponseSchema, { quotaStop: 90 })) })
@@ -1258,6 +1269,18 @@ describe('SidebarFooter', () => {
     await userEvent.type(await screen.findByRole('textbox'), 'nothing-like-it{Enter}')
     expect(await screen.findByRole('alert')).toHaveTextContent('matches "nothing-like-it"')
     expect(model.store.getState().pins).toEqual({})
+  })
+
+  it('shows rows where the host\'s projects will be while they are on their way', async () => {
+    const { wrap, client } = fixture()
+    let land: (r: ListProjectsResponse) => void = () => {}
+    client.listProjects.mockImplementation(() => new Promise<ListProjectsResponse>((r) => { land = r }))
+    render(wrap(<ProjectSidebar />))
+    await userEvent.click(screen.getByRole('button', { name: 'Add a project' }))
+    expect(await screen.findByRole('status', { name: "Loading the host's projects" })).toBeInTheDocument()
+    land(create(ListProjectsResponseSchema, { projects: [create(ProjectSchema, { path: '/p/apple', name: 'apple' })] }))
+    expect(await screen.findByText('/p/apple')).toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: "Loading the host's projects" })).toBeNull()
   })
 
   it('checks a path typed with the host and refuses one that is not a repository, saying why, instead of pinning it', async () => {
@@ -1889,23 +1912,24 @@ describe('ChatView', () => {
     expect(screen.getAllByText('run the tests')).toHaveLength(1)
   })
 
-  it('takes an image dropped anywhere over the chat, says so while one is dragged over it, and hints at paste and drop', async () => {
+  it('takes a file dropped anywhere over the chat and says so while one is dragged over it', async () => {
     const { ui, addAttachment } = chat()
     render(ui)
     const box = await screen.findByRole('textbox', { name: 'Prompt' })
-    expect(box).toHaveAttribute('placeholder', expect.stringContaining('Paste or drop an image'))
+    expect(box).toHaveAttribute('placeholder', expect.stringContaining('Enter sends'))
+    expect(screen.getByRole('button', { name: 'Attach a file' })).toBeEnabled()
     const chatEl = screen.getByRole('region', { name: 'Chat' })
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'dropped.png', { type: 'image/png' })
     const dataTransfer = { types: ['Files'], files: [png] }
     fireEvent.dragEnter(screen.getByTestId('chat'), { dataTransfer })
-    expect(screen.getByRole('status', { name: 'Drop images' })).toHaveTextContent('Drop images to attach')
+    expect(screen.getByRole('status', { name: 'Drop files' })).toHaveTextContent('Drop files to attach')
     fireEvent.drop(screen.getByTestId('chat'), { dataTransfer })
-    expect(screen.queryByRole('status', { name: 'Drop images' })).toBeNull()
+    expect(screen.queryByRole('status', { name: 'Drop files' })).toBeNull()
     await waitFor(() => expect(addAttachment).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', name: 'dropped.png' })))
     expect(chatEl).toBeInTheDocument()
     // Not a file being dragged (text, a tab): no overlay.
     fireEvent.dragEnter(screen.getByTestId('chat'), { dataTransfer: { types: ['text/plain'], files: [] } })
-    expect(screen.queryByRole('status', { name: 'Drop images' })).toBeNull()
+    expect(screen.queryByRole('status', { name: 'Drop files' })).toBeNull()
   })
 
   it('stores an added image on the host, shows it, and names its path in the prompt', async () => {
@@ -1915,16 +1939,22 @@ describe('ChatView', () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', { type: 'image/png' })
     await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, png)
     await waitFor(() => expect(addAttachment).toHaveBeenCalledWith(expect.objectContaining({ agent: 'w1', name: 'shot.png' })))
-    expect(within(screen.getByRole('list', { name: 'Images' })).getByRole('img', { name: 'shot.png' })).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Attachments' })).getByRole('img', { name: 'shot.png' })).toBeInTheDocument()
     await userEvent.type(box, 'what is wrong here{Enter}')
     await waitFor(() => expect(promptAgent).toHaveBeenCalledWith(expect.objectContaining({ text: '[image: /state/runs/r1/attachments/w1/i1.png]\nwhat is wrong here' })))
     // The composer's strip is empty; the prompt shows at once as a bubble with the image, "sending…" until the record has it.
-    await waitFor(() => expect(within(screen.getByRole('form', { name: 'Prompt' })).queryByRole('list', { name: 'Images' })).toBeNull())
+    await waitFor(() => expect(within(screen.getByRole('form', { name: 'Prompt' })).queryByRole('list', { name: 'Attachments' })).toBeNull())
     expect(within(screen.getByRole('list', { name: 'Sending' })).getByRole('img', { name: 'i1.png' })).toBeInTheDocument()
-    // Not an image: refused here, with nothing stored.
-    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, new File(['x'], 'notes.txt', { type: 'text/plain' }), { applyAccept: false })
-    expect(await screen.findByRole('alert')).toHaveTextContent('Only PNG, JPEG, GIF and WebP')
-    expect(addAttachment).toHaveBeenCalledTimes(1)
+    // A file that is no image is stored under its own name and named as a file in the prompt; an empty one is refused, nothing stored.
+    addAttachment.mockResolvedValueOnce({ path: '/state/runs/r1/attachments/w1/i2.txt' })
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, new File(['notes'], 'notes.txt', { type: 'text/plain' }))
+    await waitFor(() => expect(addAttachment).toHaveBeenLastCalledWith(expect.objectContaining({ agent: 'w1', name: 'notes.txt' })))
+    expect(within(within(screen.getByRole('form', { name: 'Prompt' })).getByRole('list', { name: 'Attachments' })).getByText('notes.txt')).toBeInTheDocument()
+    await userEvent.type(box, 'and these notes{Enter}')
+    await waitFor(() => expect(promptAgent).toHaveBeenLastCalledWith(expect.objectContaining({ text: '[file: /state/runs/r1/attachments/w1/i2.txt]\nand these notes' })))
+    await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, new File([], 'empty.txt', { type: 'text/plain' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('That file is empty')
+    expect(addAttachment).toHaveBeenCalledTimes(2)
   })
 
   it('stops uploading the remaining images when another agent is shown meanwhile', async () => {
@@ -1950,18 +1980,18 @@ describe('ChatView', () => {
     let read: (b: ArrayBuffer) => void = () => {}
     png.arrayBuffer = () => new Promise((r) => { read = r })
     await userEvent.upload(container.querySelector('input[type=file]') as HTMLInputElement, png)
-    await waitFor(() => expect(screen.getByRole('list', { name: 'Images' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('list', { name: 'Attachments' })).toBeInTheDocument())
     rerender(wrap(<ChatView host={host} agentId="w2" active />))
     read(new Uint8Array([0x89, 0x50, 0x4e, 0x47]).buffer)
     await new Promise((r) => setTimeout(r, 50))
     expect(addAttachment).not.toHaveBeenCalled()
   })
 
-  it('offers no images for a CLI not checked to read them', async () => {
+  it('offers no attachments for a CLI not checked to read them', async () => {
     const { ui } = chat({ agent: { kind: 'opencode' } })
     render(ui)
     await screen.findByRole('textbox', { name: 'Prompt' })
-    expect(screen.getByRole('button', { name: 'Add an image' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Attach a file' })).toBeDisabled()
   })
 
   it('rewinds on Esc Esc: picks a prompt, says what stays, and puts the prompt back in the box', async () => {
@@ -1992,7 +2022,7 @@ describe('ChatView', () => {
     await userEvent.click(within(dialog).getByRole('button', { name: /fix the typo/ }))
     await userEvent.click(within(dialog).getByRole('button', { name: 'Rewind' }))
     await waitFor(() => expect(box).toHaveValue('fix the typo'))
-    expect(within(screen.getByRole('list', { name: 'Images' })).getByText('i9.png')).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Attachments' })).getByText('i9.png')).toBeInTheDocument()
   })
 
   it('shows the conversation as blocks, with tool calls folded, the reply as Markdown, and the doorbell until the messages are read', async () => {
