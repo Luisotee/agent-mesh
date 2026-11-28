@@ -7558,9 +7558,13 @@ type AgyTierPick struct {
 	Tier  string                 `protobuf:"bytes,1,opt,name=tier,proto3" json:"tier,omitempty"`
 	Model string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
 	// Percent left of the picked model's tightest quota, when has_left is true.
-	Left          int32    `protobuf:"varint,3,opt,name=left,proto3" json:"left,omitempty"`
-	HasLeft       bool     `protobuf:"varint,4,opt,name=has_left,json=hasLeft,proto3" json:"has_left,omitempty"`
-	Notes         []string `protobuf:"bytes,5,rep,name=notes,proto3" json:"notes,omitempty"`
+	Left    int32    `protobuf:"varint,3,opt,name=left,proto3" json:"left,omitempty"`
+	HasLeft bool     `protobuf:"varint,4,opt,name=has_left,json=hasLeft,proto3" json:"has_left,omitempty"`
+	Notes   []string `protobuf:"bytes,5,rep,name=notes,proto3" json:"notes,omitempty"`
+	// The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+	// empty when none matched. A client marks that row as the one this tier draws on.
+	Group         string `protobuf:"bytes,6,opt,name=group,proto3" json:"group,omitempty"`
+	Label         string `protobuf:"bytes,7,opt,name=label,proto3" json:"label,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7628,6 +7632,20 @@ func (x *AgyTierPick) GetNotes() []string {
 		return x.Notes
 	}
 	return nil
+}
+
+func (x *AgyTierPick) GetGroup() string {
+	if x != nil {
+		return x.Group
+	}
+	return ""
+}
+
+func (x *AgyTierPick) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
 }
 
 type GetUsageResponse struct {
@@ -9198,13 +9216,15 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x06resets\x18\x04 \x01(\tR\x06resets\x12\x1d\n" +
 	"\n" +
 	"at_reserve\x18\x05 \x01(\bR\tatReserve\x12!\n" +
-	"\freviews_only\x18\x06 \x01(\bR\vreviewsOnly\"|\n" +
+	"\freviews_only\x18\x06 \x01(\bR\vreviewsOnly\"\xa8\x01\n" +
 	"\vAgyTierPick\x12\x12\n" +
 	"\x04tier\x18\x01 \x01(\tR\x04tier\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x12\n" +
 	"\x04left\x18\x03 \x01(\x05R\x04left\x12\x19\n" +
 	"\bhas_left\x18\x04 \x01(\bR\ahasLeft\x12\x14\n" +
-	"\x05notes\x18\x05 \x03(\tR\x05notes\"\xb2\x03\n" +
+	"\x05notes\x18\x05 \x03(\tR\x05notes\x12\x14\n" +
+	"\x05group\x18\x06 \x01(\tR\x05group\x12\x14\n" +
+	"\x05label\x18\a \x01(\tR\x05label\"\xb2\x03\n" +
 	"\x10GetUsageResponse\x121\n" +
 	"\x06claude\x18\x01 \x01(\v2\x19.agentmesh.v1.ClaudeUsageR\x06claude\x124\n" +
 	"\bagy_rows\x18\x02 \x03(\v2\x19.agentmesh.v1.AgyUsageRowR\aagyRows\x126\n" +
@@ -9295,7 +9315,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x18WAITING_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11WAITING_KIND_PLAN\x10\x01\x12\x19\n" +
 	"\x15WAITING_KIND_QUESTION\x10\x02\x12\x16\n" +
-	"\x12WAITING_KIND_INPUT\x10\x032\xf8j\n" +
+	"\x12WAITING_KIND_INPUT\x10\x032\x8ek\n" +
 	"\vMeshService\x12\x95\x01\n" +
 	"\x05Hello\x12\x1a.agentmesh.v1.HelloRequest\x1a\x1b.agentmesh.v1.HelloResponse\"S\x8a\xb5\x18O\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\"EShow the daemon's id, version and capabilities, and who you are to it\x12a\n" +
@@ -9399,9 +9419,9 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x0eInterruptAgent\x12#.agentmesh.v1.InterruptAgentRequest\x1a$.agentmesh.v1.InterruptAgentResponse\"M\x8a\xb5\x18I\n" +
 	"\x02\x01\x05\x10\x01\x1a\tinterrupt\"6Interrupt an agent's turn, as Esc does in its terminal\x12\xa5\x01\n" +
 	"\vRewindAgent\x12 .agentmesh.v1.RewindAgentRequest\x1a!.agentmesh.v1.RewindAgentResponse\"Q\x8a\xb5\x18M\n" +
-	"\x01\x05\x10\x01\x1a\x06rewind\">Take an agent's conversation back to before one of its prompts\x12\xa0\x01\n" +
-	"\rAddAttachment\x12\".agentmesh.v1.AddAttachmentRequest\x1a#.agentmesh.v1.AddAttachmentResponse\"F\x8a\xb5\x18B\n" +
-	"\x01\x05\x10\x01\x1a\x06attach\"3Store an image on the host for a prompt to an agent\x12\xac\x01\n" +
+	"\x01\x05\x10\x01\x1a\x06rewind\">Take an agent's conversation back to before one of its prompts\x12\xb6\x01\n" +
+	"\rAddAttachment\x12\".agentmesh.v1.AddAttachmentRequest\x1a#.agentmesh.v1.AddAttachmentResponse\"\\\x8a\xb5\x18X\n" +
+	"\x01\x05\x10\x01\x1a\x06attach\"IStore a file (an image or any other) on the host for a prompt to an agent\x12\xac\x01\n" +
 	"\rCreatePairing\x12\".agentmesh.v1.CreatePairingRequest\x1a#.agentmesh.v1.CreatePairingResponse\"R\x8a\xb5\x18N\n" +
 	"\x02\x01\x05\x10\x01\x1a\x04pair\"@Create a one-time pairing token and QR/link payload for a device\x12z\n" +
 	"\vListDevices\x12 .agentmesh.v1.ListDevicesRequest\x1a!.agentmesh.v1.ListDevicesResponse\"&\x8a\xb5\x18\"\n" +

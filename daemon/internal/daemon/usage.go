@@ -932,6 +932,7 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		if q, ok := agy.ModelQuota(id, disp, rows); ok {
 			tp.Left = int32(q.Left)
 			tp.HasLeft = true
+			tp.Group, tp.Label = q.Group, q.Label
 		}
 		for _, m := range chain {
 			if until, _, err := r.ModelHold("agy", m, now); err == nil && !until.IsZero() {
