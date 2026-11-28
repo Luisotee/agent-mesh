@@ -169,7 +169,7 @@ describe('ProjectSidebar', () => {
 
   it('copies from a row\'s menu and says so in a toast, or says it could not', async () => {
     const writeText = vi.fn(async () => {})
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true, writable: true })
     const { wrap } = fixture()
     render(wrap(<><ProjectSidebar /><Notices /></>))
     fireEvent.contextMenu(screen.getByRole('button', { name: 'app' }))
