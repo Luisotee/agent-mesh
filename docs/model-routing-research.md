@@ -2,6 +2,8 @@
 
 Written 2026-11-28 from research done on 2026-11-27 and 2026-11-28. This is a report, not an implementation: nothing in the code has changed. Section 7 lists the two host settings that did change.
 
+**Note, 2026-11-28 (the user): "risky" and "large" were set too wide, and the shipped protocol now says so.** Risky is a failure the next fix cannot get back: real money, data that matters (a production database, a destructive migration), secrets or the machine exposed to others, a deploy. Concurrency, permission or deny-list logic for local agents, protocol and orchestration changes, an additive migration and the daemon's own internals are not risky: a bug there costs a fix PR. Size counts hand-written files: up to about 10 is small, more is large, and lines never make a PR large (generated code, lockfiles, fixtures, golden files and pure moves don't count). Where this report says "auth, money, data migrations, concurrency" or sizes by lines, read it as that definition; the findings below stand as written.
+
 Benchmark numbers are independent unless marked **(V)**, which means the model's vendor reported them. Our own numbers come from `mesh cost`, `mesh usage` and `mesh asks` on this host, for the week 2026-11-21 to 2026-11-28, when the agent-mesh apps were built.
 
 ## 1. Conclusions
