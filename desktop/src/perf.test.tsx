@@ -14,7 +14,7 @@ import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } f
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { GetUsageResponseSchema, ListProjectsResponseSchema } from './gen/agentmesh/v1/mesh_pb'
 import { GetCostResponseSchema } from './gen/agentmesh/v1/report_pb'
-import { AgentRole, AgentSchema, AgentState, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
+import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { createAppModel, type HostRuntime } from './model'
 import { createHostStore } from './store'
 
@@ -23,7 +23,7 @@ import { createHostStore } from './store'
  * host with 40 agents, a 300-entry chat and a dozen tabs. Counts are exact and asserted; times (jsdom, React's
  * development build: only good for comparing runs) are printed when PERF=1 (`PERF=1 pnpm exec vitest run src/perf.test.tsx`).
  */
-const calls = vi.hoisted(() => ({ icon: 0, markdown: 0 }))
+const calls = vi.hoisted(() => ({ icon: 0, markdown: 0, cards: new Set<string>() }))
 vi.mock('./components/state-icon', async (importOriginal) => {
   const m = await importOriginal<typeof import('./components/state-icon')>()
   return { ...m, StateIcon: (p: Parameters<typeof m.StateIcon>[0]) => (calls.icon++, m.StateIcon(p)) }
@@ -31,6 +31,11 @@ vi.mock('./components/state-icon', async (importOriginal) => {
 vi.mock('./components/markdown', async (importOriginal) => {
   const m = await importOriginal<typeof import('./components/markdown')>()
   return { ...m, Markdown: (p: Parameters<typeof m.Markdown>[0]) => (calls.markdown++, m.Markdown(p)) }
+})
+
+vi.mock('./components/messages-panel', async (importOriginal) => {
+  const m = await importOriginal<typeof import('./components/messages-panel')>()
+  return { ...m, MessageCard: (p: Parameters<typeof m.MessageCard>[0]) => (calls.cards.add(p.message.id), m.MessageCard(p)) }
 })
 
 // xterm needs a real canvas and measured fonts: the terminal is left out here (the e2e measures it).
@@ -112,6 +117,7 @@ afterAll(() => {
 beforeEach(() => {
   calls.icon = 0
   calls.markdown = 0
+  calls.cards.clear()
 })
 
 describe('speed: what a change re-renders', () => {
@@ -208,5 +214,23 @@ describe('speed: what a change re-renders', () => {
     note('tab switch to a 300-entry chat', { 'wall ms': performance.now() - t0, 'render ms': p.rec.ms + p.rec.mount, markdown: calls.markdown })
     expect.soft(calls.markdown).toBeLessThanOrEqual(80)
     expect(screen.getByRole('textbox', { name: 'Prompt' })).toBeInTheDocument()
+  })
+
+  it('opening a big run\'s lead: its thousand mesh cards are windowed before its transcript arrives, not drawn whole', async () => {
+    const { host, wrap, client } = seed()
+    const messages = Object.fromEntries(Array.from({ length: 1000 }, (_, n) => {
+      const m = create(MessageSchema, { id: `m${n}`, runId: 'r00', type: MessageType.INFO, body: `note ${n}`, toId: n % 2 ? 'l00' : 'w000', from: { id: n % 2 ? 'w000' : 'l00' }, createdAt: timestampFromMs(1000 + n) })
+      return [m.id, m]
+    }))
+    host.store.setState((s) => ({ messages, messageLoad: { ...s.messageLoad, r00: 'loaded' }, agents: { ...s.agents, l00: { ...s.agents.l00!, terminalId: 't', sessionId: 's' } } }))
+    // The transcript is still on its way: the cards are all there is to draw.
+    client.readTranscript.mockImplementation(() => new Promise(() => {}))
+    const t0 = performance.now()
+    render(wrap(<ChatView host={host} agentId="l00" active />))
+    await screen.findByRole('textbox', { name: 'Prompt' })
+    note('open a lead with 1000 cards, transcript pending', { cards: calls.cards.size, 'wall ms': performance.now() - t0 })
+    // The newest 60 only; it was all 1000.
+    expect(calls.cards.size).toBe(60)
+    expect(calls.cards.has('m999')).toBe(true)
   })
 })
