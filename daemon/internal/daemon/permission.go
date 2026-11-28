@@ -496,16 +496,12 @@ func (d *Daemon) permissionEnded(agentID, event string, payload []byte) {
 }
 
 // planFromExit sends the plan of a worker's ExitPlanMode to its parent as its `plan` report (the file under the run's
-// plans folder too, as `mesh send --type plan --body @file` has it), and answers the hook with a refusal that says so:
+// plans folder too once it went, as `mesh send --type plan --body @file` has it), and answers the hook with a refusal that says so:
 // the worker stays in plan mode, ends its turn and waits for the answer, as after any plan. A refusal of the send (it
 // has unread instructions, say) is the refusal's reason, so the plan is sent again once that is dealt with.
 func (d *Daemon) planFromExit(ctx context.Context, a *v1.Agent, plan string) *connect.Response[v1.RequestPermissionResponse] {
 	deny := func(why string) *connect.Response[v1.RequestPermissionResponse] {
 		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: "deny", Reason: why})
-	}
-	dir := filepath.Join(d.paths.RunDir(a.RunId), "plans")
-	if err := os.MkdirAll(dir, 0o755); err == nil {
-		_ = os.WriteFile(filepath.Join(dir, a.Name+".md"), []byte(plan), 0o644)
 	}
 	_, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: plan}))
 	if err != nil {
@@ -515,6 +511,10 @@ func (d *Daemon) planFromExit(ctx context.Context, a *v1.Agent, plan string) *co
 			msg = ce.Message()
 		}
 		return deny("Your plan was NOT sent: " + msg + ". Deal with that, then call ExitPlanMode again.")
+	}
+	dir := filepath.Join(d.paths.RunDir(a.RunId), "plans")
+	if err := os.MkdirAll(dir, 0o755); err == nil {
+		_ = os.WriteFile(filepath.Join(dir, a.Name+".md"), []byte(plan), 0o644)
 	}
 	return deny("Your plan was sent to your parent (the `plan` report the mesh asks for). End your turn and wait for its answer: " +
 		"`approved` lifts the plan mode, anything else asks you to change the plan and send it again. Do not call ExitPlanMode again until then.")

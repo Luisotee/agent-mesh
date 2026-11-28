@@ -683,7 +683,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 				return err
 			}
 		}
-		if !stopped(to) { // a follow-up round for a finished Claude worker: compacted before the message rings
+		if !stopped(to) && !replan { // a follow-up round for a finished Claude worker: compacted before the message rings (a re-plan's reopen takes its place)
 			if err := d.requestFollowupCompaction(t, to, req.Msg.Type, req.Msg.Body); err != nil {
 				return err
 			}

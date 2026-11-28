@@ -5,7 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/input'
 import { MarkdownField } from '@/components/ui/markdown-field'
 import { useApp, useAppState, useHostState } from '@/context'
-import { MessageType } from '@/gen/agentmesh/v1/types_pb'
+import { AgentRole, MessageType } from '@/gen/agentmesh/v1/types_pb'
 import type { AgentTab, HostRuntime } from '@/model'
 import { ChatView } from './chat-view'
 import { TerminalView } from './terminal-view'
@@ -82,7 +82,9 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
   const [sent, setSent] = useState(false)
   const [plan, setPlan] = useState(false)
   const [tier, setTier] = useState('')
-  const planning = plan && type === MessageType.TASK
+  // A root, an asker and a reviewer have no plan phase to go back to.
+  const canPlan = type === MessageType.TASK && agent?.role === AgentRole.WORKER
+  const planning = plan && canPlan
   async function submit() {
     // Each send has its own mutation id, so a double Enter would send twice: one at a time.
     if (busy || !body.trim()) return
@@ -116,7 +118,7 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
         <Select aria-label="Message type" className="w-28" value={type} onChange={(e) => setType(Number(e.target.value))}>
           {SEND_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
-        {type === MessageType.TASK && (
+        {canPlan && (
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-1.5 text-xs whitespace-nowrap">
               <input type="checkbox" checked={plan} onChange={(e) => setPlan(e.target.checked)} /> Plan first
