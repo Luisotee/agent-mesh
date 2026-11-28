@@ -566,7 +566,7 @@ func TestEndToEnd(t *testing.T) {
 	// A model change reopens the same conversation: a switch to another tier, then a stop and a resume for a
 	// task it plans (the strong tier, under the deny list).
 	session := str(after, "agent", "sessionId")
-	w.ctl("switch", "--agent", agent, "--tier", "light", "--why", "e2e")
+	w.ctl("switch", "--agent", agent, "--tier", "strong", "--why", "e2e")
 	var moved map[string]any
 	w.waitFor("the switch's reopen", func() bool {
 		moved = w.ctl("agent", "--agent", agent)
@@ -640,11 +640,11 @@ func TestAgyEndToEnd(t *testing.T) {
 		t.Fatal("expected conversationId recorded after first agy turn")
 	}
 
-	// Switch to light tier reopens the same conversation on flash.
-	w.ctl("switch", "--agent", agent, "--tier", "light", "--why", "e2e")
+	// Switch to the strong tier reopens the same conversation on neon.
+	w.ctl("switch", "--agent", agent, "--tier", "strong", "--why", "e2e")
 	w.waitFor("agy switch reopen", func() bool {
 		a := w.ctl("agent", "--agent", agent)
-		return str(a, "agent", "model") == "flash" && str(a, "agent", "terminalId") != terminal &&
+		return str(a, "agent", "model") == "neon" && str(a, "agent", "terminalId") != terminal &&
 			str(a, "agent", "state") == "AGENT_STATE_IDLE" && str(a, "agent", "sessionId") == session
 	})
 

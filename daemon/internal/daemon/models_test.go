@@ -36,6 +36,9 @@ const (
 const (
 	opencodeListingBase = "opencode/deepseek-v4.1-flash-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-20\"}\n" +
 		"opencode/flint-40b-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-18\"}\n" +
+		"opencode/hy4-flash-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-19\"}\n" +
+		"opencode/seaglass-alpha-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-17\"}\n" +
+		"opencode/mimo-v2.6-flash-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-16\"}\n" +
 		"opencode/beam-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-15\"}\n"
 	opencodeListingNew = opencodeListingBase +
 		"opencode/nova-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-25\"}\n"
@@ -94,7 +97,7 @@ func TestModelsFlagsNewAndRetiredFamiliesAndPersistsAck(t *testing.T) {
 	h := startModelsHarness(t, &listing, nil, &now)
 	ctx := context.Background()
 
-	// Fresh check picks up argon, sonnet, xenon (not in agy tiers).
+	// Fresh check picks up argon, flash, sonnet, xenon (not in agy tiers).
 	res, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{
 		Meta: meta("m1"), Check: true,
 	}))
@@ -102,10 +105,10 @@ func TestModelsFlagsNewAndRetiredFamiliesAndPersistsAck(t *testing.T) {
 		t.Fatal(err)
 	}
 	ak := kindEntry(res.Msg, "agy")
-	if ak == nil || !slices.Equal(ak.NewFamilies, []string{"argon", "sonnet", "xenon"}) || len(ak.RetiredFamilies) != 0 {
+	if ak == nil || !slices.Equal(ak.NewFamilies, []string{"argon", "flash", "sonnet", "xenon"}) || len(ak.RetiredFamilies) != 0 {
 		t.Fatalf("agy = %+v", ak)
 	}
-	if !strings.Contains(res.Msg.Notice, "new agy models no tier names: argon, sonnet, xenon") {
+	if !strings.Contains(res.Msg.Notice, "new agy models no tier names: argon, flash, sonnet, xenon") {
 		t.Fatalf("notice = %q", res.Msg.Notice)
 	}
 
@@ -124,14 +127,14 @@ func TestModelsFlagsNewAndRetiredFamiliesAndPersistsAck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(kindEntry(cached.Msg, "agy").NewFamilies, []string{"argon", "sonnet", "xenon"}) {
+	if !slices.Equal(kindEntry(cached.Msg, "agy").NewFamilies, []string{"argon", "flash", "sonnet", "xenon"}) {
 		t.Fatalf("expected cached result, got %+v", kindEntry(cached.Msg, "agy"))
 	}
 
 	// --ack records decisions and forces a re-check.
 	listing = agyListingNew
 	acked, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{
-		Meta: meta("m3"), Ack: []string{"agy:sonnet", "agy:argon"},
+		Meta: meta("m3"), Ack: []string{"agy:sonnet", "agy:argon", "agy:flash"},
 	}))
 	if err != nil {
 		t.Fatal(err)

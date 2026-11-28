@@ -55,7 +55,7 @@ func settingEvents(t *testing.T, h *harness) []*v1.Event {
 func TestSettingsListWithDefaultsAndSchemas(t *testing.T) {
 	h := start(t, "")
 	res, err := h.device.Mesh.ListSettings(context.Background(), connect.NewRequest(&v1.ListSettingsRequest{Prefix: "tiers.claude.mid."}))
-	if err != nil || len(res.Msg.Settings) != 3 {
+	if err != nil || len(res.Msg.Settings) != 5 {
 		t.Fatalf("%v, %v", res, err)
 	}
 	m := setting(t, h, "tiers.claude.mid.model")
