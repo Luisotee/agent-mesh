@@ -79,11 +79,18 @@ function pickHost(app: ReturnType<typeof useApp>, hostId: string) {
   if (app.store.getState().hostId !== hostId) app.selectHost(hostId)
 }
 
-const toneOf = (r: QuotaLine): MeterTone => (r.used >= 100 ? 'over' : r.atReserve ? 'warn' : 'ok')
+const toneOf = (r: QuotaLine): MeterTone => (r.used >= 100 ? 'over' : r.atReserve || r.reviewsOnly ? 'warn' : 'ok')
 
 /** What a quota bar says in its tip: the window, how full, when it resets and where the host stops starting work. */
-const lineTip = (l: QuotaLine, reserve: number) =>
-  [`${l.title}: ${Math.round(l.used)}% used`, resetWords(l), reserve < 100 ? `the host starts nothing new from ${reserve}%` : ''].filter(Boolean).join(', ')
+const lineTip = (l: QuotaLine) =>
+  [
+    `${l.title}: ${Math.round(l.used)}% used`,
+    resetWords(l),
+    l.reviewsOnly ? 'only PR reviews start on it now' : '',
+    l.reserve < 100 ? `the host starts nothing new from ${l.reserve}%` : '',
+  ]
+    .filter(Boolean)
+    .join(', ')
 
 /** When a window resets: a time as a span ("resets in 2 h"), agy's own text as it gave it ("resets in 1h" for a span, else "resets 12:00"). */
 function resetWords(l: QuotaLine): string {
@@ -136,10 +143,10 @@ function HostQuota({ host, many }: { host: HostRuntime; many: boolean }) {
           </span>
           <ul aria-label="Quota" className="flex flex-col gap-1">
             {s.lines.map((l) => (
-              <Tip key={l.title} label={lineTip(l, q.reserve)}>
+              <Tip key={l.title} label={lineTip(l)}>
                 <li className="grid grid-cols-[minmax(0,3.25rem)_1fr_2.5rem] items-center gap-2 text-xs">
                   <span className="truncate text-muted-foreground">{l.label}</span>
-                  <Meter label={`${s.name} ${l.label}`} valueText={lineTip(l, q.reserve)} value={l.used} tone={toneOf(l)} mark={q.reserve} />
+                  <Meter label={`${s.name} ${l.label}`} valueText={lineTip(l)} value={l.used} tone={toneOf(l)} mark={l.reserve} />
                   <span className={toneOf(l) === 'ok' ? 'text-right tabular-nums text-muted-foreground' : 'text-right font-semibold tabular-nums text-state-needs'}>{Math.round(l.used)}%</span>
                 </li>
               </Tip>

@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /** This device's own preferences that aren't the theme: none of them is on a host. */
-class DevicePrefs(context: Context) {
+class DevicePrefs(context: Context) : dev.agentmesh.android.chat.OutboxStore {
     private val prefs = context.getSharedPreferences("prefs", Context.MODE_PRIVATE)
     /** The unsent text of each agent's chat, in a file of its own so a draft never rewrites the other preferences. */
     private val drafts = context.getSharedPreferences("drafts", Context.MODE_PRIVATE)
@@ -110,6 +110,13 @@ class DevicePrefs(context: Context) {
     fun forgetPhoneShell(hostId: String, shellId: String) {
         val now = phoneShells()
         if ("$hostId/$shellId" in now) savePhoneShells(now - "$hostId/$shellId")
+    }
+
+    /** The prompts sent from a host's chats that the host has not taken (see `chat/Outbox.kt`); with the drafts, so a removed host forgets them. */
+    override fun load(hostId: String): String? = drafts.getString("$hostId/#outbox", null)
+
+    override fun save(hostId: String, json: String) {
+        drafts.edit().also { if (json == "[]") it.remove("$hostId/#outbox") else it.putString("$hostId/#outbox", json) }.apply()
     }
 
     /** Forgets a removed host's pins, hides and drafts, so a host paired again starts clean. */

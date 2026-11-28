@@ -86,7 +86,7 @@ class DockModelsUsageTest {
                     .addWindows(ClaudeUsageWindow.newBuilder().setKey("five_hour").setLabel("five-hour window").setUsed(93.0).setResetsAt(ts(7_200_000)))
                     .addWindows(ClaudeUsageWindow.newBuilder().setKey("seven_day").setLabel("seven-day window").setUsed(40.0)),
             )
-            .addAgyRows(AgyUsageRow.newBuilder().setGroup("g").setLabel("neon").setLeft(8).setResets("3h"))
+            .addAgyRows(AgyUsageRow.newBuilder().setGroup("g").setLabel("neon").setLeft(8).setResets("3h").setAtReserve(true))
             .addAgyRows(AgyUsageRow.newBuilder().setGroup("g").setLabel("flash").setLeft(60))
             .addAgyTiers(AgyTierPick.newBuilder().setTier("mid").setModel("hydrogen").setLeft(60).setHasLeft(true))
             .build()
@@ -96,8 +96,28 @@ class DockModelsUsageTest {
         assertEquals(listOf(true, false), v.agy.map { it.atReserve })
         assertEquals(listOf("Claude five-hour window", "agy g neon"), v.warnings)
         assertEquals(60, v.tiers[0].left)
-        // No reserve at all once quota_stop is 100.
-        assertTrue(usageView(u.toBuilder().setQuotaStop(100).build()).agy.none { it.atReserve })
+        // The weekly reserve is the host's own; a host that predates it has the one reserve for every window.
+        assertEquals(90, v.reserveWeekly)
+        assertEquals(95, usageView(u.toBuilder().setSplitReserves(true).setQuotaStopWeekly(95).build()).reserveWeekly)
+        // 0 is a setting once the host says it has the split reserves.
+        val zero = usageView(u.toBuilder().setSplitReserves(true).setQuotaStopWeekly(0).setReviewsOnlyClaude(0).setReviewsOnlyAgy(100).build())
+        assertEquals(listOf(0, 0, 100), listOf(zero.reserveWeekly, zero.reviewsOnlyClaude, zero.reviewsOnlyAgy))
+        assertEquals(listOf(100, 100), listOf(v.reviewsOnlyClaude, v.reviewsOnlyAgy))
+    }
+
+    @Test fun `what is kept for PR reviews`() {
+        val u = GetUsageResponse.newBuilder().setSplitReserves(true).setQuotaStop(85).setQuotaStopWeekly(95).setReviewsOnlyClaude(70).setReviewsOnlyAgy(100)
+            .setClaude(
+                ClaudeUsage.newBuilder().addReviewsOnly("five-hour window")
+                    .addWindows(ClaudeUsageWindow.newBuilder().setKey("five_hour").setLabel("five-hour window").setUsed(75.0)),
+            )
+            .addAgyRows(AgyUsageRow.newBuilder().setGroup("g").setLabel("neon").setLeft(20).setReviewsOnly(true))
+            .build()
+        val v = usageView(u)
+        assertEquals(listOf(true), v.claude.map { it.reviewsOnly })
+        assertEquals(listOf("Claude five-hour window", "agy g neon"), v.reviewsOnlyWarnings)
+        assertEquals(emptyList<String>(), v.warnings)
+        assertEquals(listOf(70, 100), listOf(v.reviewsOnlyClaude, v.reviewsOnlyAgy))
     }
 
     @Test fun `when a window resets`() {

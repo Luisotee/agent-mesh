@@ -78,4 +78,15 @@ public interface ClaudeUsageWindowOrBuilder extends
    * @return The resetsAt.
    */
   com.google.protobuf.Timestamp getResetsAt();
+
+  /**
+   * <pre>
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+   * the weekly ones.
+   * </pre>
+   *
+   * <code>int32 reserve = 5 [json_name = "reserve"];</code>
+   * @return The reserve.
+   */
+  int getReserve();
 }

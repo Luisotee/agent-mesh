@@ -258,6 +258,47 @@ public  final class ClaudeUsageWindow extends
     bitField0_ = (bitField0_ & ~0x00000001);
   }
 
+  public static final int RESERVE_FIELD_NUMBER = 5;
+  private int reserve_;
+  /**
+   * <pre>
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+   * the weekly ones.
+   * </pre>
+   *
+   * <code>int32 reserve = 5 [json_name = "reserve"];</code>
+   * @return The reserve.
+   */
+  @java.lang.Override
+  public int getReserve() {
+    return reserve_;
+  }
+  /**
+   * <pre>
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+   * the weekly ones.
+   * </pre>
+   *
+   * <code>int32 reserve = 5 [json_name = "reserve"];</code>
+   * @param value The reserve to set.
+   */
+  private void setReserve(int value) {
+    
+    reserve_ = value;
+  }
+  /**
+   * <pre>
+   * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+   * the weekly ones.
+   * </pre>
+   *
+   * <code>int32 reserve = 5 [json_name = "reserve"];</code>
+   */
+  private void clearReserve() {
+
+    reserve_ = 0;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.ClaudeUsageWindow parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -604,6 +645,49 @@ public  final class ClaudeUsageWindow extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+     * the weekly ones.
+     * </pre>
+     *
+     * <code>int32 reserve = 5 [json_name = "reserve"];</code>
+     * @return The reserve.
+     */
+    @java.lang.Override
+    public int getReserve() {
+      return instance.getReserve();
+    }
+    /**
+     * <pre>
+     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+     * the weekly ones.
+     * </pre>
+     *
+     * <code>int32 reserve = 5 [json_name = "reserve"];</code>
+     * @param value The reserve to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReserve(int value) {
+      copyOnWrite();
+      instance.setReserve(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+     * the weekly ones.
+     * </pre>
+     *
+     * <code>int32 reserve = 5 [json_name = "reserve"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReserve() {
+      copyOnWrite();
+      instance.clearReserve();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ClaudeUsageWindow)
   }
   @java.lang.Override
@@ -625,10 +709,11 @@ public  final class ClaudeUsageWindow extends
             "label_",
             "used_",
             "resetsAt_",
+            "reserve_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0000\u0004\u1009\u0000";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0000\u0004\u1009\u0000\u0005\u0004";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
