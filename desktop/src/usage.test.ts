@@ -53,8 +53,8 @@ describe('usageView', () => {
   it('keeps what a tier would start on, and a missing "left"', () => {
     const v = usageView(u)
     expect(v.tiers).toEqual([
-      { tier: 'strong', model: 'neon', left: 60, notes: ['n1'] },
-      { tier: 'mid', model: '', left: undefined, notes: [] },
+      { tier: 'strong', model: 'neon', left: 60, group: '', label: '', notes: ['n1'] },
+      { tier: 'mid', model: '', left: undefined, group: '', label: '', notes: [] },
     ])
   })
 
@@ -176,6 +176,15 @@ describe("the footer's quota sections", () => {
     })
     const q = quotaSections(real)
     expect(q.sections.map((s) => [s.name, s.lines.map((l) => [l.label, l.used])])).toEqual([['agy', [['Five Hour Limit Remaining', 60]]]])
+  })
+
+  it('shows the row the host matched to a tier, where the names say nothing', () => {
+    const real = base({
+      claude: undefined,
+      agyRows: [create(AgyUsageRowSchema, { group: 'Gemini Models', label: 'Weekly Limit Remaining', left: 70 }), create(AgyUsageRowSchema, { group: 'Claude and GPT models', label: 'Five Hour Limit Remaining', left: 40 })],
+      agyTiers: [{ tier: 'light', model: 'flash', hasLeft: true, left: 70, group: 'Gemini Models', label: 'Weekly Limit Remaining', notes: [] }],
+    })
+    expect(quotaSections(real).sections.map((s) => [s.name, s.lines.map((l) => [l.label, l.used])])).toEqual([['agy', [['Weekly Limit Remaining', 30]]]])
   })
 
   it('has no sections when the host has no reading', () => {

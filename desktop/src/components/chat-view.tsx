@@ -1,9 +1,9 @@
-import { ArrowDown, Check, ChevronRight, Clock, Copy, ImagePlus, Pencil, Quote, Send, Square, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronRight, Clock, Copy, FileText, Paperclip, Pencil, Quote, Send, Square, X } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { m } from 'motion/react'
 import { addAttachment, interruptAgent, listPrompts, promptAgent, readTranscript, sendPromptAnyway, withdrawPrompt } from '@/actions'
 import { ConfirmDialog } from '@/components/ui/confirm'
-import { imageName, imageProblem, imageRef, imagesUnsupported, keepThumb, rewindUnsupported, splitImages, thumbs } from '@/attachments'
+import { attachName, attachProblem, attachRef, imagesUnsupported, isImagePath, keepThumb, pastedFiles, rewindUnsupported, splitImages, thumbs } from '@/attachments'
 import { Button } from '@/components/ui/button'
 import { Skeleton, SkeletonLines } from '@/components/ui/skeleton'
 import { MarkdownField } from '@/components/ui/markdown-field'
@@ -220,7 +220,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const hidden = from - above.length
   const revealed = useRef<{ height: number; top: number }>(undefined)
   const [reveals, setReveals] = useState(0)
-  // A dropped image is taken anywhere over the chat; the overlay says so while one is dragged over it.
+  // A dropped file is taken anywhere over the chat; the overlay says so while one is dragged over it.
   const dropper = useRef<Dropper>(null)
   const [dragging, setDragging] = useState(false)
   const drag = useRef(0)
@@ -354,8 +354,8 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
       }}
     >
       {dragging && dropper.current?.allowed && (
-        <div role="status" aria-label="Drop images" className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-md border-2 border-dashed border-identity bg-surface/80 text-sm font-medium">
-          Drop images to attach
+        <div role="status" aria-label="Drop files" className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-md border-2 border-dashed border-identity bg-surface/80 text-sm font-medium">
+          Drop files to attach
         </div>
       )}
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -516,7 +516,7 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
             const q = splitImages(p.text)
             return (
               <>
-                {q.paths.length > 0 && <p className="flex items-center gap-1 text-xs text-muted-foreground"><ImagePlus className="size-3.5" />{q.paths.length === 1 ? 'An image' : `${q.paths.length} images`}</p>}
+                {q.paths.length > 0 && <p className="flex items-center gap-1 text-xs text-muted-foreground"><Paperclip className="size-3.5" />{attachmentCount(q.paths)}</p>}
                 {q.text && <Markdown breaks className="text-[13px] break-words">{q.text}</Markdown>}
               </>
             )
@@ -563,7 +563,14 @@ function QueuedList({ host, agentId, prompts, readOnly }: { host: HostRuntime; a
   )
 }
 
-/** What the chat's drop zone needs of the composer: whether images can be added now, and the add. */
+/** "An image", "3 images", "A file", "2 attachments": what a prompt carries, for a line that does not show them. */
+function attachmentCount(paths: string[]): string {
+  const images = paths.every(isImagePath)
+  const noun = images ? 'image' : paths.some(isImagePath) ? 'attachment' : 'file'
+  return paths.length === 1 ? `${noun === 'attachment' || noun === 'image' ? 'An' : 'A'} ${noun}` : `${paths.length} ${noun}s`
+}
+
+/** What the chat's drop zone needs of the composer: whether files can be added now, and the add. */
 interface Dropper {
   allowed: boolean
   attach(files: File[]): void
@@ -589,7 +596,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
     [host, agentId],
   )
   useEffect(() => setTextNow(loadDraft(host.info.id, agentId)), [host, agentId])
-  // The images are this agent's: another agent shown here starts with none, and an upload that ends after the switch
+  // The attachments are this agent's: another agent shown here starts with none, and an upload that ends after the switch
   // is dropped (`forAgent`).
   const forAgent = useRef(0)
   useEffect(() => {
@@ -607,7 +614,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
   const stopRef = useRef(false)
   const recallRef = useRef(false)
   const [error, setError] = useState('')
-  // The images going with the next prompt: stored on the host as they are added, named in the prompt when it is sent.
+  // The files going with the next prompt: stored on the host as they are added, named in the prompt when it is sent.
   const [images, setImages] = useState<{ key: string; name: string; url: string; path?: string }[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
   // When the interrupt key last went in at an idle agent: a second one soon after opens Rewind (Esc Esc).
@@ -646,7 +653,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
     : gone
       ? 'The agent has stopped, so there is no terminal to type into. Send it a task from its menu (⋯) to bring it back.'
       : ''
-  /** Stores each image on the host (so an agent on another machine can read it), with a thumbnail kept here. */
+  /** Stores each file on the host (so an agent on another machine can read it), with a thumbnail of an image kept here. */
   async function attach(files: File[]) {
     if (noImages || why) return
     // The agent these files were added to: the loop stops when another is shown, so none lands in its strip or goes
@@ -654,24 +661,28 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
     const owner = forAgent.current
     for (const f of files) {
       if (forAgent.current !== owner) return
-      const problem = imageProblem(f)
+      const problem = attachProblem(f)
       if (problem) {
         setError(problem)
         continue
       }
       const key = `${f.name}-${f.size}-${Math.random()}`
-      const url = await new Promise<string>((resolve) => {
-        const r = new FileReader()
-        r.onload = () => resolve(String(r.result))
-        r.onerror = () => resolve('')
-        r.readAsDataURL(f)
-      })
+      const stored = attachName(f)
+      // Only an image has a thumbnail to read.
+      const url = isImagePath(stored)
+        ? await new Promise<string>((resolve) => {
+            const r = new FileReader()
+            r.onload = () => resolve(String(r.result))
+            r.onerror = () => resolve('')
+            r.readAsDataURL(f)
+          })
+        : ''
       if (forAgent.current !== owner) return
-      setImages((cur) => [...cur, { key, name: f.name, url }])
+      setImages((cur) => [...cur, { key, name: f.name || stored, url }])
       try {
         const bytes = new Uint8Array(await f.arrayBuffer())
         if (forAgent.current !== owner) return
-        const res = await addAttachment(host.client, agentId, imageName(f), bytes)
+        const res = await addAttachment(host.client, agentId, stored, bytes)
         if (url) keepThumb(res.path, url)
         if (forAgent.current !== owner) return
         setImages((cur) => cur.map((i) => (i.key === key ? { ...i, path: res.path } : i)))
@@ -682,7 +693,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
       }
     }
   }
-  // The whole chat takes a dropped image, not only this form (`ChatView`'s zone asks this).
+  // The whole chat takes a dropped file, not only this form (`ChatView`'s zone asks this).
   useEffect(() => {
     dropper.current = { allowed: !noImages && !why, attach: (files) => void attach(files) }
   })
@@ -690,7 +701,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
   async function send(confirmedText?: string) {
     const typed = confirmedText ?? text.trim()
     const sent = confirmedText === undefined ? images.filter((i) => i.path) : []
-    const refs = sent.map((i) => imageRef(i.path!))
+    const refs = sent.map((i) => attachRef(i.path!))
     const body = [...refs, typed].filter(Boolean).join('\n')
     if (!body || busy || uploading) return
     setBusy(true)
@@ -723,7 +734,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
       }
       saveDraft(host.info.id, agentId, left(loadDraft(host.info.id, agentId)))
       setText(left)
-      // Only the images sent go: one added while the prompt was in flight stays for the next.
+      // Only the files sent go: one added while the prompt was in flight stays for the next.
       const gone = new Set(sent.map((i) => i.key))
       setImages((cur) => cur.filter((i) => !gone.has(i.key)))
       onSent()
@@ -771,7 +782,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
   return (
     <form
       aria-label="Prompt"
-      className="flex flex-col gap-1.5"
+      className="flex shrink-0 flex-col gap-1.5"
       onSubmit={(e) => {
         e.preventDefault()
         void send()
@@ -787,10 +798,11 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
       {/* It lifts a little and takes a wash of the project's hue while it has the focus. */}
       <div className="flex flex-col rounded-xl border border-input bg-surface transition-[translate,box-shadow] duration-150 focus-within:-translate-y-px focus-within:bg-linear-to-b focus-within:from-identity/8 focus-within:to-surface focus-within:shadow-md focus-within:ring-2 focus-within:ring-identity motion-reduce:transition-none motion-reduce:focus-within:translate-y-0">
         {images.length > 0 && (
-          <ul aria-label="Images" className="flex flex-wrap gap-2 px-3 pt-3">
+          // One row that scrolls sideways, so any number of files costs the field one thumbnail's height, never its room.
+          <ul aria-label="Attachments" className="flex shrink-0 gap-2 overflow-x-auto px-3 pt-2.5 pb-1">
             {images.map((i) => (
-              <li key={i.key} className="relative">
-                {i.url ? <img src={i.url} alt={i.name} className={cn('size-16 rounded-md border object-cover', !i.path && 'opacity-50')} /> : <span className="grid size-16 place-items-center rounded-md border text-xs">{i.name}</span>}
+              <li key={i.key} className="relative shrink-0">
+                {i.url ? <img src={i.url} alt={i.name} className={cn('size-10 rounded-md border object-cover', !i.path && 'opacity-50')} /> : <span title={i.name} className={cn('flex h-10 max-w-44 items-center gap-1.5 rounded-md border bg-muted/40 px-2 text-xs', !i.path && 'opacity-50')}><FileText className="size-4 shrink-0" /><span className="truncate">{i.name}</span></span>}
                 <button type="button" aria-label={`Remove ${i.name}`} onClick={() => setImages((cur) => cur.filter((x) => x.key !== i.key))} className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full border bg-popover outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
                   <X className="size-3" />
                 </button>
@@ -801,17 +813,17 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
         <MarkdownField
           aria-label="Prompt"
           data-composer=""
-          className="flex-1 rounded-b-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none focus-visible:ring-0"
+          className="shrink-0 rounded-b-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none focus-visible:ring-0"
           value={text}
           disabled={!!why}
           ref={fieldRef}
           {...assist.field}
           title={assist.suggestion ? 'Tab takes the suggestion, Esc drops it' : undefined}
-          placeholder={assist.suggestion ? assist.suggestion : why ? '' : working ? `Write to the agent: it is sent when it finishes its turn.${canStop ? ' Esc stops it.' : ''}` : `Write to the agent. Enter sends, Shift+Enter adds a line.${noImages ? '' : ' Paste or drop an image to attach it.'}`}
+          placeholder={assist.suggestion ? assist.suggestion : why ? '' : working ? `Write to the agent: sent when its turn ends.${canStop ? ' Esc stops it.' : ''}` : 'Write to the agent. Enter sends, Shift+Enter adds a line.'}
           onValueChange={setText}
           onSend={() => void send()}
           onPaste={(e) => {
-            const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'))
+            const files = pastedFiles(e.clipboardData)
             if (files.length === 0 || noImages) return
             e.preventDefault()
             void attach(files)
@@ -845,7 +857,6 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
         <input
           ref={fileInput}
           type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp"
           multiple
           hidden
           onChange={(e) => {
@@ -855,9 +866,9 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
           }}
         />
         <div role="toolbar" aria-label="Prompt tools" className="flex items-center gap-1 px-2 pb-2">
-          <Tip side="top" label={noImages || 'Add an image (or paste or drop one)'}>
-            <Button type="button" size="icon" variant="ghost" className="size-8" aria-label="Add an image" disabled={!!why || !!noImages} onClick={() => fileInput.current?.click()}>
-              <ImagePlus />
+          <Tip side="top" label={noImages || 'Attach a file or an image (or paste or drop one)'}>
+            <Button type="button" size="icon" variant="ghost" className="size-8" aria-label="Attach a file" disabled={!!why || !!noImages} onClick={() => fileInput.current?.click()}>
+              <Paperclip />
             </Button>
           </Tip>
           <ModelPicker host={host} agent={agent} disabled={readOnly || gone} />
@@ -930,19 +941,19 @@ function BlockActions({ agentId, text, at, align }: { agentId: string; text: str
   )
 }
 
-/** A prompt as the user's bubble: its images (a thumbnail where this device sent it, else the file's name: the host's file isn't fetched), then its text. */
+/** A prompt as the user's bubble: its attachments (a thumbnail where this device sent an image, else the file's name: the host's file isn't fetched), then its text. */
 function UserBody({ body }: { body: string }) {
   const { paths, text } = splitImages(body)
   return (
     <>
       {paths.length > 0 && (
-        <ul aria-label="Images" className="mb-1 flex flex-wrap justify-end gap-1.5">
+        <ul aria-label="Attachments" className="mb-1 flex flex-wrap justify-end gap-1.5">
           {paths.map((p, n) => {
             const name = p.split(/[\\/]/).pop() ?? p
             const url = thumbs.get(p)
             return (
               <li key={`${n}-${p}`} title={p}>
-                {url ? <img src={url} alt={name} className="max-h-40 max-w-60 rounded-md border object-contain" /> : <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground"><ImagePlus className="size-3.5" />{name}</span>}
+                {url ? <img src={url} alt={name} className="max-h-40 max-w-60 rounded-md border object-contain" /> : <span className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground">{isImagePath(p) ? <Paperclip className="size-3.5" /> : <FileText className="size-3.5" />}{name}</span>}
               </li>
             )
           })}
@@ -962,7 +973,7 @@ const ChatBlock = memo(ChatBlockView, (a, b) => a.agentId === b.agentId && a.run
 function ChatBlockView({ block, agentId, running, waiting = false }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean; /** The user's answer to this block's question is what the agent waits on. */ waiting?: boolean }) {
   switch (block.kind) {
     case 'user': {
-      // Its images: a thumbnail where this device sent it, else the file's name (the host's file isn't fetched).
+      // Its attachments: a thumbnail where this device sent an image, else the file's name (the host's file isn't fetched).
       return (
         <div className="group ml-auto flex w-fit max-w-[min(85%,72ch)] flex-col items-end" data-kind="user">
           <UserBody body={block.entry.text} />

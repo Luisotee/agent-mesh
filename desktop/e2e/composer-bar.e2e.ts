@@ -72,7 +72,7 @@ test('the composer: one box with the model picker and the context meter, images 
     dt.items.add(new File([bytes], 'pasted.png', { type: 'image/png' }))
     document.querySelector('textarea[aria-label="Prompt"]')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
   }, PNG)
-  const strip = page.getByRole('list', { name: 'Images' })
+  const strip = page.getByRole('list', { name: 'Attachments' })
   await strip.getByRole('img', { name: 'pasted.png' }).waitFor()
   await expect.poll(() => stored().length, { timeout: 20_000 }).toBe(before + 1)
   await page.evaluate((b64) => {
@@ -82,7 +82,7 @@ test('the composer: one box with the model picker and the context meter, images 
     const chat = document.querySelector('[data-testid="chat"]')!
     chat.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true, cancelable: true }))
   }, PNG)
-  await page.getByRole('status', { name: 'Drop images' }).waitFor()
+  await page.getByRole('status', { name: 'Drop files' }).waitFor()
   await page.screenshot({ path: path.join(outDir, `${mode}-3-drop-overlay.png`) })
   await page.evaluate((b64) => {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
@@ -93,6 +93,14 @@ test('the composer: one box with the model picker and the context meter, images 
   await strip.getByRole('img', { name: 'dropped.png' }).waitFor()
   await expect.poll(() => stored().length, { timeout: 20_000 }).toBe(before + 2)
   await page.screenshot({ path: path.join(outDir, `${mode}-4-images.png`) })
+  // Attachments cost the field one thumbnail's height at most, even in a short window: what is typed stays in view.
+  await page.setViewportSize({ width: 1100, height: 560 })
+  await box.fill('one\ntwo\nthree')
+  await page.screenshot({ path: path.join(outDir, `${mode}-4b-images-short.png`) })
+  expect((await strip.boundingBox())!.height).toBeLessThan(60)
+  expect((await box.boundingBox())!.height).toBeGreaterThan(60)
+  await box.fill('')
+  await page.setViewportSize({ width: 1280, height: 800 })
 
   // Sending shows the prompt at once, with its images, until the record has it.
   await box.fill('what is in these')

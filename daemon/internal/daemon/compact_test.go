@@ -537,7 +537,12 @@ func TestAFollowUpRoundCompactsAFinishedWorkerBeforeTheMessageRings(t *testing.T
 		}
 		// The ring waits for the live compaction (up to CompactTimeout, 10 s, which a loaded host can nearly use up), so
 		// the wait carries that and a margin: 15 s timed out once at load 8.
-		waitForWithin(t, 45*time.Second, "the follow-up delivered", func() bool { return w.delivered(t, worker.Id, m.Msg.Message.Id) })
+		waitForWithinSaying(t, 45*time.Second, "the follow-up delivered", func() bool { return w.delivered(t, worker.Id, m.Msg.Message.Id) },
+			func() string {
+				a := w.agent(worker.Id)
+				return fmt.Sprintf("agent %v (%q), pending compaction %v, reopen %v, compactions %v, runs %d", a.State, a.StateDetail,
+					a.PendingCompaction, a.PendingReopen, w.compacted(t, run.Id, worker.Id), len(w.compactions()))
+			})
 		readInbox(t, asWorker)
 		return m.Msg.Message
 	}
