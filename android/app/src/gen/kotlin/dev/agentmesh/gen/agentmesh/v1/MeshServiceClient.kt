@@ -225,6 +225,24 @@ public class MeshServiceClient(
 
 
   /**
+   *  Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+   *  (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+   *  that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+   *  while an agent of the run has a process: stop the run first. There is no undo. A device only.
+   */
+  override suspend fun deleteRun(request: DeleteRunRequest, headers: Headers): ResponseMessage<DeleteRunResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/DeleteRun",
+      dev.agentmesh.gen.agentmesh.v1.DeleteRunRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.DeleteRunResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   override suspend fun sendMessage(request: SendMessageRequest, headers: Headers): ResponseMessage<SendMessageResponse> = client.unary(
@@ -1270,6 +1288,23 @@ public class MeshServiceClient(
     "agentmesh.v1.MeshService/GetAgentProgress",
       dev.agentmesh.gen.agentmesh.v1.GetAgentProgressRequest::class,
       dev.agentmesh.gen.agentmesh.v1.GetAgentProgressResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
+   *  dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
+   *  agents that are idle now (not archived); a root reads its own run's unless it names another.
+   */
+  override suspend fun listAgentWaits(request: ListAgentWaitsRequest, headers: Headers): ResponseMessage<ListAgentWaitsResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/ListAgentWaits",
+      dev.agentmesh.gen.agentmesh.v1.ListAgentWaitsRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.ListAgentWaitsResponse::class,
       StreamType.UNARY,
     ),
   )

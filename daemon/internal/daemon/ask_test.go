@@ -591,7 +591,7 @@ func TestAMemberThatCrashesSettlesWithItsExitAlertInsteadOfRingingTheCaller(t *t
 	w.waitState(claude.Id, v1.AgentState_AGENT_STATE_EXITED)
 	w.say(t, agy.Id, v1.MessageType_MESSAGE_TYPE_DONE, "agy: fine")
 	waitFor(t, "the round's message", func() bool { return len(w.answers(t)) == 1 })
-	if body := w.answers(t)[0].Body; !strings.Contains(body, "1 of 2 reviewers answered") || !strings.Contains(body, "no answer: shop-api-review-7-claude exited with code 7 with no report to you.") {
+	if body := w.answers(t)[0].Body; !strings.Contains(body, "1 of 2 reviewers answered") || !strings.Contains(body, "LOST, its answer is not coming: shop-api-review-7-claude exited with code 7 with no report to you.") {
 		t.Errorf("message %s", body)
 	}
 	// The alert itself was not sent: the round's one message carries it.

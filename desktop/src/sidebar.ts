@@ -1,5 +1,5 @@
 import { AgentRole, AgentState, RunStatus, type Agent, type Run } from './gen/agentmesh/v1/types_pb'
-import { buildTrees, repoName, type TreeNode } from './derive'
+import { buildTrees, exitKind, repoName, type TreeNode } from './derive'
 
 /** What the sidebar needs of one host. */
 export interface SidebarHost {
@@ -36,6 +36,8 @@ export interface LeadRow {
   lead?: Agent
   helpers: Agent[]
   workers: WorkerRow[]
+  /** The run's ended agents (exited, retired) the sidebar keeps out of its tree: one quiet "N ended" fold at its end. Empty unless asked for (`leadRows`' `hideEnded`). */
+  ended: Agent[]
   /** Agents of the run that wait on the user. */
   needs: number
   /** The run's latest activity (ms), for the order. */
@@ -70,7 +72,7 @@ export const sameWorker = (a: WorkerRow, b: WorkerRow): boolean => a.agent === b
 
 /** Whether two builds of a run's row are the same to draw: `buildProjects` makes every row anew, but the agents and the run in it are the store's own records, unchanged unless an event changed them. */
 export const sameLead = (a: LeadRow, b: LeadRow): boolean =>
-  a === b || (a.hostId === b.hostId && a.run === b.run && a.lead === b.lead && a.needs === b.needs && a.last === b.last && a.earlier === b.earlier && sameList(a.helpers, b.helpers) && sameList(a.workers, b.workers, sameWorker))
+  a === b || (a.hostId === b.hostId && a.run === b.run && a.lead === b.lead && sameList(a.ended, b.ended) && a.needs === b.needs && a.last === b.last && a.earlier === b.earlier && sameList(a.helpers, b.helpers) && sameList(a.workers, b.workers, sameWorker))
 
 /** The same for a project's. */
 export const sameProject = (a: ProjectRow, b: ProjectRow): boolean =>
@@ -98,35 +100,52 @@ const activity = (a: Agent) => Math.max(ms(a.lastActivity), ms(a.createdAt))
 /** The nodes minus the archived ones, an archived agent's children lifted into its place (they may still run). */
 const unarchived = (nodes: TreeNode[]): TreeNode[] => nodes.flatMap((n) => (n.agent.archived ? unarchived(n.children) : [n]))
 
-/** A tree node's workers and helpers: read-only agents fold into the agent above them, at any depth under it. */
-function split(nodes: TreeNode[], leadRepo: string): { helpers: Agent[]; workers: WorkerRow[] } {
+/**
+ * A tree node's workers and helpers: read-only agents fold into the agent above them, at any depth under it. An agent
+ * that `shown` refuses (an ended one, when the sidebar hides them) goes to `ended`, and what it started stays in its place
+ * (so a live reviewer of an ended worker joins its lead's helpers).
+ */
+function split(nodes: TreeNode[], leadRepo: string, shown: (a: Agent) => boolean): { helpers: Agent[]; workers: WorkerRow[]; ended: Agent[] } {
   const helpers: Agent[] = []
   const workers: WorkerRow[] = []
+  const ended: Agent[] = []
   for (const n of unarchived(nodes)) {
+    const under = split(n.children, leadRepo, shown)
+    ended.push(...under.ended)
+    if (!shown(n.agent)) {
+      ended.push(n.agent)
+      helpers.push(...under.helpers)
+      workers.push(...under.workers)
+      continue
+    }
     if (helper(n.agent)) {
       helpers.push(n.agent)
       // Whatever a read-only agent started folds in with it.
-      const under = split(n.children, leadRepo)
       helpers.push(...under.helpers, ...flatten(under.workers))
       continue
     }
-    const under = split(n.children, leadRepo)
     workers.push({ agent: n.agent, helpers: under.helpers, workers: under.workers, elsewhere: !!n.agent.repo && n.agent.repo !== leadRepo })
   }
-  return { helpers, workers }
+  return { helpers, workers, ended }
 }
 
 const flatten = (rows: WorkerRow[]): Agent[] => rows.flatMap((w) => [w.agent, ...w.helpers, ...flatten(w.workers)])
 
 /** Every agent of a lead row: the lead, its workers and their helpers. */
-export const leadAgents = (r: LeadRow): Agent[] => [...(r.lead ? [r.lead] : []), ...r.helpers, ...flatten(r.workers)]
+export const leadAgents = (r: LeadRow): Agent[] => [...(r.lead ? [r.lead] : []), ...r.helpers, ...flatten(r.workers), ...r.ended]
+
+/** Nothing in the run has a process or a reopen on its way (every agent exited or retired): the host will delete it. */
+export const rowEnded = (r: LeadRow): boolean => !leadAgents(r).some((a) => alive(a) || !!a.pendingReopen)
 
 /** The workers of a lead row, at any depth. */
 export const allWorkers = (rows: WorkerRow[]): WorkerRow[] => rows.flatMap((w) => [w, ...allWorkers(w.workers)])
 
 /** The runs of one host as lead rows (archived agents left out, their children lifted; a run whose every agent is archived left out). */
-export function leadRows(h: SidebarHost): LeadRow[] {
+export function leadRows(h: SidebarHost, o: { hideEnded?: boolean } = {}): LeadRow[] {
   const out: LeadRow[] = []
+  // An ended agent stays in the tree only while the UI flags it as needing attention: something waits on the user from it, or
+  // it exited by failing (a crash, a lost terminal: Watch all's "failed" bucket, `exitKind`). One stopped or retired on purpose, or that finished, is ended.
+  const shown = (a: Agent) => !o.hideEnded || alive(a) || h.waiting.has(a.id) || (a.state === AgentState.EXITED && exitKind(a) === 'failed')
   for (const t of buildTrees(h.runs, h.agents)) {
     const roots = unarchived(t.roots)
     if (t.roots.length > 0 && roots.length === 0) continue
@@ -135,8 +154,8 @@ export function leadRows(h: SidebarHost): LeadRow[] {
     const lead = roots[leadAt]
     const rest = roots.filter((_, i) => i !== leadAt)
     const leadRepo = lead?.agent.repo ?? ''
-    const parts = split([...(lead?.children ?? []), ...rest], leadRepo)
-    const row: LeadRow = { hostId: h.hostId, run: t.run, lead: lead?.agent, helpers: parts.helpers, workers: parts.workers, needs: 0, last: 0, earlier: false }
+    const parts = split([...(lead?.children ?? []), ...rest], leadRepo, shown)
+    const row: LeadRow = { hostId: h.hostId, run: t.run, lead: lead?.agent, helpers: parts.helpers, workers: parts.workers, ended: parts.ended, needs: 0, last: 0, earlier: false }
     const all = leadAgents(row)
     row.needs = all.filter((a) => a.state === AgentState.NEEDS_INPUT || h.waiting.has(a.id)).length
     row.last = Math.max(ms(t.run.createdAt), ...all.map(activity))
@@ -165,7 +184,7 @@ export function buildProjects(hosts: SidebarHost[], pins: Record<string, string[
   }
   for (const h of hosts) {
     for (const repo of pins[h.hostId] ?? []) get(h, repo)
-    for (const r of leadRows(h)) {
+    for (const r of leadRows(h, { hideEnded: true })) {
       const home = r.lead?.repo ?? ''
       const p = get(h, home)
       ;(r.earlier ? p.earlier : p.runs).push(r)

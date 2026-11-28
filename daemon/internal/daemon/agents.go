@@ -112,6 +112,9 @@ type AgentConfig struct {
 	// CompactSettle is how long a live compaction the CLI reported done waits for its transcript to show it before
 	// the agent goes on (default 20 s).
 	CompactSettle time.Duration
+	// RestartGap, RestartRetry and RestartWindow time the resume of the agents a restart lost (restart.go): the pause between
+	// two resumes, how often the refused ones are tried again, and for how long (defaults 5 s, 30 s and 10 min).
+	RestartGap, RestartRetry, RestartWindow time.Duration
 	// Reset overrides the root reset's timings (reset.go); zero values are the defaults.
 	Reset ResetTimings
 	// ContextEvery is how often agents with a compaction or a root reset still to carry out are looked at (default
@@ -181,6 +184,7 @@ type runtime struct {
 	copilot       copilotRuntime  // Copilot polling (copilot.go)
 	ctxwork       contextRuntime  // headless compactions in flight (compact.go)
 	keeper        keeperState     // when the root keeper last looked (reset.go)
+	boot          bootResumes     // the agents this boot lost that are to be resumed (restart.go; guarded by mu)
 }
 
 func newRuntime(cfg AgentConfig) (*runtime, error) {
@@ -300,6 +304,9 @@ func (d *Daemon) adopt(ctx context.Context) error {
 		}
 		switch {
 		case !ok:
+			if want, rank := d.wantsBootResume(d.store.Read(ctx), a); want {
+				d.noteBootResume(a, rank) // its exit alert waits for the resume (restart.go)
+			}
 			if err := d.recordExit(ctx, a.TerminalId, "", "", -1, 0, "lost"); err != nil {
 				return err
 			}
@@ -500,7 +507,8 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 }
 
 func (d *Daemon) runBackground(ctx context.Context) {
-	d.goBG(func() { d.sweepHeld(ctx) }) // tasks held for a done that came while the daemon was down, and the ones a busy host left
+	d.goBG(func() { d.resumeAfterRestart(ctx) }) // the agents a machine restart lost (restart.go)
+	d.goBG(func() { d.sweepHeld(ctx) })          // tasks held for a done that came while the daemon was down, and the ones a busy host left
 	if d.rt.term != nil && !d.rt.cfg.NoTerminalWatch {
 		d.goBG(func() { d.watchTerminals(ctx) })
 	}
@@ -838,6 +846,16 @@ func (d *Daemon) reportHook(ctx context.Context, req *v1.ReportHookRequest) (*v1
 		}
 	}
 	d.permissionEnded(a.Id, req.EventName, req.Payload) // an agent that went on has no prompt waiting
+	if out.State == v1.AgentState_AGENT_STATE_IDLE {
+		if cur, err := d.store.Read(ctx).GetAgent(a.Id); err == nil {
+			// A worker that made its next branch itself: read with git, so after the reply, not before it.
+			d.goBG(func() {
+				bg, cancel := d.stopCtx()
+				defer cancel()
+				d.followBranch(bg, cur)
+			})
+		}
+	}
 	// A doorbell in flight is checked against this very activity, not at the next tick.
 	if takesDoorbell(out.State) || d.hasRing(actor.Id) {
 		d.deliverSoon(actor.Id)

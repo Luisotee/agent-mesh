@@ -218,6 +218,19 @@ service MeshService {
     };
   }
 
+  // Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+  // (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+  // that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+  // while an agent of the run has a process: stop the run first. There is no undo. A device only.
+  rpc DeleteRun(DeleteRunRequest) returns (DeleteRunResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "delete-run"
+      summary: "Delete an ended run and its agents, messages and files (work in git is never removed)"
+    };
+  }
+
   // Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {
     option (action) = {
@@ -1129,6 +1142,21 @@ service MeshService {
     };
   }
 
+  // What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
+  // dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
+  // agents that are idle now (not archived); a root reads its own run's unless it names another.
+  rpc ListAgentWaits(ListAgentWaitsRequest) returns (ListAgentWaitsResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "waits"
+      summary: "List what each idle agent waits on"
+    };
+  }
+
   // Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
   // changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
   // ResumeAgent brings it back: the worktree is made again from the branch.
@@ -1438,6 +1466,20 @@ message GetAgentProgressResponse {
   // only, for the warm-cache thresholds (a cold cache compacts at `compact.claude_cold`, lower). Policy, so known before the
   // conversation has a record: set for a Claude agent whether or not `supported`; empty for a plain agent and any other CLI.
   repeated ContextMark marks = 6;
+}
+
+message ListAgentWaitsRequest {
+  // Only this run's; empty means every open run.
+  string run_id = 1;
+}
+
+message ListAgentWaitsResponse {
+  repeated AgentWaitRow waits = 1;
+}
+
+message AgentWaitRow {
+  string agent_id = 1;
+  AgentWait wait = 2;
 }
 
 // What an idle agent waits on, first match wins: a background command it started, a wait it declared, an answer to its
@@ -2127,6 +2169,17 @@ message StopRunResponse {
   repeated WorktreeOutcome worktrees = 3;
 }
 
+message DeleteRunRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+}
+
+message DeleteRunResponse {
+  // What became of each agent's worktree: one that stayed (`branch_kept`, or a worktree not removed) holds work and is
+  // still on disk, though the host no longer knows it.
+  repeated WorktreeOutcome worktrees = 1;
+}
+
 message WorktreeOutcome {
   string agent_id = 1;
   string worktree = 2;
@@ -2229,13 +2282,23 @@ message RequestPermissionRequest {
   // The tool the CLI is about to run and what it would do: a command, or a path. Never file contents.
   string tool = 1;
   string summary = 2;
+  // The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+  string tool_use_id = 3;
+  // The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+  // (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+  string input = 4;
 }
 
 message RequestPermissionResponse {
-  // "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+  // "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
   string decision = 1;
-  // The parent's reason for a denial, which the agent reads.
+  // The reason for a denial, which the agent reads.
   string reason = 2;
+  // The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+  // or the text the user wrote under "Other". Only for a question.
+  map<string, string> answers = 3;
+  // The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+  string mode = 4;
 }
 
 message DecidePermissionRequest {
@@ -2246,6 +2309,21 @@ message DecidePermissionRequest {
   string decision = 3;
   // Why a prompt is denied, and what to do instead: the agent reads it.
   string why = 4;
+  // The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
+  repeated PromptAnswer answers = 5;
+  // What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
+  // Empty leaves the mode to the agent's CLI.
+  string mode = 6;
+}
+
+// The user's answer to one question of an `AskUserQuestion`.
+message PromptAnswer {
+  // The question's text, as `PromptQuestion.question` has it.
+  string question = 1;
+  // The labels chosen: one for a single choice, any number for a multi-select; none when `other` is the answer.
+  repeated string labels = 2;
+  // What the user wrote under "Other" (the CLI adds that choice to every question): it joins the labels.
+  string other = 3;
 }
 
 message DecidePermissionResponse {
@@ -2272,6 +2350,28 @@ message PendingPermission {
   // A command or a path, cut short; never file contents.
   string summary = 7;
   google.protobuf.Timestamp since = 8;
+  PermissionKind kind = 9;
+  // Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+  // agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+  // its worktree). It tells nobody and waits `permission.user_wait`.
+  bool for_user = 10;
+  // The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+  string tool_use_id = 11;
+  // For a question: what it asks.
+  repeated PromptQuestion questions = 12;
+  // For a plan: the plan as Markdown, and the file the CLI keeps it in.
+  string plan = 13;
+  string plan_file = 14;
+}
+
+enum PermissionKind {
+  PERMISSION_KIND_UNSPECIFIED = 0;
+  // A tool the CLI is about to run: allow it, or deny it with a reason.
+  PERMISSION_KIND_TOOL = 1;
+  // An `AskUserQuestion`: answer it (allow with `answers`), or dismiss it (deny).
+  PERMISSION_KIND_QUESTION = 2;
+  // An `ExitPlanMode`: approve the plan (allow, with `mode`), or say what to change (deny).
+  PERMISSION_KIND_PLAN = 3;
 }
 
 message HoldPullRequestRequest {

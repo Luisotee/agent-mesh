@@ -547,8 +547,8 @@ func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nud
 // lastSaid is the agent's state detail from before the exit event was applied (which overwrites it); words is the
 // agent's newest reply read from its transcript before the write (exitWords), which is quoted in preference to it.
 func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid, words, printed string, code, signal int32, reason string) (*v1.Message, error) {
-	if !owesParent(a) {
-		return nil, nil
+	if !owesParent(a) || d.bootHeld(a.Id) {
+		return nil, nil // (a held one: lost in a machine restart and about to be resumed, which tells the parent itself: restart.go)
 	}
 	if report, err := lastReport(tx.Reader, a); err != nil || report != nil {
 		return nil, err // it reported before it went: nothing is owed

@@ -1209,7 +1209,9 @@ func (d *Daemon) revive(tx *store.Tx, a *v1.Agent, spec reviveSpec) (*v1.Reopen,
 	rv, err := d.reviveAs(tx, a, spec)
 	if err != nil {
 		d.rt.guard.release(a.Id) // the guard passed but nothing was requested
+		return rv, err
 	}
+	d.bootRelease(a.Id) // a resume, by hand or by a message, ends the hold a machine restart put on its exit alert (restart.go)
 	return rv, err
 }
 

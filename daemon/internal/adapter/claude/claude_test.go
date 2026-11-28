@@ -319,6 +319,53 @@ func TestPermissionJSON(t *testing.T) {
 	}
 }
 
+// What the hook prints for a question and a plan: Claude ignores an allow for those two without `updatedInput`, so it
+// carries the input back (the questions with `answers`, the plan as it was) and, for a plan, the mode to go on in.
+func TestPermissionAnswerFormToolsEchoTheirInput(t *testing.T) {
+	question := json.RawMessage(`{"questions":[{"question":"Which?","header":"H","multiSelect":false,"options":[{"label":"A","description":"a"}]}]}`)
+	plan := json.RawMessage(`{"plan":"# P","planFilePath":"/p.md"}`)
+	decode := func(b []byte) map[string]any {
+		t.Helper()
+		var out struct {
+			H struct {
+				Event    string         `json:"hookEventName"`
+				Decision map[string]any `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(b, &out); err != nil || out.H.Event != "PermissionRequest" {
+			t.Fatalf("output %q: %v", b, err)
+		}
+		return out.H.Decision
+	}
+	d := decode(PermissionAnswer{Decision: "allow", Answers: map[string]string{"Which?": "A, other"}}.JSON(ToolAskUserQuestion, question))
+	in := d["updatedInput"].(map[string]any)
+	if d["behavior"] != "allow" || in["answers"].(map[string]any)["Which?"] != "A, other" || len(in["questions"].([]any)) != 1 || d["updatedPermissions"] != nil {
+		t.Errorf("question answer = %v", d)
+	}
+	noAnswers := PermissionAnswer{Decision: "allow"}
+	if got := noAnswers.JSON(ToolAskUserQuestion, question); got != nil {
+		t.Errorf("a question allowed with no answers printed %q", got)
+	}
+	d = decode(PermissionAnswer{Decision: "allow", Mode: "acceptEdits"}.JSON(ToolExitPlanMode, plan))
+	perms := d["updatedPermissions"].([]any)[0].(map[string]any)
+	if d["updatedInput"].(map[string]any)["plan"] != "# P" || perms["type"] != "setMode" || perms["mode"] != "acceptEdits" || perms["destination"] != "session" {
+		t.Errorf("plan approval = %v", d)
+	}
+	d = decode(PermissionAnswer{Decision: "allow"}.JSON(ToolExitPlanMode, plan))
+	if d["updatedPermissions"] != nil || d["updatedInput"] == nil {
+		t.Errorf("plan approval with no mode = %v", d)
+	}
+	d = decode(PermissionAnswer{Decision: "deny", Reason: "add a test"}.JSON(ToolExitPlanMode, plan))
+	if d["message"] != "add a test" || d["updatedInput"] != nil {
+		t.Errorf("plan sent back = %v", d)
+	}
+	// A plain tool's allow carries no input, as before.
+	d = decode(PermissionAnswer{Decision: "allow"}.JSON("Bash", json.RawMessage(`{"command":"ls"}`)))
+	if d["updatedInput"] != nil {
+		t.Errorf("a Bash allow = %v", d)
+	}
+}
+
 // What a parent is told of a prompt is a command or a path, never what an Edit or a Write would put in a file.
 func TestPermissionSummaryIsACommandOrAPathNeverContents(t *testing.T) {
 	for _, tc := range []struct{ input, want string }{

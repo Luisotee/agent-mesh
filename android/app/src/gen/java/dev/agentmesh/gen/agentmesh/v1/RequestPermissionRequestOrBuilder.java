@@ -41,4 +41,46 @@ public interface RequestPermissionRequestOrBuilder extends
    */
   com.google.protobuf.ByteString
       getSummaryBytes();
+
+  /**
+   * <pre>
+   * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+   * </pre>
+   *
+   * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+   * @return The toolUseId.
+   */
+  java.lang.String getToolUseId();
+  /**
+   * <pre>
+   * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+   * </pre>
+   *
+   * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+   * @return The bytes for toolUseId.
+   */
+  com.google.protobuf.ByteString
+      getToolUseIdBytes();
+
+  /**
+   * <pre>
+   * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+   * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+   * </pre>
+   *
+   * <code>string input = 4 [json_name = "input"];</code>
+   * @return The input.
+   */
+  java.lang.String getInput();
+  /**
+   * <pre>
+   * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+   * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+   * </pre>
+   *
+   * <code>string input = 4 [json_name = "input"];</code>
+   * @return The bytes for input.
+   */
+  com.google.protobuf.ByteString
+      getInputBytes();
 }

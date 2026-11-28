@@ -268,6 +268,8 @@ export interface AppModel {
   claimFocusMessage(): void
   /** Shows a toast: `error` stays longer. */
   notify(text: string, tone?: 'info' | 'error'): void
+  /** Puts text on the clipboard and says so in a toast ("Copied the run id"), or that it could not (it fails when the window lost the focus). `what` names it. */
+  copyText(text: string, what: string): Promise<void>
   /** Takes a notice away. */
   dismissNotice(id: number): void
   /** Takes a toast away. */
@@ -418,6 +420,11 @@ export function createAppModel(api: DesktopApi): AppModel {
           const patch = pruneHost(store.getState(), rt.info.id, s.agents)
           if (patch) set(patch)
           void model.loadShells(rt.info.id)
+        }
+        // An agent the host forgot (its run was deleted): the tabs and panes that showed it go.
+        else if (s.synced && s.agents !== prev.agents && Object.keys(prev.agents).some((id) => !(id in s.agents))) {
+          const patch = pruneHost(store.getState(), rt.info.id, s.agents)
+          if (patch) set(patch)
         }
         if (s.waiting !== prev.waiting || s.permissions !== prev.permissions || s.agents !== prev.agents || s.runs !== prev.runs) recount()
         if (s.agents !== prev.agents) {
@@ -599,6 +606,14 @@ export function createAppModel(api: DesktopApi): AppModel {
       const id = ++noticeSeq
       set((s) => ({ notices: [...s.notices, { id, text, tone }].slice(-4) }))
       setTimeout(() => model.dismissNotice(id), tone === 'error' ? 8000 : 4000)
+    },
+    copyText: async (text, what) => {
+      try {
+        await navigator.clipboard.writeText(text)
+        model.notify(`Copied ${what}`)
+      } catch {
+        model.notify(`Couldn't copy ${what}`, 'error')
+      }
     },
     dismissNotice: (id) => set((s) => ({ notices: s.notices.some((n) => n.id === id) ? s.notices.filter((n) => n.id !== id) : s.notices })),
     endShell: async (hostId, shellId) => {

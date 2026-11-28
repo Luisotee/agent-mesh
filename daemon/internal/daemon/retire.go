@@ -368,6 +368,14 @@ func (d *Daemon) autoRetire(ctx context.Context, agentID, reportID string, after
 // StopRun retires every agent of a run and closes it. A clean worktree is removed, and its branch with it unless
 // the branch moved past where it started or was pushed; a worktree with uncommitted changes stays, with its branch.
 func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
+	res, _, err := d.stopRun(ctx, req, false)
+	return res, err
+}
+
+// stopRun is StopRun. With requireEnded (DeleteRun) it refuses, inside the transaction that holds every agent's lock, a run
+// with an agent that has a process, so nothing is retired or stopped for a run that is refused; the second answer is the
+// agents whose process could not be stopped, with why.
+func (d *Daemon) stopRun(ctx context.Context, req *connect.Request[v1.StopRunRequest], requireEnded bool) (*connect.Response[v1.StopRunResponse], map[string]string, error) {
 	out := &v1.StopRunResponse{}
 	// Every agent of the run is locked first, in id order, so a reopen or a doorbell in flight finishes before the
 	// run is closed, and none starts after (the reopen finds its request dropped). An agent spawned meanwhile
@@ -401,7 +409,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	}
 	before, err := d.store.Read(ctx).ListAgents(req.Msg.RunId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var ids []string
 	for _, a := range before {
@@ -440,6 +448,13 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 				return errUnlocked
 			}
 			agents = all
+			if requireEnded {
+				for _, a := range all {
+					if hasProcess(a) {
+						return failedPrecondition("%s is still running: stop the run first", a.Name)
+					}
+				}
+			}
 			for _, a := range all {
 				changed, err := retireTx(tx, a, "run stopped")
 				if err != nil {
@@ -468,7 +483,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		break
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Outside the transaction: stopping a process waits for it. All at once, so that the locks held meanwhile
 	// are held for one stop (StopWait at most), not one per agent.
@@ -490,7 +505,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	wg.Wait()
 	if replayed {
 		// A replayed call's stored response already reports its stop; avoid repeating filesystem/sweep work or appending outcomes.
-		return connect.NewResponse(out), nil
+		return connect.NewResponse(out), notStopped, nil
 	}
 	// Sweep leftover processes workers left in their worktrees (already retired or exited ones too) before
 	// removing those worktrees, skipping any worktree held by a live agent or another open run.
@@ -580,7 +595,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 			out.Worktrees = append(out.Worktrees, outcome)
 		}
 	}
-	return connect.NewResponse(out), nil
+	return connect.NewResponse(out), notStopped, nil
 }
 
 func (d *Daemon) lockedRemoveWorktree(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer, plain bool) *v1.WorktreeOutcome {
@@ -637,6 +652,14 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 		return o
 	}
 	// Its commits being in the default branch, deleting it loses nothing (a branch the default has not got stays).
+	// A branch that is gone already (a run stopped before) has nothing to keep.
+	// (Only when the repo itself reads: if it moved, the branch may be there.)
+	_, gitDirErr := git(ctx, repo, "rev-parse", "--git-dir")
+	if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch); err != nil && gone && gitDirErr == nil {
+		o.BranchKept = false
+		o.Reason = "its branch was already gone"
+		return o
+	}
 	if !plain || !branchMerged(ctx, repo, branch) {
 		if has, why := branchHasWork(ctx, repo, branch, baseCommit); has {
 			o.Reason = why

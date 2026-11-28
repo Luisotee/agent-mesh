@@ -96,6 +96,21 @@ describe('applyFrame', () => {
     expect(s.runs.r1!.status).toBe(RunStatus.CLOSED)
   })
 
+  it('a deleted run takes its agents, messages, queues, pull requests and waiting rows with it, and no other run', () => {
+    const other = (id: string, runId: string) => agent(id, { runId })
+    let s = run([snapshot([agent('a1'), other('b1', 'r2')])])
+    s = { ...s, runs: { ...s.runs, r2: create(RunSchema, { id: 'r2' }) }, messages: { m1: create(MessageSchema, { id: 'm1', runId: 'r1' }), m2: create(MessageSchema, { id: 'm2', runId: 'r2' }) }, messageLoad: { r1: 'loaded', r2: 'loaded' },
+      prompts: { a1: [create(QueuedPromptSchema, { id: 'p1', agentId: 'a1' })], b1: [] }, waiting: [create(WaitingSchema, { runId: 'r1', agentId: 'a1' })], waitingAll: [create(WaitingSchema, { runId: 'r1', agentId: 'a1' }), create(WaitingSchema, { runId: 'r2', agentId: 'b1' })] }
+    s = run([ev(6, { case: 'runDeleted', value: { $typeName: 'agentmesh.v1.RunDeleted' } })], s)
+    expect(Object.keys(s.runs)).toEqual(['r2'])
+    expect(Object.keys(s.agents)).toEqual(['b1'])
+    expect(Object.keys(s.messages)).toEqual(['m2'])
+    expect(Object.keys(s.messageLoad)).toEqual(['r2'])
+    expect(Object.keys(s.prompts)).toEqual(['b1'])
+    expect(s.waiting).toEqual([])
+    expect(s.waitingAll.map((w) => w.runId)).toEqual(['r2'])
+  })
+
   it('an exit records its code and reason', () => {
     const s = run([snapshot(), ev(6, { case: 'agentExited', value: { $typeName: 'agentmesh.v1.AgentExited', exitCode: 7, signal: 0, reason: 'exited' } })])
     expect(s.agents.a1).toMatchObject({ state: AgentState.EXITED, exitCode: 7, stateDetail: 'exited' })

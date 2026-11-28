@@ -265,7 +265,7 @@ export function buildCommands(app: AppModel): Command[] {
 }
 
 function agentCommands(app: AppModel, h: HostRuntime, a: Agent, many: boolean, runTitle: string, hasPlan: boolean): Command[] {
-  const detail = [ROLE_LABEL[a.role], statusSentence(a), runTitle, a.repo.split('/').pop(), many ? h.info.name : ''].filter(Boolean).join(' · ')
+  const detail = [ROLE_LABEL[a.role], statusSentence(a, h.store.getState().agentWaits[a.id]), runTitle, a.repo.split('/').pop(), many ? h.info.name : ''].filter(Boolean).join(' · ')
   const cmds: Command[] = [{ id: `agent:${h.info.id}/${a.id}`, title: `Go to ${a.name}`, group: 'Agents', detail, run: () => app.selectAgent(h.info.id, a.id) }]
   const st = app.store.getState()
   const shown = (st.hostId === h.info.id && st.agentId === a.id) || st.side.some((p) => p.hostId === h.info.id && p.agentId === a.id)

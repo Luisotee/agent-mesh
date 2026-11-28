@@ -363,6 +363,7 @@ class RecordingApi : MeshApi {
     override suspend fun retireAgent(agent: String) { failLifecycle?.let { throw it }; lifecycle += "retire $agent" }
     override suspend fun renameRun(runId: String, title: String) { failLifecycle?.let { throw it }; lifecycle += "rename $runId $title" }
     override suspend fun stopRun(runId: String): List<String> { failLifecycle?.let { throw it }; lifecycle += "stop-run $runId"; return emptyList() }
+    override suspend fun deleteRun(runId: String): List<String> { failLifecycle?.let { throw it }; lifecycle += "delete-run $runId"; return emptyList() }
 }
 
 /** A terminal stream a test scripts: what the host sends is put in with [host], what the app sent is in [sent]. */
