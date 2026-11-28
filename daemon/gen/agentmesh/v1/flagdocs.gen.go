@@ -238,6 +238,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.KindCost.total":                           "input + w1 + w5 + output, as AgentCost.total.",
 	"agentmesh.v1.ListAgentCommandsRequest.agent":           "Agent id or name.",
 	"agentmesh.v1.ListAgentCommandsResponse.supported":      "False when the agent's CLI has no command list the daemon knows.",
+	"agentmesh.v1.ListAgentWaitsRequest.run_id":             "Only this run's; empty means every open run.",
 	"agentmesh.v1.ListAgentsRequest.run_id":                 "Empty means every open run.",
 	"agentmesh.v1.ListAsksRequest.pr":                       "Only the asks of this pull request (URL or number).",
 	"agentmesh.v1.ListAsksRequest.run_id":                   "Empty means the caller's own run (every run for a device).",

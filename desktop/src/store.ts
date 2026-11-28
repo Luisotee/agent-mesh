@@ -1,7 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Agent, Cursor, Device, Event, Message, QueuedPrompt, Run, Setting, UserNotice } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
-import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
+import { equals } from '@bufbuild/protobuf'
+import { AgentWaitSchema, type AgentWait, type AgentWaitRow, type HelloResponse, type Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import type { PendingPermission } from './gen/agentmesh/v1/mesh_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
 import type { ConnState, Frame } from './connection'
@@ -32,6 +33,8 @@ export interface HostState {
   waiting: WaitingRow[]
   /** Every row the host listed, `for_user` or not: a plan or question the lead decides is still the user's to answer from its author's chat. */
   waitingAll: WaitingRow[]
+  /** What each idle agent waits on (ListAgentWaits), by agent id, kept up to date by `refresh.ts`; empty until the host first answers (an agent with no entry is worded as waiting for a message). */
+  agentWaits: Record<string, AgentWait>
   /** Each change worker's pull requests (ListPullRequests), by agent id: read at connect and every minute by `refresh.ts`, and kept by PullRequestChanged events; empty until the host first answers. */
   pullRequests: Record<string, AgentPullRequests>
   /** Why GitHub can't be read on the host (`no_gh`, `not_logged_in`), from the last ListPullRequests; empty when it can. */
@@ -90,7 +93,7 @@ export function dropRun(s: HostState, runId: string): HostState {
 }
 
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], waitingAll: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], waitingAll: [], agentWaits: {}, pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
 }
 
 const MAX_LOG = 200
@@ -325,6 +328,19 @@ const sameWaiting = (a: WaitingRow[], b: WaitingRow[]) => a.length === b.length 
 export function setWaiting(waiting: WaitingRow[], last?: WaitingRow[]): Partial<HostState> {
   if (last && sameWaiting(waiting, last)) return {}
   return { waiting: waiting.filter((w) => w.forUser), waitingAll: waiting }
+}
+
+/** The host's answer to ListAgentWaits, which replaces the last one; a wait that did not change keeps its object, so a row that shows it is not redrawn. */
+export function setAgentWaits(rows: AgentWaitRow[], last: Record<string, AgentWait>): Partial<HostState> {
+  const next: Record<string, AgentWait> = {}
+  for (const r of rows) {
+    if (!r.wait) continue
+    const had = last[r.agentId]
+    next[r.agentId] = had && equals(AgentWaitSchema, had, r.wait) ? had : r.wait
+  }
+  const keys = Object.keys(next)
+  if (keys.length === Object.keys(last).length && keys.every((k) => next[k] === last[k])) return {}
+  return { agentWaits: next }
 }
 
 /** The host's answer to ListPullRequests, which replaces the last one. */
