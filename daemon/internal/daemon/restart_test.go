@@ -236,3 +236,28 @@ func TestWhatIsNotResumedWhenTheDaemonStopsIsToldToItsParent(t *testing.T) {
 		t.Errorf("the parent was told %q", told)
 	}
 }
+
+// A worker resumed by hand while the pass has not reached it is no longer held: when it exits again its parent is told.
+func TestAWorkerResumedByHandBeforeThePassReachesItIsNotHeldSilent(t *testing.T) {
+	w := startReopen(t, func(c *daemon.AgentConfig) {
+		c.RestartGap, c.RestartRetry, c.RestartWindow = time.Hour, time.Hour, time.Hour // the pass resumes the root and waits
+	})
+	run := startRun(t, w.device.Mesh, "")
+	lead, asLead := w.root(t, run.Id)
+	worker := w.spawnUnder(t, asLead, "doing", &v1.SpawnAgentRequest{})
+	oldLead, oldWorker := w.agent(lead.Id).TerminalId, w.agent(worker.Id).TerminalId
+
+	w.machineRestart(t)
+	w.waitResumed(t, lead, lead, oldLead)
+	if got := w.agent(worker.Id); got.State != v1.AgentState_AGENT_STATE_EXITED {
+		t.Fatalf("the pass reached the worker already: %v", got.State)
+	}
+	if _, err := w.device.Mesh.ResumeAgent(context.Background(), connect.NewRequest(&v1.ResumeAgentRequest{Agent: worker.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitResumed(t, worker, lead, oldWorker)
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_IDLE)
+	w.typeInto(w.agent(worker.Id), "/crash\r")
+	w.waitState(worker.Id, v1.AgentState_AGENT_STATE_EXITED)
+	waitFor(t, "the exit alert", func() bool { return w.alerts(t, lead.Id, "[mesh alert exited "+worker.Id+"]") == 1 })
+}

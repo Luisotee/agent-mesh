@@ -113,6 +113,11 @@ func (d *Daemon) resumeAfterRestart(ctx context.Context) {
 		return
 	}
 	sort.SliceStable(ids, func(i, j int) bool { return rank[ids[i]] < rank[ids[j]] })
+	defer func() { // whatever way the pass ends, nothing stays held (a hold is for the pass's own time)
+		for _, id := range ids {
+			d.bootRelease(id)
+		}
+	}()
 	gap, retry, window := orDuration(d.rt.cfg.RestartGap, restartGap), orDuration(d.rt.cfg.RestartRetry, restartRetry),
 		orDuration(d.rt.cfg.RestartWindow, restartWindow)
 	sleep := func(t time.Duration) bool {
