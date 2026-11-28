@@ -285,7 +285,9 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 
 	// Whose prompt it is. A question or a plan is the user's. A tool prompt goes to the agent's parent, unless it has
 	// none (a root, a plain agent: its prompt is the user's), the parent stopped, or it is one the parent is never
-	// asked (`neverForward`): then it is the user's too.
+	// asked (`neverForward`): then it is the user's too. This is the one place that says whose a prompt is: a mesh worker's
+	// ExitPlanMode, if the mesh's planning phase moves onto Claude's plan mode, is routed to its parent here (by role and
+	// phase) instead of `forUser`.
 	var parent *v1.Agent
 	forUser := kind != v1.PermissionKind_PERMISSION_KIND_TOOL || !owesParent(a)
 	if !forUser {
