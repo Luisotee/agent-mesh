@@ -713,7 +713,7 @@ func TestAReviewerOrAskerIsRetiredSoonerThanAWorkerAfterItsReport(t *testing.T) 
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 
-	worker := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	reviewer := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_REVIEWER, "rev")
 	asker := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_ASKER, "ask")
 	for _, a := range []*v1.Agent{reviewer, asker} { // their question is unread mail until they read it
