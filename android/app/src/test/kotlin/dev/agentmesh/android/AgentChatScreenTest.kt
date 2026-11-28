@@ -335,40 +335,107 @@ class AgentChatScreenTest {
         compose.onNodeWithTag("queued-drop-p1").assertIsDisplayed()
     }
 
-    @Test fun `Send empties the box at once and the host's refusal puts the text back`() {
+    @Test fun `Send empties the box and the prompt is a bubble at once, before the host has answered`() {
+        fresh()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.promptGate = gate
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("do it now")
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-sending").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Sending\u2026").assertIsDisplayed()
+        compose.onNodeWithTag("outgoing-text").assertTextContains("do it now")
+        compose.onNodeWithTag("prompt").assertTextContains("", substring = false)
+        // The host queues it: the queue's bubble takes its place.
+        api.queueNext = "working"
+        gate.complete(Unit)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("queued-q1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onAllNodesWithTag("outgoing-sending").assertCountEquals(0)
+        assertEquals(listOf("w1" to "do it now"), api.prompts.toList())
+    }
+
+    @Test fun `a prompt the host typed stays as Sent until the record has it, and is then the record's own bubble`() {
+        fresh()
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.waitUntil(5_000) { rt.outbox.value.isEmpty() && compose.onAllNodesWithTag("prompt").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("prompt").performTextInput("typed at once")
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-sent").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Sent").assertIsDisplayed()
+        // The record shows it (the next read): the transcript's bubble replaces this one.
+        api.transcript = { _, _, _ -> page(listOf(entry("1", TranscriptKind.TRANSCRIPT_KIND_USER, "typed at once"))) }
+        compose.waitUntil(8_000) { compose.onAllNodesWithTag("outgoing-sent").fetchSemanticsNodes().isEmpty() }
+        compose.onAllNodesWithTag("chat-user").assertCountEquals(1)
+        assertTrue(rt.outbox.value.isEmpty())
+    }
+
+    @Test fun `a refused send stays on its bubble with Retry and Edit, and the refusal is the host's words`() {
         fresh()
         api.failPrompt = RuntimeException("its input box holds a draft")
         val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
         show(rt)
         compose.onNodeWithTag("prompt").performTextInput("try this")
         compose.onNodeWithTag("send").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("prompt-error").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("prompt").assertTextContains("try this", substring = true)
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-failed").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Not sent: its input box holds a draft").assertIsDisplayed()
+        // Retry sends it again, and the bubble goes when the host has it.
+        api.failPrompt = null
+        compose.onNodeWithTag("outgoing-retry").performClick()
+        compose.waitUntil(5_000) { api.prompts.isNotEmpty() }
+        assertEquals(listOf("w1" to "try this"), api.prompts.toList())
     }
 
-    @Test fun `a refused send still puts its text back after the view was left for the terminal and came back`() {
-        fresh()
-        api.failPrompt = RuntimeException("its input box holds a draft")
-        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
-        show(rt)
-        compose.onNodeWithTag("prompt").performTextInput("do not lose me")
-        compose.onNodeWithTag("send").performClick()
-        compose.onNodeWithTag("terminal-toggle").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("terminal-toggle").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("prompt").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("prompt").assertTextContains("do not lose me", substring = true)
-    }
-
-    @Test fun `a text typed while a refused send was out stays after the one that comes back`() {
+    @Test fun `Edit on a refused bubble takes the text back into the box, after what was typed since, and Drop forgets it`() {
         fresh()
         api.failPrompt = RuntimeException("no")
         val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
         show(rt)
         compose.onNodeWithTag("prompt").performTextInput("step 1")
         compose.onNodeWithTag("send").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("prompt-error").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-failed").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("prompt").performTextInput("step 2")
+        compose.onNodeWithTag("outgoing-edit").performClick()
+        compose.onAllNodesWithTag("outgoing-failed").assertCountEquals(0)
         compose.onNodeWithTag("prompt").assertTextContains("step 1", substring = true)
+        compose.onNodeWithTag("prompt").assertTextContains("step 2", substring = true)
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-failed").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("outgoing-drop").performClick()
+        compose.onAllNodesWithTag("outgoing-failed").assertCountEquals(0)
+        assertTrue(rt.outbox.value.isEmpty())
+    }
+
+    @Test fun `a refused bubble is still there after the view was left for the terminal and came back`() {
+        fresh()
+        api.failPrompt = RuntimeException("its input box holds a draft")
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("do not lose me")
+        compose.onNodeWithTag("send").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-failed").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("terminal-toggle").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("chat").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("terminal-toggle").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-failed").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("outgoing-text").assertTextContains("do not lose me")
+    }
+
+    @Test fun `several prompts sent in a row reach the host in the order they were sent`() {
+        fresh()
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        api.promptGate = gate
+        val rt = host(lead, worker.toBuilder().setState(AgentState.AGENT_STATE_IDLE).build())
+        show(rt)
+        for (t in listOf("one", "two", "three")) {
+            compose.onNodeWithTag("prompt").performTextInput(t)
+            compose.onNodeWithTag("send").performClick()
+        }
+        compose.waitUntil(5_000) { rt.outbox.value.size == 3 }
+        gate.complete(Unit)
+        compose.waitUntil(5_000) { api.prompts.size == 3 }
+        assertEquals(listOf("one", "two", "three"), api.prompts.map { it.second })
     }
 
     @Test fun `a read-only device sees the queue but not the buttons to change it`() {

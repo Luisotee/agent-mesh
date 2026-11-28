@@ -47,6 +47,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -76,6 +78,7 @@ class HostRuntime(
     random: () -> Double = Math::random,
     heartbeatMs: Long = 15_000,
     messageRetryMs: Long = 1_000,
+    private val outboxStore: dev.agentmesh.android.chat.OutboxStore? = null,
 ) : ConnectionSink {
     private val _state = MutableStateFlow(HostState())
     val state: StateFlow<HostState> get() = _state
@@ -132,6 +135,7 @@ class HostRuntime(
     fun start() {
         connection.start()
         refresher.start()
+        resumeOutbox()
         // The host's settings come once a connection is synced.
         watcher = scope.launch {
             _synced.collect {
@@ -145,6 +149,7 @@ class HostRuntime(
         connection.stop()
         refresher.stop()
         watcher?.cancel()
+        sendJobs.values.forEach { it.cancel() }
     }
 
     fun nudge() = connection.nudge()
@@ -211,6 +216,109 @@ class HostRuntime(
         val api = connectedApi()
         // A failure reaches the caller only: the runtime's scope is not cancelled by it (a scope without a supervisor would be).
         return scope.async(SupervisorJob(scope.coroutineContext[Job])) { api.promptAgent(agentId, text)?.also(::noteQueued) }.await()
+    }
+
+    // ── The prompts sent from the chat, until the host has them ──
+
+    private val _outbox = MutableStateFlow(dev.agentmesh.android.chat.outgoingFromJson(outboxStore?.load(hostId)))
+
+    /** What the user sent and the host has not taken yet (sending, waiting for a connection, refused) or has typed and the record not shown yet. */
+    val outbox: StateFlow<List<dev.agentmesh.android.chat.Outgoing>> get() = _outbox
+
+    private val sendLock = kotlinx.coroutines.sync.Mutex()
+    private val sendJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val outSeq = AtomicInteger(0)
+
+    private fun changeOutbox(change: (List<dev.agentmesh.android.chat.Outgoing>) -> List<dev.agentmesh.android.chat.Outgoing>) {
+        val after = _outbox.updateAndGet(change)
+        outboxStore?.save(hostId, dev.agentmesh.android.chat.outgoingToJson(after))
+    }
+
+    private fun changeOne(id: String, change: (dev.agentmesh.android.chat.Outgoing) -> dev.agentmesh.android.chat.Outgoing) =
+        changeOutbox { l -> l.map { if (it.id == id) change(it) else it } }
+
+    /**
+     * A prompt from the chat, shown at once as the user's bubble and sent in order with the others: now when connected, else when
+     * the connection is back (it can be taken back meanwhile). The host's copy (its queue, or the record) takes its place.
+     */
+    fun say(agentId: String, text: String): String {
+        val id = "out-${now()}-${outSeq.incrementAndGet()}"
+        val ready = _state.value.conn is ConnState.Ready
+        changeOutbox { it + dev.agentmesh.android.chat.Outgoing(id, agentId, text, now(), if (ready) dev.agentmesh.android.chat.OutState.Sending else dev.agentmesh.android.chat.OutState.Waiting) }
+        deliver(id)
+        return id
+    }
+
+    /** Sends the prompts restored from the device that were waiting for a connection. Once, at start. */
+    private fun resumeOutbox() { _outbox.value.filter { it.state == dev.agentmesh.android.chat.OutState.Waiting }.forEach { deliver(it.id) } }
+
+    private fun deliver(id: String) {
+        sendJobs[id] = scope.launch {
+            try {
+                sendLock.withLock {
+                    while (true) {
+                        val o = _outbox.value.firstOrNull { it.id == id } ?: return@withLock
+                        // Nothing for a connection to wait for in a refused prompt.
+                        if (o.state == dev.agentmesh.android.chat.OutState.Failed || o.state == dev.agentmesh.android.chat.OutState.Sent) return@withLock
+                        if (_state.value.conn !is ConnState.Ready) {
+                            changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Waiting) }
+                            _state.first { it.conn is ConnState.Ready }
+                            continue
+                        }
+                        changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Sending) }
+                        try {
+                            val api = connectedApi()
+                            val q = scope.async(SupervisorJob(scope.coroutineContext[Job])) { api.promptAgent(o.agentId, o.text) }.await()
+                            if (q != null) {
+                                // Queued by the host: its bubble takes this one's place.
+                                noteQueued(q)
+                                changeOutbox { l -> l.filter { it.id != id } }
+                            } else changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Sent, sentMs = now()) }
+                        } catch (e: NotConnected) {
+                            continue
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Failed, error = dev.agentmesh.android.chat.say(e)) }
+                        }
+                        return@withLock
+                    }
+                }
+            } finally {
+                sendJobs.remove(id)
+            }
+        }
+    }
+
+    /** Sends a refused prompt again. */
+    fun retryOutgoing(id: String) {
+        if (_outbox.value.none { it.id == id && it.state == dev.agentmesh.android.chat.OutState.Failed }) return
+        changeOne(id) { it.with(state = dev.agentmesh.android.chat.OutState.Sending, error = "") }
+        deliver(id)
+    }
+
+    /** Takes a prompt back (it is not sent if it has not been): the text, or null when there is none by that id. */
+    fun takeOutgoing(id: String): String? {
+        val o = _outbox.value.firstOrNull { it.id == id } ?: return null
+        sendJobs.remove(id)?.cancel()
+        changeOutbox { l -> l.filter { it.id != id } }
+        return o.text
+    }
+
+    /** The chat's view of what it has shown: ends the typed prompts the record now has, and gives the new ones their snapshot. */
+    fun settleOutbox(agentId: String, blocks: List<dev.agentmesh.android.chat.Block>, loaded: Boolean) {
+        val cur = _outbox.value
+        if (cur.none { it.agentId == agentId && it.state == dev.agentmesh.android.chat.OutState.Sent }) return
+        changeOutbox { all ->
+            val mine = all.filter { it.agentId == agentId }
+            var next = mine
+            if (loaded && next.any { it.state == dev.agentmesh.android.chat.OutState.Sent && it.seen == null }) {
+                val snap = dev.agentmesh.android.chat.snapshotOf(blocks)
+                next = next.map { if (it.state == dev.agentmesh.android.chat.OutState.Sent && it.seen == null) it.with(seen = snap) else it }
+            }
+            next = dev.agentmesh.android.chat.settleSent(next, blocks, now())
+            if (next == mine) all else all.filter { it.agentId != agentId } + next
+        }
     }
 
     /** A prompt the host answered as queued, shown before its event arrives. */
