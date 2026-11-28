@@ -641,7 +641,9 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 	}
 	// Its commits being in the default branch, deleting it loses nothing (a branch the default has not got stays).
 	// A branch that is gone already (a run stopped before) has nothing to keep.
-	if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch); err != nil && gone {
+	// (Only when the repo itself reads: if it moved, the branch may be there.)
+	_, gitDirErr := git(ctx, repo, "rev-parse", "--git-dir")
+	if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch); err != nil && gone && gitDirErr == nil {
 		o.BranchKept = false
 		o.Reason = "its branch was already gone"
 		return o

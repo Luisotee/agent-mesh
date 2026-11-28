@@ -13,6 +13,7 @@ import (
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1/agentmeshv1connect"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/hook"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -39,6 +40,10 @@ func (d *Daemon) DeleteRun(ctx context.Context, req *connect.Request[v1.DeleteRu
 			return connect.NewResponse(out), nil
 		}
 	}
+	// Before anything is removed, as the write's own check comes after StopRun's removal.
+	if err := expired(req.Msg.Meta, d.now()); err != nil {
+		return nil, err
+	}
 	if err := d.runEnded(ctx, d.store.Read(ctx), runID); err != nil {
 		return nil, err
 	}
@@ -48,8 +53,9 @@ func (d *Daemon) DeleteRun(ctx context.Context, req *connect.Request[v1.DeleteRu
 	if err != nil {
 		return nil, err
 	}
-	for id, why := range notStopped {
-		return nil, failedPrecondition("the process of %s could not be stopped, so the run is kept: %s", id, firstLine(why))
+	for _, why := range notStopped {
+		// The run is stopped and its clean worktrees are gone by now; its rows and files stay.
+		return nil, failedPrecondition("the run was stopped but not deleted: an agent's process could not be stopped (%s)", firstLine(why))
 	}
 	out.Worktrees = stopped.Msg.Worktrees
 	var agents []string
@@ -106,10 +112,16 @@ func (d *Daemon) removeDeletedRunFiles(runID string, agents []string) {
 		if !one(id) {
 			continue
 		}
-		for _, p := range []string{d.paths.Agent(id), d.paths.Spool(id)} {
-			if err := os.RemoveAll(p); err != nil {
-				d.log.Warn("removing a deleted agent's folder", "agent", id, "path", p, "err", err)
-			}
+		if err := os.RemoveAll(d.paths.Agent(id)); err != nil {
+			d.log.Warn("removing a deleted agent's folder", "agent", id, "err", err)
+		}
+		// Not while a drain of its spool runs: it would apply what is left to an agent that is gone.
+		unlock, lerr := hook.LockSpool(d.paths, id)
+		if err := os.RemoveAll(d.paths.Spool(id)); err != nil {
+			d.log.Warn("removing a deleted agent's spool", "agent", id, "err", err)
+		}
+		if lerr == nil {
+			unlock()
 		}
 	}
 	if err := os.Remove(filepath.Join(d.worktrees(), runID)); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {

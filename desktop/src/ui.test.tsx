@@ -243,6 +243,8 @@ describe('ProjectSidebar', () => {
     deleteRun.mockRejectedValueOnce(new ConnectError('old is still running: stop the run first', Code.FailedPrecondition))
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete the runs' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('stop the run first')
+    // A run the first try deleted is gone from the host by now: not an error the second time.
+    deleteRun.mockRejectedValueOnce(new ConnectError('no run', Code.NotFound))
     deleteRun.mockResolvedValue({ worktrees: [] })
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete the runs' }))
     await waitFor(() => expect(deleteRun).toHaveBeenCalledTimes(4))

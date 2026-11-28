@@ -393,7 +393,7 @@ private fun LeadItem(r: LeadRow, current: Pair<String, String>?, a: SidebarActio
     var menu by remember { mutableStateOf(false) }
     val canAdd = canAct && r.run.status == RunStatus.RUN_STATUS_OPEN
     // The host counts a reopen that is on its way as a process: it refuses to delete the run.
-    val reopening = (listOfNotNull(lead) + r.helpers + flatWorkers(r.workers, 0).map { it.first.agent }).any { it.hasPendingReopen() }
+    val reopening = (listOfNotNull(lead) + r.helpers + flatWorkers(r.workers, 0).flatMap { listOf(it.first.agent) + it.first.helpers }).any { it.hasPendingReopen() }
     val act = LocalAgentAction.current
     Box {
         Row(

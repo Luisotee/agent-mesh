@@ -363,7 +363,7 @@ function RowDialogs({ host, dialog, onClose }: { host?: HostRuntime; dialog: Row
               why ||= e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e)
             }
           }
-          if (kept.length > 0) app.notify(`Deleted. Kept on disk, with its work: ${kept.join('; ')}`)
+          if (kept.length > 0) app.notify(`${refused > 0 ? 'Some of them were deleted' : 'Deleted'}. Kept on disk, with its work: ${kept.join('; ')}`)
           if (refused > 0) throw new Error(dialog.runIds.length > 1 ? `${refused} of ${dialog.runIds.length} could not be deleted: ${why}` : why)
         }}
       />
