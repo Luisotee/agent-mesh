@@ -54,7 +54,8 @@ type openCodeRuntime struct {
 	polled       map[string]*openCodePollState
 	seenEvidence map[openCodeEvidenceKey]bool
 	freeModels   []string
-	// listed is every model the last good listing named; nil until one was read. A tier chain skips a model
+	// listed is every model the last good listing named; empty until one was read (an empty listing is no listing).
+	// A tier chain skips a model
 	// not in it (a free model that left OpenCode's list) instead of launching on it.
 	listed map[string]bool
 	// costs is each listed model's cost class (opencode.CostClasses); nil until a listing was read.
@@ -199,7 +200,7 @@ func (d *Daemon) expandChain(kind string, chain []string) []string {
 			cands = free
 		}
 		for _, m := range cands {
-			if m == "" || seen[m] || (listed != nil && item != opencode.FreeFamily && !listed[m]) {
+			if m == "" || seen[m] || (len(listed) > 0 && item != opencode.FreeFamily && !listed[m]) {
 				continue
 			}
 			seen[m] = true

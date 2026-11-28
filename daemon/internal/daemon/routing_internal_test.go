@@ -19,6 +19,10 @@ func TestAChainSkipsAnOpenCodeModelTheListingNoLongerNames(t *testing.T) {
 	if got := d.expandChain("opencode", chain); !reflect.DeepEqual(got, want) {
 		t.Errorf("with a listing: %v, want %v (tidepool left; free adds hy4 after the named ones)", got, want)
 	}
+	d.rt.openCode.listed = map[string]bool{} // a listing that came back empty names nothing: the chain stays as written
+	if got := d.expandChain("opencode", []string{"opencode/beam-free"}); !reflect.DeepEqual(got, []string{"opencode/beam-free"}) {
+		t.Errorf("after an empty listing: %v", got)
+	}
 	if got := d.expandChain("claude", []string{"opus", "gone"}); !reflect.DeepEqual(got, []string{"opus", "gone"}) {
 		t.Errorf("another CLI's chain is left as written: %v", got)
 	}
