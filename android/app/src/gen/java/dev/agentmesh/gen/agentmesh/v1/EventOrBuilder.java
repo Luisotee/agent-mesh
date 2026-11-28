@@ -465,5 +465,16 @@ public interface EventOrBuilder extends
    */
   dev.agentmesh.gen.agentmesh.v1.UserNotice getUserNotice();
 
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   * @return Whether the runDeleted field is set.
+   */
+  boolean hasRunDeleted();
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   * @return The runDeleted.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RunDeleted getRunDeleted();
+
   public dev.agentmesh.gen.agentmesh.v1.Event.PayloadCase getPayloadCase();
 }

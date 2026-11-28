@@ -74,6 +74,24 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 
 export type HostStore = StoreApi<HostState>
 
+/** The state without a run and everything held for it or its agents. */
+export function dropRun(s: HostState, runId: string): HostState {
+  const gone = new Set(Object.values(s.agents).filter((a) => a.runId === runId).map((a) => a.id))
+  const without = <T,>(o: Record<string, T>, drop: (k: string, v: T) => boolean) => Object.fromEntries(Object.entries(o).filter(([k, v]) => !drop(k, v)))
+  return {
+    ...s,
+    runs: without(s.runs, (id) => id === runId),
+    agents: without(s.agents, (id) => gone.has(id)),
+    messages: without(s.messages, (_, m) => m.runId === runId),
+    messageLoad: without(s.messageLoad, (id) => id === runId),
+    prompts: without(s.prompts, (id) => gone.has(id)),
+    pullRequests: without(s.pullRequests, (id) => gone.has(id)),
+    waiting: s.waiting.filter((w) => w.runId !== runId),
+    waitingAll: s.waitingAll.filter((w) => w.runId !== runId),
+    permissions: s.permissions.filter((p) => p.runId !== runId),
+  }
+}
+
 export function emptyHost(): HostState {
   return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], waitingAll: [], agentWaits: {}, pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
 }
@@ -202,6 +220,9 @@ function applyEvent(s: HostState, e: Event): HostState {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, title: p.value.title } } } : next
     }
+    // The host forgot the run (`DeleteRun`): what we hold of it and of its agents goes.
+    case 'runDeleted':
+      return dropRun(next, e.runId)
     case 'runStopped': {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next

@@ -65,7 +65,7 @@ func (d *Daemon) noteLimit(tx *store.Tx, a *v1.Agent, rl *adapterv1.RateLimited,
 // firstFree is the first model of a chain with quota left (not held in SQLite and not under agy's reserve); with
 // every one held or spent, the one freed first (or with the most quota left). Returns "" when no launchable
 // model is in `chain` (never the literal unexpanded `free` family).
-func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) string {
+func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string, reviewer bool) string {
 	now := d.nowTime()
 	var best string
 	var bestAt time.Time
@@ -73,7 +73,7 @@ func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) 
 		left  int
 		model string
 	}
-	stop := d.quotaStop(r)
+	lim := d.reserveLimits(r, kind)
 	for _, m := range chain {
 		if m == "" || (kind == opencode.Kind && m == opencode.FreeFamily) {
 			continue
@@ -83,8 +83,8 @@ func (d *Daemon) firstFree(r store.Reader, kind, effort string, chain []string) 
 			continue
 		}
 		if until.IsZero() {
-			if kind == "agy" && stop < 100 {
-				if hit := d.agyModelAtReserveCached(m, effort, stop); hit != nil {
+			if kind == "agy" && !lim.off() {
+				if hit := d.agyModelAtReserveCached(m, effort, lim, reviewer); hit != nil {
 					if agySpent == nil || hit.left > agySpent.left {
 						agySpent = &struct {
 							left  int
@@ -121,9 +121,9 @@ func (d *Daemon) soonestHold(r store.Reader, kind string, chain []string) time.T
 }
 
 // nextFree is the first model after position i of a chain with quota left (not held and not under agy's reserve), or "".
-func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i int) string {
+func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i int, reviewer bool) string {
 	now := d.now()
-	stop := d.quotaStop(r)
+	lim := d.reserveLimits(r, kind)
 	for _, m := range chain[i+1:] {
 		if m == "" || (kind == opencode.Kind && m == opencode.FreeFamily) {
 			continue
@@ -132,7 +132,7 @@ func (d *Daemon) nextFree(r store.Reader, kind, effort string, chain []string, i
 		if err != nil || !until.IsZero() {
 			continue
 		}
-		if kind == "agy" && stop < 100 && d.agyModelAtReserveCached(m, effort, stop) != nil {
+		if kind == "agy" && !lim.off() && d.agyModelAtReserveCached(m, effort, lim, reviewer) != nil {
 			continue
 		}
 		return m
@@ -384,9 +384,20 @@ func (d *Daemon) nextOnChain(r store.Reader, a *v1.Agent, model, effort string) 
 	i := index(chain, model)
 	if i < 0 {
 		if a.Kind == opencode.Kind && len(chain) > 0 {
-			return d.nextFree(r, a.Kind, effort, chain, -1), nil
+			return d.nextFree(r, a.Kind, effort, chain, -1, isReviewer(a)), nil
 		}
 		return "", nil
 	}
-	return d.nextFree(r, a.Kind, effort, chain, i), nil
+	return d.nextFree(r, a.Kind, effort, chain, i, isReviewer(a)), nil
+}
+
+// isReviewer reports whether an agent is a PR reviewer: the one sort of work a model at its reviews-only line
+// (`quota_reviews_only.<kind>`) still starts.
+func isReviewer(a *v1.Agent) bool { return a != nil && a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER }
+
+// reviewWork reports whether a task with this body, sent to this agent, is still review work once it has arrived:
+// the agent is a reviewer and the task does not make it a worker (a change task does, `takeChange`), so a change
+// task to an idle reviewer is held to the reviews-only line as the task it is.
+func (d *Daemon) reviewWork(r store.Reader, a *v1.Agent, body string) bool {
+	return isReviewer(a) && !d.becomesWorker(r, a, body)
 }

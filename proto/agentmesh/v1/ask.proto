@@ -32,11 +32,14 @@ enum AskMemberStatus {
   ASK_MEMBER_STATUS_PENDING = 1;
   // It sent a `done`.
   ASK_MEMBER_STATUS_ANSWERED = 2;
-  // It will not answer in this ask: a `failed`, a question back, an exit or silence the daemon told the caller of,
-  // or the deadline.
+  // It will not answer in this ask: a `failed`, a question back, silence the daemon told the caller of, it was
+  // stopped, or the deadline.
   ASK_MEMBER_STATUS_SETTLED = 3;
   // Not asked: its kind is not installed, or it was skipped; `line` says why.
   ASK_MEMBER_STATUS_NOT_ASKED = 4;
+  // Its process ended before it answered (it exited, was killed, or its terminal was lost in a machine restart and
+  // meshd could not resume it): the answer is not coming, and the caller was told so.
+  ASK_MEMBER_STATUS_LOST = 5;
 }
 
 // AskMember is one agent an ask is waiting on.

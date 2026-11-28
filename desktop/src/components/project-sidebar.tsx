@@ -1,7 +1,8 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { Bot, ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server, SquareTerminal } from 'lucide-react'
 import { AnimatePresence, m, useReducedMotion } from 'motion/react'
 import { memo, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
-import { renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
+import { deleteRun, renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Chip, Chips } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm'
@@ -19,7 +20,7 @@ import { hueStyle } from '@/hue'
 import { displayChord } from '@/keys'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { buildProjects, helpersLabel, anyWorking, sameAgents, sameLead, sameProject, sameWorker, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
+import { buildProjects, helpersLabel, anyWorking, sameAgents, sameLead, sameProject, rowEnded, sameWorker, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
 import { vendorOfKind } from '@/vendor'
 import { ArchiveDialog } from './agent-work'
 import { AddProjectDialog } from './add-project'
@@ -175,7 +176,6 @@ function ProjectTile({ project }: { project: ProjectRow }) {
 }
 
 const hostOf = (app: ReturnType<typeof useApp>, hostId: string) => app.store.getState().hosts.find((h) => h.info.id === hostId)
-const copy = (text: string) => void navigator.clipboard?.writeText(text)
 
 /** Opens a row's menu from the keyboard (Shift+F10, the menu key): the row's ⋯ button opens it. */
 function menuKey(e: KeyboardEvent<HTMLElement>) {
@@ -193,13 +193,19 @@ function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; ma
   const [open, setOpen] = useState(true)
   const renaming = useAppState((s) => (s.renaming?.hostId === p.hostId ? s.renaming.runId : undefined))
   const renamingEarlier = !!renaming && p.earlier.some((r) => r.run.id === renaming)
+  const host = useAppState((s) => s.hosts.find((h) => h.info.id === p.hostId))
+  const [dialog, setDialog] = useState<RowDialog>()
+  const ended = p.earlier.filter(rowEnded)
   if (!open && renaming && (renamingEarlier || p.runs.some((r) => r.run.id === renaming))) setOpen(true)
   const entries: MenuEntry[] = [
     { label: 'New lead here', onSelect: () => app.openWorkspace(true, undefined, { hostId: p.hostId, repo: p.repo }), disabled: !p.repo || !p.up },
     { label: 'Project settings…', onSelect: () => app.openProjectSettings({ hostId: p.hostId, repo: p.repo }), disabled: !p.repo },
     'separator',
     { label: p.pinned ? 'Unpin' : 'Pin', onSelect: () => app.togglePin(p.hostId, p.repo), disabled: !p.repo },
-    { label: 'Copy path', onSelect: () => copy(p.repo), disabled: !p.repo },
+    { label: 'Copy path', onSelect: () => app.copyText(p.repo, 'the path'), disabled: !p.repo },
+    ...(canDelete(app, p.hostId) && ended.length > 0
+      ? [{ label: `Delete ${ended.length} ended ${ended.length === 1 ? 'run' : 'runs'}…`, onSelect: () => setDialog({ kind: 'delete', runIds: ended.map((r) => r.run.id), title: p.name }), destructive: true }]
+      : []),
     hidden
       ? { label: 'Keep in the sidebar', onSelect: () => app.toggleHidden(p.hostId, p.repo, false), disabled: !p.repo }
       : { label: 'Remove from the sidebar', onSelect: () => app.toggleHidden(p.hostId, p.repo, true), disabled: !p.repo },
@@ -258,6 +264,7 @@ function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; ma
           )}
         </div>
       )}
+      <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
     </li>
   )
 }
@@ -284,7 +291,12 @@ function EmptyProjectActions({ hostId, repo }: { hostId: string; repo: string })
 /** A folded part of a project: "Earlier", or "Also working here" (`also`: copies of rows the sidebar has elsewhere, which Alt+↑/↓ skips). `open` unfolds it from outside (a rename in it). */
 function Folded({ title, count, also, open: forced, children }: { title: string; count: number; also?: boolean; open?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
-  if (forced && !open) setOpen(true)
+  // Forced open once, when `forced` turns on: a click can fold it again while the reason holds (the open agent is in it).
+  const [wasForced, setWasForced] = useState(false)
+  if (!!forced !== wasForced) {
+    setWasForced(!!forced)
+    if (forced) setOpen(true)
+  }
   return (
     <div data-also={also ? '' : undefined}>
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
@@ -321,10 +333,46 @@ function HiddenProjects({ rows }: { rows: ProjectRow[] }) {
 }
 
 /** The dialogs a row's menu can open, one at a time. */
-type RowDialog = { kind: 'stop' | 'retire' | 'archive'; agent: Agent } | { kind: 'stoprun'; runId: string; title: string } | undefined
+type RowDialog = { kind: 'stop' | 'retire' | 'archive'; agent: Agent } | { kind: 'stoprun'; runId: string; title: string } | { kind: 'delete'; runIds: string[]; title: string } | undefined
+
+const DELETE_LOSES = "Its chats, messages, plans and attachments are removed from the host for good, and so are its lines in the cost report. Work in git stays: a worktree with changes, or a branch with commits no remote has, is kept on disk."
+
+/** Whether the host can delete runs (a host from before `DeleteRun` has no such capability). */
+const canDelete = (app: ReturnType<typeof useApp>, hostId: string) => !!hostOf(app, hostId)?.store.getState().daemon?.capabilities.includes('delete_run')
 
 function RowDialogs({ host, dialog, onClose }: { host?: HostRuntime; dialog: RowDialog; onClose: () => void }) {
+  const app = useApp()
   if (!host || !dialog) return null
+  if (dialog.kind === 'delete') {
+    const many = dialog.runIds.length > 1
+    return (
+      <ConfirmDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        title={many ? `Delete ${dialog.runIds.length} ended runs of ${dialog.title}?` : `Delete ${dialog.title}?`}
+        description={many ? `Every agent in them has ended. ${DELETE_LOSES}` : `Every agent in it has ended. ${DELETE_LOSES}`}
+        action={many ? 'Delete the runs' : 'Delete the run'}
+        run={async () => {
+          // Every run is tried; the dialog stays open with what was refused, and another try skips the runs the host has forgotten.
+          const kept: string[] = []
+          let refused = 0
+          let why = ''
+          for (const id of dialog.runIds) {
+            try {
+              const res = await deleteRun(host.client, id)
+              for (const w of res.worktrees) if ((w.worktree && !w.worktreeRemoved) || (w.branch && w.branchKept)) kept.push(`${w.worktree || w.branch}: ${w.reason || 'it holds work'}`)
+            } catch (e) {
+              if (e instanceof ConnectError && e.code === Code.NotFound) continue
+              refused++
+              why ||= e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e)
+            }
+          }
+          if (kept.length > 0) app.notify(`${refused > 0 ? 'Some of them were deleted' : 'Deleted'}. Kept on disk, with its work: ${kept.join('; ')}`)
+          if (refused > 0) throw new Error(dialog.runIds.length > 1 ? `${refused} of ${dialog.runIds.length} could not be deleted: ${why}` : why)
+        }}
+      />
+    )
+  }
   if (dialog.kind === 'stoprun') {
     return (
       <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Stop ${dialog.title}?`} description="Every agent in the run is retired and the run is closed. A finished worktree goes; one with changes stays." action="Stop the run" run={() => stopRun(host.client, dialog.runId)} />
@@ -350,7 +398,7 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
     { label: 'Open its terminal', onSelect: () => app.selectAgent(hostId, a.id, 'terminal'), disabled: !terminals },
     { label: 'Send a message…', onSelect: () => app.openMessage({ hostId, agentId: a.id }) },
     'separator',
-    { label: 'Copy worktree path', onSelect: () => copy(a.worktree), disabled: !a.worktree },
+    { label: 'Copy worktree path', onSelect: () => app.copyText(a.worktree, 'the worktree path'), disabled: !a.worktree },
     'separator',
     { label: 'Shut down', onSelect: () => open({ kind: 'stop', agent: a }), disabled: !live(a), destructive: true },
     { label: 'Retire', onSelect: () => open({ kind: 'retire', agent: a }), disabled: !live(a), destructive: true },
@@ -366,7 +414,7 @@ const LeadItem = memo(LeadItemView, (a, b) => a.elsewhere === b.elsewhere && sam
 function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
   const app = useApp()
   const host = useAppState((s) => s.hosts.find((h) => h.info.id === row.hostId))
-  const selectedHere = useAppState((s) => s.hostId === row.hostId && !!s.agentId && s.agentId !== row.lead?.id && [...row.helpers, ...flatAgents(row.workers)].some((a) => a.id === s.agentId))
+  const selectedHere = useAppState((s) => s.hostId === row.hostId && !!s.agentId && s.agentId !== row.lead?.id && [...row.helpers, ...flatAgents(row.workers), ...row.ended].some((a) => a.id === s.agentId))
   // The title is edited under the lead's own project only, so one editor is ever open.
   const renaming = useAppState((s) => !elsewhere && s.renaming?.hostId === row.hostId && s.renaming.runId === row.run.id)
   // Unset, the open agent's lead is open, so the open agent's row is in sight; the chevron then decides.
@@ -379,13 +427,15 @@ function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean })
     ...(lead ? [{ label: 'Open', onSelect: () => app.selectAgent(row.hostId, lead.id) }] : []),
     { label: 'Rename', onSelect: () => app.renameRun({ hostId: row.hostId, runId: row.run.id }), hint: 'F2' },
     { label: 'Add an agent', onSelect: () => app.openWorkspace(true, row.run.id, { hostId: row.hostId, repo: lead?.repo ?? '' }) },
-    { label: 'Copy run id', onSelect: () => copy(row.run.id) },
+    { label: 'Copy run id', onSelect: () => app.copyText(row.run.id, 'the run id') },
     { label: 'Stop run…', onSelect: () => setDialog({ kind: 'stoprun', runId: row.run.id, title }), disabled: row.run.status !== RunStatus.OPEN, destructive: true },
+    ...(canDelete(app, row.hostId) ? [{ label: 'Delete…', onSelect: () => setDialog({ kind: 'delete', runIds: [row.run.id], title }), disabled: !rowEnded(row), destructive: true }] : []),
     ...(lead
       ? (['separator', ...agentEntries(app, row.hostId, lead, setDialog).slice(1), ...archiveEntry(lead, setDialog)] as MenuEntry[])
       : []),
   ]
-  const kids = row.workers.length > 0
+  const kids = row.workers.length > 0 || row.ended.length > 0
+  const endedOpen = useAppState((s) => s.hostId === row.hostId && !!s.agentId && row.ended.some((a) => a.id === s.agentId))
   return (
     <m.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }} aria-label={title}>
       <RowContextMenu entries={entries}>
@@ -412,10 +462,38 @@ function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean })
           <AnimatePresence initial={false}>
             {row.workers.map((w) => <WorkerItem key={w.agent.id} hostId={row.hostId} row={w} />)}
           </AnimatePresence>
+          {row.ended.length > 0 && (
+            <li data-ended>
+              <Folded title="Ended" count={row.ended.length} open={endedOpen}>
+                {row.ended.map((a) => <EndedItem key={a.id} hostId={row.hostId} agent={a} />)}
+              </Folded>
+            </li>
+          )}
         </ul>
       )}
       <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
     </m.li>
+  )
+}
+
+/** An ended agent (exited or retired), listed in its run's "Ended" fold: reachable, kept out of the tree. */
+const EndedItem = memo(EndedItemView, (a, b) => a.hostId === b.hostId && a.agent === b.agent)
+
+function EndedItemView({ hostId, agent: a }: { hostId: string; agent: Agent }) {
+  const app = useApp()
+  const host = useAppState((s) => s.hosts.find((h) => h.info.id === hostId))
+  const [dialog, setDialog] = useState<RowDialog>()
+  const entries: MenuEntry[] = [...agentEntries(app, hostId, a, setDialog), ...archiveEntry(a, setDialog)]
+  return (
+    <li>
+      <RowContextMenu entries={entries}>
+        <div data-row className="group flex items-start gap-0.5 pr-1">
+          <AgentButton hostId={hostId} agent={a} helpers={[]} onKeyDown={menuKey} />
+          <span data-row-more className="mt-1.5 flex"><MoreButton label={`Menu of ${a.name}`} entries={entries} /></span>
+        </div>
+      </RowContextMenu>
+      <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
+    </li>
   )
 }
 

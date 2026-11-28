@@ -20,6 +20,7 @@ import dev.agentmesh.gen.agentmesh.v1.RenameRunRequest
 import dev.agentmesh.gen.agentmesh.v1.RetireAgentRequest
 import dev.agentmesh.gen.agentmesh.v1.Run
 import dev.agentmesh.gen.agentmesh.v1.StopAgentRequest
+import dev.agentmesh.gen.agentmesh.v1.DeleteRunRequest
 import dev.agentmesh.gen.agentmesh.v1.StopRunRequest
 import dev.agentmesh.gen.agentmesh.v1.SendPromptAnywayRequest
 import dev.agentmesh.gen.agentmesh.v1.WithdrawPromptRequest
@@ -100,7 +101,7 @@ val UI_ACTIONS = listOf(
     "hello", "subscribeEvents", "listSettings", "setSetting", "resetSetting", "listMessages", "sendMessage", "approveAgent", "openTerminal",
     "registerPush", "unregisterPush", "testPush", "revokeSelf",
     "readTranscript", "promptAgent", "switchAgent", "checkModels", "listAgents", "listWaiting", "listPullRequests", "holdPullRequest", "getUsage", "getCost",
-    "startRun", "spawnAgent", "listProjects", "stopAgent", "retireAgent", "renameRun", "stopRun",
+    "startRun", "spawnAgent", "listProjects", "stopAgent", "retireAgent", "renameRun", "stopRun", "deleteRun",
     "listPrompts", "withdrawPrompt", "sendPromptAnyway", "interruptAgent", "openShell", "listShells", "closeShell",
 )
 
@@ -248,6 +249,9 @@ interface MeshApi {
 
     /** Closes a run: its agents are retired and their finished worktrees go. Returns the ids it retired. */
     suspend fun stopRun(runId: String): List<String>
+
+    /** Deletes an ended run: the host forgets its agents, messages and files. Returns what stayed on disk (a worktree or branch with work). */
+    suspend fun deleteRun(runId: String): List<String>
 }
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
@@ -414,6 +418,11 @@ class ConnectMeshApi(private val connection: Connection, private val clientName:
 
     override suspend fun stopRun(runId: String): List<String> =
         service.stopRun(StopRunRequest.newBuilder().setMeta(newMeta()).setRunId(runId).build()).ok().retiredList
+
+    override suspend fun deleteRun(runId: String): List<String> =
+        service.deleteRun(DeleteRunRequest.newBuilder().setMeta(newMeta()).setRunId(runId).build()).ok().worktreesList
+            .filter { (it.worktree.isNotEmpty() && !it.worktreeRemoved) || (it.branch.isNotEmpty() && it.branchKept) }
+            .map { "${it.worktree.ifEmpty { it.branch }}: ${it.reason.ifEmpty { "it holds work" }}" }
 
     private fun Throwable.asApiException(): ApiException = when (this) {
         is ApiException -> this

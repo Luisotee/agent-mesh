@@ -57,7 +57,7 @@ A map from what someone wants to the command. `mesh help <command>` has the flag
 ## What the daemon does for you
 
 - **A nudge:** if your turn ends with no `plan`, `question`, `done` or `failed` since your last task or answer, the daemon waits `accountability.nudge_after` (30 s) and sends you one `info` starting `[mesh nudge]`: run `mesh inbox` and report now. If your next turn ends the same way, it tells your parent (`[mesh alert silent …]`). It comes once per task, and again after each wait you declare.
-- **Alerts for your parent:** when you exit, are lost, go quiet for ten minutes, or stop at a usage limit without having reported, your parent is told. That is not a failure of yours to fix: just report as usual when you are back.
+- **Alerts for your parent:** when you exit, are lost, go quiet for ten minutes, or stop at a usage limit without having reported, your parent is told. That is not a failure of yours to fix: just report as usual when you are back. A `[mesh restart]` info means the machine restarted and your process died: your conversation is resumed, but a gate, a build, a background job or a wait you had running is gone, so re-run it and carry on.
 - **A usage limit** on your model is the daemon's to handle (`limits.auto`): it moves you to the next model of your tier's chain, or continues you once the limit is over, and tells you in an `info`. Carry on from it.
 - **Unread instructions:** while a `task` or `answer` is unread in your mailbox, `mesh send` refuses a `plan`, `question`, `done` or `failed` (nothing is sent) and says what is waiting, since the report would answer instructions you have not read. Read them (`mesh inbox`), act on them, then send one report that covers them too. Something that can't wait goes as an `info`.
 

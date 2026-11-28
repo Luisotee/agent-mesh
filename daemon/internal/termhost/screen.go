@@ -88,6 +88,10 @@ type vtScreen struct {
 // NewScreen returns the charmbracelet/x/vt-backed screen.
 func NewScreen(cols, rows int, reply func([]byte)) Screen {
 	s := &vtScreen{emu: vt.NewEmulator(cols, rows), modes: map[int]bool{}, pumped: make(chan struct{})}
+	// Nothing reads the emulator's scrollback (a repaint renders the visible screen, a client replays the ring and
+	// keeps its own scrollback), and its default of 10,000 lines holds 220 MB of heap (~440 MB of RSS) for a 200x50 terminal that has
+	// scrolled that far. The library ignores 0, so keep one line.
+	s.emu.SetScrollbackSize(1)
 	s.emu.SetCallbacks(vt.Callbacks{
 		EnableMode: func(m ansi.Mode) {
 			if dm, ok := m.(ansi.DECMode); ok {

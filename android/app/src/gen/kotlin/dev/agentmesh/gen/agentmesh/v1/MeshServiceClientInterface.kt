@@ -80,6 +80,14 @@ public interface MeshServiceClientInterface {
   public suspend fun stopRun(request: StopRunRequest, headers: Headers = emptyMap()): ResponseMessage<StopRunResponse>
 
   /**
+   *  Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+   *  (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+   *  that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+   *  while an agent of the run has a process: stop the run first. There is no undo. A device only.
+   */
+  public suspend fun deleteRun(request: DeleteRunRequest, headers: Headers = emptyMap()): ResponseMessage<DeleteRunResponse>
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   public suspend fun sendMessage(request: SendMessageRequest, headers: Headers = emptyMap()): ResponseMessage<SendMessageResponse>

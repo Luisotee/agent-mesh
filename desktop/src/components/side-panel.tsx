@@ -228,7 +228,7 @@ function Details({ host, agent }: { host: HostRuntime; agent: Agent }) {
           </Button>
         )}
         {agent.worktree && (
-          <Button size="sm" variant="outline" onClick={() => void navigator.clipboard?.writeText(agent.worktree)}>
+          <Button size="sm" variant="outline" onClick={() => void app.copyText(agent.worktree, 'the worktree path')}>
             <Copy /> Copy path
           </Button>
         )}

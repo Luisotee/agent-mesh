@@ -335,13 +335,13 @@ func TestOpenCodeFreeFamilyNeverReturnedWhenExpansionEmpty(t *testing.T) {
 	if exp := d.expandChain(opencode.Kind, []string{"openai/gpt-5.2", opencode.FreeFamily}); len(exp) != 1 || exp[0] != "openai/gpt-5.2" {
 		t.Fatalf("expandChain mixed = %v, want [openai/gpt-5.2]", exp)
 	}
-	if got := d.firstFree(r, opencode.Kind, "low", nil); got != "" {
+	if got := d.firstFree(r, opencode.Kind, "low", nil, false); got != "" {
 		t.Fatalf("firstFree(nil) = %q, want empty", got)
 	}
-	if got := d.firstFree(r, opencode.Kind, "low", []string{opencode.FreeFamily}); got != "" {
+	if got := d.firstFree(r, opencode.Kind, "low", []string{opencode.FreeFamily}, false); got != "" {
 		t.Fatalf("firstFree([free]) = %q, want empty", got)
 	}
-	if got := d.nextFree(r, opencode.Kind, "low", []string{"a", opencode.FreeFamily}, 0); got != "" {
+	if got := d.nextFree(r, opencode.Kind, "low", []string{"a", opencode.FreeFamily}, 0, false); got != "" {
 		t.Fatalf("nextFree([a, free], 0) = %q, want empty", got)
 	}
 	if err := st.Write(context.Background(), nil, "", func(tx *store.Tx) error {
@@ -350,10 +350,10 @@ func TestOpenCodeFreeFamilyNeverReturnedWhenExpansionEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = st.Read(context.Background())
-	if _, _, perr := d.pick(r, opencode.Kind, "light", "", "", "worker"); perr == nil {
+	if _, _, perr := d.pick(r, opencode.Kind, "light", "", "", "worker", false); perr == nil {
 		t.Fatal("pick(tier=light) succeeded with empty free expansion")
 	}
-	if _, _, perr := d.pick(r, opencode.Kind, "", opencode.FreeFamily, "", "worker"); perr == nil {
+	if _, _, perr := d.pick(r, opencode.Kind, "", opencode.FreeFamily, "", "worker", false); perr == nil {
 		t.Fatal("pick(model=free) succeeded with empty free expansion")
 	}
 }

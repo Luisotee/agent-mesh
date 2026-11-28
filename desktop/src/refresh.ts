@@ -271,6 +271,7 @@ export function hostRefresher(
           void loadPermissions()
           return
         case 'runStopped':
+        case 'runDeleted':
           waitingTouches++
           schedule()
           return

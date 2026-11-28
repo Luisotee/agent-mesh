@@ -63,6 +63,7 @@ public  final class Event extends
     PERMISSION_CHANGED(40),
     AGENT_ARCHIVED(41),
     USER_NOTICE(42),
+    RUN_DELETED(43),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -111,6 +112,7 @@ public  final class Event extends
         case 40: return PERMISSION_CHANGED;
         case 41: return AGENT_ARCHIVED;
         case 42: return USER_NOTICE;
+        case 43: return RUN_DELETED;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -2125,6 +2127,56 @@ public  final class Event extends
    */
   private void clearUserNotice() {
     if (payloadCase_ == 42) {
+      payloadCase_ = 0;
+      payload_ = null;
+    }
+  }
+
+  public static final int RUN_DELETED_FIELD_NUMBER = 43;
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   */
+  @java.lang.Override
+  public boolean hasRunDeleted() {
+    return payloadCase_ == 43;
+  }
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.RunDeleted getRunDeleted() {
+    if (payloadCase_ == 43) {
+       return (dev.agentmesh.gen.agentmesh.v1.RunDeleted) payload_;
+    }
+    return dev.agentmesh.gen.agentmesh.v1.RunDeleted.getDefaultInstance();
+  }
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   */
+  private void setRunDeleted(dev.agentmesh.gen.agentmesh.v1.RunDeleted value) {
+    java.util.Objects.requireNonNull(value);
+    payload_ = value;
+    payloadCase_ = 43;
+  }
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   */
+  private void mergeRunDeleted(dev.agentmesh.gen.agentmesh.v1.RunDeleted value) {
+    java.util.Objects.requireNonNull(value);
+    if (payloadCase_ == 43 &&
+        payload_ != dev.agentmesh.gen.agentmesh.v1.RunDeleted.getDefaultInstance()) {
+      payload_ = dev.agentmesh.gen.agentmesh.v1.RunDeleted.newBuilder((dev.agentmesh.gen.agentmesh.v1.RunDeleted) payload_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      payload_ = value;
+    }
+    payloadCase_ = 43;
+  }
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   */
+  private void clearRunDeleted() {
+    if (payloadCase_ == 43) {
       payloadCase_ = 0;
       payload_ = null;
     }
@@ -4190,6 +4242,54 @@ public  final class Event extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+     */
+    @java.lang.Override
+    public boolean hasRunDeleted() {
+      return instance.hasRunDeleted();
+    }
+    /**
+     * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.RunDeleted getRunDeleted() {
+      return instance.getRunDeleted();
+    }
+    /**
+     * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+     */
+    public Builder setRunDeleted(dev.agentmesh.gen.agentmesh.v1.RunDeleted value) {
+      copyOnWrite();
+      instance.setRunDeleted(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+     */
+    public Builder setRunDeleted(
+        dev.agentmesh.gen.agentmesh.v1.RunDeleted.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRunDeleted(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+     */
+    public Builder mergeRunDeleted(dev.agentmesh.gen.agentmesh.v1.RunDeleted value) {
+      copyOnWrite();
+      instance.mergeRunDeleted(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+     */
+    public Builder clearRunDeleted() {
+      copyOnWrite();
+      instance.clearRunDeleted();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Event)
   }
   @java.lang.Override
@@ -4249,15 +4349,16 @@ public  final class Event extends
             dev.agentmesh.gen.agentmesh.v1.PermissionChanged.class,
             dev.agentmesh.gen.agentmesh.v1.AgentArchived.class,
             dev.agentmesh.gen.agentmesh.v1.UserNotice.class,
+            dev.agentmesh.gen.agentmesh.v1.RunDeleted.class,
           };
           java.lang.String info =
-              "\u0000(\u0001\u0001\u0001*(\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
+              "\u0000)\u0001\u0001\u0001+)\u0000\u0000\u0000\u0001\u0002\u0002\u0208\u0003\u1009" +
               "\u0000\u0004\u0208\u0005\u0208\u0006\u1009\u0001\u0007\u0208\n<\u0000\u000b<\u0000" +
               "\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012<\u0000" +
               "\u0013<\u0000\u0014<\u0000\u0015<\u0000\u0016<\u0000\u0017<\u0000\u0018<\u0000\u0019" +
               "<\u0000\u001a<\u0000\u001b<\u0000\u001c<\u0000\u001d<\u0000\u001e<\u0000\u001f<\u0000" +
               " <\u0000!<\u0000\"<\u0000#<\u0000$<\u0000%<\u0000&<\u0000\'<\u0000(<\u0000)<\u0000" +
-              "*<\u0000";
+              "*<\u0000+<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

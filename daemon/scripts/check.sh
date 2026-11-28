@@ -19,6 +19,8 @@ fi
 export CGO_ENABLED=1
 # An agent of the daemon runs this with its own identity in the environment (AGENT_MESH_TOKEN, AGENT_MESH_STATE, …):
 # the tests start daemons of their own, which would refuse that token ("unknown or revoked token").
+# The gate queue's helper is sourced first: it keeps the identity to tell the worker's parent about a wait for a slot.
+source "$repo/scripts/gate-slot.sh"
 for name in $(compgen -e | grep '^AGENT_MESH_' || true); do unset "$name"; done
 
 # The tests and the Go toolchain write scratch dirs (state dirs, built binaries, go-build trees). They go into dirs of
@@ -118,6 +120,10 @@ if [ -n "$unformatted" ]; then
   echo "not gofmt'd: run 'gofmt -w' on these" >&2
   exit 1
 fi
+
+# The heavy part (vet, the race build and test run, pytest) waits for room in the host-wide gate queue (scripts/gate-slot.sh,
+# sourced at the top): the cheap steps above never do, so a gate that fails on them fails at once.
+gate_slot daemon
 
 step "go vet"
 runin "$daemon_dir" go vet ./...

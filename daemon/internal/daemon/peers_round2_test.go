@@ -66,9 +66,9 @@ func TestAPeerLaunchChecksTheReserveOfTheModelItPicked(t *testing.T) {
 	w.typeInto(w.spawnClaude(t, w.run, "usage", v1.AgentRole_AGENT_ROLE_WORKER),
 		`/ratelimits {"seven_day_opus":{"used_percentage":97,"resets_at":"`+reset+`"}}`+"\r")
 	waitFor(t, "the Opus window to fill", func() bool {
-		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "opus", "high", "test") != nil
+		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "opus", "high", "test", false) != nil
 	})
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "", "", "test"); err != nil {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "", "", "test", false); err != nil {
 		t.Fatalf("the guard with no model is the point of this test: %v", err)
 	}
 	_, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: p.Name, Tier: "strong", Body: "first?", Timeout: 60}))

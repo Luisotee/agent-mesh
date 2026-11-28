@@ -1,6 +1,5 @@
 package dev.agentmesh.android.ui
 
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
@@ -221,7 +220,7 @@ private fun ImeCapture(showKeyboard: Int, onBackspace: () -> Unit, onEnter: () -
 
 private fun copy(context: Context, text: String) {
     if (text.isEmpty()) return
-    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("terminal", text))
+    copyToClipboard(context, text, "selection")
 }
 
 private fun paste(context: Context): String? =
