@@ -304,9 +304,10 @@ public interface MeshServiceClientInterface {
   public suspend fun rewindAgent(request: RewindAgentRequest, headers: Headers = emptyMap()): ResponseMessage<RewindAgentResponse>
 
   /**
-   *  Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
-   *  which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
-   *  file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+   *  Store a file for a prompt to an agent (the chat's paste, drop or file button, or a paste into its terminal) in
+   *  its run's folder on the host, which may be another machine: the path returned goes in the prompt, and the CLI
+   *  reads the file with its own file tool. Any file, at most 10 MB; one named like an image (PNG, JPEG, GIF or
+   *  WebP) must be that image.
    */
   public suspend fun addAttachment(request: AddAttachmentRequest, headers: Headers = emptyMap()): ResponseMessage<AddAttachmentResponse>
 

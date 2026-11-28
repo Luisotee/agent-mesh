@@ -404,9 +404,10 @@ type MeshServiceClient interface {
 	// agent on it. Files, commits and sent mesh messages stay as they are. Refused while the agent works (interrupt it
 	// first) and for a CLI whose conversation the daemon can't cut. The prompt's text is returned, to edit and send again.
 	RewindAgent(context.Context, *connect.Request[v1.RewindAgentRequest]) (*connect.Response[v1.RewindAgentResponse], error)
-	// Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
-	// which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
-	// file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+	// Store a file for a prompt to an agent (the chat's paste, drop or file button, or a paste into its terminal) in
+	// its run's folder on the host, which may be another machine: the path returned goes in the prompt, and the CLI
+	// reads the file with its own file tool. Any file, at most 10 MB; one named like an image (PNG, JPEG, GIF or
+	// WebP) must be that image.
 	AddAttachment(context.Context, *connect.Request[v1.AddAttachmentRequest]) (*connect.Response[v1.AddAttachmentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.
@@ -1747,9 +1748,10 @@ type MeshServiceHandler interface {
 	// agent on it. Files, commits and sent mesh messages stay as they are. Refused while the agent works (interrupt it
 	// first) and for a CLI whose conversation the daemon can't cut. The prompt's text is returned, to edit and send again.
 	RewindAgent(context.Context, *connect.Request[v1.RewindAgentRequest]) (*connect.Response[v1.RewindAgentResponse], error)
-	// Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
-	// which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
-	// file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+	// Store a file for a prompt to an agent (the chat's paste, drop or file button, or a paste into its terminal) in
+	// its run's folder on the host, which may be another machine: the path returned goes in the prompt, and the CLI
+	// reads the file with its own file tool. Any file, at most 10 MB; one named like an image (PNG, JPEG, GIF or
+	// WebP) must be that image.
 	AddAttachment(context.Context, *connect.Request[v1.AddAttachmentRequest]) (*connect.Response[v1.AddAttachmentResponse], error)
 	// Create a one-time pairing token and QR/link payload for pairing a new device. Only the host's own device, or
 	// the root of the setup run (`StartSetup`), may call this.

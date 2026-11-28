@@ -18,6 +18,8 @@ public  final class AgyTierPick extends
     tier_ = "";
     model_ = "";
     notes_ = emptyProtobufList();
+    group_ = "";
+    label_ = "";
   }
   public static final int TIER_FIELD_NUMBER = 1;
   private java.lang.String tier_;
@@ -268,6 +270,125 @@ public  final class AgyTierPick extends
     checkByteStringIsUtf8(value);
     ensureNotesIsMutable();
     notes_.add(value.toStringUtf8());
+  }
+
+  public static final int GROUP_FIELD_NUMBER = 6;
+  private java.lang.String group_;
+  /**
+   * <pre>
+   * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+   * empty when none matched. A client marks that row as the one this tier draws on.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The group.
+   */
+  @java.lang.Override
+  public java.lang.String getGroup() {
+    return group_;
+  }
+  /**
+   * <pre>
+   * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+   * empty when none matched. A client marks that row as the one this tier draws on.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The bytes for group.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getGroupBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(group_);
+  }
+  /**
+   * <pre>
+   * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+   * empty when none matched. A client marks that row as the one this tier draws on.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @param value The group to set.
+   */
+  private void setGroup(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    group_ = value;
+  }
+  /**
+   * <pre>
+   * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+   * empty when none matched. A client marks that row as the one this tier draws on.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   */
+  private void clearGroup() {
+
+    group_ = getDefaultInstance().getGroup();
+  }
+  /**
+   * <pre>
+   * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+   * empty when none matched. A client marks that row as the one this tier draws on.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @param value The bytes for group to set.
+   */
+  private void setGroupBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    group_ = value.toStringUtf8();
+
+  }
+
+  public static final int LABEL_FIELD_NUMBER = 7;
+  private java.lang.String label_;
+  /**
+   * <code>string label = 7 [json_name = "label"];</code>
+   * @return The label.
+   */
+  @java.lang.Override
+  public java.lang.String getLabel() {
+    return label_;
+  }
+  /**
+   * <code>string label = 7 [json_name = "label"];</code>
+   * @return The bytes for label.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getLabelBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(label_);
+  }
+  /**
+   * <code>string label = 7 [json_name = "label"];</code>
+   * @param value The label to set.
+   */
+  private void setLabel(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    label_ = value;
+  }
+  /**
+   * <code>string label = 7 [json_name = "label"];</code>
+   */
+  private void clearLabel() {
+
+    label_ = getDefaultInstance().getLabel();
+  }
+  /**
+   * <code>string label = 7 [json_name = "label"];</code>
+   * @param value The bytes for label to set.
+   */
+  private void setLabelBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    label_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.AgyTierPick parseFrom(
@@ -625,6 +746,129 @@ public  final class AgyTierPick extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+     * empty when none matched. A client marks that row as the one this tier draws on.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @return The group.
+     */
+    @java.lang.Override
+    public java.lang.String getGroup() {
+      return instance.getGroup();
+    }
+    /**
+     * <pre>
+     * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+     * empty when none matched. A client marks that row as the one this tier draws on.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @return The bytes for group.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getGroupBytes() {
+      return instance.getGroupBytes();
+    }
+    /**
+     * <pre>
+     * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+     * empty when none matched. A client marks that row as the one this tier draws on.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @param value The group to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGroup(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setGroup(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+     * empty when none matched. A client marks that row as the one this tier draws on.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearGroup() {
+      copyOnWrite();
+      instance.clearGroup();
+      return this;
+    }
+    /**
+     * <pre>
+     * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+     * empty when none matched. A client marks that row as the one this tier draws on.
+     * </pre>
+     *
+     * <code>string group = 6 [json_name = "group"];</code>
+     * @param value The bytes for group to set.
+     * @return This builder for chaining.
+     */
+    public Builder setGroupBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setGroupBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>string label = 7 [json_name = "label"];</code>
+     * @return The label.
+     */
+    @java.lang.Override
+    public java.lang.String getLabel() {
+      return instance.getLabel();
+    }
+    /**
+     * <code>string label = 7 [json_name = "label"];</code>
+     * @return The bytes for label.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getLabelBytes() {
+      return instance.getLabelBytes();
+    }
+    /**
+     * <code>string label = 7 [json_name = "label"];</code>
+     * @param value The label to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLabel(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setLabel(value);
+      return this;
+    }
+    /**
+     * <code>string label = 7 [json_name = "label"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLabel() {
+      copyOnWrite();
+      instance.clearLabel();
+      return this;
+    }
+    /**
+     * <code>string label = 7 [json_name = "label"];</code>
+     * @param value The bytes for label to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLabelBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setLabelBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AgyTierPick)
   }
   @java.lang.Override
@@ -646,10 +890,12 @@ public  final class AgyTierPick extends
             "left_",
             "hasLeft_",
             "notes_",
+            "group_",
+            "label_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0004\u0004\u0007\u0005\u021a";
+              "\u0000\u0007\u0000\u0000\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0004\u0004\u0007\u0005\u021a\u0006\u0208\u0007\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

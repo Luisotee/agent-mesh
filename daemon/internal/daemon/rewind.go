@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -104,15 +105,20 @@ func (d *Daemon) RewindAgent(ctx context.Context, req *connect.Request[v1.Rewind
 	return connect.NewResponse(out), nil
 }
 
-// maxAttachment is the largest image a prompt may carry.
+// maxAttachment is the largest file a prompt may carry.
 const maxAttachment = 10 << 20
 
-// attachmentTypes are the images a prompt may carry, by extension, with the type their bytes must sniff as.
+// attachmentTypes are the images a prompt may carry, by extension, with the type their bytes must sniff as: a file
+// named like one must be one. Any other file is kept as it is.
 var attachmentTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 
-// AddAttachment stores an image for a prompt in the agent's run folder (`attachments/<agent>/<id>.<ext>`), on the
-// host, which may not be the machine the app runs on: the prompt names the path, and the CLI reads it with its file
-// tool. The bytes must be the image their extension says.
+// attachmentExt is the extension kept of a file's name: short and plain (the name is the client's, and only the
+// extension is used for the stored path), else none.
+var attachmentExt = regexp.MustCompile(`^\.[A-Za-z0-9]{1,10}$`)
+
+// AddAttachment stores a file for a prompt (an image, or any other file) in the agent's run folder
+// (`attachments/<agent>/<id>.<ext>`), on the host, which may not be the machine the app runs on: the prompt names the
+// path, and the CLI reads it with its file tool. A file named like an image must be that image.
 func (d *Daemon) AddAttachment(ctx context.Context, req *connect.Request[v1.AddAttachmentRequest]) (*connect.Response[v1.AddAttachmentResponse], error) {
 	actor := auth.ActorFrom(ctx)
 	found, err := d.FindAgent(d.store.Read(ctx), actor, req.Msg.Agent)
@@ -121,15 +127,16 @@ func (d *Daemon) AddAttachment(ctx context.Context, req *connect.Request[v1.AddA
 	}
 	invalid := func(msg string) error { return connect.NewError(connect.CodeInvalidArgument, errors.New(msg)) }
 	ext := strings.ToLower(filepath.Ext(req.Msg.Name))
-	want, ok := attachmentTypes[ext]
+	if !attachmentExt.MatchString(ext) {
+		ext = ""
+	}
+	want, isImage := attachmentTypes[ext]
 	switch {
-	case !ok:
-		return nil, invalid("an attachment is a PNG, JPEG, GIF or WebP image (.png, .jpg, .jpeg, .gif, .webp)")
 	case len(req.Msg.Data) == 0:
 		return nil, invalid("the attachment is empty")
 	case len(req.Msg.Data) > maxAttachment:
 		return nil, invalid("an attachment is at most 10 MB")
-	case http.DetectContentType(req.Msg.Data) != want:
+	case isImage && http.DetectContentType(req.Msg.Data) != want:
 		return nil, invalid("the file is not the " + strings.TrimPrefix(want, "image/") + " image its name says")
 	}
 	if ext == ".jpeg" {

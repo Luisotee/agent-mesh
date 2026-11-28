@@ -721,15 +721,16 @@ service MeshService {
     };
   }
 
-  // Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
-  // which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
-  // file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+  // Store a file for a prompt to an agent (the chat's paste, drop or file button, or a paste into its terminal) in
+  // its run's folder on the host, which may be another machine: the path returned goes in the prompt, and the CLI
+  // reads the file with its own file tool. Any file, at most 10 MB; one named like an image (PNG, JPEG, GIF or
+  // WebP) must be that image.
   rpc AddAttachment(AddAttachmentRequest) returns (AddAttachmentResponse) {
     option (action) = {
       actors: [ACTOR_CLASS_DEVICE]
       write: true
       cli: "attach"
-      summary: "Store an image on the host for a prompt to an agent"
+      summary: "Store a file (an image or any other) on the host for a prompt to an agent"
     };
   }
 
@@ -2353,6 +2354,10 @@ message AgyTierPick {
   int32 left = 3;
   bool has_left = 4;
   repeated string notes = 5;
+  // The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+  // empty when none matched. A client marks that row as the one this tier draws on.
+  string group = 6;
+  string label = 7;
 }
 
 message GetUsageResponse {

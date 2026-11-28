@@ -74,4 +74,38 @@ public interface AgyTierPickOrBuilder extends
    */
   com.google.protobuf.ByteString
       getNotesBytes(int index);
+
+  /**
+   * <pre>
+   * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+   * empty when none matched. A client marks that row as the one this tier draws on.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The group.
+   */
+  java.lang.String getGroup();
+  /**
+   * <pre>
+   * The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+   * empty when none matched. A client marks that row as the one this tier draws on.
+   * </pre>
+   *
+   * <code>string group = 6 [json_name = "group"];</code>
+   * @return The bytes for group.
+   */
+  com.google.protobuf.ByteString
+      getGroupBytes();
+
+  /**
+   * <code>string label = 7 [json_name = "label"];</code>
+   * @return The label.
+   */
+  java.lang.String getLabel();
+  /**
+   * <code>string label = 7 [json_name = "label"];</code>
+   * @return The bytes for label.
+   */
+  com.google.protobuf.ByteString
+      getLabelBytes();
 }
