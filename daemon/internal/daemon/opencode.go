@@ -200,7 +200,7 @@ func (d *Daemon) expandChain(kind string, chain []string) []string {
 			cands = free
 		}
 		for _, m := range cands {
-			if m == "" || seen[m] || (len(listed) > 0 && item != opencode.FreeFamily && !listed[m]) {
+			if m == "" || seen[m] || (len(listed) > 0 && !listed[m]) {
 				continue
 			}
 			seen[m] = true

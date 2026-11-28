@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
+	"github.com/Luisotee/agent-mesh/daemon/internal/daemon"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -113,15 +114,45 @@ func TestAReviewerSlotFallsThroughWhenAgyIsHeld(t *testing.T) {
 	// Named by hand it is still asked: the user's word is not the picker's.
 	w.pr.push(t, "another head")
 	res = w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "strong", Reviewers: "agy"})
-	if len(res.Agents) == 1 && res.Agents[0].Kind == "agy" {
-		return
-	}
-	// A held agy named by hand is refused at its start by the guard, not left out by the picker: either way the
-	// request must not have been answered by claude instead.
 	for _, a := range res.Agents {
 		if a.Kind == "claude" {
 			t.Errorf("a named agy was swapped for claude: %v", res.Agents)
 		}
+	}
+	// A held agy named by hand is asked, or refused at its start by the guard (a note or a failed member): the
+	// picker doesn't leave it out silently.
+	asked := false
+	for _, a := range res.Agents {
+		asked = asked || a.Kind == "agy"
+	}
+	if !asked && len(res.Notes) == 0 && (res.Ask == nil || len(res.Ask.Members) == 0) {
+		t.Errorf("a named agy vanished: %v", res)
+	}
+}
+
+// A reviewer runs at agy's review effort (medium), not the tier's effort the usage cache used to be warmed at: a
+// plan at its reserve must still make the slot fall through, though no model name was resolved at medium before.
+func TestAReviewerSlotFallsThroughWhenAgyIsAtItsReserveAtTheReviewEffort(t *testing.T) {
+	w := startReviews(t, func(c *daemon.AgentConfig) {
+		c.Usage = &daemon.UsageOps{
+			DisableClaudeNetwork: true,
+			ReadAgyUsage: func(context.Context) (string, error) {
+				return "Gemini 4 Neon\tNeon\t5%\t1h\n", nil
+			},
+			ReadAgyModels: func(context.Context) (string, error) {
+				return "gemini-4-neon-high\tGemini 4 Neon (High)\ngemini-4-neon-medium\tGemini 4 Neon (Medium)\n", nil
+			},
+		}
+	})
+	w.pr.push(t, "the feature")
+	w.set(t, "tiers.agy.strong.model", []any{"neon"})
+	w.set(t, "review.reviewers.large", []any{[]any{"agy", "claude"}})
+	res := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "large", Tier: "strong", Reviewers: "auto"})
+	if len(res.Agents) != 1 || res.Agents[0].Kind != "claude" {
+		t.Fatalf("agents %v: the slot should take claude while agy is at its reserve", res.Agents)
+	}
+	if !strings.Contains(strings.Join(res.Notes, "\n"), "agy is at its quota reserve") {
+		t.Errorf("no note on agy being at its reserve: %v", res.Notes)
 	}
 }
 
