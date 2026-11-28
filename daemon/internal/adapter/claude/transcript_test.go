@@ -370,6 +370,12 @@ func TestAnAskUserQuestionCallCarriesItsQuestions(t *testing.T) {
 		t.Errorf("questions = %v", q)
 	}
 	bad := `{"type":"assistant","uuid":"q2","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_r","name":"AskUserQuestion","input":{"questions":[{"question":"","options":[]}]}}]}}`
+	for _, opts := range []string{`[{"label":""},{"label":"B"}]`, `[{"label":"A"},{"label":"A"}]`} {
+		dup := `{"questions":[{"question":"Q?","options":` + opts + `}]}`
+		if qs := ParseQuestions([]byte(dup)); qs != nil {
+			t.Errorf("options %s were read: %v", opts, qs)
+		}
+	}
 	if es := entries(t, bad); len(es) != 1 || len(es[0].Questions) != 0 {
 		t.Errorf("an unreadable question: %v", es)
 	}

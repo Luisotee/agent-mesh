@@ -64,6 +64,8 @@ describe('a question already asked', () => {
     const text = 'The user answered: "Which color do you want?"="a \\"deep\\", dark one", "Which toppings do you want?"="Ham". Read the answers carefully.'
     expect(answersFromResult(text, qs).get(toppings.question)).toBe('Ham')
     expect(answersFromResult(text, qs).get(color.question)).toContain('deep')
+    const quoted = 'The user answered: "Which color do you want?"="Red", "Which toppings do you want?"="Use \\"v2\\". Then deploy". You can now continue.'
+    expect(answersFromResult(quoted, qs).get(toppings.question)).toContain('Then deploy')
     expect(answersFromResult('The user dismissed the question.', qs).size).toBe(0)
   })
 })

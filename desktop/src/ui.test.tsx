@@ -1895,6 +1895,7 @@ describe('ChatView', () => {
       render(c.ui)
       const card = await screen.findByRole('article', { name: 'Plan from w1' })
       expect(card).toHaveTextContent('Create hello.txt')
+      expect(screen.getByLabelText('After approving')).toHaveValue('')
       await userEvent.selectOptions(screen.getByLabelText('After approving'), 'acceptEdits')
       await userEvent.click(screen.getByRole('button', { name: 'Approve' }))
       expect(lastDecision(client.decidePermission)).toMatchObject({ id: 'p2', decision: 'allow', mode: 'acceptEdits' })

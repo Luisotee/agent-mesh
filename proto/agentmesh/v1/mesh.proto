@@ -2242,7 +2242,7 @@ message DecidePermissionRequest {
   // The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
   repeated PromptAnswer answers = 5;
   // What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
-  // Empty is `default`.
+  // Empty leaves the mode to the agent's CLI.
   string mode = 6;
 }
 

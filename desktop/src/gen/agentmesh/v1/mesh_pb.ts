@@ -3955,7 +3955,7 @@ export type DecidePermissionRequest = Message<"agentmesh.v1.DecidePermissionRequ
 
   /**
    * What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
-   * Empty is `default`.
+   * Empty leaves the mode to the agent's CLI.
    *
    * @generated from field: string mode = 6;
    */

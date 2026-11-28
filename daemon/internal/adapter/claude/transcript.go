@@ -208,8 +208,8 @@ func ReadTranscript(path string, offset int64, backward bool, maxBytes int64) (e
 }
 
 // ParseQuestions reads the input of an AskUserQuestion call (the same JSON as the hook's `tool_input`) into its
-// questions, or nil when it isn't one the user can answer: no questions, a question with no text or no options, or
-// the same text twice (the answers are keyed by it).
+// questions, or nil when it isn't one the user can answer: no questions, a question with no text or no options, an
+// option with no label or the same label twice, or the same text twice (the answers are keyed by it).
 func ParseQuestions(input []byte) []*agentmeshv1.PromptQuestion {
 	var in struct {
 		Questions []struct {
@@ -233,6 +233,13 @@ func ParseQuestions(input []byte) []*agentmeshv1.PromptQuestion {
 			return nil
 		}
 		seen[q.Question] = true
+		labels := map[string]bool{}
+		for _, o := range q.Options {
+			if strings.TrimSpace(o.Label) == "" || labels[o.Label] {
+				return nil // the answer is a label: an empty or repeated one is no choice
+			}
+			labels[o.Label] = true
+		}
 		pq := &agentmeshv1.PromptQuestion{Question: q.Question, Header: q.Header, MultiSelect: q.MultiSelect}
 		for _, o := range q.Options {
 			pq.Options = append(pq.Options, &agentmeshv1.PromptOption{Label: o.Label, Description: o.Description, Preview: o.Preview})

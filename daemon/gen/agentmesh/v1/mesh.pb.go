@@ -8038,7 +8038,7 @@ type DecidePermissionRequest struct {
 	// The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.
 	Answers []*PromptAnswer `protobuf:"bytes,5,rep,name=answers,proto3" json:"answers,omitempty"`
 	// What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`.
-	// Empty is `default`.
+	// Empty leaves the mode to the agent's CLI.
 	Mode          string `protobuf:"bytes,6,opt,name=mode,proto3" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -1,5 +1,5 @@
 import type { PromptQuestion } from './gen/agentmesh/v1/chat_pb'
-import { PermissionKind, type PendingPermission } from './gen/agentmesh/v1/mesh_pb'
+import type { PendingPermission } from './gen/agentmesh/v1/mesh_pb'
 
 /**
  * The prompts the host holds for the user (`ListPermissions`, `for_user`): a question an agent asked with its
@@ -74,10 +74,9 @@ export function answersFromResult(text: string, questions: PromptQuestion[]): Ma
     const start = at + q.question.length + 4
     // The answer ends at the `", ` that starts the next pair (or at the closing quote of the last).
     const next = questions.map((o) => text.indexOf(`", "${o.question}"="`, start)).filter((i) => i >= 0)
-    const end = next.length > 0 ? Math.min(...next) : text.indexOf('". ', start)
+    const end = next.length > 0 ? Math.min(...next) : text.lastIndexOf('". ')
     out.set(q.question, text.slice(start, end >= 0 ? end : text.lastIndexOf('"')))
   }
   return out
 }
 
-export const isForm = (p: PendingPermission) => p.kind === PermissionKind.QUESTION || p.kind === PermissionKind.PLAN

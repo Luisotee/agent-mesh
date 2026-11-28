@@ -167,7 +167,7 @@ function Question({ q, picks, onPicks, disabled }: { q: PromptQuestion; picks: P
 
 /** An ExitPlanMode: the plan, approved (and the mode it goes on in) or sent back with what to change. */
 function PlanCard({ host, prompt: p, readOnly }: { host: HostRuntime; prompt: PendingPermission; readOnly: boolean }) {
-  const [mode, setMode] = useState('default')
+  const [mode, setMode] = useState('')
   const [changing, setChanging] = useState(false)
   const [why, setWhy] = useState('')
   const { busy, error, gone, decide } = useDecide(host, p)
@@ -193,6 +193,7 @@ function PlanCard({ host, prompt: p, readOnly }: { host: HostRuntime; prompt: Pe
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" disabled={off} onClick={() => void decide('allow', '', { mode })}>Approve</Button>
           <Select aria-label="After approving" value={mode} disabled={off} onChange={(e) => setMode(e.target.value)} className="h-8 w-auto">
+            <option value="">then keep the current mode</option>
             <option value="default">then ask before each edit</option>
             <option value="acceptEdits">then accept edits</option>
           </Select>

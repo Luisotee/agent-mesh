@@ -160,7 +160,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.DecidePermissionRequest.answers":          "The user's answers to a question prompt (`kind` QUESTION), one for each question, which an allow needs.",
 	"agentmesh.v1.DecidePermissionRequest.decision":         "\"allow\" or \"deny\".",
 	"agentmesh.v1.DecidePermissionRequest.id":               "The prompt's id, from the message the parent got or `mesh permissions`.",
-	"agentmesh.v1.DecidePermissionRequest.mode":             "What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`. Empty is `default`.",
+	"agentmesh.v1.DecidePermissionRequest.mode":             "What an approved plan (`kind` PLAN) goes on in: `default` (the agent asks before each edit) or `acceptEdits`. Empty leaves the mode to the agent's CLI.",
 	"agentmesh.v1.DecidePermissionRequest.why":              "Why a prompt is denied, and what to do instead: the agent reads it.",
 	"agentmesh.v1.Device.push":                              "The device's push endpoint, when it registered one.",
 	"agentmesh.v1.Device.revoked_at":                        "Set once revoked.",
