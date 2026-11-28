@@ -733,16 +733,17 @@ func peerRunning(r store.Reader, p *v1.Peer, runID string) *v1.Agent {
 // checkoutHolder is an asker of this peer that is reading its checkout: one with a process in another run, or one of
 // this run that has not answered yet or is not at its prompt (at a dialog, at a limit, with a reopen asked for). The
 // checkout is not moved under it.
-func checkoutHolder(r store.Reader, p *v1.Peer, runID string) *v1.Agent {
+func checkoutHolder(r store.Reader, p *v1.Peer, runID string, mine *v1.Agent) *v1.Agent {
 	agents, err := r.ListAgents("")
 	if err != nil {
 		return nil
 	}
 	for _, a := range agents {
-		if !peerOwns(a, p) || !hasProcess(a) {
+		if !peerOwns(a, p) || !hasProcess(a) || mine != nil && a.Id == mine.Id {
 			continue
 		}
-		if a.RunId != runID || a.State != v1.AgentState_AGENT_STATE_IDLE || a.PendingReopen != nil {
+		// A limited asker holds the checkout only while it owes its answer (with limits.auto off it never moves on).
+		if a.RunId != runID || a.State != v1.AgentState_AGENT_STATE_IDLE && a.State != v1.AgentState_AGENT_STATE_LIMITED || a.PendingReopen != nil {
 			return a
 		}
 		if rep, err := lastReport(r, a); err == nil && rep == nil {
@@ -753,13 +754,13 @@ func checkoutHolder(r store.Reader, p *v1.Peer, runID string) *v1.Agent {
 }
 
 // agyAskerOn is another agy asker with a process on the peer's checkout.
-func agyAskerOn(r store.Reader, p *v1.Peer) *v1.Agent {
+func agyAskerOn(r store.Reader, p *v1.Peer, except *v1.Agent) *v1.Agent {
 	agents, err := r.ListAgents("")
 	if err != nil {
 		return nil
 	}
 	for _, a := range agents {
-		if peerOwns(a, p) && a.Kind == "agy" && hasProcess(a) {
+		if peerOwns(a, p) && a.Kind == "agy" && hasProcess(a) && (except == nil || a.Id != except.Id) {
 			return a
 		}
 	}
@@ -774,7 +775,7 @@ func skipAgy(r store.Reader, p *v1.Peer, kind string, mine *v1.Agent) string {
 	if p.InClone {
 		return "it works in the clone's own checkout, where an agy asker's hooks would be written"
 	}
-	if other := agyAskerOn(r, p); other != nil && (mine == nil || other.Id != mine.Id) {
+	if other := agyAskerOn(r, p, mine); other != nil {
 		return "another agy asker (" + other.Name + ", run " + other.RunId + ") is on its checkout, and agy's hooks are per checkout"
 	}
 	return ""
@@ -947,10 +948,8 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		// agy writes its hooks into the checkout it works in: not into the user's own clone, and not where another agy
 		// asker already is (the file names one agent).
 		skip := map[string]string{}
-		if p.InClone {
-			skip["agy"] = "it works in the clone's own checkout, where an agy asker's hooks would be written"
-		} else if other := agyAskerOn(r, p); other != nil {
-			skip["agy"] = "another agy asker (" + other.Name + ", run " + other.RunId + ") is on its checkout, and agy's hooks are per checkout"
+		if why := skipAgy(r, p, "agy", nil); why != "" {
+			skip["agy"] = why
 		}
 		if kind, model, effort, err = d.askerFor(ctx, r, actor.RunId, p.Repo, kind, m.Tier, m.Model, m.Effort, "asking "+p.Name, skip); err != nil {
 			var ce *connect.Error
@@ -964,11 +963,15 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 	if why := skipAgy(r, p, kind, mine); why != "" {
 		return fail(why + ": ask on another CLI")
 	}
-	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, model, effort, "asking "+p.Name, false); err != nil {
+	guardModel, guardEffort := model, effort
+	if mine != nil {
+		guardModel, guardEffort, _ = target(mine) // the asker given the question runs on its own model
+	}
+	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, guardModel, guardEffort, "asking "+p.Name, false); err != nil {
 		return fail(err.Error())
 	}
 	before, _ := git(ctx, p.Worktree, "rev-parse", "HEAD")
-	note, newCommits, at := d.preparePeer(ctx, p, !m.NoRefresh, checkoutHolder(r, p, actor.RunId))
+	note, newCommits, at := d.preparePeer(ctx, p, !m.NoRefresh, checkoutHolder(r, p, actor.RunId, mine))
 	member.Head, member.UpstreamNew = at, newCommits
 	// An ask refused after the checkout moved puts it back: another asker may be working on it.
 	restore := func() {
@@ -1243,27 +1246,35 @@ func peerSummary(a *v1.Ask) string {
 // answers file.
 func recordPeerAnswers(tx *store.Tx, a *v1.Ask) error {
 	for _, m := range a.Members {
-		if m.Status != v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED {
-			continue
-		}
-		p, err := tx.GetPeer(m.Name)
-		if err != nil {
-			continue // removed meanwhile
-		}
-		// Asks of one peer overlap: an older one that answers last must not roll the record back (the answers files are
-		// named by their ask's stamp).
-		if p.LastAnswers != "" && filepath.Base(a.AnswersPath) < filepath.Base(p.LastAnswers) {
-			continue
-		}
-		if ag, err := tx.GetAgent(m.AgentId); err == nil && ag.SessionId != "" {
-			p.Kind, p.SessionId = ag.Kind, ag.SessionId
-		}
-		p.LastAnswers = a.AnswersPath
-		if err := tx.PutPeer(p); err != nil {
-			return err
+		if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED {
+			if err := recordPeerMember(tx, a, m, true); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// recordPeerMember notes in the registry one peer's answer: the conversation of the asker that gave it (the moment
+// it answers, so a later ask can continue it while the other peers of the round are still working) and, when the
+// round is over (final) and its file was written, the answers file.
+func recordPeerMember(tx *store.Tx, a *v1.Ask, m *v1.AskMember, final bool) error {
+	p, err := tx.GetPeer(m.Name)
+	if err != nil {
+		return nil // removed meanwhile
+	}
+	// Asks of one peer overlap: an older one that answers last must not roll the record back (the answers files are
+	// named by their ask's stamp).
+	if p.LastAnswers != "" && a.AnswersPath != "" && filepath.Base(a.AnswersPath) < filepath.Base(p.LastAnswers) {
+		return nil
+	}
+	if ag, err := tx.GetAgent(m.AgentId); err == nil && ag.SessionId != "" {
+		p.Kind, p.SessionId = ag.Kind, ag.SessionId
+	}
+	if final && a.AnswersPath != "" {
+		p.LastAnswers = a.AnswersPath
+	}
+	return tx.PutPeer(p)
 }
 
 type reparentKey struct{}

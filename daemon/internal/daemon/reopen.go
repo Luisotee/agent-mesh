@@ -759,7 +759,7 @@ func (d *Daemon) hasProcessOnSessionOrWorktree(r store.Reader, a *v1.Agent) erro
 				a.SessionId, other.Name, other.RunId)
 		}
 		// Askers of one peer share its checkout (their conversations differ).
-		if a.Worktree != "" && other.Worktree == a.Worktree && !(a.Peer && other.Peer) {
+		if a.Worktree != "" && other.Worktree == a.Worktree && !(a.Peer && other.Peer && !(a.Kind == "agy" && other.Kind == "agy")) { // agy writes its hooks per checkout: one agent id
 			return failedPrecondition("worktree %s is already in use by %s (run %s): stop it before resuming",
 				a.Worktree, other.Name, other.RunId)
 		}

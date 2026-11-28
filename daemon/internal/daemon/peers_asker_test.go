@@ -341,3 +341,43 @@ func TestASecondAgyAskerOfAPeerFallsThroughToTheNextCLI(t *testing.T) {
 		t.Errorf("a second asker beside a live agy one: %v", b)
 	}
 }
+
+// An asker given the question again is not the holder of its own checkout (its first ask timed out with no answer).
+func TestContinuingAnAskerThatDidNotAnswerDoesNotHoldItsOwnCheckout(t *testing.T) {
+	w := startPeers(t)
+	w.set(t, "roles.asker.kinds", []any{"claude"})
+	up := newUpstream(t, "alpha")
+	p := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g"})
+	first := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "first", Timeout: 1}).Agents[0]
+	w.quiet(t, first.Id) // idle, and no answer given
+	waitFor(t, "the first ask's timeout", func() bool { return len(w.answers(t)) == 1 })
+	next := up.commit(t, "a.go", "package a")
+	res := w.ask(t, &v1.AskRequest{Peers: p.Name, Continue: true, Body: "again", Timeout: 60})
+	if m := res.Ask.Members[0]; m.AgentId != first.Id {
+		t.Fatalf("not given to the same asker: %v", m)
+	}
+	if task := w.task(t, first.Id); strings.Contains(task, "is reading this checkout") || !strings.Contains(task, "Your checkout is at "+next[:9]) {
+		t.Errorf("the asker was told it holds its own checkout:\n%s", task)
+	}
+}
+
+// A peer's conversation is the registry's the moment it answers, while the other peers of its round still work.
+func TestAPeerThatAnsweredIsContinuableBeforeTheRestOfItsRoundFinishes(t *testing.T) {
+	w := startPeers(t)
+	w.set(t, "roles.asker.kinds", []any{"claude"})
+	pa := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: newUpstream(t, "alpha").url(), Group: "g"})
+	w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: newUpstream(t, "beta").url(), Group: "g"})
+	res := w.ask(t, &v1.AskRequest{Peers: "g", Body: "q", NoRefresh: true})
+	var alpha *v1.Agent
+	for _, a := range res.Agents {
+		if a.Name == pa.Name {
+			alpha = a
+		}
+	}
+	w.quiet(t, alpha.Id)
+	w.say(t, alpha.Id, v1.MessageType_MESSAGE_TYPE_DONE, "alpha answers")
+	waitFor(t, "alpha's conversation in the registry", func() bool { return w.peer(t, pa.Name).SessionId == alpha.SessionId })
+	if len(w.answers(t)) != 0 {
+		t.Errorf("the round finished with beta still pending")
+	}
+}
