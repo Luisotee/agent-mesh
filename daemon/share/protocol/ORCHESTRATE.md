@@ -149,6 +149,7 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
 4. **Cap:** at most `caps.working` workers working at once (the `host:` line of `mesh brief`). A group counts as one. A fix round takes a slot like any working worker; reviewers don't. Start the next one when one reports.
 5. **Reviews:** the workers own them ("A worker runs its own PR's reviews"): read each worker's one outcome line, act only on NEEDS YOU, and send the findings you agree with to the author (a `task`, or by `mesh resume`), not to the reviewer.
 6. **Conflicts:** run `mesh conflicts --run-id <run>` before you report a merge order (it simulates merges across open PR branches, flags overlapping files and stacked branches); compare PR diffs by hand (`gh pr diff <url> --name-only`) only when needed. Nobody merges. When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
+   - **Gates:** don't re-run a part's gate (`check.sh`) on a tree a worker already gated and reported: read its output in the `done`. Gate again only a different tree, such as a merge with a newer default branch. Every gate takes memory from one host-wide queue (`scripts/gate-slot.sh`), and a repeated one makes the others wait.
 7. **Report:** the board as a table, with each task's PR, worker name, state (`mesh agents`) and review outcome and size; then the suggested merge order, and what's left for the user.
 
 ## Questions and reviews
@@ -164,7 +165,7 @@ mesh ask --repo <path> --review <PR> --size <size> --tier <tier> --kind claude  
 
 `--body` reads a file with `@path`. The answer to a plain question is the asker's own `done`; a worker may `mesh ask` its own agents too.
 
-- **An asker or reviewer** is an ordinary agent with a read-only task: Claude ones run under the deny list (no file edits, no `git push`, no `gh pr` writes), agy ones only under their prompt. It answers with one `done`. Their names are `<repo>-<slug>`: ask the same one again with `mesh ask <name> --body "…"` (it is resumed if retired), and `mesh retire` it once you have no follow-up (an idle one is retired after `idle_retire`).
+- **An asker or reviewer** is an ordinary agent with a read-only task: Claude ones run under the deny list (no file edits, no `git push`, no `gh pr` writes), agy ones only under their prompt. It answers with one `done`. Their names are `<repo>-<slug>`: ask the same one again with `mesh ask <name> --body "…"` (it is resumed if retired), and `mesh retire` it once you have no follow-up (an idle one is retired `idle_retire.review` seconds after its `done`, 15 by default, so a follow-up usually resumes it).
 - **The question:** give it what you know, as you would in a task file: what you are working on, what you need back, and in what form.
 ### Reviewing a PR
 

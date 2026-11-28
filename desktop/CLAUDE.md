@@ -9,7 +9,7 @@ Node (from nvm) and pnpm 11, both on PATH. Run every command from `desktop/`. `p
 ## Commands
 
 ```bash
-scripts/check.sh              # the CI equivalent: locked install, generated code current, typecheck, tests, build, e2e
+scripts/check.sh              # the CI equivalent: locked install, generated code current, typecheck, tests, build, e2e (waits for room in the host-wide gate queue before the typecheck: root CLAUDE.md, scripts/gate-slot.sh)
 SKIP_E2E=1 scripts/check.sh   # without the end-to-end tests
 pnpm test                     # unit tests (vitest, jsdom): src/**/*.test.ts(x) and electron/**/*.test.ts
 pnpm test src/store.test.ts   # one file
