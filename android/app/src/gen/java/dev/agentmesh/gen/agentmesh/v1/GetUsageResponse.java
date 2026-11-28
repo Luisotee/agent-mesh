@@ -18,6 +18,9 @@ public  final class GetUsageResponse extends
     agyRows_ = emptyProtobufList();
     agyTiers_ = emptyProtobufList();
     notes_ = emptyProtobufList();
+    unit_ = "";
+    pools_ = emptyProtobufList();
+    held_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int CLAUDE_FIELD_NUMBER = 1;
@@ -577,6 +580,351 @@ public  final class GetUsageResponse extends
   private void clearSplitReserves() {
 
     splitReserves_ = false;
+  }
+
+  public static final int UNIT_FIELD_NUMBER = 11;
+  private java.lang.String unit_;
+  /**
+   * <pre>
+   * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+   * </pre>
+   *
+   * <code>string unit = 11 [json_name = "unit"];</code>
+   * @return The unit.
+   */
+  @java.lang.Override
+  public java.lang.String getUnit() {
+    return unit_;
+  }
+  /**
+   * <pre>
+   * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+   * </pre>
+   *
+   * <code>string unit = 11 [json_name = "unit"];</code>
+   * @return The bytes for unit.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getUnitBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(unit_);
+  }
+  /**
+   * <pre>
+   * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+   * </pre>
+   *
+   * <code>string unit = 11 [json_name = "unit"];</code>
+   * @param value The unit to set.
+   */
+  private void setUnit(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    unit_ = value;
+  }
+  /**
+   * <pre>
+   * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+   * </pre>
+   *
+   * <code>string unit = 11 [json_name = "unit"];</code>
+   */
+  private void clearUnit() {
+
+    unit_ = getDefaultInstance().getUnit();
+  }
+  /**
+   * <pre>
+   * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+   * </pre>
+   *
+   * <code>string unit = 11 [json_name = "unit"];</code>
+   * @param value The bytes for unit to set.
+   */
+  private void setUnitBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    unit_ = value.toStringUtf8();
+
+  }
+
+  public static final int POOLS_FIELD_NUMBER = 12;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PoolSize> pools_;
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.PoolSize> getPoolsList() {
+    return pools_;
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.PoolSizeOrBuilder> 
+      getPoolsOrBuilderList() {
+    return pools_;
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  @java.lang.Override
+  public int getPoolsCount() {
+    return pools_.size();
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PoolSize getPools(int index) {
+    return pools_.get(index);
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.PoolSizeOrBuilder getPoolsOrBuilder(
+      int index) {
+    return pools_.get(index);
+  }
+  private void ensurePoolsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PoolSize> tmp = pools_;
+    if (!tmp.isModifiable()) {
+      pools_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  private void setPools(
+      int index, dev.agentmesh.gen.agentmesh.v1.PoolSize value) {
+    java.util.Objects.requireNonNull(value);
+    ensurePoolsIsMutable();
+    pools_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  private void addPools(dev.agentmesh.gen.agentmesh.v1.PoolSize value) {
+    java.util.Objects.requireNonNull(value);
+    ensurePoolsIsMutable();
+    pools_.add(value);
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  private void addPools(
+      int index, dev.agentmesh.gen.agentmesh.v1.PoolSize value) {
+    java.util.Objects.requireNonNull(value);
+    ensurePoolsIsMutable();
+    pools_.add(index, value);
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  private void addAllPools(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PoolSize> values) {
+    ensurePoolsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, pools_);
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  private void clearPools() {
+    pools_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  private void removePools(int index) {
+    ensurePoolsIsMutable();
+    pools_.remove(index);
+  }
+
+  public static final int HELD_FIELD_NUMBER = 13;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> held_;
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @return A list containing the held.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getHeldList() {
+    return held_;
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @return The count of held.
+   */
+  @java.lang.Override
+  public int getHeldCount() {
+    return held_.size();
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param index The index of the element to return.
+   * @return The held at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getHeld(int index) {
+    return held_.get(index);
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the held at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHeldBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        held_.get(index));
+  }
+  private void ensureHeldIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        held_;  if (!tmp.isModifiable()) {
+      held_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param index The index to set the value at.
+   * @param value The held to set.
+   */
+  private void setHeld(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureHeldIsMutable();
+    held_.set(index, value);
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param value The held to add.
+   */
+  private void addHeld(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureHeldIsMutable();
+    held_.add(value);
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param values The held to add.
+   */
+  private void addAllHeld(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureHeldIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, held_);
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   */
+  private void clearHeld() {
+    held_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param value The bytes of the held to add.
+   */
+  private void addHeldBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureHeldIsMutable();
+    held_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.GetUsageResponse parseFrom(
@@ -1262,6 +1610,365 @@ public  final class GetUsageResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+     * </pre>
+     *
+     * <code>string unit = 11 [json_name = "unit"];</code>
+     * @return The unit.
+     */
+    @java.lang.Override
+    public java.lang.String getUnit() {
+      return instance.getUnit();
+    }
+    /**
+     * <pre>
+     * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+     * </pre>
+     *
+     * <code>string unit = 11 [json_name = "unit"];</code>
+     * @return The bytes for unit.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getUnitBytes() {
+      return instance.getUnitBytes();
+    }
+    /**
+     * <pre>
+     * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+     * </pre>
+     *
+     * <code>string unit = 11 [json_name = "unit"];</code>
+     * @param value The unit to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUnit(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setUnit(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+     * </pre>
+     *
+     * <code>string unit = 11 [json_name = "unit"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearUnit() {
+      copyOnWrite();
+      instance.clearUnit();
+      return this;
+    }
+    /**
+     * <pre>
+     * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+     * </pre>
+     *
+     * <code>string unit = 11 [json_name = "unit"];</code>
+     * @param value The bytes for unit to set.
+     * @return This builder for chaining.
+     */
+    public Builder setUnitBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setUnitBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.PoolSize> getPoolsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getPoolsList());
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    @java.lang.Override
+    public int getPoolsCount() {
+      return instance.getPoolsCount();
+    }/**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PoolSize getPools(int index) {
+      return instance.getPools(index);
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder setPools(
+        int index, dev.agentmesh.gen.agentmesh.v1.PoolSize value) {
+      copyOnWrite();
+      instance.setPools(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder setPools(
+        int index, dev.agentmesh.gen.agentmesh.v1.PoolSize.Builder builderForValue) {
+      copyOnWrite();
+      instance.setPools(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder addPools(dev.agentmesh.gen.agentmesh.v1.PoolSize value) {
+      copyOnWrite();
+      instance.addPools(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder addPools(
+        int index, dev.agentmesh.gen.agentmesh.v1.PoolSize value) {
+      copyOnWrite();
+      instance.addPools(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder addPools(
+        dev.agentmesh.gen.agentmesh.v1.PoolSize.Builder builderForValue) {
+      copyOnWrite();
+      instance.addPools(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder addPools(
+        int index, dev.agentmesh.gen.agentmesh.v1.PoolSize.Builder builderForValue) {
+      copyOnWrite();
+      instance.addPools(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder addAllPools(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PoolSize> values) {
+      copyOnWrite();
+      instance.addAllPools(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder clearPools() {
+      copyOnWrite();
+      instance.clearPools();
+      return this;
+    }
+    /**
+     * <pre>
+     * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+     * pools it could measure.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+     */
+    public Builder removePools(int index) {
+      copyOnWrite();
+      instance.removePools(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @return A list containing the held.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getHeldList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getHeldList());
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @return The count of held.
+     */
+    @java.lang.Override
+    public int getHeldCount() {
+      return instance.getHeldCount();
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @param index The index of the element to return.
+     * @return The held at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getHeld(int index) {
+      return instance.getHeld(index);
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the held at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHeldBytes(int index) {
+      return instance.getHeldBytes(index);
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @param index The index to set the value at.
+     * @param value The held to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeld(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setHeld(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @param value The held to add.
+     * @return This builder for chaining.
+     */
+    public Builder addHeld(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addHeld(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @param values The held to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllHeld(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllHeld(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeld() {
+      copyOnWrite();
+      instance.clearHeld();
+      return this;
+    }
+    /**
+     * <pre>
+     * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+     * </pre>
+     *
+     * <code>repeated string held = 13 [json_name = "held"];</code>
+     * @param value The bytes of the held to add.
+     * @return This builder for chaining.
+     */
+    public Builder addHeldBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addHeldBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.GetUsageResponse)
   }
   @java.lang.Override
@@ -1291,10 +1998,15 @@ public  final class GetUsageResponse extends
             "reviewsOnlyClaude_",
             "reviewsOnlyAgy_",
             "splitReserves_",
+            "unit_",
+            "pools_",
+            dev.agentmesh.gen.agentmesh.v1.PoolSize.class,
+            "held_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0003\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
-              "\u001b\u0004\u0004\u0005\u0004\u0006\u021a\u0007\u0004\b\u0004\t\u0004\n\u0007";
+              "\u0000\r\u0000\u0001\u0001\r\r\u0000\u0005\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
+              "\u001b\u0004\u0004\u0005\u0004\u0006\u021a\u0007\u0004\b\u0004\t\u0004\n\u0007\u000b" +
+              "\u0208\f\u001b\r\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

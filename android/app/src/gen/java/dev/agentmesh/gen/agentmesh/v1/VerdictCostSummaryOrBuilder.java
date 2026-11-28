@@ -103,4 +103,24 @@ public interface VerdictCostSummaryOrBuilder extends
    * @return The byAuthor.
    */
   long getByAuthor();
+
+  /**
+   * <pre>
+   * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  java.lang.String getEffort();
+  /**
+   * <pre>
+   * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  com.google.protobuf.ByteString
+      getEffortBytes();
 }

@@ -18,6 +18,7 @@ public  final class VerdictCostSummary extends
     kind_ = "";
     model_ = "";
     tier_ = "";
+    effort_ = "";
   }
   public static final int KIND_FIELD_NUMBER = 1;
   private java.lang.String kind_;
@@ -404,6 +405,73 @@ public  final class VerdictCostSummary extends
   private void clearByAuthor() {
 
     byAuthor_ = 0L;
+  }
+
+  public static final int EFFORT_FIELD_NUMBER = 13;
+  private java.lang.String effort_;
+  /**
+   * <pre>
+   * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  @java.lang.Override
+  public java.lang.String getEffort() {
+    return effort_;
+  }
+  /**
+   * <pre>
+   * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEffortBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(effort_);
+  }
+  /**
+   * <pre>
+   * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @param value The effort to set.
+   */
+  private void setEffort(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    effort_ = value;
+  }
+  /**
+   * <pre>
+   * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   */
+  private void clearEffort() {
+
+    effort_ = getDefaultInstance().getEffort();
+  }
+  /**
+   * <pre>
+   * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @param value The bytes for effort to set.
+   */
+  private void setEffortBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    effort_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.VerdictCostSummary parseFrom(
@@ -914,6 +982,75 @@ public  final class VerdictCostSummary extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+     * </pre>
+     *
+     * <code>string effort = 13 [json_name = "effort"];</code>
+     * @return The effort.
+     */
+    @java.lang.Override
+    public java.lang.String getEffort() {
+      return instance.getEffort();
+    }
+    /**
+     * <pre>
+     * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+     * </pre>
+     *
+     * <code>string effort = 13 [json_name = "effort"];</code>
+     * @return The bytes for effort.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEffortBytes() {
+      return instance.getEffortBytes();
+    }
+    /**
+     * <pre>
+     * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+     * </pre>
+     *
+     * <code>string effort = 13 [json_name = "effort"];</code>
+     * @param value The effort to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEffort(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setEffort(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+     * </pre>
+     *
+     * <code>string effort = 13 [json_name = "effort"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEffort() {
+      copyOnWrite();
+      instance.clearEffort();
+      return this;
+    }
+    /**
+     * <pre>
+     * The effort the reviewers ran at; rows are per kind, model, tier and effort.
+     * </pre>
+     *
+     * <code>string effort = 13 [json_name = "effort"];</code>
+     * @param value The bytes for effort to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEffortBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setEffortBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.VerdictCostSummary)
   }
   @java.lang.Override
@@ -942,11 +1079,12 @@ public  final class VerdictCostSummary extends
             "agreedPct_",
             "hasAgreedPct_",
             "byAuthor_",
+            "effort_",
           };
           java.lang.String info =
-              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000\r\u0000\u0000\u0001\r\r\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\u0002\u0005\u0002\u0006\u0002\u0007\u0002\b\u0002\t\u0002\n\u0004\u000b\u0007" +
-              "\f\u0002";
+              "\f\u0002\r\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

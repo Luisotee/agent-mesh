@@ -17,6 +17,8 @@ public  final class ClaudeUsageWindow extends
   private ClaudeUsageWindow() {
     key_ = "";
     label_ = "";
+    pace_ = "";
+    worth_ = "";
   }
   private int bitField0_;
   public static final int KEY_FIELD_NUMBER = 1;
@@ -297,6 +299,178 @@ public  final class ClaudeUsageWindow extends
   private void clearReserve() {
 
     reserve_ = 0;
+  }
+
+  public static final int ELAPSED_FIELD_NUMBER = 6;
+  private double elapsed_;
+  /**
+   * <pre>
+   * Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+   * </pre>
+   *
+   * <code>double elapsed = 6 [json_name = "elapsed"];</code>
+   * @return The elapsed.
+   */
+  @java.lang.Override
+  public double getElapsed() {
+    return elapsed_;
+  }
+  /**
+   * <pre>
+   * Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+   * </pre>
+   *
+   * <code>double elapsed = 6 [json_name = "elapsed"];</code>
+   * @param value The elapsed to set.
+   */
+  private void setElapsed(double value) {
+    
+    elapsed_ = value;
+  }
+  /**
+   * <pre>
+   * Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+   * </pre>
+   *
+   * <code>double elapsed = 6 [json_name = "elapsed"];</code>
+   */
+  private void clearElapsed() {
+
+    elapsed_ = 0D;
+  }
+
+  public static final int PACE_FIELD_NUMBER = 7;
+  private java.lang.String pace_;
+  /**
+   * <pre>
+   * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+   * </pre>
+   *
+   * <code>string pace = 7 [json_name = "pace"];</code>
+   * @return The pace.
+   */
+  @java.lang.Override
+  public java.lang.String getPace() {
+    return pace_;
+  }
+  /**
+   * <pre>
+   * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+   * </pre>
+   *
+   * <code>string pace = 7 [json_name = "pace"];</code>
+   * @return The bytes for pace.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPaceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(pace_);
+  }
+  /**
+   * <pre>
+   * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+   * </pre>
+   *
+   * <code>string pace = 7 [json_name = "pace"];</code>
+   * @param value The pace to set.
+   */
+  private void setPace(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    pace_ = value;
+  }
+  /**
+   * <pre>
+   * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+   * </pre>
+   *
+   * <code>string pace = 7 [json_name = "pace"];</code>
+   */
+  private void clearPace() {
+
+    pace_ = getDefaultInstance().getPace();
+  }
+  /**
+   * <pre>
+   * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+   * </pre>
+   *
+   * <code>string pace = 7 [json_name = "pace"];</code>
+   * @param value The bytes for pace to set.
+   */
+  private void setPaceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    pace_ = value.toStringUtf8();
+
+  }
+
+  public static final int WORTH_FIELD_NUMBER = 8;
+  private java.lang.String worth_;
+  /**
+   * <pre>
+   * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+   * </pre>
+   *
+   * <code>string worth = 8 [json_name = "worth"];</code>
+   * @return The worth.
+   */
+  @java.lang.Override
+  public java.lang.String getWorth() {
+    return worth_;
+  }
+  /**
+   * <pre>
+   * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+   * </pre>
+   *
+   * <code>string worth = 8 [json_name = "worth"];</code>
+   * @return The bytes for worth.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getWorthBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(worth_);
+  }
+  /**
+   * <pre>
+   * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+   * </pre>
+   *
+   * <code>string worth = 8 [json_name = "worth"];</code>
+   * @param value The worth to set.
+   */
+  private void setWorth(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    worth_ = value;
+  }
+  /**
+   * <pre>
+   * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+   * </pre>
+   *
+   * <code>string worth = 8 [json_name = "worth"];</code>
+   */
+  private void clearWorth() {
+
+    worth_ = getDefaultInstance().getWorth();
+  }
+  /**
+   * <pre>
+   * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+   * </pre>
+   *
+   * <code>string worth = 8 [json_name = "worth"];</code>
+   * @param value The bytes for worth to set.
+   */
+  private void setWorthBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    worth_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.ClaudeUsageWindow parseFrom(
@@ -688,6 +862,184 @@ public  final class ClaudeUsageWindow extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+     * </pre>
+     *
+     * <code>double elapsed = 6 [json_name = "elapsed"];</code>
+     * @return The elapsed.
+     */
+    @java.lang.Override
+    public double getElapsed() {
+      return instance.getElapsed();
+    }
+    /**
+     * <pre>
+     * Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+     * </pre>
+     *
+     * <code>double elapsed = 6 [json_name = "elapsed"];</code>
+     * @param value The elapsed to set.
+     * @return This builder for chaining.
+     */
+    public Builder setElapsed(double value) {
+      copyOnWrite();
+      instance.setElapsed(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+     * </pre>
+     *
+     * <code>double elapsed = 6 [json_name = "elapsed"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearElapsed() {
+      copyOnWrite();
+      instance.clearElapsed();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+     * </pre>
+     *
+     * <code>string pace = 7 [json_name = "pace"];</code>
+     * @return The pace.
+     */
+    @java.lang.Override
+    public java.lang.String getPace() {
+      return instance.getPace();
+    }
+    /**
+     * <pre>
+     * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+     * </pre>
+     *
+     * <code>string pace = 7 [json_name = "pace"];</code>
+     * @return The bytes for pace.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPaceBytes() {
+      return instance.getPaceBytes();
+    }
+    /**
+     * <pre>
+     * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+     * </pre>
+     *
+     * <code>string pace = 7 [json_name = "pace"];</code>
+     * @param value The pace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPace(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPace(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+     * </pre>
+     *
+     * <code>string pace = 7 [json_name = "pace"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPace() {
+      copyOnWrite();
+      instance.clearPace();
+      return this;
+    }
+    /**
+     * <pre>
+     * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+     * </pre>
+     *
+     * <code>string pace = 7 [json_name = "pace"];</code>
+     * @param value The bytes for pace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPaceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPaceBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+     * </pre>
+     *
+     * <code>string worth = 8 [json_name = "worth"];</code>
+     * @return The worth.
+     */
+    @java.lang.Override
+    public java.lang.String getWorth() {
+      return instance.getWorth();
+    }
+    /**
+     * <pre>
+     * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+     * </pre>
+     *
+     * <code>string worth = 8 [json_name = "worth"];</code>
+     * @return The bytes for worth.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getWorthBytes() {
+      return instance.getWorthBytes();
+    }
+    /**
+     * <pre>
+     * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+     * </pre>
+     *
+     * <code>string worth = 8 [json_name = "worth"];</code>
+     * @param value The worth to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWorth(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setWorth(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+     * </pre>
+     *
+     * <code>string worth = 8 [json_name = "worth"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearWorth() {
+      copyOnWrite();
+      instance.clearWorth();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+     * </pre>
+     *
+     * <code>string worth = 8 [json_name = "worth"];</code>
+     * @param value The bytes for worth to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWorthBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setWorthBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.ClaudeUsageWindow)
   }
   @java.lang.Override
@@ -710,10 +1062,13 @@ public  final class ClaudeUsageWindow extends
             "used_",
             "resetsAt_",
             "reserve_",
+            "elapsed_",
+            "pace_",
+            "worth_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0000\u0004\u1009\u0000\u0005\u0004";
+              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0000" +
+              "\u0004\u1009\u0000\u0005\u0004\u0006\u0000\u0007\u0208\b\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

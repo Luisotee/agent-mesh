@@ -135,4 +135,24 @@ public interface VerdictOrBuilder extends
    * @return The declinedBlocking.
    */
   int getDeclinedBlocking();
+
+  /**
+   * <pre>
+   * The effort the reviewer ran at (`mesh cost` and the root's brief show verdicts per model and effort).
+   * </pre>
+   *
+   * <code>string effort = 12 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  java.lang.String getEffort();
+  /**
+   * <pre>
+   * The effort the reviewer ran at (`mesh cost` and the root's brief show verdicts per model and effort).
+   * </pre>
+   *
+   * <code>string effort = 12 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  com.google.protobuf.ByteString
+      getEffortBytes();
 }

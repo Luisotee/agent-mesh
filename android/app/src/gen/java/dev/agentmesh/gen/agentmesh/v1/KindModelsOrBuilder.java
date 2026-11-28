@@ -110,4 +110,49 @@ public interface KindModelsOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAckedFamiliesBytes(int index);
+
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @return A list containing the effortProblems.
+   */
+  java.util.List<java.lang.String>
+      getEffortProblemsList();
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @return The count of effortProblems.
+   */
+  int getEffortProblemsCount();
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param index The index of the element to return.
+   * @return The effortProblems at the given index.
+   */
+  java.lang.String getEffortProblems(int index);
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param index The index of the element to return.
+   * @return The effortProblems at the given index.
+   */
+  com.google.protobuf.ByteString
+      getEffortProblemsBytes(int index);
 }

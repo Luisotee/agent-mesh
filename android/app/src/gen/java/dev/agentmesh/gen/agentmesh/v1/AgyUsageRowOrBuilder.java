@@ -71,4 +71,38 @@ public interface AgyUsageRowOrBuilder extends
    * @return The reviewsOnly.
    */
   boolean getReviewsOnly();
+
+  /**
+   * <pre>
+   * As ClaudeUsageWindow.elapsed, .pace and .worth.
+   * </pre>
+   *
+   * <code>double elapsed = 7 [json_name = "elapsed"];</code>
+   * @return The elapsed.
+   */
+  double getElapsed();
+
+  /**
+   * <code>string pace = 8 [json_name = "pace"];</code>
+   * @return The pace.
+   */
+  java.lang.String getPace();
+  /**
+   * <code>string pace = 8 [json_name = "pace"];</code>
+   * @return The bytes for pace.
+   */
+  com.google.protobuf.ByteString
+      getPaceBytes();
+
+  /**
+   * <code>string worth = 9 [json_name = "worth"];</code>
+   * @return The worth.
+   */
+  java.lang.String getWorth();
+  /**
+   * <code>string worth = 9 [json_name = "worth"];</code>
+   * @return The bytes for worth.
+   */
+  com.google.protobuf.ByteString
+      getWorthBytes();
 }

@@ -89,4 +89,54 @@ public interface ClaudeUsageWindowOrBuilder extends
    * @return The reserve.
    */
   int getReserve();
+
+  /**
+   * <pre>
+   * Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+   * </pre>
+   *
+   * <code>double elapsed = 6 [json_name = "elapsed"];</code>
+   * @return The elapsed.
+   */
+  double getElapsed();
+
+  /**
+   * <pre>
+   * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+   * </pre>
+   *
+   * <code>string pace = 7 [json_name = "pace"];</code>
+   * @return The pace.
+   */
+  java.lang.String getPace();
+  /**
+   * <pre>
+   * A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+   * </pre>
+   *
+   * <code>string pace = 7 [json_name = "pace"];</code>
+   * @return The bytes for pace.
+   */
+  com.google.protobuf.ByteString
+      getPaceBytes();
+
+  /**
+   * <pre>
+   * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+   * </pre>
+   *
+   * <code>string worth = 8 [json_name = "worth"];</code>
+   * @return The worth.
+   */
+  java.lang.String getWorth();
+  /**
+   * <pre>
+   * What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+   * </pre>
+   *
+   * <code>string worth = 8 [json_name = "worth"];</code>
+   * @return The bytes for worth.
+   */
+  com.google.protobuf.ByteString
+      getWorthBytes();
 }
