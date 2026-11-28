@@ -1465,8 +1465,11 @@ type KindModels struct {
 	NewFamilies     []string               `protobuf:"bytes,3,rep,name=new_families,json=newFamilies,proto3" json:"new_families,omitempty"`
 	RetiredFamilies []string               `protobuf:"bytes,4,rep,name=retired_families,json=retiredFamilies,proto3" json:"retired_families,omitempty"`
 	AckedFamilies   []string               `protobuf:"bytes,5,rep,name=acked_families,json=ackedFamilies,proto3" json:"acked_families,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+	// family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+	EffortProblems []string `protobuf:"bytes,6,rep,name=effort_problems,json=effortProblems,proto3" json:"effort_problems,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *KindModels) Reset() {
@@ -1530,6 +1533,13 @@ func (x *KindModels) GetRetiredFamilies() []string {
 func (x *KindModels) GetAckedFamilies() []string {
 	if x != nil {
 		return x.AckedFamilies
+	}
+	return nil
+}
+
+func (x *KindModels) GetEffortProblems() []string {
+	if x != nil {
+		return x.EffortProblems
 	}
 	return nil
 }
@@ -2139,14 +2149,15 @@ const file_agentmesh_v1_report_proto_rawDesc = "" +
 	"\x03ack\x18\x03 \x03(\tR\x03ack\"E\n" +
 	"\x10ModelFamilyEntry\x12\x16\n" +
 	"\x06family\x18\x01 \x01(\tR\x06family\x12\x19\n" +
-	"\bin_tiers\x18\x02 \x01(\bR\ainTiers\"\xcd\x01\n" +
+	"\bin_tiers\x18\x02 \x01(\bR\ainTiers\"\xf6\x01\n" +
 	"\n" +
 	"KindModels\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x126\n" +
 	"\x06listed\x18\x02 \x03(\v2\x1e.agentmesh.v1.ModelFamilyEntryR\x06listed\x12!\n" +
 	"\fnew_families\x18\x03 \x03(\tR\vnewFamilies\x12)\n" +
 	"\x10retired_families\x18\x04 \x03(\tR\x0fretiredFamilies\x12%\n" +
-	"\x0eacked_families\x18\x05 \x03(\tR\rackedFamilies\"\x98\x01\n" +
+	"\x0eacked_families\x18\x05 \x03(\tR\rackedFamilies\x12'\n" +
+	"\x0feffort_problems\x18\x06 \x03(\tR\x0eeffortProblems\"\x98\x01\n" +
 	"\x13CheckModelsResponse\x129\n" +
 	"\n" +
 	"checked_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tcheckedAt\x12.\n" +

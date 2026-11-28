@@ -1253,3 +1253,22 @@ func SessionCalls(dbPath, session string) []SessionCall {
 	}
 	return calls
 }
+
+// Variants is each listed model's variants (the efforts it offers: `high`, `max`, …), sorted; a model with none
+// has an empty list. OpenCode launches a model without a variant when the effort asked is not one of them.
+func (a *Adapter) Variants(ctx context.Context, bin string, env map[string]string, fresh bool) (map[string][]string, error) {
+	listing, err := a.listModelsDirect(ctx, bin, env, fresh)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string, len(listing))
+	for id, info := range listing {
+		vs := []string{}
+		for v := range info.Variants {
+			vs = append(vs, v)
+		}
+		sort.Strings(vs)
+		out[id] = vs
+	}
+	return out, nil
+}

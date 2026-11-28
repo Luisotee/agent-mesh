@@ -251,6 +251,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.InterruptAgentResponse.stopped":           "True once the agent was seen back at its prompt; false when the key was sent but it hadn't stopped yet when the daemon stopped looking (its state follows when it does).",
 	"agentmesh.v1.KindCost.token_share":                     "This kind's percent of the tokens counted in total (`share` is the percent of the dollars).",
 	"agentmesh.v1.KindCost.total":                           "input + w1 + w5 + output, as AgentCost.total.",
+	"agentmesh.v1.KindModels.effort_problems":               "Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).",
 	"agentmesh.v1.ListAgentCommandsRequest.agent":           "Agent id or name.",
 	"agentmesh.v1.ListAgentCommandsResponse.supported":      "False when the agent's CLI has no command list the daemon knows.",
 	"agentmesh.v1.ListAgentWaitsRequest.run_id":             "Only this run's; empty means every open run.",

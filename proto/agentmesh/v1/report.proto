@@ -194,6 +194,9 @@ message KindModels {
   repeated string new_families = 3;
   repeated string retired_families = 4;
   repeated string acked_families = 5;
+  // Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+  // family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+  repeated string effort_problems = 6;
 }
 
 message CheckModelsResponse {

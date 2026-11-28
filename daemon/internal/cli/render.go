@@ -454,6 +454,11 @@ func renderModels(m proto.Message, w io.Writer) {
 		}
 		fmt.Fprintf(w, "%s: %s\n", k.Kind, strings.Join(parts, ", "))
 	}
+	for _, k := range r.Kinds {
+		for _, p := range k.EffortProblems {
+			fmt.Fprintf(w, "%s effort not offered: %s\n", k.Kind, p)
+		}
+	}
 	if r.Notice != "" {
 		fmt.Fprintln(w, r.Notice)
 	} else {

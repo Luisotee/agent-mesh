@@ -1299,3 +1299,50 @@ func decodeStepMetadata(meta []byte) (TokenCall, bool) {
 	}
 	return TokenCall{Time: time.Unix(sec, 0), Input: input, Read: read, Output: output}, true
 }
+
+// Efforts is each family's efforts from `agy models` (the cached listing unless fresh), sorted: an effort is a
+// level a family has an id for (`gemini-4-neon-high`). Nil, nil when no listing is cached yet.
+func (a *Adapter) Efforts(ctx context.Context, bin string, env map[string]string, fresh bool) (map[string][]string, error) {
+	if bin == "" {
+		bin = "agy"
+	}
+	var listing string
+	if !fresh {
+		cacheFile := modelsCachePath(bin, env)
+		if cacheFile == "" {
+			return nil, nil
+		}
+		b, err := os.ReadFile(cacheFile)
+		if err != nil || !hasParsedID(string(b)) {
+			return nil, nil
+		}
+		listing = string(b)
+	} else {
+		var err error
+		if listing, err = a.listModelsDirect(ctx, bin, env, true); err != nil {
+			return nil, err
+		}
+	}
+	return ListingEfforts(listing), nil
+}
+
+// ListingEfforts is each family's efforts in an `agy models` listing, sorted.
+func ListingEfforts(listing string) map[string][]string {
+	sets := map[string]map[string]bool{}
+	for _, id := range listingIDs(listing) {
+		if p, ok := parseAgyID(id); ok {
+			if sets[p.family] == nil {
+				sets[p.family] = map[string]bool{}
+			}
+			sets[p.family][p.effort] = true
+		}
+	}
+	out := make(map[string][]string, len(sets))
+	for fam, set := range sets {
+		for e := range set {
+			out[fam] = append(out[fam], e)
+		}
+		sort.Strings(out[fam])
+	}
+	return out
+}
