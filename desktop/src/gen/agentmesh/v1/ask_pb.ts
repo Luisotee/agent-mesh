@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file agentmesh/v1/ask.proto.
  */
 export const file_agentmesh_v1_ask: GenFile = /*@__PURE__*/
-  fileDesc("ChZhZ2VudG1lc2gvdjEvYXNrLnByb3RvEgxhZ2VudG1lc2gudjEikgIKCUFza01lbWJlchIQCghhZ2VudF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSCwoDaG93GAQgASgJEi0KBnN0YXR1cxgFIAEoDjIdLmFnZW50bWVzaC52MS5Bc2tNZW1iZXJTdGF0dXMSDAoEbGluZRgGIAEoCRIMCgR0ZXh0GAcgASgJEgwKBHR5cGUYCCABKAkSDQoFbW9kZWwYCSABKAkSDAoEdGllchgKIAEoCRIMCgRoZWFkGAsgASgJEhEKCXBlZXJfcmVwbxgMIAEoCRIUCgx1cHN0cmVhbV9uZXcYDSABKAUSDQoFYWJvdXQYDiABKAkSDgoGZWZmb3J0GA8gASgJIuoBCgdWZXJkaWN0EhAKCHJldmlld2VyGAEgASgJEgwKBGtpbmQYAiABKAkSDQoFbW9kZWwYAyABKAkSDAoEdGllchgEIAEoCRINCgVhZ3JlZRgFIAEoBRINCgVvdGhlchgGIAEoBRIQCghkaXNhZ3JlZRgHIAEoBRIQCghibG9ja2luZxgIIAEoBRImCgJhdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDQoFanVkZ2UYCiABKAkSGQoRZGVjbGluZWRfYmxvY2tpbmcYCyABKAUSDgoGZWZmb3J0GAwgASgJIu4ECgNBc2sSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEhEKCWNhbGxlcl9pZBgDIAEoCRITCgtjYWxsZXJfbmFtZRgEIAEoCRIjCgRraW5kGAUgASgOMhUuYWdlbnRtZXNoLnYxLkFza0tpbmQSJwoGc3RhdHVzGAYgASgOMhcuYWdlbnRtZXNoLnYxLkFza1N0YXR1cxIKCgJwchgHIAEoCRIRCglwcl9udW1iZXIYCCABKAUSDAoEcmVwbxgJIAEoCRIMCgRoZWFkGAogASgJEg0KBXNpbmNlGAsgASgJEgwKBHNpemUYDCABKAkSDAoEdGllchgNIAEoCRIMCgRib2R5GA4gASgJEigKB21lbWJlcnMYDyADKAsyFy5hZ2VudG1lc2gudjEuQXNrTWVtYmVyEhEKCWNvbGxlY3RlZBgQIAEoCBIUCgxhbnN3ZXJzX3BhdGgYESABKAkSDQoFcm91bmQYEiABKAUSJwoIdmVyZGljdHMYEyADKAsyFS5hZ2VudG1lc2gudjEuVmVyZGljdBIsCghkZWFkbGluZRgUIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgVIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYFiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCHN0YXJ0aW5nGBcgASgIEg8KB2NvbnRleHQYGCABKAkSEgoKcmVsYXlfc3RlcBgZIAEoBRIQCghyZWxheV9vZhgaIAEoCSLDAgoKQXNrUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhYKBHJlcG8YAyABKAlCCJi1GAGgtRgBEgwKBGJvZHkYBCABKAkSDgoGcmV2aWV3GAUgASgJEgwKBHNpemUYBiABKAkSDAoEdGllchgHIAEoCRIMCgRraW5kGAggASgJEg0KBW1vZGVsGAkgASgJEg4KBmVmZm9ydBgKIAEoCRIRCglyZXZpZXdlcnMYCyABKAkSDQoFc2luY2UYDCABKAkSDAoEc2x1ZxgNIAEoCRINCgVwZWVycxgOIAEoCRISCgpub19yZWZyZXNoGA8gASgIEg8KB3RpbWVvdXQYECABKAUSCwoDbWNwGBEgAygJEg0KBXJlbGF5GBIgASgIIpcBCgtBc2tSZXNwb25zZRIeCgNhc2sYASABKAsyES5hZ2VudG1lc2gudjEuQXNrEiMKBmFnZW50cxgCIAMoCzITLmFnZW50bWVzaC52MS5BZ2VudBINCgVub3RlcxgDIAMoCRIMCgRoaW50GAQgASgJEiYKB21lc3NhZ2UYBSABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSK6AQoUUmVjb3JkVmVyZGljdFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIKCgJwchgCIAEoCRIQCghyZXZpZXdlchgDIAEoCRINCgVhZ3JlZRgEIAEoBRINCgVvdGhlchgFIAEoBRIQCghkaXNhZ3JlZRgGIAEoBRIQCghibG9ja2luZxgHIAEoBRIZChFkZWNsaW5lZF9ibG9ja2luZxgIIAEoBSJfChVSZWNvcmRWZXJkaWN0UmVzcG9uc2USHgoDYXNrGAEgASgLMhEuYWdlbnRtZXNoLnYxLkFzaxImCgd2ZXJkaWN0GAIgASgLMhUuYWdlbnRtZXNoLnYxLlZlcmRpY3QiQAoPTGlzdEFza3NSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIKCgJwchgCIAEoCRIRCglvcGVuX29ubHkYAyABKAgiMwoQTGlzdEFza3NSZXNwb25zZRIfCgRhc2tzGAEgAygLMhEuYWdlbnRtZXNoLnYxLkFzayI7CgxQZWVyVXBzdHJlYW0SDgoGcmVtb3RlGAEgASgJEg4KBmJyYW5jaBgCIAEoCRILCgN1cmwYAyABKAkikAMKBFBlZXISDAoEbmFtZRgBIAEoCRIMCgRyZXBvGAIgASgJEg0KBWdyb3VwGAMgASgJEgwKBGtpbmQYBCABKAkSDQoFYWJvdXQYBSABKAkSLAoIdXBzdHJlYW0YBiABKAsyGi5hZ2VudG1lc2gudjEuUGVlclVwc3RyZWFtEhAKCHdvcmt0cmVlGAcgASgJEgwKBHNlZW4YCCABKAkSEgoKc2Vzc2lvbl9pZBgJIAEoCRIpCgVhZGRlZBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKQoFYXNrZWQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCGxhc3RfcnVuGAwgASgJEhIKCmxhc3RfYWdlbnQYDSABKAkSFAoMbGFzdF9hbnN3ZXJzGA4gASgJEhMKC3J1bm5pbmdfcnVuGA8gASgJEhUKDXJ1bm5pbmdfYWdlbnQYECABKAkSDgoGY2xvbmVkGBEgASgIEhAKCGluX2Nsb25lGBIgASgIIigKCVBlZXJHcm91cBIMCgRuYW1lGAEgASgJEg0KBWFib3V0GAIgASgJIiEKEExpc3RQZWVyc1JlcXVlc3QSDQoFZ3JvdXAYASABKAkiXwoRTGlzdFBlZXJzUmVzcG9uc2USIQoFcGVlcnMYASADKAsyEi5hZ2VudG1lc2gudjEuUGVlchInCgZncm91cHMYAiADKAsyFy5hZ2VudG1lc2gudjEuUGVlckdyb3VwIokBCg5BZGRQZWVyUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEhQKBnNvdXJjZRgCIAEoCUIEmLUYARINCgVncm91cBgDIAEoCRINCgVhYm91dBgEIAEoCRIMCgRuYW1lGAUgASgJEgwKBGtpbmQYBiABKAkiMwoPQWRkUGVlclJlc3BvbnNlEiAKBHBlZXIYASABKAsyEi5hZ2VudG1lc2gudjEuUGVlciJZCg9FZGl0UGVlclJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIOCgZ0YXJnZXQYAiABKAkSDQoFYWJvdXQYAyABKAkiXAoQRWRpdFBlZXJSZXNwb25zZRIgCgRwZWVyGAEgASgLMhIuYWdlbnRtZXNoLnYxLlBlZXISJgoFZ3JvdXAYAiABKAsyFy5hZ2VudG1lc2gudjEuUGVlckdyb3VwImAKEVJlbW92ZVBlZXJSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDAoEbmFtZRgCIAEoCRIUCgxkZWxldGVfY2xvbmUYAyABKAgiPQoSUmVtb3ZlUGVlclJlc3BvbnNlEhAKCHdvcmt0cmVlGAEgASgJEhUKDWRlbGV0ZWRfY2xvbmUYAiABKAkiZAoSSW1wb3J0UGVlcnNSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESEgoEZnJvbRgCIAEoCUIEmLUYARIRCgl1bmJyaWVmZWQYAyABKAgiOAoTSW1wb3J0UGVlcnNSZXNwb25zZRIQCghpbXBvcnRlZBgBIAMoCRIPCgdza2lwcGVkGAIgAygJKmMKB0Fza0tpbmQSGAoUQVNLX0tJTkRfVU5TUEVDSUZJRUQQABIVChFBU0tfS0lORF9RVUVTVElPThABEhMKD0FTS19LSU5EX1JFVklFVxACEhIKDkFTS19LSU5EX1BFRVJTEAMqVQoJQXNrU3RhdHVzEhoKFkFTS19TVEFUVVNfVU5TUEVDSUZJRUQQABITCg9BU0tfU1RBVFVTX09QRU4QARIXChNBU0tfU1RBVFVTX0ZJTklTSEVEEAIqzwEKD0Fza01lbWJlclN0YXR1cxIhCh1BU0tfTUVNQkVSX1NUQVRVU19VTlNQRUNJRklFRBAAEh0KGUFTS19NRU1CRVJfU1RBVFVTX1BFTkRJTkcQARIeChpBU0tfTUVNQkVSX1NUQVRVU19BTlNXRVJFRBACEh0KGUFTS19NRU1CRVJfU1RBVFVTX1NFVFRMRUQQAxIfChtBU0tfTUVNQkVSX1NUQVRVU19OT1RfQVNLRUQQBBIaChZBU0tfTUVNQkVSX1NUQVRVU19MT1NUEAViBnByb3RvMw", [file_agentmesh_v1_options, file_agentmesh_v1_types, file_google_protobuf_timestamp]);
+  fileDesc("ChZhZ2VudG1lc2gvdjEvYXNrLnByb3RvEgxhZ2VudG1lc2gudjEikgIKCUFza01lbWJlchIQCghhZ2VudF9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBGtpbmQYAyABKAkSCwoDaG93GAQgASgJEi0KBnN0YXR1cxgFIAEoDjIdLmFnZW50bWVzaC52MS5Bc2tNZW1iZXJTdGF0dXMSDAoEbGluZRgGIAEoCRIMCgR0ZXh0GAcgASgJEgwKBHR5cGUYCCABKAkSDQoFbW9kZWwYCSABKAkSDAoEdGllchgKIAEoCRIMCgRoZWFkGAsgASgJEhEKCXBlZXJfcmVwbxgMIAEoCRIUCgx1cHN0cmVhbV9uZXcYDSABKAUSDQoFYWJvdXQYDiABKAkSDgoGZWZmb3J0GA8gASgJIuoBCgdWZXJkaWN0EhAKCHJldmlld2VyGAEgASgJEgwKBGtpbmQYAiABKAkSDQoFbW9kZWwYAyABKAkSDAoEdGllchgEIAEoCRINCgVhZ3JlZRgFIAEoBRINCgVvdGhlchgGIAEoBRIQCghkaXNhZ3JlZRgHIAEoBRIQCghibG9ja2luZxgIIAEoBRImCgJhdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDQoFanVkZ2UYCiABKAkSGQoRZGVjbGluZWRfYmxvY2tpbmcYCyABKAUSDgoGZWZmb3J0GAwgASgJIu4ECgNBc2sSCgoCaWQYASABKAkSDgoGcnVuX2lkGAIgASgJEhEKCWNhbGxlcl9pZBgDIAEoCRITCgtjYWxsZXJfbmFtZRgEIAEoCRIjCgRraW5kGAUgASgOMhUuYWdlbnRtZXNoLnYxLkFza0tpbmQSJwoGc3RhdHVzGAYgASgOMhcuYWdlbnRtZXNoLnYxLkFza1N0YXR1cxIKCgJwchgHIAEoCRIRCglwcl9udW1iZXIYCCABKAUSDAoEcmVwbxgJIAEoCRIMCgRoZWFkGAogASgJEg0KBXNpbmNlGAsgASgJEgwKBHNpemUYDCABKAkSDAoEdGllchgNIAEoCRIMCgRib2R5GA4gASgJEigKB21lbWJlcnMYDyADKAsyFy5hZ2VudG1lc2gudjEuQXNrTWVtYmVyEhEKCWNvbGxlY3RlZBgQIAEoCBIUCgxhbnN3ZXJzX3BhdGgYESABKAkSDQoFcm91bmQYEiABKAUSJwoIdmVyZGljdHMYEyADKAsyFS5hZ2VudG1lc2gudjEuVmVyZGljdBIsCghkZWFkbGluZRgUIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgVIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLZmluaXNoZWRfYXQYFiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCHN0YXJ0aW5nGBcgASgIEg8KB2NvbnRleHQYGCABKAkSEgoKcmVsYXlfc3RlcBgZIAEoBRIQCghyZWxheV9vZhgaIAEoCSLVAgoKQXNrUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEg0KBWFnZW50GAIgASgJEhYKBHJlcG8YAyABKAlCCJi1GAGgtRgBEgwKBGJvZHkYBCABKAkSDgoGcmV2aWV3GAUgASgJEgwKBHNpemUYBiABKAkSDAoEdGllchgHIAEoCRIMCgRraW5kGAggASgJEg0KBW1vZGVsGAkgASgJEg4KBmVmZm9ydBgKIAEoCRIRCglyZXZpZXdlcnMYCyABKAkSDQoFc2luY2UYDCABKAkSDAoEc2x1ZxgNIAEoCRINCgVwZWVycxgOIAEoCRISCgpub19yZWZyZXNoGA8gASgIEg8KB3RpbWVvdXQYECABKAUSCwoDbWNwGBEgAygJEg0KBXJlbGF5GBIgASgIEhAKCGNvbnRpbnVlGBMgASgIIpcBCgtBc2tSZXNwb25zZRIeCgNhc2sYASABKAsyES5hZ2VudG1lc2gudjEuQXNrEiMKBmFnZW50cxgCIAMoCzITLmFnZW50bWVzaC52MS5BZ2VudBINCgVub3RlcxgDIAMoCRIMCgRoaW50GAQgASgJEiYKB21lc3NhZ2UYBSABKAsyFS5hZ2VudG1lc2gudjEuTWVzc2FnZSK6AQoUUmVjb3JkVmVyZGljdFJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIKCgJwchgCIAEoCRIQCghyZXZpZXdlchgDIAEoCRINCgVhZ3JlZRgEIAEoBRINCgVvdGhlchgFIAEoBRIQCghkaXNhZ3JlZRgGIAEoBRIQCghibG9ja2luZxgHIAEoBRIZChFkZWNsaW5lZF9ibG9ja2luZxgIIAEoBSJfChVSZWNvcmRWZXJkaWN0UmVzcG9uc2USHgoDYXNrGAEgASgLMhEuYWdlbnRtZXNoLnYxLkFzaxImCgd2ZXJkaWN0GAIgASgLMhUuYWdlbnRtZXNoLnYxLlZlcmRpY3QiQAoPTGlzdEFza3NSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIKCgJwchgCIAEoCRIRCglvcGVuX29ubHkYAyABKAgiMwoQTGlzdEFza3NSZXNwb25zZRIfCgRhc2tzGAEgAygLMhEuYWdlbnRtZXNoLnYxLkFzayI7CgxQZWVyVXBzdHJlYW0SDgoGcmVtb3RlGAEgASgJEg4KBmJyYW5jaBgCIAEoCRILCgN1cmwYAyABKAkikAMKBFBlZXISDAoEbmFtZRgBIAEoCRIMCgRyZXBvGAIgASgJEg0KBWdyb3VwGAMgASgJEgwKBGtpbmQYBCABKAkSDQoFYWJvdXQYBSABKAkSLAoIdXBzdHJlYW0YBiABKAsyGi5hZ2VudG1lc2gudjEuUGVlclVwc3RyZWFtEhAKCHdvcmt0cmVlGAcgASgJEgwKBHNlZW4YCCABKAkSEgoKc2Vzc2lvbl9pZBgJIAEoCRIpCgVhZGRlZBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASKQoFYXNrZWQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCGxhc3RfcnVuGAwgASgJEhIKCmxhc3RfYWdlbnQYDSABKAkSFAoMbGFzdF9hbnN3ZXJzGA4gASgJEhMKC3J1bm5pbmdfcnVuGA8gASgJEhUKDXJ1bm5pbmdfYWdlbnQYECABKAkSDgoGY2xvbmVkGBEgASgIEhAKCGluX2Nsb25lGBIgASgIIigKCVBlZXJHcm91cBIMCgRuYW1lGAEgASgJEg0KBWFib3V0GAIgASgJIiEKEExpc3RQZWVyc1JlcXVlc3QSDQoFZ3JvdXAYASABKAkiXwoRTGlzdFBlZXJzUmVzcG9uc2USIQoFcGVlcnMYASADKAsyEi5hZ2VudG1lc2gudjEuUGVlchInCgZncm91cHMYAiADKAsyFy5hZ2VudG1lc2gudjEuUGVlckdyb3VwIokBCg5BZGRQZWVyUmVxdWVzdBInCgRtZXRhGAEgASgLMhkuYWdlbnRtZXNoLnYxLlJlcXVlc3RNZXRhEhQKBnNvdXJjZRgCIAEoCUIEmLUYARINCgVncm91cBgDIAEoCRINCgVhYm91dBgEIAEoCRIMCgRuYW1lGAUgASgJEgwKBGtpbmQYBiABKAkiMwoPQWRkUGVlclJlc3BvbnNlEiAKBHBlZXIYASABKAsyEi5hZ2VudG1lc2gudjEuUGVlciJZCg9FZGl0UGVlclJlcXVlc3QSJwoEbWV0YRgBIAEoCzIZLmFnZW50bWVzaC52MS5SZXF1ZXN0TWV0YRIOCgZ0YXJnZXQYAiABKAkSDQoFYWJvdXQYAyABKAkiXAoQRWRpdFBlZXJSZXNwb25zZRIgCgRwZWVyGAEgASgLMhIuYWdlbnRtZXNoLnYxLlBlZXISJgoFZ3JvdXAYAiABKAsyFy5hZ2VudG1lc2gudjEuUGVlckdyb3VwImAKEVJlbW92ZVBlZXJSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESDAoEbmFtZRgCIAEoCRIUCgxkZWxldGVfY2xvbmUYAyABKAgiPQoSUmVtb3ZlUGVlclJlc3BvbnNlEhAKCHdvcmt0cmVlGAEgASgJEhUKDWRlbGV0ZWRfY2xvbmUYAiABKAkiZAoSSW1wb3J0UGVlcnNSZXF1ZXN0EicKBG1ldGEYASABKAsyGS5hZ2VudG1lc2gudjEuUmVxdWVzdE1ldGESEgoEZnJvbRgCIAEoCUIEmLUYARIRCgl1bmJyaWVmZWQYAyABKAgiOAoTSW1wb3J0UGVlcnNSZXNwb25zZRIQCghpbXBvcnRlZBgBIAMoCRIPCgdza2lwcGVkGAIgAygJKmMKB0Fza0tpbmQSGAoUQVNLX0tJTkRfVU5TUEVDSUZJRUQQABIVChFBU0tfS0lORF9RVUVTVElPThABEhMKD0FTS19LSU5EX1JFVklFVxACEhIKDkFTS19LSU5EX1BFRVJTEAMqVQoJQXNrU3RhdHVzEhoKFkFTS19TVEFUVVNfVU5TUEVDSUZJRUQQABITCg9BU0tfU1RBVFVTX09QRU4QARIXChNBU0tfU1RBVFVTX0ZJTklTSEVEEAIqzwEKD0Fza01lbWJlclN0YXR1cxIhCh1BU0tfTUVNQkVSX1NUQVRVU19VTlNQRUNJRklFRBAAEh0KGUFTS19NRU1CRVJfU1RBVFVTX1BFTkRJTkcQARIeChpBU0tfTUVNQkVSX1NUQVRVU19BTlNXRVJFRBACEh0KGUFTS19NRU1CRVJfU1RBVFVTX1NFVFRMRUQQAxIfChtBU0tfTUVNQkVSX1NUQVRVU19OT1RfQVNLRUQQBBIaChZBU0tfTUVNQkVSX1NUQVRVU19MT1NUEAViBnByb3RvMw", [file_agentmesh_v1_options, file_agentmesh_v1_types, file_google_protobuf_timestamp]);
 
 /**
  * AskMember is one agent an ask is waiting on.
@@ -424,7 +424,8 @@ export type AskRequest = Message<"agentmesh.v1.AskRequest"> & {
   size: string;
 
   /**
-   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`.
+   * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`. A question
+   * (or peers) that names no tier and no model runs on the asker role (`roles.asker.*`; a kind narrows it to that CLI).
    *
    * @generated from field: string tier = 7;
    */
@@ -470,8 +471,9 @@ export type AskRequest = Message<"agentmesh.v1.AskRequest"> & {
   slug: string;
 
   /**
-   * Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-   * and `body`; collected into one answers file.
+   * Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+   * read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+   * collected into one answers file. Needs `body`.
    *
    * @generated from field: string peers = 14;
    */
@@ -508,6 +510,17 @@ export type AskRequest = Message<"agentmesh.v1.AskRequest"> & {
    * @generated from field: bool relay = 18;
    */
   relay: boolean;
+
+  /**
+   * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+   * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+   * the default: ask fresh unless the earlier answer's context is what the question needs. `tier`, `model` and `effort`
+   * apply only when the conversation is resumed in a new agent; an asker of this run that is given the question
+   * keeps what it runs on.
+   *
+   * @generated from field: bool continue = 19;
+   */
+  continue: boolean;
 };
 
 /**
@@ -723,8 +736,8 @@ export const PeerUpstreamSchema: GenMessage<PeerUpstream> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_ask, 9);
 
 /**
- * Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
- * asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+ * Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+ * asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
  *
  * @generated from message agentmesh.v1.Peer
  */
@@ -749,7 +762,8 @@ export type Peer = Message<"agentmesh.v1.Peer"> & {
   group: string;
 
   /**
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    *
    * @generated from field: string kind = 4;
    */
@@ -782,7 +796,8 @@ export type Peer = Message<"agentmesh.v1.Peer"> & {
   seen: string;
 
   /**
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    *
    * @generated from field: string session_id = 9;
    */
@@ -947,7 +962,7 @@ export type AddPeerRequest = Message<"agentmesh.v1.AddPeerRequest"> & {
   name: string;
 
   /**
-   * The CLI its asker runs on (default claude).
+   * Not read: a peer's asker runs on the asker role, or on what the ask names.
    *
    * @generated from field: string kind = 6;
    */
@@ -1099,9 +1114,7 @@ export type ImportPeersRequest = Message<"agentmesh.v1.ImportPeersRequest"> & {
   from: string;
 
   /**
-   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-   * its answers file come across, so a follow-up resumes it.
+   * Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
    *
    * @generated from field: bool unbriefed = 3;
    */
@@ -1163,7 +1176,7 @@ export enum AskKind {
   REVIEW = 2,
 
   /**
-   * A question for standing peers (`mesh ask --peers`): one answers file, one message.
+   * A question for peers (`mesh ask --peers`): one answers file, one message.
    *
    * @generated from enum value: ASK_KIND_PEERS = 3;
    */

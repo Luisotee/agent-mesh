@@ -10993,7 +10993,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x1bPERMISSION_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14PERMISSION_KIND_TOOL\x10\x01\x12\x1c\n" +
 	"\x18PERMISSION_KIND_QUESTION\x10\x02\x12\x18\n" +
-	"\x14PERMISSION_KIND_PLAN\x10\x032\x9bs\n" +
+	"\x14PERMISSION_KIND_PLAN\x10\x032\xfbr\n" +
 	"\vMeshService\x12\x95\x01\n" +
 	"\x05Hello\x12\x1a.agentmesh.v1.HelloRequest\x1a\x1b.agentmesh.v1.HelloResponse\"S\x8a\xb5\x18O\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\"EShow the daemon's id, version and capabilities, and who you are to it\x12a\n" +
@@ -11141,18 +11141,18 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\rRecordVerdict\x12\".agentmesh.v1.RecordVerdictRequest\x1a#.agentmesh.v1.RecordVerdictResponse\"Y\x8a\xb5\x18U\n" +
 	"\x03\x01\x02\x05\x10\x01\x1a\averdict\"CRecord your verdict on a reviewer's findings of a PR's latest round\x12\x98\x01\n" +
 	"\bListAsks\x12\x1d.agentmesh.v1.ListAsksRequest\x1a\x1e.agentmesh.v1.ListAsksResponse\"M\x8a\xb5\x18I\n" +
-	"\x04\x01\x02\x05\x06\x1a\x04asks\";List the asks and review rounds of a run, with who answered\x12\xb5\x01\n" +
-	"\tListPeers\x12\x1e.agentmesh.v1.ListPeersRequest\x1a\x1f.agentmesh.v1.ListPeersResponse\"g\x8a\xb5\x18c\n" +
-	"\x06\x01\x02\x03\x04\x05\x06\x1a\x05peers\"RList the standing peers by group, with what each is for and when it was last asked\x12\xa2\x01\n" +
-	"\aAddPeer\x12\x1c.agentmesh.v1.AddPeerRequest\x1a\x1d.agentmesh.v1.AddPeerResponse\"Z\x8a\xb5\x18V\n" +
-	"\x02\x01\x05\x10\x01\x1a\badd-peer\"DRegister a project as a standing peer (clones a URL under peers.dir)\x12\x8f\x01\n" +
+	"\x04\x01\x02\x05\x06\x1a\x04asks\";List the asks and review rounds of a run, with who answered\x12\xc2\x01\n" +
+	"\tListPeers\x12\x1e.agentmesh.v1.ListPeersRequest\x1a\x1f.agentmesh.v1.ListPeersResponse\"t\x8a\xb5\x18p\n" +
+	"\x06\x01\x02\x03\x04\x05\x06\x1a\x05peers\"_List the peers (registered projects) by group, with what each is for and when it was last asked\x12\x99\x01\n" +
+	"\aAddPeer\x12\x1c.agentmesh.v1.AddPeerRequest\x1a\x1d.agentmesh.v1.AddPeerResponse\"Q\x8a\xb5\x18M\n" +
+	"\x02\x01\x05\x10\x01\x1a\badd-peer\";Register a project as a peer (clones a URL under peers.dir)\x12\x8f\x01\n" +
 	"\bEditPeer\x12\x1d.agentmesh.v1.EditPeerRequest\x1a\x1e.agentmesh.v1.EditPeerResponse\"D\x8a\xb5\x18@\n" +
-	"\x02\x01\x05\x10\x01\x1a\tedit-peer\"-Change the about of a peer or of a peer group\x12\x80\x01\n" +
+	"\x02\x01\x05\x10\x01\x1a\tedit-peer\"-Change the about of a peer or of a peer group\x12w\n" +
 	"\n" +
-	"RemovePeer\x12\x1f.agentmesh.v1.RemovePeerRequest\x1a .agentmesh.v1.RemovePeerResponse\"/\x8a\xb5\x18+\n" +
-	"\x02\x01\x05\x10\x01\x1a\vremove-peer\"\x16Remove a standing peer\x12\xbd\x01\n" +
-	"\vImportPeers\x12 .agentmesh.v1.ImportPeersRequest\x1a!.agentmesh.v1.ImportPeersResponse\"i\x8a\xb5\x18e\n" +
-	"\x02\x01\x05\x10\x01\x1a\fimport-peers\"OImport the peers of bin/mesh's peers.json (read only), with their conversations\x12\xb4\x01\n" +
+	"RemovePeer\x12\x1f.agentmesh.v1.RemovePeerRequest\x1a .agentmesh.v1.RemovePeerResponse\"&\x8a\xb5\x18\"\n" +
+	"\x02\x01\x05\x10\x01\x1a\vremove-peer\"\rRemove a peer\x12\xa3\x01\n" +
+	"\vImportPeers\x12 .agentmesh.v1.ImportPeersRequest\x1a!.agentmesh.v1.ImportPeersResponse\"O\x8a\xb5\x18K\n" +
+	"\x02\x01\x05\x10\x01\x1a\fimport-peers\"5Import the peers of bin/mesh's peers.json (read only)\x12\xb4\x01\n" +
 	"\aGetCost\x12\x1c.agentmesh.v1.GetCostRequest\x1a\x1d.agentmesh.v1.GetCostResponse\"l\x8a\xb5\x18h\n" +
 	"\x06\x01\x02\x03\x04\x05\x06\x1a\x04cost\"XTokens per agent, kind and phase (dollars at API prices beside them), from session files\x12\xc9\x01\n" +
 	"\vCheckModels\x12 .agentmesh.v1.CheckModelsRequest\x1a!.agentmesh.v1.CheckModelsResponse\"u\x8a\xb5\x18q\n" +

@@ -191,7 +191,7 @@ func (d *Daemon) GetRunOverview(ctx context.Context, req *connect.Request[v1.Get
 		case inTrouble(a):
 			out.Trouble = append(out.Trouble, row)
 		case a.Peer && a.State == v1.AgentState_AGENT_STATE_IDLE:
-			// A peer between asks is standing by, not part of the run's work.
+			// A peer's asker between asks is standing by, not part of the run's work.
 		case a.State == v1.AgentState_AGENT_STATE_IDLE:
 			out.Idle = append(out.Idle, row)
 		default:

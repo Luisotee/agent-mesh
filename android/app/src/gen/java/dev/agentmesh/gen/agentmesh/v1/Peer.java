@@ -7,8 +7,8 @@ package dev.agentmesh.gen.agentmesh.v1;
 
 /**
  * <pre>
- * Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
- * asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+ * Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+ * asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
  * </pre>
  *
  * Protobuf type {@code agentmesh.v1.Peer}
@@ -220,7 +220,8 @@ public  final class Peer extends
   private java.lang.String kind_;
   /**
    * <pre>
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    * </pre>
    *
    * <code>string kind = 4 [json_name = "kind"];</code>
@@ -232,7 +233,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    * </pre>
    *
    * <code>string kind = 4 [json_name = "kind"];</code>
@@ -245,7 +247,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    * </pre>
    *
    * <code>string kind = 4 [json_name = "kind"];</code>
@@ -259,7 +262,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    * </pre>
    *
    * <code>string kind = 4 [json_name = "kind"];</code>
@@ -270,7 +274,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * The CLI it runs on.
+   * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+   * repo: each ask runs a fresh asker on the asker role.
    * </pre>
    *
    * <code>string kind = 4 [json_name = "kind"];</code>
@@ -535,7 +540,8 @@ public  final class Peer extends
   private java.lang.String sessionId_;
   /**
    * <pre>
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    * </pre>
    *
    * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -547,7 +553,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    * </pre>
    *
    * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -560,7 +567,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    * </pre>
    *
    * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -574,7 +582,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    * </pre>
    *
    * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -585,7 +594,8 @@ public  final class Peer extends
   }
   /**
    * <pre>
-   * Its conversation, once it has been asked; empty means never briefed.
+   * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+   * asked, or the CLI did not report one.
    * </pre>
    *
    * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -1131,8 +1141,8 @@ public  final class Peer extends
 
   /**
    * <pre>
-   * Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
-   * asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+   * Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+   * asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
    * </pre>
    *
    * Protobuf type {@code agentmesh.v1.Peer}
@@ -1337,7 +1347,8 @@ public  final class Peer extends
 
     /**
      * <pre>
-     * The CLI it runs on.
+     * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+     * repo: each ask runs a fresh asker on the asker role.
      * </pre>
      *
      * <code>string kind = 4 [json_name = "kind"];</code>
@@ -1349,7 +1360,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * The CLI it runs on.
+     * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+     * repo: each ask runs a fresh asker on the asker role.
      * </pre>
      *
      * <code>string kind = 4 [json_name = "kind"];</code>
@@ -1362,7 +1374,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * The CLI it runs on.
+     * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+     * repo: each ask runs a fresh asker on the asker role.
      * </pre>
      *
      * <code>string kind = 4 [json_name = "kind"];</code>
@@ -1377,7 +1390,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * The CLI it runs on.
+     * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+     * repo: each ask runs a fresh asker on the asker role.
      * </pre>
      *
      * <code>string kind = 4 [json_name = "kind"];</code>
@@ -1390,7 +1404,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * The CLI it runs on.
+     * The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+     * repo: each ask runs a fresh asker on the asker role.
      * </pre>
      *
      * <code>string kind = 4 [json_name = "kind"];</code>
@@ -1660,7 +1675,8 @@ public  final class Peer extends
 
     /**
      * <pre>
-     * Its conversation, once it has been asked; empty means never briefed.
+     * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+     * asked, or the CLI did not report one.
      * </pre>
      *
      * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -1672,7 +1688,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * Its conversation, once it has been asked; empty means never briefed.
+     * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+     * asked, or the CLI did not report one.
      * </pre>
      *
      * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -1685,7 +1702,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * Its conversation, once it has been asked; empty means never briefed.
+     * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+     * asked, or the CLI did not report one.
      * </pre>
      *
      * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -1700,7 +1718,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * Its conversation, once it has been asked; empty means never briefed.
+     * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+     * asked, or the CLI did not report one.
      * </pre>
      *
      * <code>string session_id = 9 [json_name = "sessionId"];</code>
@@ -1713,7 +1732,8 @@ public  final class Peer extends
     }
     /**
      * <pre>
-     * Its conversation, once it has been asked; empty means never briefed.
+     * The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+     * asked, or the CLI did not report one.
      * </pre>
      *
      * <code>string session_id = 9 [json_name = "sessionId"];</code>

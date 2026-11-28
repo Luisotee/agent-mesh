@@ -153,7 +153,7 @@ func nonzeroMin(xs ...int) int {
 // requestResumeCompaction asks for the compaction a resume does before it reopens a stopped conversation, when it
 // pays (bin/mesh's should_compact, design §12): a warm conversation above `compact.<kind>`, a cold one (its prompt
 // cache expired, so the first turn writes it all again) above the lower of that and `compact.claude_cold`, twice
-// as much for a read-only task but not a standing peer's; an agy conversation of unreadable size only when it
+// as much for a read-only task but not a peer asker's; an agy conversation of unreadable size only when it
 // comes back from another run and the task isn't read-only. A switch never compacts. mode is "auto" (or empty),
 // "yes" or "no". The caller stores the agent.
 func (d *Daemon) requestResumeCompaction(tx *store.Tx, a *v1.Agent, spec reviveSpec) error {

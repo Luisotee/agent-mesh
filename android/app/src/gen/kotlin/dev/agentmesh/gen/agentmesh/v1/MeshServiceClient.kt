@@ -1065,7 +1065,8 @@ public class MeshServiceClient(
 
 
   /**
-   *  The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+   *  The peers: registered projects (a clone, a group, what it is for). Each `ask --peers` starts a fresh read-only asker
+   *  in the peer's checkout; continuing the last one's conversation is the asking agent's choice (`--continue`).
    */
   override suspend fun listPeers(request: ListPeersRequest, headers: Headers): ResponseMessage<ListPeersResponse> = client.unary(
     request,
@@ -1125,8 +1126,8 @@ public class MeshServiceClient(
 
 
   /**
-   *  Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
-   *  that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
+   *  Register the peers of bin/mesh's peers.json (read only): the clone, group, about and upstream. A conversation of
+   *  bin/mesh does not come across (a peer's asker is a fresh one each ask).
    */
   override suspend fun importPeers(request: ImportPeersRequest, headers: Headers): ResponseMessage<ImportPeersResponse> = client.unary(
     request,

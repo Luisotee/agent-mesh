@@ -919,7 +919,8 @@ service MeshService {
     };
   }
 
-  // The standing peers: cloned projects, each a read-only asker that keeps its conversation across runs.
+  // The peers: registered projects (a clone, a group, what it is for). Each `ask --peers` starts a fresh read-only asker
+  // in the peer's checkout; continuing the last one's conversation is the asking agent's choice (`--continue`).
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
     option (action) = {
       actors: [
@@ -931,7 +932,7 @@ service MeshService {
         ACTOR_CLASS_READ_ONLY_DEVICE
       ]
       cli: "peers"
-      summary: "List the standing peers by group, with what each is for and when it was last asked"
+      summary: "List the peers (registered projects) by group, with what each is for and when it was last asked"
     };
   }
 
@@ -944,7 +945,7 @@ service MeshService {
       ]
       write: true
       cli: "add-peer"
-      summary: "Register a project as a standing peer (clones a URL under peers.dir)"
+      summary: "Register a project as a peer (clones a URL under peers.dir)"
     };
   }
 
@@ -970,12 +971,12 @@ service MeshService {
       ]
       write: true
       cli: "remove-peer"
-      summary: "Remove a standing peer"
+      summary: "Remove a peer"
     };
   }
 
-  // Register the peers of bin/mesh's peers.json (read only), each with its conversation (session, folder, last ask) unless
-  // that may still be running in bin/mesh or `unbriefed` is set; a registered peer never asked is given its conversation too.
+  // Register the peers of bin/mesh's peers.json (read only): the clone, group, about and upstream. A conversation of
+  // bin/mesh does not come across (a peer's asker is a fresh one each ask).
   rpc ImportPeers(ImportPeersRequest) returns (ImportPeersResponse) {
     option (action) = {
       actors: [
@@ -984,7 +985,7 @@ service MeshService {
       ]
       write: true
       cli: "import-peers"
-      summary: "Import the peers of bin/mesh's peers.json (read only), with their conversations"
+      summary: "Import the peers of bin/mesh's peers.json (read only)"
     };
   }
 

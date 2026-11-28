@@ -225,7 +225,7 @@ func isReadOnlyTask(body string) bool { return readOnlyStartRe.MatchString(strin
 // worker (mayStart), so a plain task to its asker stays a read-only follow-up, as it was before roles changed.
 func (d *Daemon) becomesWorker(r store.Reader, a *v1.Agent, body string) bool {
 	if !adapter.ReadOnly(a.Role) || isReadOnlyTask(body) || a.Peer {
-		return false // a standing peer only answers, whatever it is sent
+		return false // a peer's asker only answers, whatever it is sent
 	}
 	parent := v1.ActorClass_ACTOR_CLASS_DEVICE // started by a device: no parent agent
 	if a.ParentId != "" {
@@ -758,7 +758,8 @@ func (d *Daemon) hasProcessOnSessionOrWorktree(r store.Reader, a *v1.Agent) erro
 			return failedPrecondition("conversation %s is already running in %s (run %s): stop it before resuming",
 				a.SessionId, other.Name, other.RunId)
 		}
-		if a.Worktree != "" && other.Worktree == a.Worktree {
+		// Askers of one peer share its checkout (their conversations differ).
+		if a.Worktree != "" && other.Worktree == a.Worktree && !(a.Peer && other.Peer && !(a.Kind == "agy" && other.Kind == "agy")) { // agy writes its hooks per checkout: one agent id
 			return failedPrecondition("worktree %s is already in use by %s (run %s): stop it before resuming",
 				a.Worktree, other.Name, other.RunId)
 		}

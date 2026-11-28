@@ -30,7 +30,7 @@ const (
 	AskKind_ASK_KIND_QUESTION AskKind = 1
 	// A review of one commit of a pull request: a round of reviewers, or one.
 	AskKind_ASK_KIND_REVIEW AskKind = 2
-	// A question for standing peers (`mesh ask --peers`): one answers file, one message.
+	// A question for peers (`mesh ask --peers`): one answers file, one message.
 	AskKind_ASK_KIND_PEERS AskKind = 3
 )
 
@@ -771,7 +771,8 @@ type AskRequest struct {
 	Review string `protobuf:"bytes,5,opt,name=review,proto3" json:"review,omitempty"`
 	// trivial, small or large: the review's slots (`review.reviewers.<size>`), /code-review level and rounds.
 	Size string `protobuf:"bytes,6,opt,name=size,proto3" json:"size,omitempty"`
-	// The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`.
+	// The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`. A question
+	// (or peers) that names no tier and no model runs on the asker role (`roles.asker.*`; a kind narrows it to that CLI).
 	Tier string `protobuf:"bytes,7,opt,name=tier,proto3" json:"tier,omitempty"`
 	// The CLI of a fresh agent; a round chooses its own.
 	Kind   string `protobuf:"bytes,8,opt,name=kind,proto3" json:"kind,omitempty"`
@@ -784,8 +785,9 @@ type AskRequest struct {
 	Since string `protobuf:"bytes,12,opt,name=since,proto3" json:"since,omitempty"`
 	// Names a fresh agent (<repo>-<slug>); default: from the body.
 	Slug string `protobuf:"bytes,13,opt,name=slug,proto3" json:"slug,omitempty"`
-	// Standing peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Needs `tier`
-	// and `body`; collected into one answers file.
+	// Peers to ask, all at once: "all", a group, or a comma list of peer names and groups. Each peer gets a fresh
+	// read-only asker on the asker role (or the tier, kind, model and effort named), closed once it has answered;
+	// collected into one answers file. Needs `body`.
 	Peers string `protobuf:"bytes,14,opt,name=peers,proto3" json:"peers,omitempty"`
 	// Ask the peers as they are: don't fetch their upstream or move their checkout.
 	NoRefresh bool `protobuf:"varint,15,opt,name=no_refresh,json=noRefresh,proto3" json:"no_refresh,omitempty"`
@@ -798,7 +800,13 @@ type AskRequest struct {
 	// new head, step 3 the first again on the fix commits only (`since` and the "commits X..Y fixed an earlier
 	// review" note are set for you). Run it again once the author has pushed the fixes of the last step; at most
 	// 3 steps.
-	Relay         bool `protobuf:"varint,18,opt,name=relay,proto3" json:"relay,omitempty"`
+	Relay bool `protobuf:"varint,18,opt,name=relay,proto3" json:"relay,omitempty"`
+	// With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
+	// conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
+	// the default: ask fresh unless the earlier answer's context is what the question needs. `tier`, `model` and `effort`
+	// apply only when the conversation is resumed in a new agent; an asker of this run that is given the question
+	// keeps what it runs on.
+	Continue      bool `protobuf:"varint,19,opt,name=continue,proto3" json:"continue,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -955,6 +963,13 @@ func (x *AskRequest) GetMcp() []string {
 func (x *AskRequest) GetRelay() bool {
 	if x != nil {
 		return x.Relay
+	}
+	return false
+}
+
+func (x *AskRequest) GetContinue() bool {
+	if x != nil {
+		return x.Continue
 	}
 	return false
 }
@@ -1363,8 +1378,8 @@ func (x *PeerUpstream) GetUrl() string {
 	return ""
 }
 
-// Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
-// asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+// Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+// asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
 type Peer struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// `<repo>-research` (the repo part cut to 20 characters), unique on the host.
@@ -1372,7 +1387,8 @@ type Peer struct {
 	// The clone.
 	Repo  string `protobuf:"bytes,2,opt,name=repo,proto3" json:"repo,omitempty"`
 	Group string `protobuf:"bytes,3,opt,name=group,proto3" json:"group,omitempty"`
-	// The CLI it runs on.
+	// The CLI of its last asker's conversation (`session_id`); empty when it was never asked. A peer is a registered
+	// repo: each ask runs a fresh asker on the asker role.
 	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
 	// What it is and what to ask it, at most 400 characters.
 	About    string        `protobuf:"bytes,5,opt,name=about,proto3" json:"about,omitempty"`
@@ -1381,7 +1397,8 @@ type Peer struct {
 	Worktree string `protobuf:"bytes,7,opt,name=worktree,proto3" json:"worktree,omitempty"`
 	// The commit it last looked at.
 	Seen string `protobuf:"bytes,8,opt,name=seen,proto3" json:"seen,omitempty"`
-	// Its conversation, once it has been asked; empty means never briefed.
+	// The conversation of the asker that last answered it, kept for `ask --peers --continue`; empty when it was never
+	// asked, or the CLI did not report one.
 	SessionId string                 `protobuf:"bytes,9,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	Added     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=added,proto3" json:"added,omitempty"`
 	Asked     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=asked,proto3" json:"asked,omitempty"`
@@ -1715,7 +1732,7 @@ type AddPeerRequest struct {
 	About  string `protobuf:"bytes,4,opt,name=about,proto3" json:"about,omitempty"`
 	// Default `<repo>-research`.
 	Name string `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
-	// The CLI its asker runs on (default claude).
+	// Not read: a peer's asker runs on the asker role, or on what the ask names.
 	Kind          string `protobuf:"bytes,6,opt,name=kind,proto3" json:"kind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2069,9 +2086,7 @@ type ImportPeersRequest struct {
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// bin/mesh's peers.json; default `~/.local/state/agent-mesh/peers.json`. It is only read.
 	From string `protobuf:"bytes,2,opt,name=from,proto3" json:"from,omitempty"`
-	// Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-	// default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-	// its answers file come across, so a follow-up resumes it.
+	// Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
 	Unbriefed     bool `protobuf:"varint,3,opt,name=unbriefed,proto3" json:"unbriefed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2248,7 +2263,7 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\acontext\x18\x18 \x01(\tR\acontext\x12\x1d\n" +
 	"\n" +
 	"relay_step\x18\x19 \x01(\x05R\trelayStep\x12\x19\n" +
-	"\brelay_of\x18\x1a \x01(\tR\arelayOf\"\xc4\x03\n" +
+	"\brelay_of\x18\x1a \x01(\tR\arelayOf\"\xe0\x03\n" +
 	"\n" +
 	"AskRequest\x12-\n" +
 	"\x04meta\x18\x01 \x01(\v2\x19.agentmesh.v1.RequestMetaR\x04meta\x12\x14\n" +
@@ -2270,7 +2285,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"no_refresh\x18\x0f \x01(\bR\tnoRefresh\x12\x18\n" +
 	"\atimeout\x18\x10 \x01(\x05R\atimeout\x12\x10\n" +
 	"\x03mcp\x18\x11 \x03(\tR\x03mcp\x12\x14\n" +
-	"\x05relay\x18\x12 \x01(\bR\x05relay\"\xba\x01\n" +
+	"\x05relay\x18\x12 \x01(\bR\x05relay\x12\x1a\n" +
+	"\bcontinue\x18\x13 \x01(\bR\bcontinue\"\xba\x01\n" +
 	"\vAskResponse\x12#\n" +
 	"\x03ask\x18\x01 \x01(\v2\x11.agentmesh.v1.AskR\x03ask\x12+\n" +
 	"\x06agents\x18\x02 \x03(\v2\x13.agentmesh.v1.AgentR\x06agents\x12\x14\n" +

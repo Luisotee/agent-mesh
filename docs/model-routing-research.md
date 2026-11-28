@@ -222,7 +222,7 @@ How to move a worker up:
    - add a leaf per CLI for its plan (for example `plans.<kind>`) and a strengths line per model family;
    - print both in `mesh brief`, where the root reads them every run.
 3. **`mesh usage` should compare pools in one unit.** The daemon has each window's token counts and how far its percentage moved, so it can work out each plan's real size. It should show what's left as, say, "≈ 3% of a Claude week", and the pace (used vs. elapsed time): agy at 98% used with 6 days to go is a warning.
-4. **A model list per role for askers and peers.** Today a peer ask always runs on the peer's registered CLI and tier list, and refuses `--model` and `--kind` (`daemon/internal/daemon/peers.go`, around line 796). All 40 peers are registered as Claude, and `edit-peer` changes only the description. This needs:
+4. **A model list per role for askers and peers** (done in PR 5: `roles.asker.*`, a fresh asker per ask, `--continue` by choice). Before it, today a peer ask always runs on the peer's registered CLI and tier list, and refuses `--model` and `--kind` (`daemon/internal/daemon/peers.go`, around line 796). All 40 peers are registered as Claude, and `edit-peer` changes only the description. This needs:
    - `roles.asker.<kind>.model` and `roles.peer.<kind>.model`, falling back to the tier list;
    - `edit-peer --kind` to move a peer to OpenCode. The move starts a fresh conversation, so the peer loses what it remembers;
    - a fallback: an answer that comes back weak is asked again on Sonnet.

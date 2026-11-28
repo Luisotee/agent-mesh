@@ -76,6 +76,9 @@ func (d *Daemon) finishIfDone(tx *store.Tx, a *v1.Ask) (*v1.Message, error) {
 	var fileErr error
 	if a.Kind == v1.AskKind_ASK_KIND_PEERS {
 		fileErr = writePeerAnswers(a)
+		if fileErr != nil {
+			a.AnswersPath = "" // the registry must not point at a file that is not there
+		}
 		if err := recordPeerAnswers(tx, a); err != nil {
 			return nil, err
 		}
@@ -223,8 +226,18 @@ func (d *Daemon) settleReport(tx *store.Tx, c *collectRef, typ v1.MessageType, b
 	case v1.MessageType_MESSAGE_TYPE_FAILED:
 		line = "failed: " + lineOf(body)
 	default:
-		line = "sent a " + name + " instead of an answer: answer it with `mesh send " + c.ask.Members[c.idx].Name + " --type answer …`"
+		who := c.ask.Members[c.idx].Name
+		if ag, err := tx.GetAgent(c.ask.Members[c.idx].AgentId); err == nil {
+			who = ag.Name // a peer's asker is named after the peer, then `<peer>-2`, …
+		}
+		line = "sent a " + name + " instead of an answer: answer it with `mesh send " + who + " --type answer …`"
 		body = ""
+	}
+	if status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED && c.ask.Kind == v1.AskKind_ASK_KIND_PEERS {
+		// The peer's conversation is the registry's from its answer, not from the end of the whole round.
+		if err := recordPeerMember(tx, c.ask, c.ask.Members[c.idx], false); err != nil {
+			return err
+		}
 	}
 	// The finishing message (if this was the last member) rings with the caller's other mail: SendMessage notifies it.
 	_, err := d.settleMember(tx, c.ask, c.idx, status, name, line, body)

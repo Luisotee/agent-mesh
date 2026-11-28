@@ -44,7 +44,7 @@ func TestAPeerResumedIntoAnotherRunStaysAPeerAndKeepsItsWorktree(t *testing.T) {
 	// Its process counts as the peer's: another run's ask is refused while it runs.
 	run3 := startRun(t, w.device.Mesh, "")
 	_, as3 := w.root(t, run3.Id)
-	if _, err := as3.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: p.Name, Tier: "mid", Body: "third?", Timeout: 60})); code(err) != connect.CodeFailedPrecondition {
+	if _, err := as3.Ask(ctx, connect.NewRequest(&v1.AskRequest{Continue: true, Peers: p.Name, Tier: "mid", Body: "third?", Timeout: 60})); code(err) != connect.CodeFailedPrecondition {
 		t.Errorf("run 3's ask of a peer that run 2 holds: %v", err)
 	}
 	if _, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta(""), RunId: run2.Id})); err != nil {

@@ -136,9 +136,7 @@ public  final class ImportPeersRequest extends
   private boolean unbriefed_;
   /**
    * <pre>
-   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-   * its answers file come across, so a follow-up resumes it.
+   * Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
    * </pre>
    *
    * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
@@ -150,9 +148,7 @@ public  final class ImportPeersRequest extends
   }
   /**
    * <pre>
-   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-   * its answers file come across, so a follow-up resumes it.
+   * Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
    * </pre>
    *
    * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
@@ -164,9 +160,7 @@ public  final class ImportPeersRequest extends
   }
   /**
    * <pre>
-   * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-   * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-   * its answers file come across, so a follow-up resumes it.
+   * Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
    * </pre>
    *
    * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
@@ -391,9 +385,7 @@ public  final class ImportPeersRequest extends
 
     /**
      * <pre>
-     * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-     * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-     * its answers file come across, so a follow-up resumes it.
+     * Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
      * </pre>
      *
      * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
@@ -405,9 +397,7 @@ public  final class ImportPeersRequest extends
     }
     /**
      * <pre>
-     * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-     * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-     * its answers file come across, so a follow-up resumes it.
+     * Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
      * </pre>
      *
      * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
@@ -421,9 +411,7 @@ public  final class ImportPeersRequest extends
     }
     /**
      * <pre>
-     * Register the peers without their conversations: each is briefed afresh in a worktree of the daemon's own. By
-     * default a peer's conversation, its worktree path (Claude keys a conversation by it), what it was last asked and
-     * its answers file come across, so a follow-up resumes it.
+     * Not read: no conversation comes across any more (a peer's asker is a fresh one each ask).
      * </pre>
      *
      * <code>bool unbriefed = 3 [json_name = "unbriefed"];</code>
