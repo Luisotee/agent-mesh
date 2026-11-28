@@ -116,7 +116,7 @@ Each reviewer works inside the repo at the PR's head and changes nothing. You ge
 
 - **Agents work inside the repo, not from outside it.** Each worker follows the target repo's own instructions, hooks and skills.
 - **You can watch and step in.** Every agent runs in a terminal the daemon hosts; the apps attach to it, and what you type there overrides the agent that started it.
-- **Plan first, then the same agent executes.** Large tasks plan on the tier the root picks and get reviewed before any code changes; approval reopens the *same conversation* on the execution tier the root names. Small tasks skip the plan.
+- **Plan first, then the same agent executes.** Large tasks plan on the tier the root picks and get reviewed before any code changes; approval reopens the *same conversation* on the execution tier the root names. Small tasks skip the plan. A later "think about it" (research, options, a rewrite, an optimisation) sends a worker back into planning in the same conversation (`mesh send --type task --plan`, or "Plan first" in the desktop's message dialog), on a strong tier or a higher effort; Claude workers plan in Claude Code's own plan mode.
 - **Claude, Gemini, Copilot and OpenCode as reviewers and workers in one run** (each as far as its adapter goes), with a PR reviewed by several vendors at once.
 - **Supervised, not fire-and-forget.** Every message is stored before a doorbell wakes the recipient, so a missed doorbell loses nothing. The daemon flags an agent that went silent, exited, sits at a dialog or hit a quota.
 
