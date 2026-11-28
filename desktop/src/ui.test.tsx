@@ -134,6 +134,10 @@ describe('ProjectSidebar', () => {
     expect(old).toHaveTextContent('Retired')
     await userEvent.click(old)
     expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'old' })
+    // The open agent is in the fold: it stays open for it, and a click on the header still folds it.
+    expect(within(project).getByRole('button', { name: /Ended\s*2/ })).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(within(project).getByRole('button', { name: /Ended\s*2/ }))
+    expect(within(project).getByRole('button', { name: /Ended\s*2/ })).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('folds reviewers and askers into a chip on their worker, and tags a worker in another repo', async () => {

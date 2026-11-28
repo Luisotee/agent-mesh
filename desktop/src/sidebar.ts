@@ -1,5 +1,5 @@
 import { AgentRole, AgentState, RunStatus, type Agent, type Run } from './gen/agentmesh/v1/types_pb'
-import { buildTrees, repoName, type TreeNode } from './derive'
+import { buildTrees, exitKind, repoName, type TreeNode } from './derive'
 
 /** What the sidebar needs of one host. */
 export interface SidebarHost {
@@ -102,7 +102,8 @@ const unarchived = (nodes: TreeNode[]): TreeNode[] => nodes.flatMap((n) => (n.ag
 
 /**
  * A tree node's workers and helpers: read-only agents fold into the agent above them, at any depth under it. An agent
- * that `shown` refuses (an ended one, when the sidebar hides them) goes to `ended`, and what it started stays in its place.
+ * that `shown` refuses (an ended one, when the sidebar hides them) goes to `ended`, and what it started stays in its place
+ * (so a live reviewer of an ended worker joins its lead's helpers).
  */
 function split(nodes: TreeNode[], leadRepo: string, shown: (a: Agent) => boolean): { helpers: Agent[]; workers: WorkerRow[]; ended: Agent[] } {
   const helpers: Agent[] = []
@@ -139,8 +140,9 @@ export const allWorkers = (rows: WorkerRow[]): WorkerRow[] => rows.flatMap((w) =
 /** The runs of one host as lead rows (archived agents left out, their children lifted; a run whose every agent is archived left out). */
 export function leadRows(h: SidebarHost, o: { hideEnded?: boolean } = {}): LeadRow[] {
   const out: LeadRow[] = []
-  // An ended agent stays in the tree only while the UI flags it as needing attention (something waits on the user from it).
-  const shown = (a: Agent) => !o.hideEnded || alive(a) || h.waiting.has(a.id)
+  // An ended agent stays in the tree only while the UI flags it as needing attention: something waits on the user from it, or
+  // it exited by failing (a crash, a lost terminal: Watch all's "failed" bucket, `exitKind`). One stopped or retired on purpose, or that finished, is ended.
+  const shown = (a: Agent) => !o.hideEnded || alive(a) || h.waiting.has(a.id) || (a.state === AgentState.EXITED && exitKind(a) === 'failed')
   for (const t of buildTrees(h.runs, h.agents)) {
     const roots = unarchived(t.roots)
     if (t.roots.length > 0 && roots.length === 0) continue

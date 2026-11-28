@@ -74,7 +74,8 @@ describe('leadRows hideEnded', () => {
     agent('live', { parentId: 'lead', state: AgentState.WORKING }),
     agent('idle', { parentId: 'lead' }),
     agent('retired', { parentId: 'lead', state: AgentState.RETIRED }),
-    agent('lost', { parentId: 'lead', state: AgentState.EXITED }),
+    agent('lost', { parentId: 'lead', state: AgentState.EXITED, exitCode: 0 }),
+    agent('crashed', { parentId: 'lead', state: AgentState.EXITED, exitCode: 1 }),
     agent('owes', { parentId: 'lead', state: AgentState.EXITED }),
     agent('mid', { parentId: 'lead', state: AgentState.RETIRED }),
     agent('kid', { parentId: 'mid', state: AgentState.WORKING }),
@@ -84,12 +85,12 @@ describe('leadRows hideEnded', () => {
 
   it('keeps live and idle agents, puts the ended ones in `ended`, lifts what an ended agent started into its place', () => {
     const [r] = leadRows(host(agents(), [run('r1')], { waiting: new Set(['owes']) }), { hideEnded: true })
-    expect(r!.workers.map((w) => w.agent.id).sort()).toEqual(['idle', 'kid', 'live', 'owes'])
+    expect(r!.workers.map((w) => w.agent.id).sort()).toEqual(['crashed', 'idle', 'kid', 'live', 'owes'])
     expect(r!.ended.map((a) => a.id).sort()).toEqual(['lost', 'mid', 'oldrv', 'retired'])
     expect(r!.workers.find((w) => w.agent.id === 'live')!.helpers.map((a) => a.id)).toEqual(['rv'])
   })
 
-  it('keeps an ended agent the UI flags as waiting on the user (a plan or question it left), where the others go', () => {
+  it('keeps an ended agent the UI flags: one that crashed (a failed exit) or left a plan or question, where the others go', () => {
     const [r] = leadRows(host(agents(), [run('r1')], { waiting: new Set(['owes']) }), { hideEnded: true })
     expect(r!.workers.map((w) => w.agent.id)).toContain('owes')
     expect(r!.ended.map((a) => a.id)).not.toContain('owes')

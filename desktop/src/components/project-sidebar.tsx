@@ -284,7 +284,12 @@ function EmptyProjectActions({ hostId, repo }: { hostId: string; repo: string })
 /** A folded part of a project: "Earlier", or "Also working here" (`also`: copies of rows the sidebar has elsewhere, which Alt+↑/↓ skips). `open` unfolds it from outside (a rename in it). */
 function Folded({ title, count, also, open: forced, children }: { title: string; count: number; also?: boolean; open?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
-  if (forced && !open) setOpen(true)
+  // Forced open once, when `forced` turns on: a click can fold it again while the reason holds (the open agent is in it).
+  const [wasForced, setWasForced] = useState(false)
+  if (!!forced !== wasForced) {
+    setWasForced(!!forced)
+    if (forced) setOpen(true)
+  }
   return (
     <div data-also={also ? '' : undefined}>
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
