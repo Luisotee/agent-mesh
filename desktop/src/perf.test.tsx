@@ -233,4 +233,14 @@ describe('speed: what a change re-renders', () => {
     expect(calls.cards.size).toBe(60)
     expect(calls.cards.has('m999')).toBe(true)
   })
+
+  it('a chat with no transcript (the CLI keeps none) still reaches its older cards', async () => {
+    const { host, wrap, client } = seed()
+    const messages = Object.fromEntries(Array.from({ length: 100 }, (_, n) => [`m${n}`, create(MessageSchema, { id: `m${n}`, runId: 'r00', type: MessageType.INFO, body: `note ${n}`, toId: 'l00', from: { id: 'w000' }, createdAt: timestampFromMs(1000 + n) })]))
+    host.store.setState((s) => ({ messages, messageLoad: { ...s.messageLoad, r00: 'loaded' }, agents: { ...s.agents, l00: { ...s.agents.l00!, terminalId: 't', sessionId: 's' } } }))
+    client.readTranscript.mockImplementation(async () => create(ReadTranscriptResponseSchema, { supported: false }))
+    render(wrap(<ChatView host={host} agentId="l00" active />))
+    fireEvent.click(await screen.findByRole('button', { name: 'Show earlier (40 more)' }))
+    await waitFor(() => expect(calls.cards.has('m0')).toBe(true))
+  })
 })
