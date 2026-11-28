@@ -25,7 +25,7 @@ func (d *Daemon) ResolveModel(ctx context.Context, req *connect.Request[v1.Resol
 	out := &v1.ResolveModelResponse{Kind: kind, Tier: m.Tier}
 	d.warmForPick(ctx, kind, m)
 	err := d.store.Snapshot(ctx, func(r store.Reader) error {
-		model, effort, err := d.pick(r, kind, m.Tier, m.Model, m.Effort, "the model a spawn would use")
+		model, effort, err := d.pick(r, kind, m.Tier, m.Model, m.Effort, "the model a spawn would use", false)
 		if err != nil {
 			return err
 		}
@@ -37,13 +37,13 @@ func (d *Daemon) ResolveModel(ctx context.Context, req *connect.Request[v1.Resol
 		if err != nil {
 			return err
 		}
-		stop := d.quotaStop(r)
+		lim := d.reserveLimits(r, kind)
 		now := d.now()
 		for _, c := range d.expandChain(kind, chain) {
 			if c == "" || (kind == opencode.Kind && c == opencode.FreeFamily) {
 				continue
 			}
-			out.Chain = append(out.Chain, &v1.ChainModel{Model: c, Standing: d.standing(r, kind, c, effort, stop, now)})
+			out.Chain = append(out.Chain, &v1.ChainModel{Model: c, Standing: d.standing(r, kind, c, effort, lim, now)})
 		}
 		return nil
 	})
@@ -73,12 +73,15 @@ func (d *Daemon) warmForPick(ctx context.Context, kind string, m *v1.ResolveMode
 
 // standing is why a spawn would skip a model of a chain: held at a limit, or (agy) at the quota reserve; empty
 // when it has quota.
-func (d *Daemon) standing(r store.Reader, kind, model, effort string, stop float64, now time.Time) string {
+func (d *Daemon) standing(r store.Reader, kind, model, effort string, lim reserveLimits, now time.Time) string {
 	if until, _, err := r.ModelHold(kind, model, now); err == nil && !until.IsZero() {
 		return "held until " + until.Local().Format("15:04")
 	}
-	if kind == "agy" && stop < 100 {
-		if hit := d.agyModelAtReserveCached(model, effort, stop); hit != nil {
+	if kind == "agy" && !lim.off() {
+		if hit := d.agyModelAtReserveCached(model, effort, lim, false); hit != nil {
+			if hit.reviewsOnly {
+				return fmt.Sprintf("takes only PR reviews (%d%% left)", hit.left)
+			}
 			return fmt.Sprintf("at the reserve (%d%% left)", hit.left)
 		}
 	}

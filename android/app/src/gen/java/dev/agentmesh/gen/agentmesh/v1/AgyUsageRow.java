@@ -186,6 +186,82 @@ public  final class AgyUsageRow extends
 
   }
 
+  public static final int AT_RESERVE_FIELD_NUMBER = 5;
+  private boolean atReserve_;
+  /**
+   * <pre>
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+   * </pre>
+   *
+   * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
+   * @return The atReserve.
+   */
+  @java.lang.Override
+  public boolean getAtReserve() {
+    return atReserve_;
+  }
+  /**
+   * <pre>
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+   * </pre>
+   *
+   * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
+   * @param value The atReserve to set.
+   */
+  private void setAtReserve(boolean value) {
+    
+    atReserve_ = value;
+  }
+  /**
+   * <pre>
+   * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+   * </pre>
+   *
+   * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
+   */
+  private void clearAtReserve() {
+
+    atReserve_ = false;
+  }
+
+  public static final int REVIEWS_ONLY_FIELD_NUMBER = 6;
+  private boolean reviewsOnly_;
+  /**
+   * <pre>
+   * Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+   * </pre>
+   *
+   * <code>bool reviews_only = 6 [json_name = "reviewsOnly"];</code>
+   * @return The reviewsOnly.
+   */
+  @java.lang.Override
+  public boolean getReviewsOnly() {
+    return reviewsOnly_;
+  }
+  /**
+   * <pre>
+   * Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+   * </pre>
+   *
+   * <code>bool reviews_only = 6 [json_name = "reviewsOnly"];</code>
+   * @param value The reviewsOnly to set.
+   */
+  private void setReviewsOnly(boolean value) {
+    
+    reviewsOnly_ = value;
+  }
+  /**
+   * <pre>
+   * Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+   * </pre>
+   *
+   * <code>bool reviews_only = 6 [json_name = "reviewsOnly"];</code>
+   */
+  private void clearReviewsOnly() {
+
+    reviewsOnly_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.AgyUsageRow parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -458,6 +534,86 @@ public  final class AgyUsageRow extends
       return this;
     }
 
+    /**
+     * <pre>
+     * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+     * </pre>
+     *
+     * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
+     * @return The atReserve.
+     */
+    @java.lang.Override
+    public boolean getAtReserve() {
+      return instance.getAtReserve();
+    }
+    /**
+     * <pre>
+     * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+     * </pre>
+     *
+     * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
+     * @param value The atReserve to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAtReserve(boolean value) {
+      copyOnWrite();
+      instance.setAtReserve(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+     * </pre>
+     *
+     * <code>bool at_reserve = 5 [json_name = "atReserve"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAtReserve() {
+      copyOnWrite();
+      instance.clearAtReserve();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+     * </pre>
+     *
+     * <code>bool reviews_only = 6 [json_name = "reviewsOnly"];</code>
+     * @return The reviewsOnly.
+     */
+    @java.lang.Override
+    public boolean getReviewsOnly() {
+      return instance.getReviewsOnly();
+    }
+    /**
+     * <pre>
+     * Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+     * </pre>
+     *
+     * <code>bool reviews_only = 6 [json_name = "reviewsOnly"];</code>
+     * @param value The reviewsOnly to set.
+     * @return This builder for chaining.
+     */
+    public Builder setReviewsOnly(boolean value) {
+      copyOnWrite();
+      instance.setReviewsOnly(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+     * </pre>
+     *
+     * <code>bool reviews_only = 6 [json_name = "reviewsOnly"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearReviewsOnly() {
+      copyOnWrite();
+      instance.clearReviewsOnly();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AgyUsageRow)
   }
   @java.lang.Override
@@ -478,10 +634,12 @@ public  final class AgyUsageRow extends
             "label_",
             "left_",
             "resets_",
+            "atReserve_",
+            "reviewsOnly_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0004\u0004\u0208";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0004\u0004\u0208\u0005\u0007\u0006\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -115,7 +115,7 @@ export function TabBar() {
       { label: 'Close others', onSelect: () => closeAll(tabs.filter((x) => tabKey(x) !== tabKey(t))), disabled: tabs.length < 2 },
       { label: 'Close to the right', onSelect: () => closeAll(tabs.slice(at + 1)), disabled: at < 0 || at === tabs.length - 1 },
       { label: 'Reopen closed tab', onSelect: () => app.reopenTab(), disabled: closed === 0 },
-      { label: 'Copy name', onSelect: () => void navigator.clipboard?.writeText(label) },
+      { label: 'Copy name', onSelect: () => void app.copyText(label, 'the name') },
       ...(agent
         ? ([
             {

@@ -80,6 +80,14 @@ public interface MeshServiceClientInterface {
   public suspend fun stopRun(request: StopRunRequest, headers: Headers = emptyMap()): ResponseMessage<StopRunResponse>
 
   /**
+   *  Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+   *  (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+   *  that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+   *  while an agent of the run has a process: stop the run first. There is no undo. A device only.
+   */
+  public suspend fun deleteRun(request: DeleteRunRequest, headers: Headers = emptyMap()): ResponseMessage<DeleteRunResponse>
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   public suspend fun sendMessage(request: SendMessageRequest, headers: Headers = emptyMap()): ResponseMessage<SendMessageResponse>
@@ -471,6 +479,13 @@ public interface MeshServiceClientInterface {
    *  its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
    */
   public suspend fun getAgentProgress(request: GetAgentProgressRequest, headers: Headers = emptyMap()): ResponseMessage<GetAgentProgressResponse>
+
+  /**
+   *  What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
+   *  dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
+   *  agents that are idle now (not archived); a root reads its own run's unless it names another.
+   */
+  public suspend fun listAgentWaits(request: ListAgentWaitsRequest, headers: Headers = emptyMap()): ResponseMessage<ListAgentWaitsResponse>
 
   /**
    *  Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted

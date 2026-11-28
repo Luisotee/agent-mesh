@@ -181,7 +181,7 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	d := &Daemon{cfg: cfg, paths: Paths{Dir: dir}, log: cfg.Logger, now: cfg.Now, stopping: make(chan struct{}),
 		instanceID: ids.New("i", 10), mux: http.NewServeMux(),
-		capabilities: []string{"events.resume", "mutations", "pairing", "push", "clis"},
+		capabilities: []string{"events.resume", "mutations", "pairing", "push", "clis", "delete_run"},
 		streams:      map[string]map[uint64]context.CancelFunc{}}
 	if d.lock, err = fsutil.TryLock(d.paths.Lock()); err != nil {
 		if errors.Is(err, fsutil.ErrLocked) {

@@ -43,7 +43,7 @@ import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentPhase, A
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
-import { AgyUsageRowSchema, PendingPermissionSchema, PermissionKind, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgentWaitKind, AgentWaitSchema, AgyUsageRowSchema, PendingPermissionSchema, PermissionKind, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { PromptOptionSchema, PromptQuestionSchema, ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
@@ -119,6 +119,39 @@ describe('ProjectSidebar', () => {
     expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'w1' })
   })
 
+  it('words an idle agent by what the host says it waits on, and redraws that row only', async () => {
+    const { host, wrap } = fixture()
+    render(wrap(<ProjectSidebar />))
+    const project = screen.getByRole('listitem', { name: 'app' })
+    const lead = within(project).getByRole('button', { name: 'ship it, lead app-lead' })
+    expect(lead).toHaveTextContent('Idle, waiting for a message')
+    act(() => host.store.setState({ agentWaits: { lead: create(AgentWaitSchema, { kind: AgentWaitKind.BACKGROUND, detail: 'make test' }) } }))
+    expect(lead).toHaveTextContent('Waiting on its background job: make test')
+    act(() => host.store.setState({ agentWaits: { lead: create(AgentWaitSchema, { kind: AgentWaitKind.DECLARED, detail: 'for the build', until: timestampFromMs(Date.now() + 3_600_000) }) } }))
+    expect(lead).toHaveTextContent(/Waiting: for the build, until /)
+  })
+
+  it('keeps ended agents out of a run\'s tree, in one quiet "Ended" fold that still reaches them', async () => {
+    const { host, wrap, model } = fixture()
+    host.store.setState((s) => ({ agents: { ...s.agents, old: agent('old', { name: 'app-old', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.RETIRED }), lost: agent('lost', { name: 'app-lost', role: AgentRole.WORKER, parentId: 'lead', state: AgentState.EXITED }) } }))
+    render(wrap(<ProjectSidebar />))
+    const project = screen.getByRole('listitem', { name: 'app' })
+    await userEvent.click(within(project).getByRole('button', { name: 'Show the workers of ship it' }))
+    expect(within(project).getByRole('button', { name: 'app-fix' })).toBeInTheDocument()
+    expect(within(project).queryByRole('button', { name: 'app-old' })).toBeNull()
+    const fold = within(project).getByRole('button', { name: /Ended\s*2/ })
+    expect(fold).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(fold)
+    const old = within(project).getByRole('button', { name: 'app-old' })
+    expect(old).toHaveTextContent('Retired')
+    await userEvent.click(old)
+    expect(model.store.getState()).toMatchObject({ hostId: 'h1', agentId: 'old' })
+    // The open agent is in the fold: it stays open for it, and a click on the header still folds it.
+    expect(within(project).getByRole('button', { name: /Ended\s*2/ })).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(within(project).getByRole('button', { name: /Ended\s*2/ }))
+    expect(within(project).getByRole('button', { name: /Ended\s*2/ })).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('folds reviewers and askers into a chip on their worker, and tags a worker in another repo', async () => {
     const { host, wrap } = fixture()
     host.store.setState((s) => ({
@@ -167,6 +200,22 @@ describe('ProjectSidebar', () => {
     expect(screen.getByRole('listitem', { name: 'app' })).toBeInTheDocument()
   })
 
+  it('copies from a row\'s menu and says so in a toast, or says it could not', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true, writable: true })
+    const { wrap } = fixture()
+    render(wrap(<><ProjectSidebar /><Notices /></>))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy path' }))
+    expect(writeText).toHaveBeenCalledWith('/p/app')
+    expect(await within(screen.getByRole('region', { name: 'Notices' })).findByText('Copied the path')).toBeInTheDocument()
+    // Refused (the window lost the focus, or no permission): the toast says so, nothing claims it copied.
+    writeText.mockRejectedValueOnce(new DOMException('Write permission denied.', 'NotAllowedError'))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Copy path' }))
+    expect(await within(screen.getByRole('region', { name: 'Notices' })).findByText("Couldn't copy the path")).toBeInTheDocument()
+  })
+
   it('renames a run from its menu, and stops an agent only after a confirmation', async () => {
     const { wrap, client } = fixture()
     ;(client as unknown as { renameRun: unknown }).renameRun = vi.fn(async () => ({}))
@@ -194,6 +243,62 @@ describe('ProjectSidebar', () => {
     expect(stopRunMock).not.toHaveBeenCalled()
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop the run' }))
     await waitFor(() => expect(stopRunMock).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r1' })))
+  })
+
+  it('deletes an ended run from its menu after a confirmation, only where the host can, and says what stayed on disk', async () => {
+    const { host, client, wrap } = fixture()
+    const deleteRun = vi.fn(async (_req: unknown) => ({ worktrees: [{ worktree: '/w/fix', worktreeRemoved: false, branch: 'mesh/r1/fix', branchKept: true, reason: 'uncommitted changes: the worktree and its branch stay' }, { worktree: '/w/lead', worktreeRemoved: true, branch: 'mesh/r1/lead', branchKept: false }] }))
+    Object.assign(client, { deleteRun })
+    // A host from before DeleteRun has no entry.
+    const before = render(wrap(<><ProjectSidebar /><Notices /></>))
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of ship it' }))
+    expect(screen.queryByRole('menuitem', { name: 'Delete…' })).toBeNull()
+    await userEvent.keyboard('{Escape}')
+    before.unmount()
+    host.store.setState({ daemon: { capabilities: ['delete_run'] } as never })
+    render(wrap(<><ProjectSidebar /><Notices /></>))
+    // Live: shown, not offered.
+    await userEvent.click(screen.getByRole('button', { name: 'Menu of ship it' }))
+    expect(await screen.findByRole('menuitem', { name: 'Delete…' })).toHaveAttribute('aria-disabled', 'true')
+    await userEvent.keyboard('{Escape}')
+    // Ended: confirmed, then called.
+    act(() => host.store.setState((s) => ({ agents: Object.fromEntries(Object.entries(s.agents).map(([id, a]) => [id, { ...a, state: AgentState.EXITED }])) })))
+    await userEvent.click(await screen.findByRole('button', { name: /Earlier/ }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Menu of ship it' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }))
+    expect(deleteRun).not.toHaveBeenCalled()
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('removed from the host for good')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete the run' }))
+    await waitFor(() => expect(deleteRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r1' })))
+    expect(await screen.findByText(/Kept on disk, with its work: \/w\/fix: uncommitted changes/)).toBeInTheDocument()
+  })
+
+  it("deletes every ended run of a project from the project's menu, and a refusal shows in the dialog", async () => {
+    const { host, client, wrap } = fixture()
+    const deleteRun = vi.fn(async (_req: unknown) => ({ worktrees: [] }))
+    Object.assign(client, { deleteRun })
+    host.store.setState({
+      daemon: { capabilities: ['delete_run'] } as never,
+      runs: { r1: create(RunSchema, { id: 'r1', title: 'ship it', status: RunStatus.CLOSED }), r2: create(RunSchema, { id: 'r2', title: 'old', status: RunStatus.OPEN }) },
+      agents: {
+        lead: agent('lead', { role: AgentRole.ROOT, name: 'app-lead', state: AgentState.EXITED }),
+        old: agent('old', { role: AgentRole.ROOT, name: 'app-old', runId: 'r2', state: AgentState.RETIRED }),
+      },
+    })
+    render(wrap(<ProjectSidebar />))
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Delete 2 ended runs…' }))
+    deleteRun.mockRejectedValueOnce(new ConnectError('old is still running: stop the run first', Code.FailedPrecondition))
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete the runs' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('stop the run first')
+    // A run the first try deleted is gone from the host by now: not an error the second time.
+    deleteRun.mockRejectedValueOnce(new ConnectError('no run', Code.NotFound))
+    deleteRun.mockResolvedValue({ worktrees: [] })
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete the runs' }))
+    await waitFor(() => expect(deleteRun).toHaveBeenCalledTimes(4))
+    // The first try went on past the refusal to the other run, and the second asked for both again.
+    expect(deleteRun.mock.calls.map((c) => (c[0] as { runId: string }).runId).sort()).toEqual(['r1', 'r1', 'r2', 'r2'])
   })
 
   it('offers Archive only for an agent the host would archive: a worker with a worktree, not the lead', async () => {
@@ -870,6 +975,24 @@ describe('Dock resting agents', () => {
   })
 })
 
+describe('Dock resting: idle on its own', () => {
+  it('keeps the tile of an idle worker on its background job or a declared wait, words it so, and rests it when the wait is over', async () => {
+    const { host, wrap, model } = fixture()
+    model.selectAgent('h1', 'lead')
+    host.store.setState((s) => ({ agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } }, waitingAll: [], waiting: [] }))
+    render(wrap(<Dock />))
+    expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull()
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.BACKGROUND, detail: 'make test' }) } }))
+    const tile = await screen.findByRole('listitem', { name: 'app-fix in the dock' })
+    expect(tile).toHaveTextContent('Waiting on its background job: make test')
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.DECLARED, detail: 'the review' }) } }))
+    await waitFor(() => expect(screen.getByRole('listitem', { name: 'app-fix in the dock' })).toHaveTextContent('Waiting: the review'))
+    // A report or a message to wait for is rest.
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.REPORTED, from: 'app-lead' }) } }))
+    await waitFor(() => expect(screen.queryByRole('listitem', { name: 'app-fix in the dock' })).toBeNull())
+  })
+})
+
 describe('Dock resting: helpers and scope', () => {
   it('keeps the tile of an idle worker while a reviewer folded into it works, and counts the agents it hides', async () => {
     const { host, wrap, model } = fixture()
@@ -998,6 +1121,16 @@ describe('SidePanel', () => {
     expect(prs).not.toHaveTextContent('#3')
     await userEvent.click(within(prs).getByRole('button', { name: /Merged and closed/ }))
     expect(within(within(prs).getByRole('list', { name: 'Merged and closed pull requests' })).getAllByRole('listitem').map((l) => l.textContent?.slice(0, 2))).toEqual(['#3', '#2'])
+  })
+
+  it('keeps an idle worker on its background job in the tree', async () => {
+    const { host, wrap } = panelFixture()
+    host.store.setState((s) => ({ waiting: [], waitingAll: [], agents: { ...s.agents, w1: { ...s.agents.w1!, state: AgentState.IDLE } } }))
+    render(wrap(<SidePanel host={host} agentId="lead" />))
+    const tree = screen.getByRole('list', { name: 'Agent tree' })
+    expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead'])
+    act(() => host.store.setState({ agentWaits: { w1: create(AgentWaitSchema, { kind: AgentWaitKind.BACKGROUND, detail: 'make test' }) } }))
+    await waitFor(() => expect(within(tree).getAllByRole('button').map((b) => b.textContent)).toEqual(['app-leadlead', 'app-fixworker']))
   })
 
   it('shows a lead\'s tree first, then its run\'s PRs, and the run total folded to one line', async () => {

@@ -702,3 +702,54 @@ func TestASpawnWithNoBaseStartsFromTheRemotesDefaultBranch(t *testing.T) {
 		t.Errorf("--base feature: %s, want %s", got, want)
 	}
 }
+
+// A reviewer or an asker has nothing left to do after its report (a re-review or a follow-up ask resumes the same
+// conversation), so `idle_retire.review` retires it sooner than a worker, which a PR's feedback may still reach.
+func TestAReviewerOrAskerIsRetiredSoonerThanAWorkerAfterItsReport(t *testing.T) {
+	w := startReopen(t, func(c *daemon.AgentConfig) { c.RetireEvery = 100 * time.Millisecond })
+	ctx := context.Background()
+	w.set(t, "idle_retire", 3600)
+	w.set(t, "idle_retire.review", 1)
+	run := startRun(t, w.device.Mesh, "")
+	_, asLead := w.root(t, run.Id)
+
+	worker := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	reviewer := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_REVIEWER, "rev")
+	asker := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_ASKER, "ask")
+	for _, a := range []*v1.Agent{reviewer, asker} { // their question is unread mail until they read it
+		if _, err := w.as(w.token(t, a.Id)).ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Meta: meta("")})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.report(t, worker, v1.MessageType_MESSAGE_TYPE_DONE)
+	w.report(t, reviewer, v1.MessageType_MESSAGE_TYPE_DONE)
+	w.report(t, asker, v1.MessageType_MESSAGE_TYPE_DONE)
+
+	w.waitState(reviewer.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	w.waitState(asker.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	time.Sleep(time.Second)
+	if got := w.agent(worker.Id); got.State != v1.AgentState_AGENT_STATE_IDLE {
+		t.Errorf("a worker followed the reviewers' timer: %v", got.State)
+	}
+
+	// The same conversation comes back for a follow-up, and then goes again.
+	if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: reviewer.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Review (read-only): once more"})); err != nil {
+		t.Fatal(err)
+	}
+	if again := w.waitReopened(t, reviewer.Id, ""); again.SessionId != reviewer.SessionId {
+		t.Errorf("the follow-up got another conversation: %q, was %q", again.SessionId, reviewer.SessionId)
+	}
+
+	// 0 uses `idle_retire`: an asker's report no longer shortens anything.
+	w.set(t, "idle_retire.review", 0)
+	again := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_ASKER, "ask2")
+	if _, err := w.as(w.token(t, again.Id)).ReadInbox(ctx, connect.NewRequest(&v1.ReadInboxRequest{Meta: meta("")})); err != nil {
+		t.Fatal(err)
+	}
+	w.report(t, again, v1.MessageType_MESSAGE_TYPE_DONE)
+	time.Sleep(2 * time.Second)
+	if got := w.agent(again.Id); got.State != v1.AgentState_AGENT_STATE_IDLE {
+		t.Errorf("idle_retire.review 0 still retired an asker: %v", got.State)
+	}
+}

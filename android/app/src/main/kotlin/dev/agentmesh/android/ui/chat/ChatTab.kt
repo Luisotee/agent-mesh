@@ -89,6 +89,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -101,6 +102,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.agentmesh.android.HostRuntime
 import dev.agentmesh.android.chat.Block
+import dev.agentmesh.android.chat.OutState
+import dev.agentmesh.android.chat.Outgoing
+import dev.agentmesh.android.chat.SENT_SHOWN_MS
 import dev.agentmesh.android.chat.ChatSync
 import dev.agentmesh.android.chat.POLL_MS
 import dev.agentmesh.android.chat.SETTLE_MS
@@ -196,7 +200,15 @@ fun ChatTab(
     val known = loaded || loadedOnce
     val whole = chat.transcript.atStart || !chat.transcript.supported
     val entries = remember(blocks, messages, known, whole, waitingOn) { mergeTimeline(blocks, if (known) messages else emptyList(), cards = known, whole = whole, keep = { it.id in waitingOn }) }
+    // What was sent from here and the host has not taken yet, or has typed and the record does not show yet.
+    val outbox by runtime.outbox.collectAsStateWithLifecycleCompat()
+    val outgoing = remember(outbox, agentId) { outbox.filter { it.agentId == agentId } }
+    val sentCount = outgoing.count { it.state == OutState.Sent }
+    val sendingCount = outgoing.count { it.state == OutState.Sending }
     val stamps = remember(entries) { stamped(entries) }
+    // A prompt the host typed is shown until the record has it (read again shortly after it was sent), and for 30 s at most.
+    LaunchedEffect(blocks, chat.loaded, sentCount, sendingCount) { runtime.settleOutbox(agentId, blocks, chat.loaded) }
+    LaunchedEffect(sentCount) { if (sentCount > 0) { sync.afterSend(); delay(SENT_SHOWN_MS + 500); runtime.settleOutbox(agentId, blocks, chat.loaded) } }
     // The cards' bodies are parsed ahead as well (the newest first), as the transcript's replies are by the sync.
     LaunchedEffect(messages) { MarkdownCache.warm(messages.takeLast(30).reversed().map { if (isLong(it.body)) preview(it.body) else it.body }) }
     val readOnly = isReadOnlyDevice(host)
@@ -220,11 +232,11 @@ fun ChatTab(
     // What a take-back said (the host refused, or the prompt was already typed): here, not in the queue, which may be gone by then.
     var queueNote by remember { mutableStateOf("") }
     // The queue stands under the conversation as one more item: the end is that, when there is a queue.
-    val tail = entries.size + if (queued.isNotEmpty()) 1 else 0
+    val tail = entries.size + if (queued.isNotEmpty() || outgoing.isNotEmpty()) 1 else 0
     val lastChat = entries.lastOrNull { it is Entry.Chat }
     // A tool block above a trailing card grows too: follow that as well.
     val lastTools = (lastChat as? Entry.Chat)?.block as? Block.Tools
-    LaunchedEffect(last?.id, ((last as? Entry.Chat)?.block as? Block.Tools)?.calls?.size, lastTools?.calls?.size, queued.size) {
+    LaunchedEffect(last?.id, ((last as? Entry.Chat)?.block as? Block.Tools)?.calls?.size, lastTools?.calls?.size, queued.size, outgoing.size) {
         if (stick && tail > 0) list.scrollToItem(tail)
     }
     // A card or a block that grows after it was placed (Markdown parsed off the main thread, an answer form) keeps the end in view.
@@ -307,7 +319,7 @@ fun ChatTab(
                     }
                 }
             }
-            if (queued.isNotEmpty()) item(key = "queued", contentType = "queued") { QueuedList(runtime, agentId, queued, canTake = !readOnly, canFill = promptRefusal(agent, readOnly).isEmpty(), scope, draftState) { queueNote = it } }
+            if (queued.isNotEmpty() || outgoing.isNotEmpty()) item(key = "queued", contentType = "queued") { QueuedList(runtime, agentId, queued, outgoing, bubble, canTake = !readOnly, canFill = promptRefusal(agent, readOnly).isEmpty(), scope, draftState) { queueNote = it } }
         }
         // The reader is up in the history and the chat has moved on below: one tap goes to the end (and follows it again).
         androidx.compose.animation.AnimatedVisibility(
@@ -330,7 +342,8 @@ fun ChatTab(
             )
         }
         if (queueNote.isNotEmpty()) Text(queueNote, Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("queued-error"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        PromptComposer(runtime, agent, readOnly, connected, draftState, hue, scope, onSent = sync::afterSend, openTerminal = openTerminal)
+        // Sending is following the end again, as on the desktop: the bubble just sent is in view (the tail effect scrolls to it).
+        PromptComposer(runtime, agent, readOnly, connected, draftState, hue, scope, onSending = { stick = true }, openTerminal = openTerminal)
     }
 }
 
@@ -356,19 +369,9 @@ private fun TextFieldState.fill(text: String) {
     }
 }
 
-/** Puts a prompt that was not sent back in the box, ahead of what was typed since. */
-private fun TextFieldState.restore(text: String) {
-    edit {
-        val cur = asCharSequence().toString()
-        val joined = if (cur.isBlank()) text else text + "\n\n" + cur.trimStart()
-        replace(0, length, joined)
-        selection = TextRange(joined.length)
-    }
-}
-
 /** The prompts that wait to be typed, under the conversation: dimmed bubbles that say what they wait for, each taken back to edit or dropped. */
 @Composable
-private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<QueuedPrompt>, canTake: Boolean, canFill: Boolean, scope: kotlinx.coroutines.CoroutineScope, draft: TextFieldState, note: (String) -> Unit) {
+private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<QueuedPrompt>, outgoing: List<Outgoing>, bubble: Color, canTake: Boolean, canFill: Boolean, scope: kotlinx.coroutines.CoroutineScope, draft: TextFieldState, note: (String) -> Unit) {
     var busy by remember { mutableStateOf(false) }
     // A prompt the user is being asked to send over the draft in the agent's box.
     var over by remember { mutableStateOf<QueuedPrompt?>(null) }
@@ -436,15 +439,52 @@ private fun QueuedList(runtime: HostRuntime, agentId: String, prompts: List<Queu
                 }
             }
         }
+        // What was just sent and is not in the host's queue: newer than all of it, so under it.
+        outgoing.forEach { o -> OutgoingBubble(o, bubble, canTake, canFill, onRetry = { runtime.retryOutgoing(o.id) }, onEdit = { runtime.takeOutgoing(o.id)?.let(draft::fill) }, onDrop = { runtime.takeOutgoing(o.id) }) }
+    }
+}
+
+/**
+ * A prompt sent from here that the host has not taken yet, the way the desktop shows it ("sending…"): the user's bubble at
+ * once, solid while it is on its way or typed, dashed while it waits for a connection, with what became of it under it.
+ */
+@Composable
+private fun OutgoingBubble(o: Outgoing, bubble: Color, canTake: Boolean, canFill: Boolean, onRetry: () -> Unit, onEdit: () -> Unit, onDrop: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp)
+    val failed = o.state == OutState.Failed
+    val waiting = o.state == OutState.Waiting
+    Column(Modifier.widthIn(max = 320.dp).testTag("outgoing-${o.state.name.lowercase()}"), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            o.text,
+            (if (waiting || failed) Modifier.clip(shape).border(1.dp, (if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline).copy(alpha = 0.7f), shape).background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f))
+            else Modifier.clip(shape).background(bubble)).padding(horizontal = 14.dp, vertical = 10.dp).alpha(if (o.state == OutState.Sent) 1f else 0.85f).testTag("outgoing-text"),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when (o.state) {
+                    OutState.Sending -> "Sending\u2026"
+                    OutState.Waiting -> "Not connected: sent when it is back"
+                    OutState.Sent -> "Sent"
+                    OutState.Failed -> "Not sent: ${o.error}"
+                },
+                Modifier.weight(1f, fill = false).testTag("outgoing-state"), style = MaterialTheme.typography.labelSmall,
+                color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (canTake && (failed || waiting)) {
+                if (failed) TextButton(onClick = onRetry, Modifier.testTag("outgoing-retry")) { Text("Retry", style = MaterialTheme.typography.labelSmall) }
+                if (canFill) IconButton(onClick = onEdit, Modifier.size(32.dp).testTag("outgoing-edit")) { Icon(Icons.Default.Edit, "Take it back to edit", Modifier.size(16.dp)) }
+                IconButton(onClick = onDrop, Modifier.size(32.dp).testTag("outgoing-drop")) { Icon(Icons.Default.Close, "Drop it", Modifier.size(16.dp)) }
+            }
+        }
     }
 }
 
 @Composable
 private fun PromptComposer(
     runtime: HostRuntime, agent: Agent, readOnly: Boolean, connected: Boolean, draft: TextFieldState, hue: Color, scope: kotlinx.coroutines.CoroutineScope,
-    onSent: () -> Unit, openTerminal: () -> Unit,
+    onSending: () -> Unit, openTerminal: () -> Unit,
 ) {
-    var busy by remember { mutableStateOf(false) }
     var stopping by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     val why = promptRefusal(agent, readOnly)
@@ -455,30 +495,24 @@ private fun PromptComposer(
     val canStop = agent.kind == "claude"
     val blank = draft.text.isBlank()
     // Not at a prompt: Esc there would deny or dismiss the dialog the agent waits on, not stop a turn.
-    // Not while a send is in flight: the box is empty then, and a second tap on the same spot must not stop the turn.
-    val asStop = working && !atPrompt && canStop && blank && !busy && why.isEmpty()
+    // Not for a moment after a send either: the box is empty then, and a second tap on the same spot must not stop the turn.
+    var sends by remember { mutableIntStateOf(0) }
+    var justSent by remember { mutableStateOf(false) }
+    // Keyed on the count, so a second send within the second restarts the wait.
+    LaunchedEffect(sends) { if (sends > 0) { justSent = true; delay(1_000); justSent = false } }
+    val asStop = working && !atPrompt && canStop && blank && !justSent && why.isEmpty()
     fun send() {
         val body = draft.text.toString().trim()
-        if (body.isEmpty() || busy) return
-        busy = true
+        if (body.isEmpty()) return
         error = ""
-        // The box is emptied at the tap, so what is typed while the host answers is a new prompt, and a draft saved when the
-        // screen is left is not the one in flight (it would be sent twice). A failure puts the text back.
+        // The box is emptied at the tap and the prompt is a bubble under the conversation at once, sent in order with the others
+        // (now, or when the connection is back): what is typed meanwhile is a new prompt, and a draft saved when the screen is
+        // left is not the one in flight. A refusal stays on its bubble, with Retry and Edit.
         draft.clearText()
-        scope.launch {
-            try {
-                // Typed at once when the agent can take it, else queued by the host (it shows under the conversation).
-                runtime.prompt(agent.id, body)
-                onSent()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                draft.restore(body)
-                error = say(e)
-            } finally {
-                busy = false
-            }
-        }
+        justSent = true
+        sends++
+        onSending()
+        runtime.say(agent.id, body)
     }
     fun stop() {
         // One at a time: a second Esc at an agent that already stopped would open Claude's rewind menu.
@@ -511,11 +545,11 @@ private fun PromptComposer(
             placeholder = when { why.isNotEmpty() -> ""; working -> "Write to the agent: it is sent when it finishes its turn." + if (canStop && !atPrompt) " The square stops it." else ""; else -> "Write to the agent" },
             trailing = {
                 if (asStop) IconButton(onClick = ::stop, enabled = !stopping && connected, modifier = Modifier.testTag("stop")) { Box(Modifier.size(16.dp).background(androidx.compose.material3.LocalContentColor.current, RoundedCornerShape(3.dp)).semantics { contentDescription = "Stop the agent" }) }
-                else IconButton(onClick = ::send, enabled = why.isEmpty() && connected && !busy && !blank, modifier = Modifier.testTag("send")) { Icon(Icons.AutoMirrored.Filled.Send, if (working) "Queue" else "Send") }
+                else IconButton(onClick = ::send, enabled = why.isEmpty() && !blank, modifier = Modifier.testTag("send")) { Icon(Icons.AutoMirrored.Filled.Send, if (working) "Queue" else "Send") }
             },
         )
-        // Offline the text stays and Send waits: nothing is held to be sent by a later connection.
-        if (why.isEmpty() && !connected) Text("Not connected to the host: reconnect to send.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("prompt-offline"))
+        // Offline a prompt is still sent: it is a bubble that waits, and goes when the connection is back.
+        if (why.isEmpty() && !connected) Text("Not connected to the host: what you send waits here and goes when it is back.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("prompt-offline"))
         if (why.isNotEmpty()) Text(why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("prompt-why"))
         if (error.isNotEmpty()) Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("prompt-error"))
     }

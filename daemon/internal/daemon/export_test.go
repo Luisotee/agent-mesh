@@ -28,6 +28,13 @@ func OnStopAgentLocked(f func())      { stopAgentLockedHook = f }
 // OnPermissionPlanned sets RequestPermission's test seam (nil clears it).
 func OnPermissionPlanned(f func()) { permissionPlannedHook = f }
 
+// FollowBranch runs followBranch for the agent's stored row now, where the idle hook runs it in the background.
+func (d *Daemon) FollowBranch(ctx context.Context, agentID string) {
+	if a, err := d.store.Read(ctx).GetAgent(agentID); err == nil {
+		d.followBranch(ctx, a)
+	}
+}
+
 // Reserve and Reserved put and read an agent's memory reservation, as a resume that passed the guard leaves it.
 func (d *Daemon) Reserve(agentID string) {
 	d.rt.guard.mu.Lock()

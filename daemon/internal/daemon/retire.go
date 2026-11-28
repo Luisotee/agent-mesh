@@ -236,10 +236,12 @@ func (d *Daemon) RetireAgent(ctx context.Context, req *connect.Request[v1.Retire
 // retireQuiet is how often the retire pass runs by default.
 const retireQuiet = 10 * time.Second
 
-// retireIdle retires the agents that reported done or failed and then stayed idle `idle_retire` seconds (0 never).
-// Not: a root; one with a reopen pending; one with unread mail (work is coming, or a doorbell was lost); one whose
-// newest report since its last task or answer isn't done or failed (a plan or question waits on its parent); or
-// one a client with input rights is attached to (the viewer rule: someone is looking).
+// retireIdle retires the agents that reported done or failed and then stayed idle `idle_retire` seconds (0 never), a
+// reviewer or an asker after `idle_retire.review` instead when that is the shorter (nothing comes back for it: a
+// re-review or a follow-up ask resumes the same conversation). Not: a root; one with a reopen pending; one with
+// unread mail (work is coming, or a doorbell was lost); one whose newest report since its last task or answer isn't
+// done or failed (a plan or question waits on its parent); or one a client with input rights is attached to (the
+// viewer rule: someone is looking).
 func (d *Daemon) retireIdle(ctx context.Context) {
 	if d.rt.term == nil {
 		return
@@ -249,9 +251,15 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	after := time.Duration(v.(float64) * float64(time.Second))
-	if after <= 0 {
+	afterWork := time.Duration(v.(float64) * float64(time.Second))
+	if afterWork <= 0 {
 		return
+	}
+	afterReview := afterWork
+	if v, err := d.Setting(r, "idle_retire.review"); err == nil {
+		if f, ok := v.(float64); ok && f > 0 {
+			afterReview = min(afterWork, time.Duration(f*float64(time.Second)))
+		}
 	}
 	agents, err := r.ListAgents("")
 	if err != nil {
@@ -267,6 +275,10 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 		if err != nil || report == nil ||
 			(report.Type != v1.MessageType_MESSAGE_TYPE_DONE && report.Type != v1.MessageType_MESSAGE_TYPE_FAILED) {
 			continue
+		}
+		after := afterWork
+		if a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER || a.Role == v1.AgentRole_AGENT_ROLE_ASKER {
+			after = afterReview
 		}
 		since := report.CreatedAt.AsTime()
 		if a.LastActivity != nil && a.LastActivity.AsTime().After(since) {
@@ -356,6 +368,14 @@ func (d *Daemon) autoRetire(ctx context.Context, agentID, reportID string, after
 // StopRun retires every agent of a run and closes it. A clean worktree is removed, and its branch with it unless
 // the branch moved past where it started or was pushed; a worktree with uncommitted changes stays, with its branch.
 func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
+	res, _, err := d.stopRun(ctx, req, false)
+	return res, err
+}
+
+// stopRun is StopRun. With requireEnded (DeleteRun) it refuses, inside the transaction that holds every agent's lock, a run
+// with an agent that has a process, so nothing is retired or stopped for a run that is refused; the second answer is the
+// agents whose process could not be stopped, with why.
+func (d *Daemon) stopRun(ctx context.Context, req *connect.Request[v1.StopRunRequest], requireEnded bool) (*connect.Response[v1.StopRunResponse], map[string]string, error) {
 	out := &v1.StopRunResponse{}
 	// Every agent of the run is locked first, in id order, so a reopen or a doorbell in flight finishes before the
 	// run is closed, and none starts after (the reopen finds its request dropped). An agent spawned meanwhile
@@ -389,7 +409,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	}
 	before, err := d.store.Read(ctx).ListAgents(req.Msg.RunId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var ids []string
 	for _, a := range before {
@@ -428,6 +448,13 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 				return errUnlocked
 			}
 			agents = all
+			if requireEnded {
+				for _, a := range all {
+					if hasProcess(a) {
+						return failedPrecondition("%s is still running: stop the run first", a.Name)
+					}
+				}
+			}
 			for _, a := range all {
 				changed, err := retireTx(tx, a, "run stopped")
 				if err != nil {
@@ -456,7 +483,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 		break
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Outside the transaction: stopping a process waits for it. All at once, so that the locks held meanwhile
 	// are held for one stop (StopWait at most), not one per agent.
@@ -478,7 +505,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 	wg.Wait()
 	if replayed {
 		// A replayed call's stored response already reports its stop; avoid repeating filesystem/sweep work or appending outcomes.
-		return connect.NewResponse(out), nil
+		return connect.NewResponse(out), notStopped, nil
 	}
 	// Sweep leftover processes workers left in their worktrees (already retired or exited ones too) before
 	// removing those worktrees, skipping any worktree held by a live agent or another open run.
@@ -568,7 +595,7 @@ func (d *Daemon) StopRun(ctx context.Context, req *connect.Request[v1.StopRunReq
 			out.Worktrees = append(out.Worktrees, outcome)
 		}
 	}
-	return connect.NewResponse(out), nil
+	return connect.NewResponse(out), notStopped, nil
 }
 
 func (d *Daemon) lockedRemoveWorktree(ctx context.Context, agentID, repo, worktree, branch, baseCommit string, peer, plain bool) *v1.WorktreeOutcome {
@@ -625,6 +652,14 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 		return o
 	}
 	// Its commits being in the default branch, deleting it loses nothing (a branch the default has not got stays).
+	// A branch that is gone already (a run stopped before) has nothing to keep.
+	// (Only when the repo itself reads: if it moved, the branch may be there.)
+	_, gitDirErr := git(ctx, repo, "rev-parse", "--git-dir")
+	if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch); err != nil && gone && gitDirErr == nil {
+		o.BranchKept = false
+		o.Reason = "its branch was already gone"
+		return o
+	}
 	if !plain || !branchMerged(ctx, repo, branch) {
 		if has, why := branchHasWork(ctx, repo, branch, baseCommit); has {
 			o.Reason = why

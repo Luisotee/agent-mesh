@@ -15,7 +15,7 @@ export function createMeshClient(transport: Transport): MeshClient {
  * Every call the UI makes to a host, by registry method name. A test checks each is an action a device may call:
  * the UI can do nothing an agent can't do through the same registry.
  */
-export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'listAgentCommands', 'getPromptSuggestion', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'sendPromptAnyway', 'interruptAgent', 'rewindAgent', 'addAttachment', 'listWaiting', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
+export const UI_ACTIONS = ['hello', 'startRun', 'listRuns', 'spawnAgent', 'listAgents', 'getAgent', 'stopAgent', 'retireAgent', 'stopRun', 'deleteRun', 'ringAgent', 'approveAgent', 'switchAgent', 'sendMessage', 'subscribeEvents', 'openTerminal', 'listMessages', 'readTranscript', 'listAgentCommands', 'getPromptSuggestion', 'promptAgent', 'listPrompts', 'withdrawPrompt', 'sendPromptAnyway', 'interruptAgent', 'rewindAgent', 'addAttachment', 'listWaiting', 'listAgentWaits', 'listSettings', 'setSetting', 'resetSetting', 'createPairing', 'listDevices', 'revokeDevice', 'listPullRequests', 'getUsage', 'getCost', 'listProjects', 'holdPullRequest', 'checkModels', 'tailnetStatus', 'startSetup', 'renameRun', 'openView', 'listPermissions', 'decidePermission', 'getAgentChanges', 'getAgentProgress', 'archiveAgent', 'resumeAgent', 'openInEditor', 'setTailnet', 'openShell', 'listShells', 'closeShell'] as const
 
 /** A write's idempotency and expiry: a retried or delayed call neither runs twice nor runs late. */
 export function meta(now = Date.now()) {
@@ -64,6 +64,12 @@ export const retireAgent = (c: MeshClient, agent: string) => c.retireAgent({ met
 
 /** Stops a run: every agent in it is retired and the run is closed; a clean worktree goes, one with changes stays. */
 export const stopRun = (c: MeshClient, runId: string) => c.stopRun({ meta: meta(), runId })
+
+/**
+ * Deletes an ended run: the host forgets its agents, messages and files (a live one is refused), and a worktree or branch that
+ * holds work stays on disk. The answer lists what became of each worktree.
+ */
+export const deleteRun = (c: MeshClient, runId: string) => c.deleteRun({ meta: meta(), runId })
 
 /** Rings an agent that has unread messages again (the host says why when it can't). */
 export const ringAgent = (c: MeshClient, agent: string) => c.ringAgent({ meta: meta(), agent })
@@ -168,6 +174,9 @@ export const setTailnet = (c: MeshClient, enabled: boolean) => c.setTailnet({ me
 export const getAgent = (c: MeshClient, agent: string) => c.getAgent({ agent })
 
 export const listWaiting = (c: MeshClient) => c.listWaiting({})
+
+/** What every idle agent of the open runs waits on: its background job, a wait it declared, an answer owed, a report, or a message. */
+export const listAgentWaits = (c: MeshClient) => c.listAgentWaits({})
 
 /** One run's change workers' pull requests with their state and checks, as GitHub was last read (the host caches it for two minutes). A device must name the run. */
 export const listPullRequests = (c: MeshClient, runId: string, refresh = false) => c.listPullRequests({ runId, refresh })

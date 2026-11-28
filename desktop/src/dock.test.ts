@@ -2,7 +2,7 @@ import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
 import { describe, expect, it } from 'vitest'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
-import { WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { AgentWaitKind, AgentWaitSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
 import { AgentRole, AgentSchema, AgentState, MessageSchema, MessageType, RunSchema, RunStatus } from './gen/agentmesh/v1/types_pb'
 import { ago, dockTiles, sentLabel, treeTiles, type HostView } from './dock'
 import { NEW_FOR_MS } from './workspace'
@@ -24,6 +24,13 @@ describe('dockTiles', () => {
   it('shows live agents of open runs, not exited, retired or closed ones', () => {
     const tiles = dockTiles([host([agent('a'), agent('x', { state: AgentState.EXITED }), agent('r', { state: AgentState.RETIRED }), agent('c', { runId: 'closed' })])], none, 0)
     expect(tiles.map((t) => t.agent.id)).toEqual(['a'])
+  })
+
+  it('gives a tile what the host says its idle agent waits on', () => {
+    const wait = create(AgentWaitSchema, { kind: AgentWaitKind.BACKGROUND, detail: 'make test' })
+    const tiles = dockTiles([host([agent('a'), agent('b')], { agentWaits: { a: wait } })], none, 0)
+    expect(tiles.find((t) => t.agent.id === 'a')?.wait).toBe(wait)
+    expect(tiles.find((t) => t.agent.id === 'b')?.wait).toBeUndefined()
   })
 
   it('puts what needs the user first, then new ones, then the most recently active', () => {

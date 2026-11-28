@@ -1,7 +1,8 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Agent, Cursor, Device, Event, Message, QueuedPrompt, Run, Setting, UserNotice } from './gen/agentmesh/v1/types_pb'
 import { AgentState, RunStatus } from './gen/agentmesh/v1/types_pb'
-import type { HelloResponse, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
+import { equals } from '@bufbuild/protobuf'
+import { AgentWaitSchema, type AgentWait, type AgentWaitRow, type HelloResponse, type Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import type { PendingPermission } from './gen/agentmesh/v1/mesh_pb'
 import type { AgentPullRequests } from './gen/agentmesh/v1/pr_pb'
 import type { ConnState, Frame } from './connection'
@@ -32,6 +33,8 @@ export interface HostState {
   waiting: WaitingRow[]
   /** Every row the host listed, `for_user` or not: a plan or question the lead decides is still the user's to answer from its author's chat. */
   waitingAll: WaitingRow[]
+  /** What each idle agent waits on (ListAgentWaits), by agent id, kept up to date by `refresh.ts`; empty until the host first answers (an agent with no entry is worded as waiting for a message). */
+  agentWaits: Record<string, AgentWait>
   /** Each change worker's pull requests (ListPullRequests), by agent id: read at connect and every minute by `refresh.ts`, and kept by PullRequestChanged events; empty until the host first answers. */
   pullRequests: Record<string, AgentPullRequests>
   /** Why GitHub can't be read on the host (`no_gh`, `not_logged_in`), from the last ListPullRequests; empty when it can. */
@@ -71,8 +74,26 @@ export type MessageLoad = 'loading' | 'loaded' | 'failed'
 
 export type HostStore = StoreApi<HostState>
 
+/** The state without a run and everything held for it or its agents. */
+export function dropRun(s: HostState, runId: string): HostState {
+  const gone = new Set(Object.values(s.agents).filter((a) => a.runId === runId).map((a) => a.id))
+  const without = <T,>(o: Record<string, T>, drop: (k: string, v: T) => boolean) => Object.fromEntries(Object.entries(o).filter(([k, v]) => !drop(k, v)))
+  return {
+    ...s,
+    runs: without(s.runs, (id) => id === runId),
+    agents: without(s.agents, (id) => gone.has(id)),
+    messages: without(s.messages, (_, m) => m.runId === runId),
+    messageLoad: without(s.messageLoad, (id) => id === runId),
+    prompts: without(s.prompts, (id) => gone.has(id)),
+    pullRequests: without(s.pullRequests, (id) => gone.has(id)),
+    waiting: s.waiting.filter((w) => w.runId !== runId),
+    waitingAll: s.waitingAll.filter((w) => w.runId !== runId),
+    permissions: s.permissions.filter((p) => p.runId !== runId),
+  }
+}
+
 export function emptyHost(): HostState {
-  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], waitingAll: [], pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
+  return { conn: { kind: 'connecting' }, synced: false, runs: {}, agents: {}, messages: {}, messageLoad: {}, settings: {}, waiting: [], waitingAll: [], agentWaits: {}, pullRequests: {}, githubProblem: '', permissions: [], devices: [], pairedVia: {}, prompts: {}, promptsDone: {}, promptTouch: {}, snapshots: 0, clockSkewMs: 0, activity: [], log: [] }
 }
 
 const MAX_LOG = 200
@@ -199,6 +220,9 @@ function applyEvent(s: HostState, e: Event): HostState {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, title: p.value.title } } } : next
     }
+    // The host forgot the run (`DeleteRun`): what we hold of it and of its agents goes.
+    case 'runDeleted':
+      return dropRun(next, e.runId)
     case 'runStopped': {
       const r = s.runs[e.runId]
       return r ? { ...next, runs: { ...s.runs, [r.id]: { ...r, status: RunStatus.CLOSED } } } : next
@@ -304,6 +328,19 @@ const sameWaiting = (a: WaitingRow[], b: WaitingRow[]) => a.length === b.length 
 export function setWaiting(waiting: WaitingRow[], last?: WaitingRow[]): Partial<HostState> {
   if (last && sameWaiting(waiting, last)) return {}
   return { waiting: waiting.filter((w) => w.forUser), waitingAll: waiting }
+}
+
+/** The host's answer to ListAgentWaits, which replaces the last one; a wait that did not change keeps its object, so a row that shows it is not redrawn. */
+export function setAgentWaits(rows: AgentWaitRow[], last: Record<string, AgentWait>): Partial<HostState> {
+  const next: Record<string, AgentWait> = {}
+  for (const r of rows) {
+    if (!r.wait) continue
+    const had = last[r.agentId]
+    next[r.agentId] = had && equals(AgentWaitSchema, had, r.wait) ? had : r.wait
+  }
+  const keys = Object.keys(next)
+  if (keys.length === Object.keys(last).length && keys.every((k) => next[k] === last[k])) return {}
+  return { agentWaits: next }
 }
 
 /** The host's answer to ListPullRequests, which replaces the last one. */
