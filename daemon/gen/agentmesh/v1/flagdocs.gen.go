@@ -32,6 +32,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.Agent.deny_edits":                         "The running CLI denies edits under its worktree and the main checkout, and publishing (an asker, a reviewer, or a planner not yet approved). Only a reopen changes it: deny rules are given at launch.",
 	"agentmesh.v1.Agent.exec_tier":                          "The execution phase's tier: preset at spawn, or named at approval.",
 	"agentmesh.v1.Agent.exit_code":                          "Set once it exited.",
+	"agentmesh.v1.Agent.had_turn":                           "Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn lost nothing.",
 	"agentmesh.v1.Agent.kind":                               "The CLI adapter's kind, such as \"claude\".",
 	"agentmesh.v1.Agent.last_turn_by_mesh":                  "Its last turn began with a mesh doorbell, not the user's prompt (a root's reset waits 5 minutes after one, 30 after the user's). Unknown for a CLI whose hooks carry no prompt.",
 	"agentmesh.v1.Agent.mcp":                                "The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones (`claude.mcp_keep`); every reopen keeps them.",

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -31,6 +32,22 @@ const (
 )
 
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+// SessionExists reports whether Claude Code has a conversation with this id, in any project folder of its config home
+// (the folder it names after a cwd depends on how the cwd is spelled, a symlinked one included, so the id alone is
+// looked for: a wrong "exists" only costs the old `--resume` failure, a wrong "missing" would make the agent
+// unlaunchable, since Claude refuses a reused id).
+func SessionExists(env map[string]string, session string) bool {
+	home := configHome(env)
+	if home == "" || session == "" {
+		return true // no config home to look in: assume it is there, as a resume did before
+	}
+	if strings.ContainsAny(session, `/\*?[`) {
+		return false
+	}
+	found, err := filepath.Glob(filepath.Join(home, "projects", "*", session+".jsonl"))
+	return err == nil && len(found) > 0
+}
 
 // TranscriptPath is where Claude keeps a session run in cwd: `<config>/projects/<cwd with [^A-Za-z0-9] as ->/<id>.jsonl`.
 func TranscriptPath(env map[string]string, cwd, session string) string {

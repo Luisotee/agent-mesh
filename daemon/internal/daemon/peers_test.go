@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -558,7 +559,13 @@ func TestImportingPeersCarriesTheirConversationsAndWorktreePathsAcrossAndAskResu
 		t.Errorf("the import wrote peers.json")
 	}
 
-	// Asked, it resumes the conversation in that worktree instead of starting one.
+	// Its conversation is on this machine (Claude Code keeps it by id): asked, it resumes it in that worktree instead of
+	// starting one.
+	if dir := filepath.Join(w.home, ".claude", "projects", regexp.MustCompile(`[^A-Za-z0-9]`).ReplaceAllString(wtA, "-")); os.MkdirAll(dir, 0o700) == nil {
+		if err := os.WriteFile(filepath.Join(dir, "sess-alpha.jsonl"), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	run := w.run
 	ar, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: "alpha-research", Tier: "mid", Body: "What changed?", NoRefresh: true}))
 	if err != nil {
@@ -568,9 +575,32 @@ func TestImportingPeersCarriesTheirConversationsAndWorktreePathsAcrossAndAskResu
 	if ag.RunId != run.Id || ag.SessionId != "sess-alpha" || ag.Worktree != wtA || ar.Msg.Ask.Members[0].How != "resumed its conversation" {
 		t.Fatalf("alpha's agent %v, how %q", ag, ar.Msg.Ask.Members[0].How)
 	}
-	all := w.launches(t, "sess-alpha")
+	var all [][]string
+	waitFor(t, "alpha's launch", func() bool { all = w.launches(t, "sess-alpha"); return len(all) > 0 })
 	if f, deny := flags(all[len(all)-1]); f["--resume"] != "sess-alpha" || f["--session-id"] != "" || !deny {
 		t.Errorf("alpha's launch %v", all)
+	}
+	// A peer whose conversation Claude Code no longer has (no transcript on this machine) starts fresh under its id,
+	// and is told, so its answer says its earlier research is not in its context.
+	br, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: "beta-research", Tier: "mid", Body: "What changed?", NoRefresh: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox, err := w.d.Store().Read(ctx).Inbox(br.Msg.Agents[0].Id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	told := false
+	for _, m := range inbox {
+		told = told || strings.Contains(m.Body, "was not found where Claude Code keeps it")
+	}
+	if !told || br.Msg.Ask.Members[0].How != "fresh (its conversation was not found)" {
+		t.Errorf("beta's task does not say its conversation is gone: %v, how %q", inbox, br.Msg.Ask.Members[0].How)
+	}
+	var bl [][]string
+	waitFor(t, "beta's launch", func() bool { bl = w.launches(t, "sess-beta"); return len(bl) > 0 })
+	if f, _ := flags(bl[len(bl)-1]); f["--session-id"] != "sess-beta" || f["--resume"] != "" {
+		t.Errorf("beta's launch %v", bl)
 	}
 }
 

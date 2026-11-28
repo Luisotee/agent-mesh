@@ -187,13 +187,17 @@ message Agent {
   // A plain agent (`SpawnAgent.plain`): the user's own conversation with a CLI, started from the app as a run's root
   // with no task. The mesh never resets or compacts it, and sends it no root reminders or context hints.
   bool plain = 43;
+  // Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+  // CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+  // lost nothing.
+  bool had_turn = 44;
   // One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
   // (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
-  string about = 44;
+  string about = 45;
   // Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
   // title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
   // The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
-  string about_source = 45;
+  string about_source = 46;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.

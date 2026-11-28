@@ -2468,7 +2468,51 @@ public  final class Agent extends
     plain_ = false;
   }
 
-  public static final int ABOUT_FIELD_NUMBER = 44;
+  public static final int HAD_TURN_FIELD_NUMBER = 44;
+  private boolean hadTurn_;
+  /**
+   * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   * @return The hadTurn.
+   */
+  @java.lang.Override
+  public boolean getHadTurn() {
+    return hadTurn_;
+  }
+  /**
+   * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   * @param value The hadTurn to set.
+   */
+  private void setHadTurn(boolean value) {
+    
+    hadTurn_ = value;
+  }
+  /**
+   * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   */
+  private void clearHadTurn() {
+
+    hadTurn_ = false;
+  }
+
+  public static final int ABOUT_FIELD_NUMBER = 45;
   private java.lang.String about_;
   /**
    * <pre>
@@ -2476,7 +2520,7 @@ public  final class Agent extends
    * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
-   * <code>string about = 44 [json_name = "about"];</code>
+   * <code>string about = 45 [json_name = "about"];</code>
    * @return The about.
    */
   @java.lang.Override
@@ -2489,7 +2533,7 @@ public  final class Agent extends
    * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
-   * <code>string about = 44 [json_name = "about"];</code>
+   * <code>string about = 45 [json_name = "about"];</code>
    * @return The bytes for about.
    */
   @java.lang.Override
@@ -2503,7 +2547,7 @@ public  final class Agent extends
    * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
-   * <code>string about = 44 [json_name = "about"];</code>
+   * <code>string about = 45 [json_name = "about"];</code>
    * @param value The about to set.
    */
   private void setAbout(
@@ -2518,7 +2562,7 @@ public  final class Agent extends
    * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
-   * <code>string about = 44 [json_name = "about"];</code>
+   * <code>string about = 45 [json_name = "about"];</code>
    */
   private void clearAbout() {
 
@@ -2530,7 +2574,7 @@ public  final class Agent extends
    * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
-   * <code>string about = 44 [json_name = "about"];</code>
+   * <code>string about = 45 [json_name = "about"];</code>
    * @param value The bytes for about to set.
    */
   private void setAboutBytes(
@@ -2540,7 +2584,7 @@ public  final class Agent extends
 
   }
 
-  public static final int ABOUT_SOURCE_FIELD_NUMBER = 45;
+  public static final int ABOUT_SOURCE_FIELD_NUMBER = 46;
   private java.lang.String aboutSource_;
   /**
    * <pre>
@@ -2549,7 +2593,7 @@ public  final class Agent extends
    * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
-   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
    * @return The aboutSource.
    */
   @java.lang.Override
@@ -2563,7 +2607,7 @@ public  final class Agent extends
    * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
-   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
    * @return The bytes for aboutSource.
    */
   @java.lang.Override
@@ -2578,7 +2622,7 @@ public  final class Agent extends
    * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
-   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
    * @param value The aboutSource to set.
    */
   private void setAboutSource(
@@ -2594,7 +2638,7 @@ public  final class Agent extends
    * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
-   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
    */
   private void clearAboutSource() {
 
@@ -2607,7 +2651,7 @@ public  final class Agent extends
    * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
-   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
    * @param value The bytes for aboutSource to set.
    */
   private void setAboutSourceBytes(
@@ -5232,11 +5276,57 @@ public  final class Agent extends
 
     /**
      * <pre>
+     * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+     * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+     * lost nothing.
+     * </pre>
+     *
+     * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+     * @return The hadTurn.
+     */
+    @java.lang.Override
+    public boolean getHadTurn() {
+      return instance.getHadTurn();
+    }
+    /**
+     * <pre>
+     * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+     * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+     * lost nothing.
+     * </pre>
+     *
+     * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+     * @param value The hadTurn to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHadTurn(boolean value) {
+      copyOnWrite();
+      instance.setHadTurn(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+     * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+     * lost nothing.
+     * </pre>
+     *
+     * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHadTurn() {
+      copyOnWrite();
+      instance.clearHadTurn();
+      return this;
+    }
+
+    /**
+     * <pre>
      * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
      * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
-     * <code>string about = 44 [json_name = "about"];</code>
+     * <code>string about = 45 [json_name = "about"];</code>
      * @return The about.
      */
     @java.lang.Override
@@ -5249,7 +5339,7 @@ public  final class Agent extends
      * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
-     * <code>string about = 44 [json_name = "about"];</code>
+     * <code>string about = 45 [json_name = "about"];</code>
      * @return The bytes for about.
      */
     @java.lang.Override
@@ -5263,7 +5353,7 @@ public  final class Agent extends
      * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
-     * <code>string about = 44 [json_name = "about"];</code>
+     * <code>string about = 45 [json_name = "about"];</code>
      * @param value The about to set.
      * @return This builder for chaining.
      */
@@ -5279,7 +5369,7 @@ public  final class Agent extends
      * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
-     * <code>string about = 44 [json_name = "about"];</code>
+     * <code>string about = 45 [json_name = "about"];</code>
      * @return This builder for chaining.
      */
     public Builder clearAbout() {
@@ -5293,7 +5383,7 @@ public  final class Agent extends
      * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
-     * <code>string about = 44 [json_name = "about"];</code>
+     * <code>string about = 45 [json_name = "about"];</code>
      * @param value The bytes for about to set.
      * @return This builder for chaining.
      */
@@ -5311,7 +5401,7 @@ public  final class Agent extends
      * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
-     * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
      * @return The aboutSource.
      */
     @java.lang.Override
@@ -5325,7 +5415,7 @@ public  final class Agent extends
      * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
-     * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
      * @return The bytes for aboutSource.
      */
     @java.lang.Override
@@ -5340,7 +5430,7 @@ public  final class Agent extends
      * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
-     * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
      * @param value The aboutSource to set.
      * @return This builder for chaining.
      */
@@ -5357,7 +5447,7 @@ public  final class Agent extends
      * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
-     * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
      * @return This builder for chaining.
      */
     public Builder clearAboutSource() {
@@ -5372,7 +5462,7 @@ public  final class Agent extends
      * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
-     * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+     * <code>string about_source = 46 [json_name = "aboutSource"];</code>
      * @param value The bytes for aboutSource to set.
      * @return This builder for chaining.
      */
@@ -5443,17 +5533,18 @@ public  final class Agent extends
             "adoptedPidStart_",
             "archived_",
             "plain_",
+            "hadTurn_",
             "about_",
             "aboutSource_",
           };
           java.lang.String info =
-              "\u0000-\u0000\u0001\u0001--\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000.\u0000\u0001\u0001..\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
               "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
               "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208(\u0004)\u0003*\u0007" +
-              "+\u0007,\u0208-\u0208";
+              "+\u0007,\u0007-\u0208.\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

@@ -699,11 +699,23 @@ public interface AgentOrBuilder extends
 
   /**
    * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   * @return The hadTurn.
+   */
+  boolean getHadTurn();
+
+  /**
+   * <pre>
    * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
    * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
-   * <code>string about = 44 [json_name = "about"];</code>
+   * <code>string about = 45 [json_name = "about"];</code>
    * @return The about.
    */
   java.lang.String getAbout();
@@ -713,7 +725,7 @@ public interface AgentOrBuilder extends
    * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
-   * <code>string about = 44 [json_name = "about"];</code>
+   * <code>string about = 45 [json_name = "about"];</code>
    * @return The bytes for about.
    */
   com.google.protobuf.ByteString
@@ -726,7 +738,7 @@ public interface AgentOrBuilder extends
    * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
-   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
    * @return The aboutSource.
    */
   java.lang.String getAboutSource();
@@ -737,7 +749,7 @@ public interface AgentOrBuilder extends
    * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
-   * <code>string about_source = 45 [json_name = "aboutSource"];</code>
+   * <code>string about_source = 46 [json_name = "aboutSource"];</code>
    * @return The bytes for aboutSource.
    */
   com.google.protobuf.ByteString

@@ -35,6 +35,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.adapter.v1.PlanLaunchRequest.resume_session_id": "Reopen this conversation instead of starting one (`claude --resume <id>`).",
 	"agentmesh.adapter.v1.PlanLaunchRequest.skip_permissions":  "Start the CLI with its permission prompts off.",
 	"agentmesh.adapter.v1.PlanLaunchRequest.standalone":        "Open outside any run for the user's own terminal: resume the conversation without hooks, deny rules, lean cuts, or skip-permissions flags.",
+	"agentmesh.adapter.v1.PlanLaunchResponse.resume_missing":   "The conversation to resume (`resume_session_id`) does not exist: the adapter launched the same id fresh. Before the agent's first turn nothing is lost; after one (`Agent.had_turn`) the context is gone and the agent is told.",
 	"agentmesh.adapter.v1.PlanLaunchResponse.session_id":       "The conversation id, when the adapter chose it up front.",
 	"agentmesh.adapter.v1.PlanLaunchResponse.worktree_files":   "Files the adapter needs in the agent's worktree before launch (for CLIs without inline `--settings` hooks).",
 	"agentmesh.adapter.v1.RateLimited.all_models":              "The limit is on the whole account (a session or weekly limit), so every model of a chain shares it: no other model of the chain is free. False for a limit on one model (agy's, Claude's Opus or Sonnet limit).",

@@ -15,7 +15,7 @@ import { quotaSections, resetText, type QuotaLine } from '@/usage'
 import { VendorIcon } from './vendor-icon'
 import { AddHostDialog, RemoveHostDialog } from './host-dialogs'
 import { ActivityBell } from './activity-list'
-import { canPair } from './pair-panel'
+import { canPair, LOCAL_DEVICE } from './pair-panel'
 
 /** The sidebar's foot: the quota of each host as small meters, then Settings, the hosts and the + menu. */
 export function SidebarFooter() {
@@ -24,7 +24,9 @@ export function SidebarFooter() {
   const host = useSelectedHost()
   const settingsOpen = useAppState((s) => s.settingsOpen)
   const keys = useKeys(hosts)
-  const mayPair = useHostState(host ?? hosts[0]!, (s) => !!host && s.conn.kind === 'ready' && canPair(host.store))
+  const ready = useHostState(host ?? hosts[0]!, (s) => !!host && s.conn.kind === 'ready')
+  // The host's own device, by its last hello: the label does not flip while the connection drops and comes back.
+  const mayPair = useHostState(host ?? hosts[0]!, (s) => !!host && (canPair(host.store) || (s.conn.kind !== 'ready' && s.daemon?.actor?.id === LOCAL_DEVICE)))
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<HostRuntime>()
   const fixed = app.api.hosts.fixed
@@ -34,7 +36,10 @@ export function SidebarFooter() {
   const hostEntries: MenuEntry[] = [
     ...(many ? hosts.map((h) => ({ label: `${h.info.name}: settings`, onSelect: () => { pickHost(app, h.info.id); app.openSettings(true) } })) : []),
     ...(fixed ? [] : ([...(many ? ['separator' as const] : []), { label: 'Connect a host…', onSelect: () => setAdding(true) }] as MenuEntry[])),
-    { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !mayPair },
+    // Only the host's own device makes pairing links; a paired machine asks the setup assistant, which has the right to.
+    mayPair
+      ? { label: 'Pair a device', onSelect: () => app.openPairing(true), disabled: !ready }
+      : { label: 'Pair a device with the assistant', onSelect: () => void app.openSetup((host ?? hosts[0]!).info.id), disabled: !ready },
     ...(fixed ? [] : (['separator', ...hosts.map((h) => ({ label: `Remove ${h.info.name}…`, onSelect: () => setRemoving(h), destructive: true }))] as MenuEntry[])),
   ]
   return (
