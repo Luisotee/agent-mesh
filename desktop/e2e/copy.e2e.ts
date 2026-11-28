@@ -51,7 +51,7 @@ test('the copy button of a code block and the menus\' copies reach the clipboard
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
   await until('the lead', async () => (await host.client().listAgents({})).agents.length === 1)
   const lead = (await host.client().listAgents({})).agents[0]!
-  await host.client(host.agentToken(lead.id)).spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  await host.client(host.agentToken(lead.id)).spawnAgent({ about: 'test worker', repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   await until('the worker', async () => (await host.client().listAgents({})).agents.length === 2)
   const worker = (await host.client().listAgents({})).agents.find((a) => a.name.endsWith('fix'))!
   await host.client(host.agentToken(worker.id)).sendMessage({ to: 'parent', type: MessageType.DONE, body: 'Pair the phone:\n\n```\nmesh pair --name "Android phone"\n```\n' })

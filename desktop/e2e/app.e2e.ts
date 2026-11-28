@@ -57,7 +57,7 @@ test('the lead-agent view follows a real daemon live, and survives its restart',
   // A worker the lead starts (with the lead's own token, as an agent would) joins the tree under it, live.
   const leadId = await agentId('repo-lead')
   const asLead = host.client(host.agentToken(leadId))
-  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  const { agent: worker } = await asLead.spawnAgent({ about: 'test worker', repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   // It joins the run under its lead, folded until the lead is opened.
   await run.getByRole('button', { name: 'Show the workers of e2e run' }).click()
   const workerRow = run.getByRole('button', { name: 'repo-fix', exact: true })
@@ -177,7 +177,7 @@ test('plans, questions and reports: waiting on the user, answered from the app, 
   await userApprovesPlans()
   // A worker the lead started (so its parent is the lead, the plan's recipient).
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
-  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'planner', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  const { agent: worker } = await asLead.spawnAgent({ about: 'test worker', repo: host.repo, slug: 'planner', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const asWorker = host.client(host.agentToken(worker!.id))
   await asWorker.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n1. fix the typo\n2. add a test\n\nSee [the docs](https://example.com/docs).' })
 
@@ -262,7 +262,7 @@ test('notifications follow the host\'s settings, history stays quiet, and the tr
   const notices = () => log().filter((l) => l.type === 'notify').map((l) => `${l.title}`)
   await userApprovesPlans()
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
-  const { agent: noisy } = await asLead.spawnAgent({ repo: host.repo, slug: 'noisy', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  const { agent: noisy } = await asLead.spawnAgent({ about: 'test worker', repo: host.repo, slug: 'noisy', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const asNoisy = host.client(host.agentToken(noisy!.id))
 
   await asNoisy.sendMessage({ to: 'parent', type: MessageType.PLAN, body: '# Plan\n\n- one thing' })
@@ -341,7 +341,7 @@ test('a repo is kept from free models by a switch in its project settings, opene
 
   // The host enforces it: an OpenCode agent there is refused, naming the setting.
   const asLead = host.client(host.agentToken(await agentId('repo-lead')))
-  await expect(asLead.spawnAgent({ repo: host.repo, slug: 'free', role: AgentRole.WORKER, kind: 'opencode', tier: 'light' })).rejects.toThrow(/repos\.no_free_models/)
+  await expect(asLead.spawnAgent({ about: 'test worker', repo: host.repo, slug: 'free', role: AgentRole.WORKER, kind: 'opencode', tier: 'light' })).rejects.toThrow(/repos\.no_free_models/)
 
   // Switched back on, and the list is empty again.
   await box.click()

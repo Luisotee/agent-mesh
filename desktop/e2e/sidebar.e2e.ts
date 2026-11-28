@@ -33,7 +33,7 @@ test('the sidebar shows the project, its run as the lead and the worker under it
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
   await until('the lead', async () => (await host.client().listAgents({})).agents.length === 1)
   const { agents } = await host.client().listAgents({})
-  await host.client(host.agentToken(agents[0]!.id)).spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  await host.client(host.agentToken(agents[0]!.id)).spawnAgent({ about: 'test worker', repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
 
   // What the app asks for to tell "ready to review": a device must name the run, and the host answers a row per change worker.
   const prs = await host.client().listPullRequests({ runId: run!.id })
