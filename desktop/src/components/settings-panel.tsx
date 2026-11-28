@@ -197,6 +197,7 @@ function useEdit(host: HostRuntime, s: Setting) {
 
 /** The key as the CLI and an agent spell it, in small mono type; Copy puts it on the clipboard. Shown on hover or focus. */
 function KeyLine({ id }: { id: string }) {
+  const app = useApp()
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
@@ -214,7 +215,7 @@ function KeyLine({ id }: { id: string }) {
             setCopied(true)
             clearTimeout(timer.current)
             timer.current = setTimeout(() => setCopied(false), 1500)
-          }, () => {})
+          }, () => app.notify(`Couldn't copy ${id}`, 'error'))
         }}
       >
         {copied ? <Check /> : <Copy />}
