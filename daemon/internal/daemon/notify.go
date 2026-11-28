@@ -301,8 +301,8 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 	for _, a := range agents {
 		if prs, err := r.AgentPRs(a.Id); err == nil {
 			for _, p := range prs {
-				if p.State == "merged" {
-					mergedURLs[p.Url] = true
+				if p.State == "merged" && p.Url != "" {
+					mergedURLs[store.PRKey(p.Url)] = true
 				}
 			}
 		}

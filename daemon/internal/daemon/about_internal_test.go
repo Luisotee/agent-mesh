@@ -16,6 +16,9 @@ func TestTheTaskAndPlanSayWhatAnAgentIsFor(t *testing.T) {
 		{"a glob", "Fix glob handling of *.go files", "Fix glob handling of *.go files"},
 		{"a leading underscore", "_internal package cleanup", "_internal package cleanup"},
 		{"a flag", "-v flag ignored", "-v flag ignored"},
+		{"a hyphenated word", "Task-runner crash", "Task-runner crash"},
+		{"a dotted word", "Task.js fails to load", "Task.js fails to load"},
+		{"direct task hyphenated", "Direct task-runner cleanup", "Direct task-runner cleanup"},
 		{"a bullet", "- fix the thing", "fix the thing"},
 		{"a task label", "Task: fix the thing", "fix the thing"},
 		{"direct marker", "Direct task (no plan): fix the retry loop\n\nmore", "fix the retry loop"},
@@ -36,6 +39,9 @@ func TestTheTaskAndPlanSayWhatAnAgentIsFor(t *testing.T) {
 	}
 	if got := planAbout("# PLAN: Upper case label"); got != "Upper case label" {
 		t.Errorf("planAbout strips the label in any case: %q", got)
+	}
+	if got := planAbout("# Plan-based routing"); got != "Plan-based routing" {
+		t.Errorf("planAbout keeps a word that starts like the label: %q", got)
 	}
 	if got := planAbout("no heading here"); got != "" {
 		t.Errorf("a plan with no heading has no title: %q", got)

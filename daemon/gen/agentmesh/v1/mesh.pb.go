@@ -1912,7 +1912,7 @@ type SpawnAgentRequest struct {
 	// plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
 	Plain bool `protobuf:"varint,16,opt,name=plain,proto3" json:"plain,omitempty"`
 	// What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
-	// must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+	// must give it; the others may leave it out and it is derived (the task's first line that says something, the ask, the run's title).
 	About         string `protobuf:"bytes,17,opt,name=about,proto3" json:"about,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

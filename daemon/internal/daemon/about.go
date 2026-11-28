@@ -51,7 +51,7 @@ func capAbout(s string) string { return capLine(s, maxAbout) }
 var markdownNoise = regexp.MustCompile("^(?:[#>]+\\s*)+|^[-*+]\\s+|\\*\\*|`")
 
 // directMarker is the protocol's marker a task may start with.
-var directMarker = regexp.MustCompile(`(?i)^(?:(?:direct task(?: \(no plan\)|\b)|question \(read-only\)|review \(read-only\))\s*[:.-]?\s*|task\s*[:.-]\s*)`)
+var directMarker = regexp.MustCompile(`(?i)^(?:(?:direct task(?: \(no plan\)|\b)|question \(read-only\)|review \(read-only\))(?:\s*[:.-](?:\s+|$)|\s+|$)|task\s*[:.-](?:\s+|$))`)
 
 // headingOf is the text of a Markdown heading line, "" when the line is none.
 func headingOf(line string) string {
@@ -79,7 +79,7 @@ func taskAbout(body string) string {
 }
 
 // planPrefix is the template's `Plan:` label.
-var planPrefix = regexp.MustCompile(`(?i)^plan\s*[:.-]\s*`)
+var planPrefix = regexp.MustCompile(`(?i)^plan\s*[:.-](?:\s+|$)`)
 
 // planAbout is a plan's title: its first heading without the template's `Plan:` prefix.
 func planAbout(body string) string {

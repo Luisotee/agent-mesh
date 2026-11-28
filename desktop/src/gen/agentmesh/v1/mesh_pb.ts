@@ -1001,7 +1001,7 @@ export type SpawnAgentRequest = Message<"agentmesh.v1.SpawnAgentRequest"> & {
 
   /**
    * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
-   * must give it; the others may leave it out and it is derived (the task's heading or first line, the ask, the run's title).
+   * must give it; the others may leave it out and it is derived (the task's first line that says something, the ask, the run's title).
    *
    * @generated from field: string about = 17;
    */
