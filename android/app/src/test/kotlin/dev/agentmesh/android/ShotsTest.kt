@@ -171,6 +171,18 @@ class ShotsTest {
 
     @Test fun home() { val c = seeded(); both("home", { HomeScreen(rememberSidebar(), {}, { _, _, _ -> }, {}, {}, {}, {}) }, c = c) }
 
+    /** The Activity list: what the host decided to tell the user, the ones for them marked. */
+    @Test fun activity() {
+        val c = seeded()
+        val rt = c.runtimes.value.values.first()
+        val now = System.currentTimeMillis()
+        rt.onFrame(userNotice(11, "plan", agentId = "w2", title = "agent-mesh-chat sent a plan", body = "Port the sidebar, then the chat view", at = now - 600_000))
+        rt.onFrame(userNotice(12, "report", agentId = "w1", forUser = false, title = "agent-mesh-sidebar reported done", body = "Sidebar ported, tests pass", at = now - 300_000))
+        rt.onFrame(userNotice(13, "input", agentId = "w1", tab = "terminal", title = "agent-mesh-sidebar needs you", body = "Bash", at = now - 120_000))
+        rt.onFrame(userNotice(14, "ready", agentId = "lead", title = "PR #42 is ready to merge", body = "Desktop UI overhaul", at = now - 30_000))
+        both("activity", { dev.agentmesh.android.ui.ActivityScreen({}, { _, _, _ -> }) }, c = c)
+    }
+
     /** A project's shell as a screen: the host's output as the terminal draws it, the key row, and the keyboard's place under it. */
     @Test fun shellScreen() {
         val api = api() as RecordingApi

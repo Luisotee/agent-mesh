@@ -6,6 +6,7 @@ import { useHostState } from '@/context'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { SkeletonLines } from '@/components/ui/skeleton'
 import type { TailnetStatusResponse } from '@/gen/agentmesh/v1/mesh_pb'
 import type { HostRuntime } from '@/model'
 import { safeLoginUrl, tailnetAddresses, tailnetRunning, tailnetStateLabel } from '@/tailnet'
@@ -80,6 +81,8 @@ export function TailnetPanel({ host, onUse, onRunning }: { host: HostRuntime; on
   if (!status) {
     return error ? (
       <p role="alert" className="max-w-2xl text-xs text-destructive">Tailscale: {error}</p>
+    ) : connected ? (
+      <SkeletonLines label="Reading the Tailscale status" lines={2} className="max-w-2xl" />
     ) : null
   }
   const login = safeLoginUrl(status.authUrl)

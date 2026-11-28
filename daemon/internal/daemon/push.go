@@ -214,7 +214,8 @@ func relevant(e *v1.Event) bool {
 
 // announce stores a notice as a UserNotice event, then pushes it to the phones that take its kind, when it is for the user.
 func (p *pusher) announce(ctx context.Context, e *v1.Event, n *notice.Notice) {
-	if _, err := p.d.record(ctx, e.RunId, n); err != nil {
+	seq, err := p.d.record(ctx, e.RunId, n)
+	if err != nil {
 		p.d.log.Warn("notice: storing", "err", err)
 	}
 	if !n.ForUser {
@@ -250,7 +251,7 @@ func (p *pusher) announce(ctx context.Context, e *v1.Event, n *notice.Notice) {
 	if tab == notice.TabChat {
 		tab = notice.TabMessages
 	}
-	p.send(to, pushPayload{V: 1, Daemon: p.d.daemonID, Seq: e.Seq, // the event that caused it: Android's own rules number theirs so, and drop the repeat
+	p.send(to, pushPayload{V: 1, Daemon: p.d.daemonID, Seq: seq, // the UserNotice event's: the phone's live stream brings the same event, and it drops the repeat by this number
 		Kind: n.Kind, Title: n.Title, Body: n.Body,
 		Agent: n.AgentID, Tab: tab, At: at.UnixMilli()}, n.Waiting())
 }

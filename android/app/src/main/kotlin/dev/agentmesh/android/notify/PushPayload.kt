@@ -21,7 +21,7 @@ data class PushPayload(
     val title: String = "",
     val body: String = "",
     val agent: String = "",
-    /** "overview", "messages" or "terminal". */
+    /** "terminal" opens the terminal; anything else (the host sends "messages") opens the chat. */
     val tab: String = "",
     /** When it happened, by the host's clock (ms). */
     val at: Long = 0,
@@ -34,8 +34,7 @@ data class PushPayload(
         if (agent.isEmpty()) return null
         val t = when (tab) {
             "terminal" -> Tab.Terminal
-            "messages" -> Tab.Messages
-            else -> Tab.Overview
+            else -> Tab.Chat
         }
         return Notice(k, title, body, agent, t, seq)
     }

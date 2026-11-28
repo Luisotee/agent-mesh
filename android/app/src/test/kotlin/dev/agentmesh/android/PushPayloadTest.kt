@@ -17,7 +17,7 @@ class PushPayloadTest {
         val p = parse("""{"v":1,"daemon":"d1","seq":42,"kind":"plan","title":"shop-fix sent a plan","body":"Plan do x","agent":"w1","tab":"messages","at":1,"new":"ignored"}""")!!
         val n = p.toNotice()!!
         assertEquals(NoticeKind.Plan, n.kind); assertEquals("shop-fix sent a plan", n.title); assertEquals("Plan do x", n.body)
-        assertEquals("w1", n.agentId); assertEquals(Tab.Messages, n.tab); assertEquals(42L, n.seq)
+        assertEquals("w1", n.agentId); assertEquals(Tab.Chat, n.tab); assertEquals(42L, n.seq)
         assertEquals(Tab.Terminal, parse("""{"v":1,"kind":"input","agent":"w1","tab":"terminal"}""")!!.toNotice()!!.tab)
         assertFalse(p.isTest)
     }
@@ -25,6 +25,11 @@ class PushPayloadTest {
     @Test fun `the limit and error kinds are ones this app knows`() {
         assertEquals(NoticeKind.Limited, parse("{\"v\":1,\"kind\":\"limited\",\"title\":\"shop-fix hit its usage limit\",\"agent\":\"w1\",\"tab\":\"terminal\"}")!!.toNotice()!!.kind)
         assertEquals(Tab.Terminal, parse("{\"v\":1,\"kind\":\"error\",\"agent\":\"w1\",\"tab\":\"terminal\"}")!!.toNotice()!!.tab)
+    }
+
+    @Test fun `the kinds finished and ready are ones this app knows`() {
+        assertEquals(NoticeKind.Finished, parse("""{"v":1,"kind":"finished","title":"shop-lead finished","agent":"lead","tab":"messages"}""")!!.toNotice()!!.kind)
+        assertEquals(NoticeKind.Ready, parse("""{"v":1,"kind":"ready","agent":"w1","tab":"messages"}""")!!.toNotice()!!.kind)
     }
 
     @Test fun `a test push, an unknown kind and what isn't ours`() {

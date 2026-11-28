@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
         }
         val host = intent?.getStringExtra(EXTRA_HOST) ?: return
         val agent = intent.getStringExtra(EXTRA_AGENT) ?: return
-        val tab = runCatching { Tab.valueOf(intent.getStringExtra(EXTRA_TAB).orEmpty()) }.getOrDefault(Tab.Overview)
+        val tab = runCatching { Tab.valueOf(intent.getStringExtra(EXTRA_TAB).orEmpty()) }.getOrDefault(Tab.Chat)
         container.deepLink.value = DeepLink(host, agent, tab)
         intent.removeExtra(EXTRA_AGENT)
     }

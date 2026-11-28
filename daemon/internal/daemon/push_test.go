@@ -207,6 +207,20 @@ func TestPushCarriesTheNoticeEncryptedToEachPhone(t *testing.T) {
 		got.Agent != "p-w1" || got.Tab != "messages" || got.Seq == 0 || got.At == 0 {
 		t.Fatalf("payload %+v", got)
 	}
+	// The phone's live stream brings the UserNotice event: the push is numbered by it (not by the message that caused it), so the app posts once.
+	evs, err := h.d.Store().Read(ctx).ListEvents(run.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noticeSeq int64
+	for _, e := range evs {
+		if n, ok := e.Payload.(*v1.Event_UserNotice); ok && n.UserNotice.Kind == "plan" {
+			noticeSeq = e.Seq
+		}
+	}
+	if noticeSeq == 0 || got.Seq != noticeSeq {
+		t.Fatalf("push seq %d, the plan's UserNotice event %d", got.Seq, noticeSeq)
+	}
 	if hdr.Get("Content-Encoding") != "aes128gcm" || hdr.Get("Urgency") != "high" || hdr.Get("TTL") != "86400" || len(hdr.Get("Topic")) != 22 {
 		t.Fatalf("headers %v", hdr)
 	}
