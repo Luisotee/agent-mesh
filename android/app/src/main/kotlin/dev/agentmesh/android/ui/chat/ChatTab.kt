@@ -493,8 +493,10 @@ private fun PromptComposer(
     val canStop = agent.kind == "claude"
     val blank = draft.text.isBlank()
     // Not at a prompt: Esc there would deny or dismiss the dialog the agent waits on, not stop a turn.
-    // Not while a send is in flight: the box is empty then, and a second tap on the same spot must not stop the turn.
-    val asStop = working && !atPrompt && canStop && blank && why.isEmpty()
+    // Not for a moment after a send either: the box is empty then, and a second tap on the same spot must not stop the turn.
+    var justSent by remember { mutableStateOf(false) }
+    LaunchedEffect(justSent) { if (justSent) { delay(1_000); justSent = false } }
+    val asStop = working && !atPrompt && canStop && blank && !justSent && why.isEmpty()
     fun send() {
         val body = draft.text.toString().trim()
         if (body.isEmpty()) return
@@ -503,6 +505,7 @@ private fun PromptComposer(
         // (now, or when the connection is back): what is typed meanwhile is a new prompt, and a draft saved when the screen is
         // left is not the one in flight. A refusal stays on its bubble, with Retry and Edit.
         draft.clearText()
+        justSent = true
         onSending()
         runtime.say(agent.id, body)
     }

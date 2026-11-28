@@ -232,6 +232,19 @@ class AgentChatScreenTest {
         compose.onAllNodesWithTag("msg-quote").assertCountEquals(0)
     }
 
+    @Test fun `right after a send the emptied box does not offer Stop, so a second tap cannot stop the turn`() {
+        fresh()
+        val rt = host(lead, worker)
+        show(rt)
+        compose.onNodeWithTag("prompt").performTextInput("and this")
+        compose.onNodeWithTag("send").performClick()
+        compose.onAllNodesWithTag("stop").assertCountEquals(0)
+        compose.onNodeWithTag("outgoing-text").assertIsDisplayed()
+        // A moment later the box is empty and the agent works: Stop is offered again.
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("stop").fetchSemanticsNodes().isNotEmpty() }
+        assertTrue(api.interrupts.isEmpty())
+    }
+
     @Test fun `while the agent works an empty box offers Stop, typing turns it into Send, and Stop interrupts`() {
         fresh()
         val rt = host(lead, worker)

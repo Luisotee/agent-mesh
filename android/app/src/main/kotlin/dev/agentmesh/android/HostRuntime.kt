@@ -253,7 +253,8 @@ class HostRuntime(
     private fun resumeOutbox() { _outbox.value.filter { it.state == dev.agentmesh.android.chat.OutState.Waiting }.forEach { deliver(it.id) } }
 
     private fun deliver(id: String) {
-        sendJobs[id] = scope.launch {
+        // Lazy, so the job is in the map before it can finish (and remove itself).
+        val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             try {
                 sendLock.withLock {
                     while (true) {
@@ -285,9 +286,11 @@ class HostRuntime(
                     }
                 }
             } finally {
-                sendJobs.remove(id)
+                sendJobs.remove(id, coroutineContext[Job])
             }
         }
+        sendJobs[id] = job
+        job.start()
     }
 
     /** Sends a refused prompt again. */
