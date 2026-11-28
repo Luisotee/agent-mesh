@@ -49,3 +49,17 @@ def test_no_identity_phrasing_for_agy():
     hits = [f"{p.relative_to(ROOT)}:{text[:m.start()].count(chr(10)) + 1}"
             for p in files for text in [p.read_text()] for m in bad.finditer(text)]
     assert not hits, hits
+
+
+def test_risky_and_large_keep_their_definitions():
+    """The user's 2026-11-28 definitions (ORCHESTRATE "Tiers" and "Sizes"): risky is money, data that matters, exposure
+    to others or a deploy, never concurrency; size counts hand-written files, never lines. The old wording must not
+    come back in the shipped protocol, skills, settings or docs."""
+    old = ("(auth, money, data migrations, concurrency)", "(security, money, data migrations, concurrency)",
+           "a few hundred lines", "1,000 changed lines", "additions,deletions,changedFiles")
+    files = [*ROOT.glob("daemon/share/**/*.md"), ROOT / "README.md", ROOT / "daemon/README.md",
+             ROOT / "docs/apps.md", ROOT / "daemon/internal/settings/schema.go"]
+    hits = [f"{p.relative_to(ROOT)}: {s}" for p in files for s in old if s in p.read_text()]
+    assert not hits, hits
+    orch = (ROOT / "daemon/share/protocol/ORCHESTRATE.md").read_text()
+    assert "- **Risky** means" in orch and "never by lines" in orch
