@@ -39,7 +39,8 @@ export const openView = (c: MeshClient, view: 'agent' | 'terminal' | 'settings' 
 export const listPermissions = (c: MeshClient) => c.listPermissions({})
 
 /** Answers a held permission prompt: `allow`, or `deny` with the reason the agent reads. */
-export const decidePermission = (c: MeshClient, id: string, decision: 'allow' | 'deny', why = '') => c.decidePermission({ meta: meta(), id, decision, why })
+export const decidePermission = (c: MeshClient, id: string, decision: 'allow' | 'deny', why = '', extra: { answers?: Array<{ question: string; labels: string[]; other: string }>; mode?: string } = {}) =>
+  c.decidePermission({ meta: meta(), id, decision, why, answers: extra.answers ?? [], mode: extra.mode ?? '' })
 
 export type SpawnInput = Pick<SpawnAgentRequest, 'runId' | 'repo' | 'slug' | 'kind' | 'tier' | 'model' | 'effort' | 'task'> & {
   role: AgentRole

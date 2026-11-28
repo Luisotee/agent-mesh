@@ -201,6 +201,7 @@ From the peers' inventories (2026-11-25, run m93a9; ask `paseo-research` or `orc
   - The chat's queue and stop (2026-11-27): a send is queued while the agent can't take it and typed at its next idle (`ListPrompts`, `WithdrawPrompt`: Up takes the newest back), and Esc interrupts a Claude turn (`InterruptAgent`); `daemon/README.md`, "Chat view".
 - ★ A streaming timeline: Markdown, diagrams, images, grouped tool calls that expand to their diffs (P, O).
 - ★ Inline cards for plans, questions and permissions (P, O).
+  - Built in the desktop for Claude Code (2026-11-27): an `AskUserQuestion` (1 to 4 questions, single or multi-select, "Other" text, previews beside the options), an `ExitPlanMode` (approve with manual or accept-edits, or send back) and a tool prompt only the user answers (a root's own, a push) are cards at the end of the agent's chat, answered by `DecidePermission` (`daemon/README.md`, "Permission prompts"); the hook carries the answer back (`updatedInput`), nothing is typed into the TUI. Android's cards and the other CLIs' prompts: `TODO.md`.
 - ★ While a turn runs: interrupt, steer, or queue the message, with an editable queue (P, O).
 - ★ Subagents, todo-list and background-work pills (P, O).
 - Composer: `@` files, `/` commands and skills, attachments, drafts that persist, prompt recall (P, O).

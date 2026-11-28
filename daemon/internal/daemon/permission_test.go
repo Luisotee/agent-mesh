@@ -27,12 +27,13 @@ func (w *reviewWorld) worker(t *testing.T, slug string) *v1.Agent {
 	return w.waitState(res.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 }
 
-// pendingFor waits for a worker's permission prompt to reach its root and returns it.
+// pendingFor waits for an agent's permission prompt to be held and returns it (a device lists every prompt, the
+// parent's and the user's).
 func (w *reviewWorld) pendingFor(t *testing.T, agentID string) *v1.PendingPermission {
 	t.Helper()
 	var p *v1.PendingPermission
 	waitFor(t, "the permission prompt to be pending", func() bool {
-		res, err := w.asRoot.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
+		res, err := w.device.Mesh.ListPermissions(context.Background(), connect.NewRequest(&v1.ListPermissionsRequest{}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -189,9 +190,10 @@ func TestAPermissionPromptEndsWhenItsAgentGoesOn(t *testing.T) {
 	}
 }
 
-// A root's own prompt is the user's: nothing is held.
-func TestARootsPermissionPromptIsNotHeld(t *testing.T) {
+// A root's own prompt is the user's: with no hold for the user (`permission.user_wait` 0) nothing is held.
+func TestARootsPermissionPromptIsNotHeldWithoutAHoldForTheUser(t *testing.T) {
 	w := startReviews(t)
+	w.set(t, "permission.user_wait", 0)
 	start := time.Now()
 	res, err := w.asRoot.RequestPermission(context.Background(), connect.NewRequest(&v1.RequestPermissionRequest{Tool: "Bash", Summary: "ls"}))
 	if err != nil || res.Msg.Decision != "" || time.Since(start) > 2*time.Second {
@@ -317,6 +319,7 @@ func TestAPromptWhoseWriteFailsBeforeItIsListedReturnsAtOnce(t *testing.T) {
 // worktree are passed.
 func TestOutwardPromptsAreNeverForwardedToTheRoot(t *testing.T) {
 	w := startReviews(t)
+	w.set(t, "permission.user_wait", 0) // else they are held for the user (TestAnOutwardPromptIsHeldForTheUser)
 	ctx := context.Background()
 	wk := w.worker(t, "wk")
 	c := w.as(w.token(t, wk.Id))
@@ -464,9 +467,11 @@ func TestPermissionPromptsTellTheAppsWhenTheyAreHeldAndEnded(t *testing.T) {
 }
 
 // A prompt is listed and announced in the write that tells its parent, and only then: the parent stopped means nothing is
-// listed and no "asked" is said; and "asked" always comes before an answer.
+// listed and no "asked" is said; and "asked" always comes before an answer. (A stopped parent makes it the user's
+// prompt: with no hold for the user, as here, it is left to the pane.)
 func TestAPermissionPromptIsListedAndAnnouncedOnlyOnceItsParentIsTold(t *testing.T) {
 	w := startReviews(t)
+	w.set(t, "permission.user_wait", 0)
 	wk := w.worker(t, "wk")
 	if _, err := w.device.Mesh.StopAgent(context.Background(), connect.NewRequest(&v1.StopAgentRequest{Meta: meta(""), Agent: w.lead.Id})); err != nil {
 		t.Fatal(err)

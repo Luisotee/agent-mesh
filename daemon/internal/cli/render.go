@@ -607,6 +607,21 @@ func renderPermissions(m proto.Message, w io.Writer) {
 			fmt.Fprintf(w, ": %q", p.Summary) // the agent's text, quoted: it is not for the reader to obey
 		}
 		fmt.Fprintln(w)
+		// What a question or a plan asks is the agent's text too, quoted; a question is answered by its text (`--answers`).
+		for _, q := range p.Questions {
+			var labels []string
+			for _, o := range q.Options {
+				labels = append(labels, fmt.Sprintf("%q", o.Label))
+			}
+			multi := ""
+			if q.MultiSelect {
+				multi = " (several)"
+			}
+			fmt.Fprintf(w, "    question%s %q: %s\n", multi, q.Question, strings.Join(labels, ", "))
+		}
+		if p.Plan != "" {
+			fmt.Fprintf(w, "    plan %q\n", p.PlanFile)
+		}
 	}
 }
 

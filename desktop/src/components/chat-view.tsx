@@ -22,6 +22,8 @@ import { AgentState } from '@/gen/agentmesh/v1/types_pb'
 import type { HostRuntime } from '@/model'
 import { sameBlock, emptyTranscript, fromTail, timeline, toBlocks, toolsSummary, withEarlier, withLater, type Block, type ToolCall, type Transcript } from '@/transcript'
 import { MessageCard } from './messages-panel'
+import { AskedRow, PromptCards } from './prompt-cards'
+import { promptsFor } from '@/prompts'
 import { RewindDialog } from './rewind-dialog'
 import { ContextMeter, useAgentWait } from './agent-work'
 import { ModelPicker } from './model-picker'
@@ -181,6 +183,9 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   const messageLoad = useHostState(host, (s) => (runId ? s.messageLoad[runId] : undefined))
   const allMessages = useHostState(host, (s) => s.messages)
   const waiting = useHostState(host, (s) => s.waitingAll)
+  // What the agent waits on that only the user answers (a question, a plan, a tool): cards at the end of the conversation.
+  const held = useHostState(host, (s) => s.permissions)
+  const prompts = useMemo(() => promptsFor(held, agentId), [held, agentId])
   const mine = useMemo(() => messagesOf(allMessages, agentId), [allMessages, agentId])
   const open = useMemo(() => new Set(waiting.flatMap((w) => (w.message ? [w.message.id] : []))), [waiting])
   // A plan an agent asked to show (`OpenView`) is shown like one waiting on the user, whatever the window held.
@@ -286,7 +291,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
       seenLast.current = items[items.length - 1]?.id
       setAway(false)
     }
-  }, [transcript.entries, transcript.start, active, sending.length, queued.length, followTick, items.length, reveals])
+  }, [transcript.entries, transcript.start, active, sending.length, queued.length, prompts.length, followTick, items.length, reveals])
   const seenAt = seenLast.current ? items.findIndex((i) => i.id === seenLast.current) : -1
   // The entry last seen may be gone (a card answered, a reload): then there is no count to give.
   const unseen = away && seenAt >= 0 ? Math.max(0, items.length - 1 - seenAt) : 0
@@ -402,12 +407,13 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
                 {b.kind === 'message' ? (
                   <MessageCard host={host} message={b.message} open={open.has(b.message.id)} />
                 ) : (
-                  <ChatBlock block={b} agentId={agentId} running={b === lastTools && working && b.kind === 'tools' && b.calls.some((c) => !c.result)} />
+                  <ChatBlock block={b} agentId={agentId} running={b === lastTools && working && b.kind === 'tools' && b.calls.some((c) => !c.result)} waiting={b.kind === 'asked' && b.call.toolUseId !== '' && prompts.some((p) => p.toolUseId === b.call.toolUseId)} />
                 )}
               </li>
             ))}
           </ol>
         )}
+        {prompts.length > 0 && <PromptCards host={host} prompts={prompts} readOnly={readOnly} />}
         {sending.length > 0 && (
           <ol aria-label="Sending" className="flex flex-col gap-3">
             {sending.map((x) => (
@@ -624,6 +630,8 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
     }
   }, [fill, agentId, app, setText])
   const hasQueue = useHostState(host, (s) => (s.prompts[agentId]?.length ?? 0) > 0)
+  // A card in the conversation answers a prompt here; only one the host doesn't hold (a CLI dialog) is answered in the terminal.
+  const cardShown = useHostState(host, (s) => promptsFor(s.permissions, agentId).length > 0)
   const fieldRef = useRef<HTMLTextAreaElement>(null)
   // A command that ends the CLI's process asks first: the text waits here for the answer.
   const [confirming, setConfirming] = useState('')
@@ -780,7 +788,7 @@ function Composer({ host, agentId, readOnly, onSent, openTerminal, active, dropp
         void send()
       }}
     >
-      {atPrompt && !why && (
+      {atPrompt && !why && !cardShown && (
         <p role="status" className="flex items-center gap-2 text-xs text-state-needs">
           It is waiting at a prompt in its terminal: answer it there. What you send now waits until then.
           <Button type="button" size="sm" variant="outline" onClick={openTerminal}>Open the terminal</Button>
@@ -963,9 +971,9 @@ function UserBody({ body }: { body: string }) {
   )
 }
 
-const ChatBlock = memo(ChatBlockView, (a, b) => a.agentId === b.agentId && a.running === b.running && sameBlock(a.block, b.block))
+const ChatBlock = memo(ChatBlockView, (a, b) => a.agentId === b.agentId && a.running === b.running && a.waiting === b.waiting && sameBlock(a.block, b.block))
 
-function ChatBlockView({ block, agentId, running }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean }) {
+function ChatBlockView({ block, agentId, running, waiting = false }: { block: Block; agentId: string; /** The agent is at work on this block's tools. */ running: boolean; /** The user's answer to this block's question is what the agent waits on. */ waiting?: boolean }) {
   switch (block.kind) {
     case 'user': {
       // Its attachments: a thumbnail where this device sent an image, else the file's name (the host's file isn't fetched).
@@ -1000,6 +1008,8 @@ function ChatBlockView({ block, agentId, running }: { block: Block; agentId: str
           {block.entry.text}
         </pre>
       )
+    case 'asked':
+      return <AskedRow call={block.call} waiting={waiting} />
     case 'tools':
       return (
         <details className="rounded-md border bg-card text-xs" data-kind="tools">

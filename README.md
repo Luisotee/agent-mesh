@@ -23,7 +23,7 @@ You're building a feature in `shop-web` and find that `shop-api` doesn't return 
 2. **A worker starts inside `shop-api`,** in its own git worktree and its own terminal. It loads that repo's rules, skills and hooks.
 3. **It researches and sends a plan.** The root reviews it (right files, right contract, real tests) and approves it or sends it back. Nothing is edited before approval.
 4. **The same agent does the work,** in the same conversation, switched to its execution model, so no research is lost in a hand-off. It runs the repo's tests, lint and build, then opens a PR.
-5. **Reviewers read the PR:** Claude, Gemini (agy), Copilot or OpenCode, one by default (a small PR's from OpenCode first, a large PR's from the CLI that isn't the author's; a risky PR gets a relay of reviewers, one after another), each inside the repo at the PR's head. The worker that wrote the PR asks the round itself, checks each finding, fixes what holds up and reports what it declined, so the root reads one report per PR (a relay for a risky PR stays with the root).
+5. **Reviewers read the PR:** Claude, Gemini (agy), Copilot or OpenCode, one by default (a small PR's from OpenCode first, a large PR's from the CLI that isn't the author's; the PR's size picks how many reviewers, its risk how strong they are, and a risky PR of any size gets a relay of reviewers, one after another), each inside the repo at the PR's head. The worker that wrote the PR asks the round itself, checks each finding, fixes what holds up and reports what it declined, so the root reads one report per PR (a relay for a risky PR stays with the root).
 6. **You get one report** with the PR link, what changed and the checks that passed. Meanwhile your session kept building the badge.
 
 ```
@@ -79,7 +79,7 @@ A root can hand the work to agy, so the planning and reviewing happen on Claude 
 /delegate with agy: add tests for the date parser in shop-web and admin-web
 ```
 
-The root picks each worker's model and effort as a tier (`light`, `mid`, `strong`) by the task, and an agy worker's `strong` tier plans on the strongest model that still has quota. The tiers are settings (`mesh settings --prefix tiers`): yours to change. The daemon reads Claude's and agy's quotas, moves a worker that hits one to the next model, and by default starts nothing new on a vendor once its quota is 90% used.
+The root picks each worker's CLI, model and effort by the task: a tier (`light`, `mid`, `strong`) says how strong, and the pools differ in size (Claude is big, agy's plan small and kept for a second family or for relieving Claude, OpenCode's free models first for the work they do well). An agy worker's `strong` tier plans on the strongest model that still has quota. The tiers are settings (`mesh settings --prefix tiers`): yours to change. The daemon reads Claude's and agy's quotas, moves a worker that hits one to the next model, and by default starts nothing new on a vendor once its quota is 90% used.
 
 ![A Claude root opening a PR and starting an agy reviewer beside it](docs/media/delegate.webp)
 <sub>A Claude root opens a PR and has agy review it (the herdr-based predecessor): the reviewer starts on Gemini Flash beside the root, in its own worktree.</sub>

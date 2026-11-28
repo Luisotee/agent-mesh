@@ -112,4 +112,105 @@ public interface PendingPermissionOrBuilder extends
    * @return The since.
    */
   com.google.protobuf.Timestamp getSince();
+
+  /**
+   * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+   * @return The enum numeric value on the wire for kind.
+   */
+  int getKindValue();
+  /**
+   * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+   * @return The kind.
+   */
+  dev.agentmesh.gen.agentmesh.v1.PermissionKind getKind();
+
+  /**
+   * <pre>
+   * Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+   * agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+   * its worktree). It tells nobody and waits `permission.user_wait`.
+   * </pre>
+   *
+   * <code>bool for_user = 10 [json_name = "forUser"];</code>
+   * @return The forUser.
+   */
+  boolean getForUser();
+
+  /**
+   * <pre>
+   * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+   * </pre>
+   *
+   * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+   * @return The toolUseId.
+   */
+  java.lang.String getToolUseId();
+  /**
+   * <pre>
+   * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+   * </pre>
+   *
+   * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+   * @return The bytes for toolUseId.
+   */
+  com.google.protobuf.ByteString
+      getToolUseIdBytes();
+
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> 
+      getQuestionsList();
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.PromptQuestion getQuestions(int index);
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  int getQuestionsCount();
+
+  /**
+   * <pre>
+   * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+   * </pre>
+   *
+   * <code>string plan = 13 [json_name = "plan"];</code>
+   * @return The plan.
+   */
+  java.lang.String getPlan();
+  /**
+   * <pre>
+   * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+   * </pre>
+   *
+   * <code>string plan = 13 [json_name = "plan"];</code>
+   * @return The bytes for plan.
+   */
+  com.google.protobuf.ByteString
+      getPlanBytes();
+
+  /**
+   * <code>string plan_file = 14 [json_name = "planFile"];</code>
+   * @return The planFile.
+   */
+  java.lang.String getPlanFile();
+  /**
+   * <code>string plan_file = 14 [json_name = "planFile"];</code>
+   * @return The bytes for planFile.
+   */
+  com.google.protobuf.ByteString
+      getPlanFileBytes();
 }
