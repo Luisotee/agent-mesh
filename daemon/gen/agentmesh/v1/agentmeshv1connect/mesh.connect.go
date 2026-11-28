@@ -230,6 +230,9 @@ const (
 	// MeshServiceGetAgentProgressProcedure is the fully-qualified name of the MeshService's
 	// GetAgentProgress RPC.
 	MeshServiceGetAgentProgressProcedure = "/agentmesh.v1.MeshService/GetAgentProgress"
+	// MeshServiceListAgentWaitsProcedure is the fully-qualified name of the MeshService's
+	// ListAgentWaits RPC.
+	MeshServiceListAgentWaitsProcedure = "/agentmesh.v1.MeshService/ListAgentWaits"
 	// MeshServiceArchiveAgentProcedure is the fully-qualified name of the MeshService's ArchiveAgent
 	// RPC.
 	MeshServiceArchiveAgentProcedure = "/agentmesh.v1.MeshService/ArchiveAgent"
@@ -478,6 +481,10 @@ type MeshServiceClient interface {
 	// An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
 	// its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
 	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
+	// What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
+	// dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
+	// agents that are idle now (not archived); a root reads its own run's unless it names another.
+	ListAgentWaits(context.Context, *connect.Request[v1.ListAgentWaitsRequest]) (*connect.Response[v1.ListAgentWaitsResponse], error)
 	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
 	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
 	// ResumeAgent brings it back: the worktree is made again from the branch.
@@ -993,6 +1000,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(meshServiceMethods.ByName("GetAgentProgress")),
 			connect.WithClientOptions(opts...),
 		),
+		listAgentWaits: connect.NewClient[v1.ListAgentWaitsRequest, v1.ListAgentWaitsResponse](
+			httpClient,
+			baseURL+MeshServiceListAgentWaitsProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("ListAgentWaits")),
+			connect.WithClientOptions(opts...),
+		),
 		archiveAgent: connect.NewClient[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse](
 			httpClient,
 			baseURL+MeshServiceArchiveAgentProcedure,
@@ -1109,6 +1122,7 @@ type meshServiceClient struct {
 	streamLog           *connect.Client[v1.StreamLogRequest, v1.StreamLogResponse]
 	getAgentChanges     *connect.Client[v1.GetAgentChangesRequest, v1.GetAgentChangesResponse]
 	getAgentProgress    *connect.Client[v1.GetAgentProgressRequest, v1.GetAgentProgressResponse]
+	listAgentWaits      *connect.Client[v1.ListAgentWaitsRequest, v1.ListAgentWaitsResponse]
 	archiveAgent        *connect.Client[v1.ArchiveAgentRequest, v1.ArchiveAgentResponse]
 	openInEditor        *connect.Client[v1.OpenInEditorRequest, v1.OpenInEditorResponse]
 	setTailnet          *connect.Client[v1.SetTailnetRequest, v1.SetTailnetResponse]
@@ -1521,6 +1535,11 @@ func (c *meshServiceClient) GetAgentProgress(ctx context.Context, req *connect.R
 	return c.getAgentProgress.CallUnary(ctx, req)
 }
 
+// ListAgentWaits calls agentmesh.v1.MeshService.ListAgentWaits.
+func (c *meshServiceClient) ListAgentWaits(ctx context.Context, req *connect.Request[v1.ListAgentWaitsRequest]) (*connect.Response[v1.ListAgentWaitsResponse], error) {
+	return c.listAgentWaits.CallUnary(ctx, req)
+}
+
 // ArchiveAgent calls agentmesh.v1.MeshService.ArchiveAgent.
 func (c *meshServiceClient) ArchiveAgent(ctx context.Context, req *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error) {
 	return c.archiveAgent.CallUnary(ctx, req)
@@ -1780,6 +1799,10 @@ type MeshServiceHandler interface {
 	// An agent's progress as its CLI's record shows it: the plan it keeps (Claude's TodoWrite list) and how much context
 	// its conversation holds. Only a CLI whose record the daemon reads has any (Claude Code).
 	GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error)
+	// What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
+	// dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
+	// agents that are idle now (not archived); a root reads its own run's unless it names another.
+	ListAgentWaits(context.Context, *connect.Request[v1.ListAgentWaitsRequest]) (*connect.Response[v1.ListAgentWaitsResponse], error)
 	// Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
 	// changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
 	// ResumeAgent brings it back: the worktree is made again from the branch.
@@ -2291,6 +2314,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(meshServiceMethods.ByName("GetAgentProgress")),
 		connect.WithHandlerOptions(opts...),
 	)
+	meshServiceListAgentWaitsHandler := connect.NewUnaryHandler(
+		MeshServiceListAgentWaitsProcedure,
+		svc.ListAgentWaits,
+		connect.WithSchema(meshServiceMethods.ByName("ListAgentWaits")),
+		connect.WithHandlerOptions(opts...),
+	)
 	meshServiceArchiveAgentHandler := connect.NewUnaryHandler(
 		MeshServiceArchiveAgentProcedure,
 		svc.ArchiveAgent,
@@ -2485,6 +2514,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceGetAgentChangesHandler.ServeHTTP(w, r)
 		case MeshServiceGetAgentProgressProcedure:
 			meshServiceGetAgentProgressHandler.ServeHTTP(w, r)
+		case MeshServiceListAgentWaitsProcedure:
+			meshServiceListAgentWaitsHandler.ServeHTTP(w, r)
 		case MeshServiceArchiveAgentProcedure:
 			meshServiceArchiveAgentHandler.ServeHTTP(w, r)
 		case MeshServiceOpenInEditorProcedure:
@@ -2826,6 +2857,10 @@ func (UnimplementedMeshServiceHandler) GetAgentChanges(context.Context, *connect
 
 func (UnimplementedMeshServiceHandler) GetAgentProgress(context.Context, *connect.Request[v1.GetAgentProgressRequest]) (*connect.Response[v1.GetAgentProgressResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetAgentProgress is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) ListAgentWaits(context.Context, *connect.Request[v1.ListAgentWaitsRequest]) (*connect.Response[v1.ListAgentWaitsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.ListAgentWaits is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) ArchiveAgent(context.Context, *connect.Request[v1.ArchiveAgentRequest]) (*connect.Response[v1.ArchiveAgentResponse], error) {

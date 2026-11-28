@@ -1,6 +1,6 @@
 import { compareMessages } from './order'
 import { AgentRole, AgentState, MessageType, RunStatus, type Agent, type Message, type Run } from './gen/agentmesh/v1/types_pb'
-import type { Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
+import type { AgentWait, Waiting as WaitingRow } from './gen/agentmesh/v1/mesh_pb'
 import { NEW_FOR_MS, tabKey, type WorkspaceState } from './workspace'
 
 /** What the dock needs of one host: its runs, agents and the messages the app has seen. */
@@ -14,6 +14,8 @@ export interface HostView {
   clockSkewMs: number
   /** Every wait the host lists (`ListWaiting`, for the user or not): who is waiting on an answer. */
   waitingAll?: WaitingRow[]
+  /** What each idle agent waits on (`ListAgentWaits`), by agent id. */
+  agentWaits?: Record<string, AgentWait>
 }
 
 export interface Tile {
@@ -31,6 +33,8 @@ export interface Tile {
   lastSent?: Message
   /** The agent waits on an answer to a question or plan it sent. */
   waiting: boolean
+  /** What the agent waits on while it is idle, as the host says: worded on the tile, and a background job or a declared wait keeps it live. */
+  wait?: AgentWait
 }
 
 const alive = (a: Agent) => a.state !== AgentState.EXITED && a.state !== AgentState.RETIRED
@@ -68,6 +72,7 @@ export function dockTiles(hosts: HostView[], ws: Pick<WorkspaceState, 'newTiles'
         activity: a.state === AgentState.WORKING ? a.stateDetail : '',
         lastSent: lastSent.get(a.id),
         waiting: waiting.has(a.id),
+        wait: h.agentWaits?.[a.id],
       })
     }
   }
