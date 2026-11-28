@@ -2387,6 +2387,12 @@ message ClaudeUsageWindow {
   // Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
   // the weekly ones.
   int32 reserve = 5;
+  // Percent of the window already gone (from its reset time and length), 0 when the reset time is unknown.
+  double elapsed = 6;
+  // A sentence when use runs ahead of the window and would reach its limit before the reset; empty otherwise.
+  string pace = 7;
+  // What the percent left is worth in the unit of `GetUsageResponse.unit` ("≈ 3% of a Claude week"), or "not measured yet".
+  string worth = 8;
 }
 
 message ClaudeUsage {
@@ -2409,6 +2415,10 @@ message AgyUsageRow {
   bool at_reserve = 5;
   // Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
   bool reviews_only = 6;
+  // As ClaudeUsageWindow.elapsed, .pace and .worth.
+  double elapsed = 7;
+  string pace = 8;
+  string worth = 9;
 }
 
 message AgyTierPick {
@@ -2440,6 +2450,24 @@ message GetUsageResponse {
   // Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
   // a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
   bool split_reserves = 10;
+  // The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+  string unit = 11;
+  // Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+  // pools it could measure.
+  repeated PoolSize pools = 12;
+  // OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+  repeated string held = 13;
+}
+
+// A plan window's size, measured from the tokens counted between two readings of it.
+message PoolSize {
+  // "claude:five_hour", "claude:seven_day" or "agy:<group>:weekly" / "agy:<group>:short".
+  string pool = 1;
+  double tokens_per_percent = 2;
+  // The percent moved and the tokens counted over it, which the estimate comes from.
+  double points = 3;
+  int64 tokens = 4;
+  google.protobuf.Timestamp measured_at = 5;
 }
 
 message SetReserveRequest {

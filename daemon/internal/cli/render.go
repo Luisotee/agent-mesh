@@ -170,6 +170,14 @@ func renderUsage(m proto.Message, w io.Writer) {
 			line += " — takes only PR reviews: " + strings.Join(c.ReviewsOnly, ", ")
 		}
 		fmt.Fprintln(w, line)
+		for _, win := range c.Windows {
+			if win.Pace != "" {
+				fmt.Fprintf(w, "  ⚠ %s: %s\n", win.Label, win.Pace)
+			}
+			if win.Worth != "" && (win.Key == "five_hour" || win.Key == "seven_day") {
+				fmt.Fprintf(w, "  %s: %.0f%% left, %s\n", win.Label, 100-win.Used, win.Worth)
+			}
+		}
 	} else {
 		fmt.Fprintln(w, "Claude: unknown (no reading)")
 	}
@@ -183,7 +191,14 @@ func renderUsage(m proto.Message, w io.Writer) {
 			case r.ReviewsOnly:
 				mark = "  only PR reviews"
 			}
-			fmt.Fprintf(w, "  %-24s %-16s %3d%% left  (%s)%s\n", r.Group, r.Label, r.Left, r.Resets, mark)
+			fmt.Fprintf(w, "  %-24s %-16s %3d%% left  (%s)%s", r.Group, r.Label, r.Left, r.Resets, mark)
+			if r.Worth != "" {
+				fmt.Fprintf(w, "  %s", r.Worth)
+			}
+			fmt.Fprintln(w)
+			if r.Pace != "" {
+				fmt.Fprintf(w, "    ⚠ %s\n", r.Pace)
+			}
 		}
 	} else if len(u.Notes) == 0 {
 		fmt.Fprintln(w, "agy: `agy -p /usage` gave no quota rows")
@@ -207,6 +222,15 @@ func renderUsage(m proto.Message, w io.Writer) {
 				fmt.Fprintf(w, "  %s\n", note)
 			}
 		}
+	}
+	if len(u.Held) > 0 {
+		fmt.Fprintln(w)
+		for _, h := range u.Held {
+			fmt.Fprintln(w, "held at a limit: "+h)
+		}
+	}
+	if u.Unit != "" {
+		fmt.Fprintf(w, "\nsizes are in %s: tokens a percent of each window is worth, measured from the readings the daemon keeps (a pool says \"not measured yet\" until two readings of one window moved at least 5 points)\n", u.Unit)
 	}
 	weekly := u.QuotaStopWeekly
 	if !u.SplitReserves {
