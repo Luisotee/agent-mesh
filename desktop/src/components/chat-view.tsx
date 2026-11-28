@@ -388,7 +388,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
             <Button size="sm" variant="outline" onClick={() => void sync()}>Try again</Button>
           </div>
         )}
-        {loaded && (hidden > 0 || (transcript.supported && !transcript.atStart)) && (
+        {(hidden > 0 || (loaded && transcript.supported && !transcript.atStart)) && (
           <Button size="sm" variant="ghost" className="self-center" disabled={earlierBusy} onClick={() => void earlier()}>
             {earlierBusy ? 'Loading…' : hidden > 0 ? `Show earlier (${hidden} more)` : 'Load earlier'}
           </Button>
