@@ -46,6 +46,9 @@ func (w *reopenWorld) spawnUnder(t *testing.T, asRoot agentmeshv1connect.MeshSer
 		req.Repo = gitRepo(t)
 	}
 	req.Slug = slug
+	if req.About == "" { // a root's change worker needs one (about.go); the tests of that pass it themselves
+		req.About = "test worker"
+	}
 	if req.Tier == "" && req.Model == "" {
 		req.Tier = "mid"
 	}
