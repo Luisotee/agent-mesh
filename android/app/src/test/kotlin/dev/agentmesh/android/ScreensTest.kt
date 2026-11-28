@@ -78,6 +78,7 @@ private object Silent : MeshApi {
     override suspend fun retireAgent(agent: String) = error("unused")
     override suspend fun renameRun(runId: String, title: String) = error("unused")
     override suspend fun stopRun(runId: String): List<String> = error("unused")
+    override suspend fun deleteRun(runId: String): List<String> = error("unused")
 }
 
 @RunWith(RobolectricTestRunner::class)

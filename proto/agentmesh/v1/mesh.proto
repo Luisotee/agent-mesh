@@ -218,6 +218,19 @@ service MeshService {
     };
   }
 
+  // Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+  // (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+  // that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+  // while an agent of the run has a process: stop the run first. There is no undo. A device only.
+  rpc DeleteRun(DeleteRunRequest) returns (DeleteRunResponse) {
+    option (action) = {
+      actors: [ACTOR_CLASS_DEVICE]
+      write: true
+      cli: "delete-run"
+      summary: "Delete an ended run and its agents, messages and files (work in git is never removed)"
+    };
+  }
+
   // Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
   rpc SendMessage(SendMessageRequest) returns (SendMessageResponse) {
     option (action) = {
@@ -2125,6 +2138,17 @@ message StopRunResponse {
   repeated string retired = 2;
   // What became of each agent's worktree.
   repeated WorktreeOutcome worktrees = 3;
+}
+
+message DeleteRunRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+}
+
+message DeleteRunResponse {
+  // What became of each agent's worktree: one that stayed (`branch_kept`, or a worktree not removed) holds work and is
+  // still on disk, though the host no longer knows it.
+  repeated WorktreeOutcome worktrees = 1;
 }
 
 message WorktreeOutcome {

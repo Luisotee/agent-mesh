@@ -164,6 +164,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.v1.DecidePermissionRequest.decision":         "\"allow\" or \"deny\".",
 	"agentmesh.v1.DecidePermissionRequest.id":               "The prompt's id, from the message the parent got or `mesh permissions`.",
 	"agentmesh.v1.DecidePermissionRequest.why":              "Why a prompt is denied, and what to do instead: the agent reads it.",
+	"agentmesh.v1.DeleteRunResponse.worktrees":              "What became of each agent's worktree: one that stayed (`branch_kept`, or a worktree not removed) holds work and is still on disk, though the host no longer knows it.",
 	"agentmesh.v1.Device.push":                              "The device's push endpoint, when it registered one.",
 	"agentmesh.v1.Device.revoked_at":                        "Set once revoked.",
 	"agentmesh.v1.DevicePaired.pairing_id":                  "The pairing (CreatePairingResponse.pairing_id) the device redeemed, so a client can tell which link it came from. Events from before this field have it empty.",

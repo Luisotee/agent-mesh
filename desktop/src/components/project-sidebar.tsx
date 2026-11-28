@@ -1,7 +1,8 @@
+import { Code, ConnectError } from '@connectrpc/connect'
 import { Bot, ChevronRight, PanelLeftClose, PanelLeftOpen, Plus, Search, Server, SquareTerminal } from 'lucide-react'
 import { AnimatePresence, m, useReducedMotion } from 'motion/react'
 import { memo, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
-import { renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
+import { deleteRun, renameRun, retireAgent, stopAgent, stopRun } from '@/actions'
 import { Button } from '@/components/ui/button'
 import { Chip, Chips } from '@/components/ui/chip'
 import { ConfirmDialog } from '@/components/ui/confirm'
@@ -19,7 +20,7 @@ import { hueStyle } from '@/hue'
 import { displayChord } from '@/keys'
 import { cn } from '@/lib/utils'
 import type { HostRuntime } from '@/model'
-import { buildProjects, helpersLabel, anyWorking, sameAgents, sameLead, sameProject, sameWorker, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
+import { buildProjects, helpersLabel, anyWorking, sameAgents, sameLead, sameProject, rowEnded, sameWorker, type LeadRow, type ProjectRow, type WorkerRow } from '@/sidebar'
 import { vendorOfKind } from '@/vendor'
 import { ArchiveDialog } from './agent-work'
 import { AddProjectDialog } from './add-project'
@@ -192,6 +193,9 @@ function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; ma
   const [open, setOpen] = useState(true)
   const renaming = useAppState((s) => (s.renaming?.hostId === p.hostId ? s.renaming.runId : undefined))
   const renamingEarlier = !!renaming && p.earlier.some((r) => r.run.id === renaming)
+  const host = useAppState((s) => s.hosts.find((h) => h.info.id === p.hostId))
+  const [dialog, setDialog] = useState<RowDialog>()
+  const ended = p.earlier.filter(rowEnded)
   if (!open && renaming && (renamingEarlier || p.runs.some((r) => r.run.id === renaming))) setOpen(true)
   const entries: MenuEntry[] = [
     { label: 'New lead here', onSelect: () => app.openWorkspace(true, undefined, { hostId: p.hostId, repo: p.repo }), disabled: !p.repo || !p.up },
@@ -199,6 +203,9 @@ function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; ma
     'separator',
     { label: p.pinned ? 'Unpin' : 'Pin', onSelect: () => app.togglePin(p.hostId, p.repo), disabled: !p.repo },
     { label: 'Copy path', onSelect: () => app.copyText(p.repo, 'the path'), disabled: !p.repo },
+    ...(canDelete(app, p.hostId) && ended.length > 0
+      ? [{ label: `Delete ${ended.length} ended ${ended.length === 1 ? 'run' : 'runs'}…`, onSelect: () => setDialog({ kind: 'delete', runIds: ended.map((r) => r.run.id), title: p.name }), destructive: true }]
+      : []),
     hidden
       ? { label: 'Keep in the sidebar', onSelect: () => app.toggleHidden(p.hostId, p.repo, false), disabled: !p.repo }
       : { label: 'Remove from the sidebar', onSelect: () => app.toggleHidden(p.hostId, p.repo, true), disabled: !p.repo },
@@ -257,6 +264,7 @@ function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; ma
           )}
         </div>
       )}
+      <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
     </li>
   )
 }
@@ -325,10 +333,46 @@ function HiddenProjects({ rows }: { rows: ProjectRow[] }) {
 }
 
 /** The dialogs a row's menu can open, one at a time. */
-type RowDialog = { kind: 'stop' | 'retire' | 'archive'; agent: Agent } | { kind: 'stoprun'; runId: string; title: string } | undefined
+type RowDialog = { kind: 'stop' | 'retire' | 'archive'; agent: Agent } | { kind: 'stoprun'; runId: string; title: string } | { kind: 'delete'; runIds: string[]; title: string } | undefined
+
+const DELETE_LOSES = "Its chats, messages, plans and attachments are removed from the host for good, and so are its lines in the cost report. Work in git stays: a worktree with changes, or a branch with commits no remote has, is kept on disk."
+
+/** Whether the host can delete runs (a host from before `DeleteRun` has no such capability). */
+const canDelete = (app: ReturnType<typeof useApp>, hostId: string) => !!hostOf(app, hostId)?.store.getState().daemon?.capabilities.includes('delete_run')
 
 function RowDialogs({ host, dialog, onClose }: { host?: HostRuntime; dialog: RowDialog; onClose: () => void }) {
+  const app = useApp()
   if (!host || !dialog) return null
+  if (dialog.kind === 'delete') {
+    const many = dialog.runIds.length > 1
+    return (
+      <ConfirmDialog
+        open
+        onOpenChange={(o) => !o && onClose()}
+        title={many ? `Delete ${dialog.runIds.length} ended runs of ${dialog.title}?` : `Delete ${dialog.title}?`}
+        description={many ? `Every agent in them has ended. ${DELETE_LOSES}` : `Every agent in it has ended. ${DELETE_LOSES}`}
+        action={many ? 'Delete the runs' : 'Delete the run'}
+        run={async () => {
+          // Every run is tried; the dialog stays open with what was refused, and another try skips the runs the host has forgotten.
+          const kept: string[] = []
+          let refused = 0
+          let why = ''
+          for (const id of dialog.runIds) {
+            try {
+              const res = await deleteRun(host.client, id)
+              for (const w of res.worktrees) if ((w.worktree && !w.worktreeRemoved) || (w.branch && w.branchKept)) kept.push(`${w.worktree || w.branch}: ${w.reason || 'it holds work'}`)
+            } catch (e) {
+              if (e instanceof ConnectError && e.code === Code.NotFound) continue
+              refused++
+              why ||= e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e)
+            }
+          }
+          if (kept.length > 0) app.notify(`${refused > 0 ? 'Some of them were deleted' : 'Deleted'}. Kept on disk, with its work: ${kept.join('; ')}`)
+          if (refused > 0) throw new Error(dialog.runIds.length > 1 ? `${refused} of ${dialog.runIds.length} could not be deleted: ${why}` : why)
+        }}
+      />
+    )
+  }
   if (dialog.kind === 'stoprun') {
     return (
       <ConfirmDialog open onOpenChange={(o) => !o && onClose()} title={`Stop ${dialog.title}?`} description="Every agent in the run is retired and the run is closed. A finished worktree goes; one with changes stays." action="Stop the run" run={() => stopRun(host.client, dialog.runId)} />
@@ -385,6 +429,7 @@ function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean })
     { label: 'Add an agent', onSelect: () => app.openWorkspace(true, row.run.id, { hostId: row.hostId, repo: lead?.repo ?? '' }) },
     { label: 'Copy run id', onSelect: () => app.copyText(row.run.id, 'the run id') },
     { label: 'Stop run…', onSelect: () => setDialog({ kind: 'stoprun', runId: row.run.id, title }), disabled: row.run.status !== RunStatus.OPEN, destructive: true },
+    ...(canDelete(app, row.hostId) ? [{ label: 'Delete…', onSelect: () => setDialog({ kind: 'delete', runIds: [row.run.id], title }), disabled: !rowEnded(row), destructive: true }] : []),
     ...(lead
       ? (['separator', ...agentEntries(app, row.hostId, lead, setDialog).slice(1), ...archiveEntry(lead, setDialog)] as MenuEntry[])
       : []),

@@ -211,6 +211,18 @@ private fun applyEvent(s: HostState, e: Event): HostState {
         Event.PayloadCase.RUN_STOPPED -> s.runs[e.runId]?.let { r ->
             next.copy(runs = s.runs + (r.id to r.toBuilder().setStatus(RunStatus.RUN_STATUS_CLOSED).build()))
         } ?: next
+        // The host forgot a run (`DeleteRun`): it, its agents and what is held for them go.
+        Event.PayloadCase.RUN_DELETED -> {
+            val gone = s.agents.values.filter { it.runId == e.runId }.map { it.id }.toSet()
+            next.copy(
+                runs = s.runs - e.runId,
+                agents = s.agents - gone,
+                messages = s.messages.filterValues { it.runId != e.runId },
+                prompts = s.prompts - gone,
+                pullRequests = s.pullRequests - gone,
+                waiting = s.waiting?.filter { it.runId != e.runId },
+            )
+        }
         // A PR's state or checks changed: it replaces what we hold for it (or is added), so the buckets follow a merge at once.
         Event.PayloadCase.PULL_REQUEST_CHANGED -> if (e.pullRequestChanged.hasPullRequest()) {
             val pr = e.pullRequestChanged.pullRequest
