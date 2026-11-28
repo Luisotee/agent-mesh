@@ -208,7 +208,7 @@ func orDefaultModel(m string) string {
 // pickFor is pick for an agent already in a repo (a reopen, a switch, an approve): the repo's setting applies.
 func (d *Daemon) pickFor(r store.Reader, a *v1.Agent, tier, model, effort, what string) (string, string, error) {
 	off := d.freeOffFor(r, a.Kind, a.Repo)
-	return d.pickIn(r, a.Repo, off, a.Kind, tier, model, effort, what)
+	return d.pickIn(r, a.Repo, off, a.Kind, tier, model, effort, what, isReviewer(a))
 }
 
 // freeModelsNote words why OpenCode is out of a reviewer round for a repo.

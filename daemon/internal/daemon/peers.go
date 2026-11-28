@@ -890,7 +890,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			}
 		}
 	}
-	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, p.Kind, "", "", "asking "+p.Name); err != nil {
+	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, p.Kind, "", "", "asking "+p.Name, false); err != nil {
 		return fail(err.Error())
 	}
 	before, _ := git(ctx, p.Worktree, "rev-parse", "HEAD")
@@ -1001,11 +1001,11 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	}
 	d.warmOpenCodeModels(ctx, p.Kind)
 	r := d.store.Read(ctx)
-	model, effort, err := d.pickIn(r, p.Repo, d.freeOffFor(r, p.Kind, p.Repo), p.Kind, tier, "", "", "the peer")
+	model, effort, err := d.pickIn(r, p.Repo, d.freeOffFor(r, p.Kind, p.Repo), p.Kind, tier, "", "", "the peer", false)
 	if err != nil {
 		return nil, err
 	}
-	if err := d.reserveCheck(r, actor.RunId, p.Kind, model, effort, "asking "+p.Name); err != nil {
+	if err := d.reserveCheck(r, actor.RunId, p.Kind, model, effort, "asking "+p.Name, false); err != nil {
 		return nil, err
 	}
 	if err := d.capGuard(r, "peer "+p.Name, ""); err != nil {

@@ -511,7 +511,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 					okReserve := true
 					if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && cur.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 						model, effort, _ := target(cur)
-						okReserve = d.reserveCheck(r2, cur.RunId, cur.Kind, model, effort, "") == nil
+						okReserve = d.reserveCheck(r2, cur.RunId, cur.Kind, model, effort, "", d.reviewWork(r2, cur, req.Msg.Body)) == nil
 					}
 					if okReserve &&
 						d.hasProcessOnSessionOrWorktree(r2, cur) == nil &&
@@ -617,7 +617,7 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 		}
 		if req.Msg.Type == v1.MessageType_MESSAGE_TYPE_TASK && to.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			model, effort, _ := target(to)
-			if err := d.reserveCheck(t.Reader, to.RunId, to.Kind, model, effort, "sending a task to "+to.Name); err != nil {
+			if err := d.reserveCheck(t.Reader, to.RunId, to.Kind, model, effort, "sending a task to "+to.Name, d.reviewWork(t.Reader, to, req.Msg.Body)); err != nil {
 				return err
 			}
 		}

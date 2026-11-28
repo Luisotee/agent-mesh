@@ -171,7 +171,7 @@ func TestARetriedRoundReplaysAReviewerSpawnedBeforeItCrashedWhateverTheReserveSa
 	reset := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 	w.typeInto(w.spawnClaude(t, w.run, "usage", v1.AgentRole_AGENT_ROLE_WORKER), `/ratelimits {"five_hour":{"used_percentage":95,"resets_at":"`+reset+`"}}`+"\r")
 	waitFor(t, "the reserve to fill", func() bool {
-		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "sonnet", "high", "test") != nil
+		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "sonnet", "high", "test", false) != nil
 	})
 	round := w.ask(t, &v1.AskRequest{Meta: meta("ask-crash"), Repo: w.pr.repo, Review: "7", Size: "small", Tier: "mid", Reviewers: "claude"})
 	if len(round.Agents) != 1 || round.Agents[0].Id != rev.Id {
