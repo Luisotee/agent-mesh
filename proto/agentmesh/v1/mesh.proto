@@ -1776,7 +1776,7 @@ message SendMessageResponse {
   string resume_error = 3;
   // Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
   string held = 4;
-  // For a task sent without `about` to an agent that already has one: `about kept: "<the line>"`, so the sender can change it.
+  // For a task sent without `about` to a worker or lead that already has one: `about kept: "<the line>"`, so the sender can change it.
   string about_note = 5;
 }
 
@@ -1793,6 +1793,8 @@ message HeldTask {
   // Who asked for it.
   Actor from = 6;
   google.protobuf.Timestamp created_at = 7;
+  // The `about` the task was sent with, applied when it is sent.
+  string about = 8;
 }
 
 message ListHeldTasksRequest {

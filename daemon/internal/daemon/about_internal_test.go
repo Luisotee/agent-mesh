@@ -8,7 +8,16 @@ import (
 func TestTheTaskAndPlanSayWhatAnAgentIsFor(t *testing.T) {
 	long := strings.Repeat("word ", 40)
 	for _, c := range []struct{ name, body, want string }{
-		{"heading", "Some intro\n\n# Design: who is doing what\n\nbody", "Design: who is doing what"},
+		{"heading", "# Design: who is doing what\n\nbody", "Design: who is doing what"},
+		{"the opening line, not a later heading", "Fix the flaky relay reconnect test\n\n## Context\nx", "Fix the flaky relay reconnect test"},
+		{"a marker-only heading, then the line", "# Direct task (no plan)\n\nFix the retry loop in relay.go", "Fix the retry loop in relay.go"},
+		{"a word that starts like a marker", "Taskbar overflow fix", "Taskbar overflow fix"},
+		{"a word that starts like a marker, plural", "Tasks queue ordering", "Tasks queue ordering"},
+		{"a glob", "Fix glob handling of *.go files", "Fix glob handling of *.go files"},
+		{"a leading underscore", "_internal package cleanup", "_internal package cleanup"},
+		{"a flag", "-v flag ignored", "-v flag ignored"},
+		{"a bullet", "- fix the thing", "fix the thing"},
+		{"a task label", "Task: fix the thing", "fix the thing"},
 		{"direct marker", "Direct task (no plan): fix the retry loop\n\nmore", "fix the retry loop"},
 		{"marker alone, then the line", "Direct task (no plan)\n\nFix the flaky test", "Fix the flaky test"},
 		{"emphasis", "**Question (read-only)**: why does X fail?", "why does X fail?"},
@@ -24,6 +33,9 @@ func TestTheTaskAndPlanSayWhatAnAgentIsFor(t *testing.T) {
 	}
 	if got := planAbout("# Plan: Retry with backoff\n\nRepo: x"); got != "Retry with backoff" {
 		t.Errorf("planAbout = %q", got)
+	}
+	if got := planAbout("# PLAN: Upper case label"); got != "Upper case label" {
+		t.Errorf("planAbout strips the label in any case: %q", got)
 	}
 	if got := planAbout("no heading here"); got != "" {
 		t.Errorf("a plan with no heading has no title: %q", got)

@@ -428,6 +428,9 @@ func (d *Daemon) SendMessage(ctx context.Context, req *connect.Request[v1.SendMe
 	if req.Msg.To == userRecipient {
 		return d.sendToUser(ctx, req)
 	}
+	if req.Msg.About != "" && req.Msg.Type != v1.MessageType_MESSAGE_TYPE_TASK {
+		return nil, invalid("--about goes with a task (to change an agent's line alone: `mesh about <agent> --text …`)")
+	}
 	waitFor, err := parseWaitUntil(req.Msg.Type, req.Msg.Until, d.now())
 	if err != nil {
 		return nil, err

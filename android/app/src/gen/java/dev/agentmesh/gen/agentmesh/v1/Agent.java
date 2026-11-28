@@ -2473,7 +2473,7 @@ public  final class Agent extends
   /**
    * <pre>
    * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
    * <code>string about = 44 [json_name = "about"];</code>
@@ -2486,7 +2486,7 @@ public  final class Agent extends
   /**
    * <pre>
    * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
    * <code>string about = 44 [json_name = "about"];</code>
@@ -2500,7 +2500,7 @@ public  final class Agent extends
   /**
    * <pre>
    * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
    * <code>string about = 44 [json_name = "about"];</code>
@@ -2515,7 +2515,7 @@ public  final class Agent extends
   /**
    * <pre>
    * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
    * <code>string about = 44 [json_name = "about"];</code>
@@ -2527,7 +2527,7 @@ public  final class Agent extends
   /**
    * <pre>
    * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+   * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
    * </pre>
    *
    * <code>string about = 44 [json_name = "about"];</code>
@@ -2545,8 +2545,8 @@ public  final class Agent extends
   /**
    * <pre>
    * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-   * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-   * own description) or "run" (the run's title, for a lead). Empty: none yet.
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
    * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -2559,8 +2559,8 @@ public  final class Agent extends
   /**
    * <pre>
    * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-   * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-   * own description) or "run" (the run's title, for a lead). Empty: none yet.
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
    * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -2574,8 +2574,8 @@ public  final class Agent extends
   /**
    * <pre>
    * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-   * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-   * own description) or "run" (the run's title, for a lead). Empty: none yet.
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
    * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -2590,8 +2590,8 @@ public  final class Agent extends
   /**
    * <pre>
    * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-   * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-   * own description) or "run" (the run's title, for a lead). Empty: none yet.
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
    * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -2603,8 +2603,8 @@ public  final class Agent extends
   /**
    * <pre>
    * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-   * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-   * own description) or "run" (the run's title, for a lead). Empty: none yet.
+   * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+   * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
    * </pre>
    *
    * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -5233,7 +5233,7 @@ public  final class Agent extends
     /**
      * <pre>
      * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
      * <code>string about = 44 [json_name = "about"];</code>
@@ -5246,7 +5246,7 @@ public  final class Agent extends
     /**
      * <pre>
      * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
      * <code>string about = 44 [json_name = "about"];</code>
@@ -5260,7 +5260,7 @@ public  final class Agent extends
     /**
      * <pre>
      * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
      * <code>string about = 44 [json_name = "about"];</code>
@@ -5276,7 +5276,7 @@ public  final class Agent extends
     /**
      * <pre>
      * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
      * <code>string about = 44 [json_name = "about"];</code>
@@ -5290,7 +5290,7 @@ public  final class Agent extends
     /**
      * <pre>
      * One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
-     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, ask, peer or run.
+     * (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
      * </pre>
      *
      * <code>string about = 44 [json_name = "about"];</code>
@@ -5307,8 +5307,8 @@ public  final class Agent extends
     /**
      * <pre>
      * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-     * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-     * own description) or "run" (the run's title, for a lead). Empty: none yet.
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
      * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -5321,8 +5321,8 @@ public  final class Agent extends
     /**
      * <pre>
      * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-     * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-     * own description) or "run" (the run's title, for a lead). Empty: none yet.
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
      * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -5336,8 +5336,8 @@ public  final class Agent extends
     /**
      * <pre>
      * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-     * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-     * own description) or "run" (the run's title, for a lead). Empty: none yet.
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
      * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -5353,8 +5353,8 @@ public  final class Agent extends
     /**
      * <pre>
      * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-     * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-     * own description) or "run" (the run's title, for a lead). Empty: none yet.
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
      * <code>string about_source = 45 [json_name = "aboutSource"];</code>
@@ -5368,8 +5368,8 @@ public  final class Agent extends
     /**
      * <pre>
      * Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
-     * title), "task" (its task's heading or first line), "ask" (the question or review it answers), "peer" (its peer's
-     * own description) or "run" (the run's title, for a lead). Empty: none yet.
+     * title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+     * The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
      * </pre>
      *
      * <code>string about_source = 45 [json_name = "aboutSource"];</code>

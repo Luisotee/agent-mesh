@@ -120,7 +120,7 @@ func (d *Daemon) holdTask(ctx context.Context, req *connect.Request[v1.SendMessa
 			return denied("an agent sends only to its parent or its children; %s is neither", to.Name)
 		}
 		h := &v1.HeldTask{Id: ids.New("h", 10), RunId: to.RunId, After: after.Id, To: to.Id, Body: m.Body,
-			From: t.Actor, CreatedAt: tsOf(t.Now())}
+			About: capAbout(m.About), From: t.Actor, CreatedAt: tsOf(t.Now())}
 		if err := t.PutHeldTask(h); err != nil {
 			return err
 		}
@@ -251,7 +251,7 @@ func (d *Daemon) settleHeld(ctx context.Context, id string) {
 		return
 	}
 	res, err := d.SendMessage(auth.WithActor(ctx, h.From), connect.NewRequest(&v1.SendMessageRequest{
-		Meta: &v1.RequestMeta{MutationId: "held:" + h.Id}, To: h.To, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: h.Body}))
+		Meta: &v1.RequestMeta{MutationId: "held:" + h.Id}, To: h.To, Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: h.Body, About: h.About}))
 	if err == nil && res.Msg.ResumeError != "" {
 		// Stored for the agent's next resume, but it stayed stopped: the lead has to know.
 		d.endHeld(ctx, h, "the agent could not be resumed ("+clip(res.Msg.ResumeError, 300)+"); the task waits in its inbox for a resume (`mesh resume`)", true)

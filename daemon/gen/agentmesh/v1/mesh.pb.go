@@ -3718,7 +3718,7 @@ type SendMessageResponse struct {
 	ResumeError string `protobuf:"bytes,3,opt,name=resume_error,json=resumeError,proto3" json:"resume_error,omitempty"`
 	// Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
 	Held string `protobuf:"bytes,4,opt,name=held,proto3" json:"held,omitempty"`
-	// For a task sent without `about` to an agent that already has one: `about kept: "<the line>"`, so the sender can change it.
+	// For a task sent without `about` to a worker or lead that already has one: `about kept: "<the line>"`, so the sender can change it.
 	AboutNote     string `protobuf:"bytes,5,opt,name=about_note,json=aboutNote,proto3" json:"about_note,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3801,8 +3801,10 @@ type HeldTask struct {
 	// The held task's text.
 	Body string `protobuf:"bytes,5,opt,name=body,proto3" json:"body,omitempty"`
 	// Who asked for it.
-	From          *Actor                 `protobuf:"bytes,6,opt,name=from,proto3" json:"from,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	From      *Actor                 `protobuf:"bytes,6,opt,name=from,proto3" json:"from,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// The `about` the task was sent with, applied when it is sent.
+	About         string `protobuf:"bytes,8,opt,name=about,proto3" json:"about,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3884,6 +3886,13 @@ func (x *HeldTask) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *HeldTask) GetAbout() string {
+	if x != nil {
+		return x.About
+	}
+	return ""
 }
 
 type ListHeldTasksRequest struct {
@@ -10349,7 +10358,7 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\fresume_error\x18\x03 \x01(\tR\vresumeError\x12\x12\n" +
 	"\x04held\x18\x04 \x01(\tR\x04held\x12\x1d\n" +
 	"\n" +
-	"about_note\x18\x05 \x01(\tR\taboutNote\"\xcf\x01\n" +
+	"about_note\x18\x05 \x01(\tR\taboutNote\"\xe5\x01\n" +
 	"\bHeldTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x14\n" +
@@ -10358,7 +10367,8 @@ const file_agentmesh_v1_mesh_proto_rawDesc = "" +
 	"\x04body\x18\x05 \x01(\tR\x04body\x12'\n" +
 	"\x04from\x18\x06 \x01(\v2\x13.agentmesh.v1.ActorR\x04from\x129\n" +
 	"\n" +
-	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"-\n" +
+	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x14\n" +
+	"\x05about\x18\b \x01(\tR\x05about\"-\n" +
 	"\x14ListHeldTasksRequest\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\"C\n" +
 	"\x15ListHeldTasksResponse\x12*\n" +

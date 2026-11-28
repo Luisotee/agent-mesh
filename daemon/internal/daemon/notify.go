@@ -297,16 +297,17 @@ func (d *Daemon) runFinished(r store.Reader, st *runState, lead *v1.Agent) *noti
 	}
 	body := "Its lead is idle and nothing of the run is left to do."
 	// What the user comes back to: how many pull requests the run merged.
-	merged := 0
+	mergedURLs := map[string]bool{} // one PR may be recorded for a worker and for the one resumed from it
 	for _, a := range agents {
 		if prs, err := r.AgentPRs(a.Id); err == nil {
 			for _, p := range prs {
 				if p.State == "merged" {
-					merged++
+					mergedURLs[p.Url] = true
 				}
 			}
 		}
 	}
+	merged := len(mergedURLs)
 	if merged > 0 {
 		noun := "pull requests"
 		if merged == 1 {

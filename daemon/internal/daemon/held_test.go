@@ -339,3 +339,29 @@ func TestADoneForAnotherSendersTaskDoesNotReleaseATaskHeldForTheFirst(t *testing
 		t.Fatalf("a done for another sender's task released it (held %d)", len(h.held(t)))
 	}
 }
+
+// A task held for another carries its --about to the moment it is sent, and --about without a task is refused.
+func TestAHeldTaskKeepsItsAboutAndAboutNeedsATask(t *testing.T) {
+	h := startHeld(t)
+	ctx := context.Background()
+	t1 := h.task(t, h.a, h.asA, "first")
+	res, err := h.asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: h.b.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_TASK, Body: "Direct task (no plan)\n\nsecond", After: t1.Id, About: "Relay docs"}))
+	if err != nil || res.Msg.Held == "" {
+		t.Fatalf("hold with an about: %v %v", res, err)
+	}
+	if held := h.held(t); len(held) != 1 || held[0].About != "Relay docs" {
+		t.Fatalf("the held task lost its about: %v", held)
+	}
+	h.report(t, h.a, v1.MessageType_MESSAGE_TYPE_DONE)
+	waitFor(t, "the held task sent", func() bool { return hasBody(inbox(t, h.asB), "second") })
+	waitFor(t, "its about applied", func() bool { return h.agent(h.b.Id).About == "Relay docs" })
+
+	if _, err := h.asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{Meta: meta(""), To: h.b.Id,
+		Type: v1.MessageType_MESSAGE_TYPE_ANSWER, Body: "ok", About: "x"})); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("--about on a message that is no task: %v", err)
+	}
+	if _, err := h.asLead.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: h.b.Id, About: "x"})); code(err) != connect.CodeInvalidArgument {
+		t.Errorf("--about on a resume with no task: %v", err)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"connectrpc.com/connect"
 
@@ -25,7 +26,6 @@ const (
 	aboutSet       = "set"
 	aboutPlan      = "plan"
 	aboutTask      = "task"
-	aboutAsk       = "ask"
 	aboutPeer      = "peer"
 	aboutRun       = "run"
 	overviewDecide = 20 // decisions in an overview
@@ -48,10 +48,10 @@ func capAbout(s string) string { return capLine(s, maxAbout) }
 
 // markdownNoise is what a heading or a first line carries that a one-line description does not: emphasis marks, a
 // list bullet or a `Task:` label.
-var markdownNoise = regexp.MustCompile("^[#>\\s*_-]+|[*`]+")
+var markdownNoise = regexp.MustCompile("^(?:[#>]+\\s*)+|^[-*+]\\s+|\\*\\*|`")
 
 // directMarker is the protocol's marker a task may start with.
-var directMarker = regexp.MustCompile(`(?i)^(direct task( \(no plan\))?|task|question \(read-only\)|review \(read-only\))\s*[:.-]?\s*`)
+var directMarker = regexp.MustCompile(`(?i)^(?:(?:direct task(?: \(no plan\)|\b)|question \(read-only\)|review \(read-only\))\s*[:.-]?\s*|task\s*[:.-]\s*)`)
 
 // headingOf is the text of a Markdown heading line, "" when the line is none.
 func headingOf(line string) string {
@@ -62,26 +62,24 @@ func headingOf(line string) string {
 	return strings.TrimSpace(strings.TrimLeft(line, "# "))
 }
 
-// taskAbout is a task's own description of itself: its first heading within the first lines, else its first line that
-// says something, with the protocol's `Direct task` marker and Markdown noise taken off.
+// cleanLine is a line without its Markdown noise: heading marks, a bullet, emphasis and code marks.
+func cleanLine(ln string) string {
+	return squeeze(markdownNoise.ReplaceAllString(strings.TrimSpace(ln), ""))
+}
+
+// taskAbout is a task's own description of itself: its first line that says something, with the protocol's
+// `Direct task` marker and Markdown noise taken off (a marker alone on a heading line leaves the next line).
 func taskAbout(body string) string {
-	lines := strings.Split(body, "\n")
-	for i, ln := range lines {
-		if i >= 15 {
-			break
-		}
-		if h := headingOf(ln); h != "" {
-			return capAbout(directMarker.ReplaceAllString(squeeze(markdownNoise.ReplaceAllString(h, "")), ""))
-		}
-	}
-	for _, ln := range lines {
-		t := squeeze(directMarker.ReplaceAllString(squeeze(markdownNoise.ReplaceAllString(ln, "")), ""))
-		if t != "" {
+	for _, ln := range strings.Split(body, "\n") {
+		if t := squeeze(directMarker.ReplaceAllString(cleanLine(ln), "")); strings.ContainsFunc(t, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
 			return capAbout(t)
 		}
 	}
 	return ""
 }
+
+// planPrefix is the template's `Plan:` label.
+var planPrefix = regexp.MustCompile(`(?i)^plan\s*[:.-]\s*`)
 
 // planAbout is a plan's title: its first heading without the template's `Plan:` prefix.
 func planAbout(body string) string {
@@ -90,8 +88,7 @@ func planAbout(body string) string {
 			break
 		}
 		if h := headingOf(ln); h != "" {
-			h = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(h, "Plan:"), "plan:"))
-			return capAbout(markdownNoise.ReplaceAllString(h, ""))
+			return capAbout(planPrefix.ReplaceAllString(cleanLine(h), ""))
 		}
 	}
 	return ""

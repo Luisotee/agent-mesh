@@ -86,7 +86,7 @@ public interface SendMessageResponseOrBuilder extends
 
   /**
    * <pre>
-   * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
    * </pre>
    *
    * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -95,7 +95,7 @@ public interface SendMessageResponseOrBuilder extends
   java.lang.String getAboutNote();
   /**
    * <pre>
-   * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
    * </pre>
    *
    * <code>string about_note = 5 [json_name = "aboutNote"];</code>

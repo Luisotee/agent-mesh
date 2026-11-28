@@ -282,7 +282,7 @@ public  final class SendMessageResponse extends
   private java.lang.String aboutNote_;
   /**
    * <pre>
-   * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
    * </pre>
    *
    * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -294,7 +294,7 @@ public  final class SendMessageResponse extends
   }
   /**
    * <pre>
-   * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
    * </pre>
    *
    * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -307,7 +307,7 @@ public  final class SendMessageResponse extends
   }
   /**
    * <pre>
-   * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
    * </pre>
    *
    * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -321,7 +321,7 @@ public  final class SendMessageResponse extends
   }
   /**
    * <pre>
-   * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
    * </pre>
    *
    * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -332,7 +332,7 @@ public  final class SendMessageResponse extends
   }
   /**
    * <pre>
-   * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
    * </pre>
    *
    * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -710,7 +710,7 @@ public  final class SendMessageResponse extends
 
     /**
      * <pre>
-     * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
      * </pre>
      *
      * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -722,7 +722,7 @@ public  final class SendMessageResponse extends
     }
     /**
      * <pre>
-     * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
      * </pre>
      *
      * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -735,7 +735,7 @@ public  final class SendMessageResponse extends
     }
     /**
      * <pre>
-     * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
      * </pre>
      *
      * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -750,7 +750,7 @@ public  final class SendMessageResponse extends
     }
     /**
      * <pre>
-     * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
      * </pre>
      *
      * <code>string about_note = 5 [json_name = "aboutNote"];</code>
@@ -763,7 +763,7 @@ public  final class SendMessageResponse extends
     }
     /**
      * <pre>
-     * For a task sent without `about` to an agent that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+     * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
      * </pre>
      *
      * <code>string about_note = 5 [json_name = "aboutNote"];</code>

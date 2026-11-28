@@ -26,6 +26,7 @@ func seedRun(t *testing.T, s *Store, run string) string {
 			tx.QueuePrompt(&v1.QueuedPrompt{Id: "p-" + run, AgentId: agent, Text: "hi", CreatedAt: ts}),
 			tx.PutAgentPR(&v1.PullRequest{AgentId: agent, Url: "https://github.com/o/r/pull/" + run}),
 			tx.PutWorktree(&v1.Worktree{Id: "w-" + run, RunId: run, Slug: "s", CreatedAt: ts}),
+			func() error { _, err := tx.PutDecision(run, &v1.RunDecision{Text: "use X"}); return err }(),
 		}
 		for _, e := range steps {
 			if e != nil {
@@ -79,6 +80,7 @@ func TestDeleteRunRemovesEveryRowOfTheRunAndNoOtherRun(t *testing.T) {
 			"agent_prs":  count(`SELECT COUNT(*) FROM agent_prs WHERE agent_id = ?`, tc.agent),
 			"worktrees":  count(`SELECT COUNT(*) FROM worktrees WHERE run_id = ?`, tc.run),
 			"events":     count(`SELECT COUNT(*) FROM events WHERE run_id = ?`, tc.run),
+			"decisions":  count(`SELECT COUNT(*) FROM run_decisions WHERE run_id = ?`, tc.run),
 		} {
 			if n != want {
 				t.Errorf("%s of %s: %d rows, want %d", table, tc.run, n, want)

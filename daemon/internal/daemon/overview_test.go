@@ -84,7 +84,7 @@ func TestADeviceStartedWorkerGetsItsTaskHeadingAsItsAbout(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t), Slug: "fix", Tier: "strong",
-		Plan: true, Task: "intro\n# Tidy the settings screen\n\nbody"}))
+		Plan: true, Task: "# Tidy the settings screen\n\nbody"}))
 	if err != nil {
 		t.Fatal(err)
 	}
