@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -208,6 +209,43 @@ func TestStoppingAPlainAgentDeletesItsMergedBranch(t *testing.T) {
 			t.Errorf("%s: its clean worktree is still there", tc.name)
 		}
 		if kept == tc.merged {
+			t.Errorf("%s: branch kept = %v (outcomes %v)", tc.name, kept, res.Msg.Worktrees)
+		}
+	}
+}
+
+// A branch squash- or rebase-merged has none of its commits in the default branch, but merging it would change nothing:
+// stopping the run deletes it too, and a branch whose change is not in the default branch stays.
+func TestStoppingAPlainAgentDeletesABranchTheDefaultHasSquashMerged(t *testing.T) {
+	w := startReset(t, daemon.ResetTimings{})
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		squash bool
+	}{{"squash-merged", true}, {"not merged", false}} {
+		run, a, _ := w.plainRoot(t)
+		if err := os.WriteFile(filepath.Join(a.Worktree, "fix.txt"), []byte("the fix\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		runGit(t, a.Worktree, "add", "fix.txt")
+		runGit(t, a.Worktree, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fix")
+		main := runGit(t, a.Repo, "rev-parse", "main")
+		onMain := main
+		if tc.squash {
+			// One commit on the default branch with the branch's tree, as GitHub's "Squash and merge" makes: the branch's own commit is not in it.
+			tree := runGit(t, a.Worktree, "rev-parse", "HEAD^{tree}")
+			onMain = runGit(t, a.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree, "-p", main, "-m", "fix (#1)")
+			// And the default moved on after it, as it does.
+			next := runGit(t, a.Repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit-tree", tree, "-p", onMain, "-m", "later")
+			onMain = next
+		}
+		runGit(t, a.Repo, "update-ref", "refs/remotes/origin/main", onMain)
+		res, err := w.device.Mesh.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{Meta: meta("stop-" + tc.name), RunId: run.Id}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept := strings.Contains(runGit(t, a.Repo, "branch", "--list", "mesh/*"), a.Branch)
+		if kept == tc.squash {
 			t.Errorf("%s: branch kept = %v (outcomes %v)", tc.name, kept, res.Msg.Worktrees)
 		}
 	}

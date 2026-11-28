@@ -1354,7 +1354,8 @@ type AddAttachmentRequest struct {
 	Meta  *RequestMeta           `protobuf:"bytes,1,opt,name=meta,proto3" json:"meta,omitempty"`
 	// Agent id or name.
 	Agent string `protobuf:"bytes,2,opt,name=agent,proto3" json:"agent,omitempty"`
-	// The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+	// The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+	// .webp says the bytes are that image, and they must be.
 	Name string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	// The file itself, at most 10 MB.
 	Data          []byte `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
