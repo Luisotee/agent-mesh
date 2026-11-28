@@ -725,6 +725,24 @@ func peerRunning(r store.Reader, p *v1.Peer, runID string) *v1.Agent {
 	return nil
 }
 
+// checkoutHolder is an asker of this peer that is reading its checkout: one with a process in another run, or one of
+// this run still answering. The checkout is not moved under it.
+func checkoutHolder(r store.Reader, p *v1.Peer, runID string) *v1.Agent {
+	agents, err := r.ListAgents("")
+	if err != nil {
+		return nil
+	}
+	for _, a := range agents {
+		if !peerOwns(a, p) || !hasProcess(a) {
+			continue
+		}
+		if a.RunId != runID || a.State == v1.AgentState_AGENT_STATE_WORKING || a.State == v1.AgentState_AGENT_STATE_STARTING {
+			return a
+		}
+	}
+	return nil
+}
+
 // conversationRunning is the agent of a run other than runID that has a process on this conversation: one process
 // per conversation.
 func conversationRunning(r store.Reader, session, runID string) *v1.Agent {
@@ -752,7 +770,7 @@ func lastAskerOf(r store.Reader, p *v1.Peer, runID, session string) *v1.Agent {
 	}
 	var mine *v1.Agent
 	for _, a := range agents {
-		if peerOwns(a, p) && (a.SessionId == session || a.Id == p.LastAgent) && (mine == nil || a.CreatedAt.AsTime().After(mine.CreatedAt.AsTime())) {
+		if peerOwns(a, p) && (a.SessionId == session || a.SessionId == "" && a.Id == p.LastAgent) && (mine == nil || a.CreatedAt.AsTime().After(mine.CreatedAt.AsTime())) {
 			mine = a
 		}
 	}
@@ -836,10 +854,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		case m.Kind != "" && p.Kind != "" && m.Kind != p.Kind:
 			return fail(fmt.Sprintf("its last conversation is on %s: --continue stays on that CLI (drop --kind %s, or ask without --continue)", p.Kind, m.Kind))
 		default:
-			session = p.SessionId
-			if p.Kind != "" {
-				kind = p.Kind
-			}
+			session, kind = p.SessionId, orClaude(p.Kind) // a peer registered before its CLI was kept ran on Claude
 		}
 	}
 	var mine *v1.Agent
@@ -885,16 +900,16 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			}
 			return fail(msg)
 		}
-		// An agy asker's hooks are files written into its checkout: the clone's own is the user's.
-		if p.InClone && kind == "agy" {
-			return fail("it works in the clone's own checkout, where an agy asker's hooks would be written: ask on another CLI")
-		}
+	}
+	// An agy asker's hooks are files written into its checkout: the clone's own is the user's.
+	if p.InClone && kind == "agy" {
+		return fail("it works in the clone's own checkout, where an agy asker's hooks would be written: ask on another CLI")
 	}
 	if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, kind, model, effort, "asking "+p.Name, false); err != nil {
 		return fail(err.Error())
 	}
 	before, _ := git(ctx, p.Worktree, "rev-parse", "HEAD")
-	note, newCommits, at := d.preparePeer(ctx, p, !m.NoRefresh, peerRunning(r, p, actor.RunId))
+	note, newCommits, at := d.preparePeer(ctx, p, !m.NoRefresh, checkoutHolder(r, p, actor.RunId))
 	member.Head, member.UpstreamNew = at, newCommits
 	// An ask refused after the checkout moved puts it back: another asker may be working on it.
 	restore := func() {
@@ -964,7 +979,11 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 			return err
 		}
 		cur.Seen, cur.LastRun, cur.LastAgent, cur.Asked = p.Seen, actor.RunId, member.AgentId, timestamppb.New(tx.Now())
-		cur.Kind, cur.SessionId = agent.Kind, agent.SessionId
+		// The conversation of the asker this ask started; one whose id is not known yet (agy learns it after its first
+		// prompt) leaves the earlier one, until its answer records it (recordPeerAnswers).
+		if agent.SessionId != "" {
+			cur.Kind, cur.SessionId = agent.Kind, agent.SessionId
+		}
 		return tx.PutPeer(cur)
 	})
 	return member, agent, ""

@@ -260,3 +260,23 @@ func TestRemovingAPeerLeavesAWorktreeThatIsNotTheDaemonsOrThatAnotherPeerSharesA
 		t.Errorf("uncommitted work in a worktree outside the daemon's was deleted: %v", err)
 	}
 }
+
+// An asker of this run that is still answering holds the checkout as well: a second ask of the peer does not move it.
+func TestAnAskerOfThisRunStillAnsweringHoldsTheCheckout(t *testing.T) {
+	w := startPeers(t)
+	up := newUpstream(t, "alpha")
+	p := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g"})
+	head := up.git(t, "rev-parse", "HEAD")
+	first := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "first"}).Agents[0] // starting: no answer yet
+	next := up.commit(t, "a.go", "package a")
+	second := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "second"}).Agents[0]
+	if second.Id == first.Id || second.Name != p.Name+"-2" {
+		t.Fatalf("second asker %v", second)
+	}
+	if task := w.task(t, second.Id); !strings.Contains(task, "Another asker ("+p.Name+", run "+w.run.Id+") is reading this checkout") || !strings.Contains(task, "git show "+next[:9]) {
+		t.Errorf("the second asker's task:\n%s", task)
+	}
+	if out := gitOut(t, p.Worktree, "rev-parse", "HEAD"); out != head {
+		t.Errorf("the checkout moved to %s under the first asker", out)
+	}
+}

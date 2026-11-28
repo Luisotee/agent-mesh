@@ -30,7 +30,7 @@ const (
 	AskKind_ASK_KIND_QUESTION AskKind = 1
 	// A review of one commit of a pull request: a round of reviewers, or one.
 	AskKind_ASK_KIND_REVIEW AskKind = 2
-	// A question for standing peers (`mesh ask --peers`): one answers file, one message.
+	// A question for peers (`mesh ask --peers`): one answers file, one message.
 	AskKind_ASK_KIND_PEERS AskKind = 3
 )
 
@@ -803,7 +803,9 @@ type AskRequest struct {
 	Relay bool `protobuf:"varint,18,opt,name=relay,proto3" json:"relay,omitempty"`
 	// With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
 	// conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
-	// the default: ask fresh unless the earlier answer's context is what the question needs.
+	// the default: ask fresh unless the earlier answer's context is what the question needs. `tier`, `model` and `effort`
+	// apply only when the conversation is resumed in a new agent; an asker of this run that is given the question
+	// keeps what it runs on.
 	Continue      bool `protobuf:"varint,19,opt,name=continue,proto3" json:"continue,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

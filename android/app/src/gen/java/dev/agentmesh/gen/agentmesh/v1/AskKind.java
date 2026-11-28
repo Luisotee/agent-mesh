@@ -33,7 +33,7 @@ public enum AskKind
   ASK_KIND_REVIEW(2),
   /**
    * <pre>
-   * A question for standing peers (`mesh ask --peers`): one answers file, one message.
+   * A question for peers (`mesh ask --peers`): one answers file, one message.
    * </pre>
    *
    * <code>ASK_KIND_PEERS = 3;</code>
@@ -64,7 +64,7 @@ public enum AskKind
   public static final int ASK_KIND_REVIEW_VALUE = 2;
   /**
    * <pre>
-   * A question for standing peers (`mesh ask --peers`): one answers file, one message.
+   * A question for peers (`mesh ask --peers`): one answers file, one message.
    * </pre>
    *
    * <code>ASK_KIND_PEERS = 3;</code>

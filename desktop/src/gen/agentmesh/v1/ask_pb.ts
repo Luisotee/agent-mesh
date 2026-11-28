@@ -514,7 +514,9 @@ export type AskRequest = Message<"agentmesh.v1.AskRequest"> & {
   /**
    * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
    * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
-   * the default: ask fresh unless the earlier answer's context is what the question needs.
+   * the default: ask fresh unless the earlier answer's context is what the question needs. `tier`, `model` and `effort`
+   * apply only when the conversation is resumed in a new agent; an asker of this run that is given the question
+   * keeps what it runs on.
    *
    * @generated from field: bool continue = 19;
    */
@@ -1174,7 +1176,7 @@ export enum AskKind {
   REVIEW = 2,
 
   /**
-   * A question for standing peers (`mesh ask --peers`): one answers file, one message.
+   * A question for peers (`mesh ask --peers`): one answers file, one message.
    *
    * @generated from enum value: ASK_KIND_PEERS = 3;
    */

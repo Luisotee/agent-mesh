@@ -49,7 +49,7 @@ The tier says how strong, the CLI says whose quota. Pick both by the work. Model
 | Executing a clear plan | Claude; agy `mid` when it has headroom | `mid` (Sonnet at `high`, never `medium`); a plan that left something open: `strong` with Opus at `medium` |
 | Frontend and design | by quality and headroom, like other work (no vendor rule) | `mid` at a high effort, or `strong` at `medium`; agy's work gets a Claude reviewer |
 | Trivial and mechanical work | OpenCode, then Claude `light`; not agy | `light` |
-| An asker or a peer | OpenCode (a model with a long context), then Claude `mid` | `mid`; `strong` for a hard question |
+| An asker or a peer | OpenCode (a model with a long context), then Claude `mid`: the asker role, taken when the ask names no tier, kind or model | the role's (`roles.asker.*`: free models at `high`, Sonnet at `medium`); `--kind claude --tier strong` for a hard question |
 | A small PR's review | OpenCode, then Claude | `mid` |
 | A large routine PR's review | OpenCode plus Claude (two slots) | `mid` |
 | A risky PR's review (any size) | a relay ("A relay for a risky PR") | `strong` |
@@ -63,7 +63,7 @@ The tier says how strong, the CLI says whose quota. Pick both by the work. Model
 
 **In a repo listed in `repos.no_free_models`** skip every OpenCode-first row and use Claude `light` or `mid`.
 
-**The shipped defaults follow this table** (`mesh settings --prefix tiers`, `review`): a host's own settings can differ, and a peer still runs on its registered CLI. Pass `--tier`, `--reviewers` or `--effort` to override a pick.
+**The shipped defaults follow this table** (`mesh settings --prefix tiers`, `review`): a host's own settings can differ. Pass `--tier`, `--reviewers` or `--effort` to override a pick.
 
 ### Sizes
 

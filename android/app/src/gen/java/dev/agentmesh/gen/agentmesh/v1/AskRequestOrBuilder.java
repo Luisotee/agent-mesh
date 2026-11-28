@@ -356,7 +356,9 @@ public interface AskRequestOrBuilder extends
    * <pre>
    * With `peers`: continue each named peer's last conversation (this run's agent, or an earlier run's resumed) on that
    * conversation's own CLI, instead of a fresh asker; a peer with none is asked fresh, and the answer says so. Never
-   * the default: ask fresh unless the earlier answer's context is what the question needs.
+   * the default: ask fresh unless the earlier answer's context is what the question needs. `tier`, `model` and `effort`
+   * apply only when the conversation is resumed in a new agent; an asker of this run that is given the question
+   * keeps what it runs on.
    * </pre>
    *
    * <code>bool continue = 19 [json_name = "continue"];</code>
