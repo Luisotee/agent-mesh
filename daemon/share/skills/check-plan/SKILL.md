@@ -18,7 +18,7 @@ Try to prove your own plan wrong before anyone else reads it, and keep what surv
 
 0. **You are anchored.** You wrote this plan, so you'll read it as right. Re-derive each point from the code and the task, not from what you remember deciding.
 1. **The goal.** Restate in one sentence what the task asks for, and how the plan will show it's met (its done-when). Does the plan answer that, or a drifted version of it? Is the request's premise true in the code: the bug happens, the field is missing, the API behaves as the task says? A false premise is the first finding.
-2. **Load-bearing claims.** List the 3 to 7 claims the plan stands on: where the behaviour lives, the root cause, what the tests cover, that nothing already does this, how a library or API behaves, that a step is safe. Check each one now: read the line, run the command. Mark it:
+2. **Load-bearing claims.** List the 3 to 7 claims the plan stands on: where the behaviour lives, the root cause, what the tests cover, that nothing already does this, how a library or API behaves (checked in its current docs, not from memory: context7, else the web; the plan's "Docs checked" line names the version and source, PROTOCOL rule 12), that a step is safe. Check each one now: read the line, run the command. Mark it:
    - **FACT**: seen, with its `file:line`, command and output, or doc.
    - **GUESS**: inferred, not seen. A guess the plan depends on gets checked now if that takes minutes; otherwise it goes in the risks, with the check that would settle it.
    Never let a guess turn into a fact by being repeated.

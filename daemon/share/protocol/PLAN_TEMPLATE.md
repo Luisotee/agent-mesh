@@ -10,6 +10,8 @@ One or two sentences: the outcome, not the steps.
 ## Findings
 What your research found, with file paths and function names: where the behaviour lives today, a bug's root cause and how you reproduced it, what the existing tests cover. The reviewer hasn't read the code, so they judge the plan by this.
 
+**Docs checked:** each library, framework, SDK, CLI or service the change plans against, with the version and where you read its current docs (`context7: connectrpc 1.19`, a URL); "none" when it touches only the repo's own code, or what you couldn't check and why (PROTOCOL rule 12).
+
 ## Files
 The files to create or change, one line each on what changes. Name the existing functions and utilities to reuse, with their paths.
 
