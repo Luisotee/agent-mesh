@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1"
 	"github.com/Luisotee/agent-mesh/daemon/internal/auth"
+	"github.com/Luisotee/agent-mesh/daemon/internal/settings"
 	"github.com/Luisotee/agent-mesh/daemon/internal/store"
 )
 
@@ -157,6 +158,7 @@ func (d *Daemon) renderBrief(ctx context.Context, r store.Reader, run *v1.Run, a
 	out = append(out, "policy (tiers, reviewers, rounds, reserve): `mesh settings`")
 	if isRoot {
 		out = append(out, d.tierLeanLine(r))
+		out = append(out, d.routingFacts(r)...)
 	}
 	if isRoot { // the user's brakes: repos they merge or approve plans in, and what to ask before
 		out = append(out, d.autonomyBrief(r, run)...)
@@ -376,4 +378,48 @@ func (d *Daemon) tierLeanLine(r store.Reader) string {
 		}
 	}
 	return "tier lean (`tier_lean`: quality, balanced, thrifty): " + lean + ": " + tierLeans[lean]
+}
+
+// routingFacts are the host's own facts the root weighs when it routes (settings, not protocol): each CLI's plan
+// (`plans.<cli>`, the ones set) and a line on each model the tiers name (`models.strengths`).
+func (d *Daemon) routingFacts(r store.Reader) []string {
+	var out []string
+	for _, k := range settings.PlanKinds {
+		if v, err := d.Setting(r, "plans."+k); err == nil {
+			if s, _ := v.(string); strings.TrimSpace(s) != "" {
+				out = append(out, "plan, "+k+" (`plans."+k+"`): "+strings.TrimSpace(s))
+			}
+		}
+	}
+	v, err := d.Setting(r, "models.strengths")
+	if err != nil {
+		return out
+	}
+	lines, _ := v.(map[string]any)
+	seen := map[string]bool{}
+	var strengths []string
+	for _, k := range settings.PlanKinds {
+		for _, key := range d.schema.Keys("tiers." + k + ".") {
+			if !strings.HasSuffix(key, ".model") {
+				continue
+			}
+			models, err := d.Setting(r, key)
+			if err != nil {
+				continue
+			}
+			list, _ := models.([]any)
+			for _, m := range list {
+				name, _ := m.(string)
+				if line, _ := lines[name].(string); line != "" && !seen[name] {
+					seen[name] = true
+					strengths = append(strengths, fmt.Sprintf("  %s: %s", name, line))
+				}
+			}
+		}
+	}
+	if len(strengths) > 0 {
+		out = append(out, "what each model in your tiers is good at (`models.strengths`):")
+		out = append(out, strengths...)
+	}
+	return out
 }

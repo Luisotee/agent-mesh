@@ -225,6 +225,9 @@ func Check(l Leaf, v any) (any, error) {
 	}
 	switch l.Type {
 	case String:
+		if str, ok := v.(string); ok && str == "" && l.Default == "" && len(l.Choices) == 0 {
+			break // a leaf whose default is empty is optional: "" is its unset state
+		}
 		if !text(v) || len(l.Choices) > 0 && !oneOf(v, l.Choices) { // a leaf with choices takes one of them
 			return bad()
 		}
@@ -397,6 +400,7 @@ func DefaultLeaves() []Leaf {
 				Summary: who + "the effort of a fresh reviewer on this tier, unless the review names one (a relay step takes `review.effort.relay`)"},
 			Leaf{Key: p + "note", Label: name + "when to pick it", Group: GroupAgents, Advanced: true, Type: String, Default: noteOf(t.tier, t.note), Summary: who + "when the root should pick it"})
 	}
+	ls = append(ls, planLeaves()...)
 	reviewLevel := map[string]string{"trivial": "medium", "small": "medium", "large": "high"}
 	selfLevel := map[string]string{"trivial": "low", "small": "low", "large": "medium"}
 	ls = append(ls, Leaf{Key: "review.effort.relay", Label: "Reviewer effort in a relay", Group: GroupReviews, Type: Effort, Default: "high", Choices: Efforts,
