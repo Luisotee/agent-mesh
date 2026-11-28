@@ -908,7 +908,10 @@ function BlockActions({ agentId, text, at, align }: { agentId: string; text: str
         clearTimeout(timer.current)
         timer.current = setTimeout(() => setCopied(false), 1500)
       },
-      () => setCopied(false),
+      () => {
+        setCopied(false)
+        app.notify("Couldn't copy", 'error')
+      },
     )
   const quote = () => app.store.setState({ composerFill: { agentId, text: `${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n` } })
   return (

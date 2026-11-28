@@ -176,7 +176,6 @@ function ProjectTile({ project }: { project: ProjectRow }) {
 }
 
 const hostOf = (app: ReturnType<typeof useApp>, hostId: string) => app.store.getState().hosts.find((h) => h.info.id === hostId)
-const copy = (text: string) => void navigator.clipboard?.writeText(text)
 
 /** Opens a row's menu from the keyboard (Shift+F10, the menu key): the row's ⋯ button opens it. */
 function menuKey(e: KeyboardEvent<HTMLElement>) {
@@ -203,7 +202,7 @@ function ProjectItemView({ project: p, many, hidden }: { project: ProjectRow; ma
     { label: 'Project settings…', onSelect: () => app.openProjectSettings({ hostId: p.hostId, repo: p.repo }), disabled: !p.repo },
     'separator',
     { label: p.pinned ? 'Unpin' : 'Pin', onSelect: () => app.togglePin(p.hostId, p.repo), disabled: !p.repo },
-    { label: 'Copy path', onSelect: () => copy(p.repo), disabled: !p.repo },
+    { label: 'Copy path', onSelect: () => app.copyText(p.repo, 'the path'), disabled: !p.repo },
     ...(canDelete(app, p.hostId) && ended.length > 0
       ? [{ label: `Delete ${ended.length} ended ${ended.length === 1 ? 'run' : 'runs'}…`, onSelect: () => setDialog({ kind: 'delete', runIds: ended.map((r) => r.run.id), title: p.name }), destructive: true }]
       : []),
@@ -394,7 +393,7 @@ function agentEntries(app: ReturnType<typeof useApp>, hostId: string, a: Agent, 
     { label: 'Open its terminal', onSelect: () => app.selectAgent(hostId, a.id, 'terminal'), disabled: !terminals },
     { label: 'Send a message…', onSelect: () => app.openMessage({ hostId, agentId: a.id }) },
     'separator',
-    { label: 'Copy worktree path', onSelect: () => copy(a.worktree), disabled: !a.worktree },
+    { label: 'Copy worktree path', onSelect: () => app.copyText(a.worktree, 'the worktree path'), disabled: !a.worktree },
     'separator',
     { label: 'Shut down', onSelect: () => open({ kind: 'stop', agent: a }), disabled: !live(a), destructive: true },
     { label: 'Retire', onSelect: () => open({ kind: 'retire', agent: a }), disabled: !live(a), destructive: true },
@@ -423,7 +422,7 @@ function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean })
     ...(lead ? [{ label: 'Open', onSelect: () => app.selectAgent(row.hostId, lead.id) }] : []),
     { label: 'Rename', onSelect: () => app.renameRun({ hostId: row.hostId, runId: row.run.id }), hint: 'F2' },
     { label: 'Add an agent', onSelect: () => app.openWorkspace(true, row.run.id, { hostId: row.hostId, repo: lead?.repo ?? '' }) },
-    { label: 'Copy run id', onSelect: () => copy(row.run.id) },
+    { label: 'Copy run id', onSelect: () => app.copyText(row.run.id, 'the run id') },
     { label: 'Stop run…', onSelect: () => setDialog({ kind: 'stoprun', runId: row.run.id, title }), disabled: row.run.status !== RunStatus.OPEN, destructive: true },
     ...(canDelete(app, row.hostId) ? [{ label: 'Delete…', onSelect: () => setDialog({ kind: 'delete', runIds: [row.run.id], title }), disabled: !rowEnded(row), destructive: true }] : []),
     ...(lead
