@@ -68,6 +68,49 @@ describe('leadRows', () => {
   })
 })
 
+describe('leadRows hideEnded', () => {
+  const agents = () => [
+    agent('lead', { role: AgentRole.ROOT }),
+    agent('live', { parentId: 'lead', state: AgentState.WORKING }),
+    agent('idle', { parentId: 'lead' }),
+    agent('retired', { parentId: 'lead', state: AgentState.RETIRED }),
+    agent('lost', { parentId: 'lead', state: AgentState.EXITED }),
+    agent('owes', { parentId: 'lead', state: AgentState.EXITED }),
+    agent('mid', { parentId: 'lead', state: AgentState.RETIRED }),
+    agent('kid', { parentId: 'mid', state: AgentState.WORKING }),
+    agent('oldrv', { role: AgentRole.REVIEWER, parentId: 'live', state: AgentState.RETIRED }),
+    agent('rv', { role: AgentRole.REVIEWER, parentId: 'live', state: AgentState.WORKING }),
+  ]
+
+  it('keeps live and idle agents, puts the ended ones in `ended`, lifts what an ended agent started into its place', () => {
+    const [r] = leadRows(host(agents(), [run('r1')], { waiting: new Set(['owes']) }), { hideEnded: true })
+    expect(r!.workers.map((w) => w.agent.id).sort()).toEqual(['idle', 'kid', 'live', 'owes'])
+    expect(r!.ended.map((a) => a.id).sort()).toEqual(['lost', 'mid', 'oldrv', 'retired'])
+    expect(r!.workers.find((w) => w.agent.id === 'live')!.helpers.map((a) => a.id)).toEqual(['rv'])
+  })
+
+  it('keeps an ended agent the UI flags as waiting on the user (a plan or question it left), where the others go', () => {
+    const [r] = leadRows(host(agents(), [run('r1')], { waiting: new Set(['owes']) }), { hideEnded: true })
+    expect(r!.workers.map((w) => w.agent.id)).toContain('owes')
+    expect(r!.ended.map((a) => a.id)).not.toContain('owes')
+    expect(r!.needs).toBe(1)
+  })
+
+  it('lists every agent as before unless asked, and counts the ended ones for the run being finished', () => {
+    const [all] = leadRows(host(agents()))
+    expect(all!.ended).toEqual([])
+    expect(all!.workers.map((w) => w.agent.id)).toContain('retired')
+    const [r] = leadRows(host([agent('lead', { role: AgentRole.ROOT, state: AgentState.EXITED }), agent('w', { parentId: 'lead', state: AgentState.RETIRED })]), { hideEnded: true })
+    expect(r!.earlier).toBe(true)
+    expect(r!.ended.map((a) => a.id)).toEqual(['w'])
+  })
+
+  it('names only the live read-only agents in the chip', () => {
+    const [r] = leadRows(host(agents()), { hideEnded: true })
+    expect(helpersLabel(r!.workers.find((w) => w.agent.id === 'live')!.helpers)).toBe('1 review')
+  })
+})
+
 describe('buildProjects', () => {
   it('merges every host\'s projects: pinned first, then waiting, then the latest; the same folder on two hosts is two projects', () => {
     const a = host([
