@@ -29,8 +29,8 @@ public enum AskMemberStatus
   ASK_MEMBER_STATUS_ANSWERED(2),
   /**
    * <pre>
-   * It will not answer in this ask: a `failed`, a question back, an exit or silence the daemon told the caller of,
-   * or the deadline.
+   * It will not answer in this ask: a `failed`, a question back, silence the daemon told the caller of, it was
+   * stopped, or the deadline.
    * </pre>
    *
    * <code>ASK_MEMBER_STATUS_SETTLED = 3;</code>
@@ -44,6 +44,15 @@ public enum AskMemberStatus
    * <code>ASK_MEMBER_STATUS_NOT_ASKED = 4;</code>
    */
   ASK_MEMBER_STATUS_NOT_ASKED(4),
+  /**
+   * <pre>
+   * Its process ended before it answered (it exited, was killed, or its terminal was lost in a machine restart and
+   * meshd could not resume it): the answer is not coming, and the caller was told so.
+   * </pre>
+   *
+   * <code>ASK_MEMBER_STATUS_LOST = 5;</code>
+   */
+  ASK_MEMBER_STATUS_LOST(5),
   UNRECOGNIZED(-1),
   ;
 
@@ -65,8 +74,8 @@ public enum AskMemberStatus
   public static final int ASK_MEMBER_STATUS_ANSWERED_VALUE = 2;
   /**
    * <pre>
-   * It will not answer in this ask: a `failed`, a question back, an exit or silence the daemon told the caller of,
-   * or the deadline.
+   * It will not answer in this ask: a `failed`, a question back, silence the daemon told the caller of, it was
+   * stopped, or the deadline.
    * </pre>
    *
    * <code>ASK_MEMBER_STATUS_SETTLED = 3;</code>
@@ -80,6 +89,15 @@ public enum AskMemberStatus
    * <code>ASK_MEMBER_STATUS_NOT_ASKED = 4;</code>
    */
   public static final int ASK_MEMBER_STATUS_NOT_ASKED_VALUE = 4;
+  /**
+   * <pre>
+   * Its process ended before it answered (it exited, was killed, or its terminal was lost in a machine restart and
+   * meshd could not resume it): the answer is not coming, and the caller was told so.
+   * </pre>
+   *
+   * <code>ASK_MEMBER_STATUS_LOST = 5;</code>
+   */
+  public static final int ASK_MEMBER_STATUS_LOST_VALUE = 5;
 
 
   @java.lang.Override
@@ -107,6 +125,7 @@ public enum AskMemberStatus
       case 2: return ASK_MEMBER_STATUS_ANSWERED;
       case 3: return ASK_MEMBER_STATUS_SETTLED;
       case 4: return ASK_MEMBER_STATUS_NOT_ASKED;
+      case 5: return ASK_MEMBER_STATUS_LOST;
       default: return null;
     }
   }

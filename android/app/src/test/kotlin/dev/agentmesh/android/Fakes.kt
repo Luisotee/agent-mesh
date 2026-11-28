@@ -203,7 +203,11 @@ class RecordingApi : MeshApi {
     @Volatile var stopped = true
     @Volatile var failQueue: Exception? = null
 
+    /** Set it to hold the host's answer to a prompt until it is completed. */
+    @Volatile var promptGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+
     override suspend fun promptAgent(agent: String, text: String): dev.agentmesh.gen.agentmesh.v1.QueuedPrompt? {
+        promptGate?.await()
         failPrompt?.let { throw it }
         prompts += agent to text
         val held = queueNext ?: return null

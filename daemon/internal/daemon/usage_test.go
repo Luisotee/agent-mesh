@@ -133,7 +133,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	}
 
 	// ReserveGuard refuses exported call, SpawnAgent, ApproveAgent, ResumeAgent(--task), SendMessage(TASK).
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); code(err) != connect.CodeResourceExhausted {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test", false); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("exported ReserveGuard code = %v, want ResourceExhausted", err)
 	}
 	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
@@ -197,7 +197,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("ApproveAgent with reserve off: %v", err)
 	}
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); err != nil {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test", false); err != nil {
 		t.Errorf("ReserveGuard failed with over_reserve=true: %v", err)
 	}
 
@@ -207,7 +207,7 @@ func TestClaudeStatusLineFeedsReserveGuardGetUsageAndSetReserve(t *testing.T) {
 	if err != nil || onRes.Msg.OverReserve {
 		t.Fatalf("SetReserve(on) = %+v, err=%v", onRes, err)
 	}
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); code(err) != connect.CodeResourceExhausted {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test", false); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("ReserveGuard after SetReserve(on) = %v, want ResourceExhausted", err)
 	}
 }
@@ -294,7 +294,7 @@ func TestClaudeUsageStaleBoundAndFamilyWindowMatching(t *testing.T) {
 	if u, err := w.device.Mesh.GetUsage(ctx, connect.NewRequest(&v1.GetUsageRequest{})); err != nil || u.Msg.Claude != nil {
 		t.Fatalf("stale Claude usage not discarded: %+v, err=%v", u, err)
 	}
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); err != nil {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test", false); err != nil {
 		t.Errorf("stale Claude reading blocked ReserveGuard: %v", err)
 	}
 
@@ -322,13 +322,13 @@ func TestClaudeUsageStaleBoundAndFamilyWindowMatching(t *testing.T) {
 	if err := os.WriteFile(usagePath, freshBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "", "high", "test"); err != nil {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "", "high", "test", false); err != nil {
 		t.Errorf("seven_day_opus wrongly blocked empty model: %v", err)
 	}
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test"); err != nil {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "sonnet", "high", "test", false); err != nil {
 		t.Errorf("seven_day_opus wrongly blocked sonnet: %v", err)
 	}
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "opus", "high", "test"); code(err) != connect.CodeResourceExhausted {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "claude", "opus", "high", "test", false); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("seven_day_opus did not block opus: %v", err)
 	}
 }
@@ -575,7 +575,7 @@ func TestAgyStaleUsageAndFailedModelLookupRecovery(t *testing.T) {
 	if len(uStale.Msg.AgyRows) != 0 {
 		t.Errorf("stale agy-usage.txt still trusted: %+v", uStale.Msg.AgyRows)
 	}
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "agy", "neon", "high", "test"); err != nil {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "agy", "neon", "high", "test", false); err != nil {
 		t.Errorf("stale agy usage blocked ReserveGuard: %v", err)
 	}
 
@@ -585,7 +585,7 @@ func TestAgyStaleUsageAndFailedModelLookupRecovery(t *testing.T) {
 	modelsFail.Store(true)
 	_, _ = w.device.Mesh.GetUsage(ctx, connect.NewRequest(&v1.GetUsageRequest{Refresh: true}))
 	modelsFail.Store(false)
-	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "agy", "neon", "high", "test"); code(err) != connect.CodeResourceExhausted {
+	if err := w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), run.Id, "agy", "neon", "high", "test", false); code(err) != connect.CodeResourceExhausted {
 		t.Errorf("after ReadAgyModels recovery, ReserveGuard(neon) = %v, want ResourceExhausted", err)
 	}
 	_ = repo
@@ -619,8 +619,9 @@ func TestWarmUsageSkipsAgyWhenQuotaStopDisabledAndRunInvalid(t *testing.T) {
 		t.Errorf("ReadAgyUsage called %d times on invalid run, want 0", agyUsageCalls.Load())
 	}
 
-	// With quota_stop = 100, SpawnAgent/SendMessage/SwitchAgent/ResumeAgent never run `agy -p /usage`.
+	// With quota_stop and quota_stop_weekly at 100, SpawnAgent/SendMessage/SwitchAgent/ResumeAgent never run `agy -p /usage`.
 	w.set(t, "quota_stop", 100)
+	w.set(t, "quota_stop_weekly", 100)
 	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
 		RunId: run.Id, Repo: repo, Slug: "agy-w", Kind: "agy", Tier: "strong", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
