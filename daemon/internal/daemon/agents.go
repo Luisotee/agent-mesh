@@ -388,7 +388,12 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 	}
 	claimed, replaced, realExit, owner := false, false, false, ""
 	var alert *v1.Message
-	words := d.exitWords(ctx, d.agentOfExit(ctx, terminalID, agentID, reopenID)) // read before the write that records the exit
+	exiting := d.agentOfExit(ctx, terminalID, agentID, reopenID)
+	words := d.exitWords(ctx, exiting) // read before the write that records the exit
+	printed := ""
+	if exiting != nil && !stopped(exiting) && !exiting.HadTurn && code > 0 && signal == 0 && reason == "exited" {
+		printed = d.screenPrinted(ctx, terminalID) // a CLI that failed at once says why on its screen
+	}
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.AgentByTerminal(terminalID)
 		if errors.Is(err, store.ErrNotFound) && agentID != "" {
@@ -452,13 +457,19 @@ func (d *Daemon) recordExit(ctx context.Context, terminalID, agentID, reopenID s
 				return err
 			}
 		}
+		if printed != "" {
+			// What it printed is the reason the apps show: "Exited: code 1: No conversation found with session ID: …".
+			if err := setExitDetail(tx, a, fmt.Sprintf("code %d: %s", code, printed)); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentExited{
 			AgentExited: &v1.AgentExited{ExitCode: code, Signal: signal, Reason: reason}}}); err != nil {
 			return err
 		}
 		// Its parent hears of it when it still owed a report (a stop someone asked for is told too: it is the
 		// parent's agent that ended).
-		if alert, err = d.alertExitTx(tx, a, lastSaid, words, code, signal, reason); err != nil {
+		if alert, err = d.alertExitTx(tx, a, lastSaid, words, printed, code, signal, reason); err != nil {
 			return err
 		}
 		return tx.RevokeTokens(a.Id)
@@ -725,6 +736,7 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 	before := reducer.Of(a)
 	s := before
 	for _, ev := range evs {
+		prevID := s.SessionID
 		if bad := ev.GetDecodeError(); bad != nil {
 			if _, err := tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_HookDecodeFailed{
 				HookDecodeFailed: &v1.HookDecodeFailed{Error: bad.Error}}}); err != nil {
@@ -737,6 +749,12 @@ func (d *Daemon) applyEvents(tx *store.Tx, a *v1.Agent, evs []*adapterv1.AgentEv
 			}
 		}
 		s = reducer.Reduce(s, ev)
+		if prevID != "" && s.SessionID != prevID {
+			a.HadTurn = false // a new conversation (a /clear, a reset) has had no turn yet
+		}
+		if s.State == v1.AgentState_AGENT_STATE_WORKING {
+			a.HadTurn = true // a conversation exists from here on (Claude Code writes it with the first prompt)
+		}
 	}
 	a.State, a.NeedsInput, a.StateDetail, a.SessionId, a.ExitCode = s.State, s.NeedsInput, s.Detail, s.SessionID, s.ExitCode
 	a.StateBeforeCompact = s.BeforeCompact
@@ -991,6 +1009,21 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	}
 	if d.rt.term == nil {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("this daemon runs without a terminal host"))
+	}
+	if m.Plain && actor.Class == v1.ActorClass_ACTOR_CLASS_DEVICE && d.isSetupFolder(m.Repo) {
+		// A chat the user opens in the setup project is the setup agent: a plain one would look like it but have neither
+		// its rights (pairing) nor its instructions (SETUP.md). The one setup agent is returned, resumed if it is gone.
+		res, err := d.StartSetup(ctx, connect.NewRequest(&v1.StartSetupRequest{Kind: m.Kind, Tier: m.Tier}))
+		if err != nil {
+			return nil, err
+		}
+		// The run the caller made for this chat stays empty: it is stopped, so a client need not (the desktop does too).
+		if m.RunId != "" && m.RunId != res.Msg.Run.GetId() {
+			if agents, err := d.store.Read(ctx).ListAgents(m.RunId); err == nil && len(agents) == 0 {
+				_, _ = d.StopRun(ctx, connect.NewRequest(&v1.StopRunRequest{RunId: m.RunId}))
+			}
+		}
+		return connect.NewResponse(&v1.SpawnAgentResponse{Agent: res.Msg.Agent}), nil
 	}
 	kind := m.Kind
 	if kind == "" {
@@ -1448,7 +1481,7 @@ func (d *Daemon) recordStopped(tx *store.Tx, a *v1.Agent, words string) (*v1.Mes
 		AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "stopped"}}}); err != nil {
 		return nil, err
 	}
-	alert, err := d.alertExitTx(tx, a, lastSaid, words, -1, 0, "stopped")
+	alert, err := d.alertExitTx(tx, a, lastSaid, words, "", -1, 0, "stopped")
 	if err != nil {
 		return nil, err
 	}

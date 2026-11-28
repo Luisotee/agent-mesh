@@ -550,6 +550,9 @@ type PlanLaunchResponse struct {
 	SessionId string `protobuf:"bytes,3,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	// Files the adapter needs in the agent's worktree before launch (for CLIs without inline `--settings` hooks).
 	WorktreeFiles []*WorktreeFile `protobuf:"bytes,4,rep,name=worktree_files,json=worktreeFiles,proto3" json:"worktree_files,omitempty"`
+	// The conversation to resume (`resume_session_id`) does not exist: the adapter launched the same id fresh. Before
+	// the agent's first turn nothing is lost; after one (`Agent.had_turn`) the context is gone and the agent is told.
+	ResumeMissing bool `protobuf:"varint,5,opt,name=resume_missing,json=resumeMissing,proto3" json:"resume_missing,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -610,6 +613,13 @@ func (x *PlanLaunchResponse) GetWorktreeFiles() []*WorktreeFile {
 		return x.WorktreeFiles
 	}
 	return nil
+}
+
+func (x *PlanLaunchResponse) GetResumeMissing() bool {
+	if x != nil {
+		return x.ResumeMissing
+	}
+	return false
 }
 
 // LookupSessionRequest finds an agent's conversation by its worktree: the newest top-level one there. The first
@@ -2566,13 +2576,14 @@ const file_agentmesh_adapter_v1_adapter_proto_rawDesc = "" +
 	"\x04mode\x18\x03 \x01(\rR\x04mode\x12\x1f\n" +
 	"\vgit_exclude\x18\x04 \x01(\bR\n" +
 	"gitExclude\x12#\n" +
-	"\rmerge_tracked\x18\x05 \x01(\bR\fmergeTracked\"\x8f\x02\n" +
+	"\rmerge_tracked\x18\x05 \x01(\bR\fmergeTracked\"\xb6\x02\n" +
 	"\x12PlanLaunchResponse\x12\x12\n" +
 	"\x04argv\x18\x01 \x03(\tR\x04argv\x12C\n" +
 	"\x03env\x18\x02 \x03(\v21.agentmesh.adapter.v1.PlanLaunchResponse.EnvEntryR\x03env\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x03 \x01(\tR\tsessionId\x12I\n" +
-	"\x0eworktree_files\x18\x04 \x03(\v2\".agentmesh.adapter.v1.WorktreeFileR\rworktreeFiles\x1a6\n" +
+	"\x0eworktree_files\x18\x04 \x03(\v2\".agentmesh.adapter.v1.WorktreeFileR\rworktreeFiles\x12%\n" +
+	"\x0eresume_missing\x18\x05 \x01(\bR\rresumeMissing\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb1\x02\n" +

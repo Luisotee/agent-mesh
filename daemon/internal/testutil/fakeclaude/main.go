@@ -48,7 +48,12 @@
 // With $FAKECLAUDE_CLEAR_CRASH_FILE naming a file that exists, /clear exits 7 before any hook.
 //
 // With $FAKECLAUDE_FAIL_FILE naming a file that exists, a fresh start (not a resume) exits 3 before anything is
-// drawn or reported: a launch that fails.
+// drawn or reported, after one line on stderr ("fakeclaude: startup failed"): a launch that fails.
+//
+// Like Claude Code, `--resume` of a session id it has no conversation for exits 1 ("No conversation found with
+// session ID: <id>"). The conversation is an empty file under $HOME/.claude/projects (found by its id) that exists
+// from the start, so a reopen resumes it whatever was typed; with $FAKECLAUDE_LAZY_SESSION set it is written with
+// the first prompt typed, as Claude Code does, and a reopen before that has nothing to resume.
 //
 // With -p (print mode: the last argument is the prompt) it runs no hooks and reads no input: a prompt that starts
 // with /compact appends the compact_boundary line and exits 0 (1 with $FAKECLAUDE_PRINT_FAIL set), as a headless
@@ -263,8 +268,14 @@ func main() {
 		}
 		return
 	}
+	// Like Claude Code: `--resume` of a conversation it never wrote (nothing was typed in it yet) is an error.
+	if source == "resume" && !sessionOnDisk() {
+		fmt.Fprintf(os.Stderr, "No conversation found with session ID: %s\n", session)
+		os.Exit(1)
+	}
 	if file := os.Getenv("FAKECLAUDE_FAIL_FILE"); file != "" && source == "startup" {
 		if _, err := os.Stat(file); err == nil {
+			fmt.Fprintln(os.Stderr, "fakeclaude: startup failed")
 			os.Exit(3)
 		}
 	}
@@ -278,6 +289,9 @@ func main() {
 	frames := make(chan string, 8)
 	if dir := os.Getenv("FAKECLAUDE_INBOX"); dir != "" {
 		serveInbox(dir, frames)
+	}
+	if os.Getenv("FAKECLAUDE_LAZY_SESSION") == "" {
+		touchSession() // the conversation exists from the start: a reopen resumes it, whatever was typed
 	}
 	fmt.Printf("fake claude %s\r\n", session)
 	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
@@ -842,6 +856,7 @@ var recorded int
 // line with text and a tool call, the tool's result, the closing text), when $FAKECLAUDE_TRANSCRIPT is set: the file
 // the chat view reads. Off by default, as a transcript that exists changes what compaction tests see (`boundary`).
 func recordTurn(prompt string) {
+	touchSession()
 	home := os.Getenv("HOME")
 	if os.Getenv("FAKECLAUDE_TRANSCRIPT") == "" || home == "" || session == "" {
 		return
@@ -962,5 +977,32 @@ func readKeys(lines chan<- string) {
 				line = append(line, b)
 			}
 		}
+	}
+}
+
+// sessionOnDisk reports whether a conversation with this session id exists under $HOME/.claude/projects (in any
+// folder: Claude Code finds it by its id).
+func sessionOnDisk() bool {
+	home := os.Getenv("HOME")
+	if home == "" || session == "" {
+		return true
+	}
+	found, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", session+".jsonl"))
+	return len(found) > 0
+}
+
+// touchSession makes the session's transcript exist (empty unless $FAKECLAUDE_TRANSCRIPT writes turns to it): Claude
+// Code writes the conversation with the first turn, and `--resume` finds it from then on.
+func touchSession() {
+	home := os.Getenv("HOME")
+	if home == "" || session == "" {
+		return
+	}
+	dir := filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"))
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	if f, err := os.OpenFile(filepath.Join(dir, session+".jsonl"), os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		f.Close()
 	}
 }

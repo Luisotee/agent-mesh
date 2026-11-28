@@ -32,6 +32,30 @@ func (d *Daemon) workTextCached(r store.Reader, a *v1.Agent) string {
 	return ""
 }
 
+// screenPrinted is what a terminal's process printed last, on one line (its newest screen lines, at most
+// exitPrintedCut characters): "" when nothing can be read. It says why a CLI that exited at once did.
+func (d *Daemon) screenPrinted(ctx context.Context, terminalID string) string {
+	if terminalID == "" {
+		return ""
+	}
+	raw, err := d.readScreen(ctx, terminalID)
+	if err != nil && len(raw) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, l := range opencode.ScreenLines(raw) {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > 3 {
+		lines = lines[len(lines)-3:]
+	}
+	return cutLine(strings.Join(lines, " "), exitPrintedCut)
+}
+
+const exitPrintedCut = 200
+
 // screenTail is the last lines of an agent's terminal, as text a parent can read: "" when it can't be read.
 func (d *Daemon) screenTail(ctx context.Context, a *v1.Agent) string {
 	if a.TerminalId == "" {

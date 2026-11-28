@@ -546,7 +546,7 @@ func (d *Daemon) checkOwed(ctx context.Context, r store.Reader, a *v1.Agent, nud
 // the transaction that records the exit, so the alert and the exit are one write; the caller rings the message.
 // lastSaid is the agent's state detail from before the exit event was applied (which overwrites it); words is the
 // agent's newest reply read from its transcript before the write (exitWords), which is quoted in preference to it.
-func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid, words string, code, signal int32, reason string) (*v1.Message, error) {
+func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid, words, printed string, code, signal int32, reason string) (*v1.Message, error) {
 	if !owesParent(a) || d.bootHeld(a.Id) {
 		return nil, nil // (a held one: lost in a machine restart and about to be resumed, which tells the parent itself: restart.go)
 	}
@@ -565,6 +565,9 @@ func (d *Daemon) alertExitTx(tx *store.Tx, a *v1.Agent, lastSaid, words string, 
 		how = fmt.Sprintf("was killed by signal %d", signal)
 	}
 	text := fmt.Sprintf("%s %s with no report to you.", a.Name, how)
+	if printed != "" {
+		text += " It printed: " + printed
+	}
 	if words != "" {
 		lastSaid = words
 	}

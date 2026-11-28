@@ -1436,11 +1436,17 @@ describe('SidebarFooter', () => {
   })
 
   it('has one way to each thing: the gear for the settings, Hosts for a host and pairing, and no + for a new lead', async () => {
-    const { wrap, model } = fixture()
+    const { client, wrap, model } = fixture()
     render(wrap(<SidebarFooter />))
     expect(screen.queryByRole('button', { name: 'New' })).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
-    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Connect a host…', 'Pair a device', expect.stringMatching(/^Remove /)])
+    // This fixture is a paired device, not the host's own: it may not make pairing links, so it asks the setup assistant.
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Connect a host…', 'Pair a device with the assistant', expect.stringMatching(/^Remove /)])
+    const startSetup = vi.fn(async () => ({ agent: { id: 'setup-agent', runId: 'rs' } }))
+    Object.assign(client, { startSetup })
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Pair a device with the assistant' }))
+    await waitFor(() => expect(startSetup).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
     await userEvent.keyboard('{Escape}')
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(model.store.getState().settingsOpen).toBe(true)
@@ -2737,6 +2743,19 @@ describe('Project shells', () => {
     await userEvent.click(await screen.findByRole('menuitem', { name: 'New Claude agent' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('the host is at its agent cap')
     // The run it started for the refused agent is stopped, not left empty in the sidebar.
+    expect(stopRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r9' }))
+  })
+
+  it('stops the run it made when the host answers a chat in the setup project with the setup agent, which has a run of its own', async () => {
+    const { client, wrap, model } = shells()
+    client.startRun.mockResolvedValue({ run: { id: 'r9' } })
+    client.spawnAgent.mockResolvedValue({ agent: { id: 'setup-agent', runId: 'rsetup' } })
+    const stopRun = vi.fn(async () => ({}))
+    Object.assign(client, { stopRun })
+    render(wrap(<TabBar />))
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'New Claude agent' }))
+    await waitFor(() => expect(model.store.getState()).toMatchObject({ agentId: 'setup-agent', tab: 'chat' }))
     expect(stopRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r9' }))
   })
 

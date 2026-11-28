@@ -156,6 +156,9 @@ func (d *Daemon) OpenAgent(ctx context.Context, req *connect.Request[v1.OpenAgen
 	if err != nil {
 		return nil, failedPrecondition("planning open for %s: %v", a.Name, err)
 	}
+	if plan.Msg.ResumeMissing && a.HadTurn {
+		notes = append(notes, "its conversation was not found where Claude Code keeps it (it deletes old ones): this starts a fresh conversation under the same id, with no memory of the earlier one")
+	}
 	argv := append([]string{}, plan.Msg.Argv...)
 	argv = append(argv, m.ExtraArgs...)
 

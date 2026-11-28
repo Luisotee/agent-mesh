@@ -121,6 +121,9 @@ message PlanLaunchResponse {
   string session_id = 3;
   // Files the adapter needs in the agent's worktree before launch (for CLIs without inline `--settings` hooks).
   repeated WorktreeFile worktree_files = 4;
+  // The conversation to resume (`resume_session_id`) does not exist: the adapter launched the same id fresh. Before
+  // the agent's first turn nothing is lost; after one (`Agent.had_turn`) the context is gone and the agent is told.
+  bool resume_missing = 5;
 }
 
 // LookupSessionRequest finds an agent's conversation by its worktree: the newest top-level one there. The first

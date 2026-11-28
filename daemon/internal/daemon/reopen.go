@@ -1370,6 +1370,7 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 		cur.StateBeforeCompact = v1.AgentState_AGENT_STATE_UNSPECIFIED
 		if r.Fresh {
 			cur.SessionId = ""
+			cur.HadTurn = false // a new conversation has had no turn yet
 		}
 		cur.LastActivity = timestamppb.New(tx.Now())
 		if err := tx.PutAgent(cur); err != nil {
@@ -1437,6 +1438,7 @@ func (d *Daemon) reopen(ctx context.Context, a *v1.Agent) error {
 // list. Also run at boot for a terminal a reopen started just before the daemon died.
 func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen, tid string, plan *adapterv1.PlanLaunchResponse) error {
 	stale, died := false, false
+	var told []string // agents told their context is gone, to ring
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		a, err := tx.GetAgent(agentID)
 		if err != nil {
@@ -1475,6 +1477,12 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 		}
 		_, err = tx.AppendEvent(&v1.Event{RunId: a.RunId, AgentId: a.Id, Payload: &v1.Event_AgentReopened{
 			AgentReopened: &v1.AgentReopened{Reopen: r, TerminalId: tid, SessionId: a.SessionId}}})
+		if err != nil {
+			return err
+		}
+		if plan != nil && plan.ResumeMissing && a.HadTurn && !r.Fresh {
+			told, err = d.tellContextLost(tx, a)
+		}
 		return err
 	})
 	if err != nil {
@@ -1492,7 +1500,36 @@ func (d *Daemon) finishReopen(ctx context.Context, agentID string, r *v1.Reopen,
 	if died {
 		d.deliverSoon(agentID) // the newer reopen runs now
 	}
+	for _, id := range told {
+		d.deliverSoon(id)
+	}
 	return err
+}
+
+// tellContextLost tells an agent whose conversation Claude Code no longer has (it deletes transcripts older than
+// `cleanupPeriodDays`, 30 by default) that it starts with no memory, and its parent. Its adapter launched the same id
+// fresh. A plain agent is the user's own chat: it is told nothing (its chat shows an empty conversation). Returns the
+// agents to ring.
+func (d *Daemon) tellContextLost(tx *store.Tx, a *v1.Agent) ([]string, error) {
+	if a.Plain {
+		return nil, nil
+	}
+	var ring []string
+	text := "Your earlier conversation (session " + a.SessionId + ") was not found where Claude Code keeps it (it deletes transcripts " +
+		"after 30 days, by default), so you start fresh with no memory of it. Run `mesh inbox` and re-read your task and the messages you have; " +
+		"look at your worktree (`git log`, `git status`) for what is already done, and carry on from there."
+	if _, err := tellTx(tx, a, text); err != nil {
+		return nil, err
+	}
+	ring = append(ring, a.Id)
+	if alert, err := d.alertParentTx(tx, a, "context", a.Name+" was resumed with no memory: its earlier Claude conversation was not found "+
+		"(Claude Code deletes transcripts after 30 days, by default). It was told, and starts from its task and its worktree. "+
+		"Check what it has before relying on it.", tx.Now()); err != nil {
+		return nil, err
+	} else if alert != nil {
+		ring = append(ring, alert.ToId)
+	}
+	return ring, nil
 }
 
 // dropReopen gives up a reopen whose relaunch failed: the old process is already gone, so the agent is EXITED,
@@ -1529,7 +1566,7 @@ func (d *Daemon) dropReopen(ctx context.Context, agentID string, r *v1.Reopen, r
 			AgentExited: &v1.AgentExited{ExitCode: -1, Reason: "reopen failed: " + reason}}}); err != nil {
 			return err
 		}
-		if alert, err = d.alertExitTx(tx, a, lastSaid, words, -1, 0, "reopen failed: "+reason); err != nil {
+		if alert, err = d.alertExitTx(tx, a, lastSaid, words, "", -1, 0, "reopen failed: "+reason); err != nil {
 			return err
 		}
 		return tx.RevokeTokens(a.Id)
