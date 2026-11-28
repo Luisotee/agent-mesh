@@ -214,6 +214,22 @@ func QuotaApplies(group, modelID, display string) bool {
 	return display != "" && strings.HasPrefix(strings.ToLower(display), gl)
 }
 
+// ModelRows returns every quota row covering `modelID` / `display`: its five-hour and its weekly one.
+func ModelRows(modelID, display string, rows []UsageRow) []UsageRow {
+	var out []UsageRow
+	for _, r := range rows {
+		if QuotaApplies(r.Group, modelID, display) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Weekly reports whether a row is a weekly limit ("Weekly Limit Remaining"); any other is a short window.
+func (r UsageRow) Weekly() bool {
+	return strings.Contains(strings.ToLower(r.Label), "week")
+}
+
 // ModelQuota returns the tightest quota row covering `modelID` / `display`.
 func ModelQuota(modelID, display string, rows []UsageRow) (UsageRow, bool) {
 	var best UsageRow

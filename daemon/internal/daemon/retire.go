@@ -236,10 +236,12 @@ func (d *Daemon) RetireAgent(ctx context.Context, req *connect.Request[v1.Retire
 // retireQuiet is how often the retire pass runs by default.
 const retireQuiet = 10 * time.Second
 
-// retireIdle retires the agents that reported done or failed and then stayed idle `idle_retire` seconds (0 never).
-// Not: a root; one with a reopen pending; one with unread mail (work is coming, or a doorbell was lost); one whose
-// newest report since its last task or answer isn't done or failed (a plan or question waits on its parent); or
-// one a client with input rights is attached to (the viewer rule: someone is looking).
+// retireIdle retires the agents that reported done or failed and then stayed idle `idle_retire` seconds (0 never), a
+// reviewer or an asker after `idle_retire.review` instead when that is the shorter (nothing comes back for it: a
+// re-review or a follow-up ask resumes the same conversation). Not: a root; one with a reopen pending; one with
+// unread mail (work is coming, or a doorbell was lost); one whose newest report since its last task or answer isn't
+// done or failed (a plan or question waits on its parent); or one a client with input rights is attached to (the
+// viewer rule: someone is looking).
 func (d *Daemon) retireIdle(ctx context.Context) {
 	if d.rt.term == nil {
 		return
@@ -249,9 +251,15 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	after := time.Duration(v.(float64) * float64(time.Second))
-	if after <= 0 {
+	afterWork := time.Duration(v.(float64) * float64(time.Second))
+	if afterWork <= 0 {
 		return
+	}
+	afterReview := afterWork
+	if v, err := d.Setting(r, "idle_retire.review"); err == nil {
+		if f, ok := v.(float64); ok && f > 0 {
+			afterReview = min(afterWork, time.Duration(f*float64(time.Second)))
+		}
 	}
 	agents, err := r.ListAgents("")
 	if err != nil {
@@ -267,6 +275,10 @@ func (d *Daemon) retireIdle(ctx context.Context) {
 		if err != nil || report == nil ||
 			(report.Type != v1.MessageType_MESSAGE_TYPE_DONE && report.Type != v1.MessageType_MESSAGE_TYPE_FAILED) {
 			continue
+		}
+		after := afterWork
+		if a.Role == v1.AgentRole_AGENT_ROLE_REVIEWER || a.Role == v1.AgentRole_AGENT_ROLE_ASKER {
+			after = afterReview
 		}
 		since := report.CreatedAt.AsTime()
 		if a.LastActivity != nil && a.LastActivity.AsTime().After(since) {
@@ -639,20 +651,49 @@ func (d *Daemon) removeWorktreePath(ctx context.Context, agentID, repo, worktree
 	return o
 }
 
-// branchMerged says whether every commit of a branch is in a default branch of a remote of the repo (`origin/HEAD`,
-// `origin/main` or `origin/master`, as the repo last saw them: it is in any of those that exist). A branch
-// squash-merged is not: its own commits are not in the default branch, so it is kept.
+// branchMerged says whether a branch holds nothing a default branch of a remote of the repo (`origin/HEAD`, `origin/main`
+// or `origin/master`, as the repo last saw them: any of those that exist) has not: every commit of it is in the default
+// branch, or merging it into the default branch changes nothing (`merge-tree`: the merge's tree is the default's own),
+// which is what a squash or a rebase merge leaves, as the branch's own commits are not in the default branch then.
 func branchMerged(ctx context.Context, repo, branch string) bool {
 	tip, err := git(ctx, repo, "rev-parse", "--verify", "-q", "refs/heads/"+branch)
 	if err != nil || tip == "" {
 		return false
 	}
 	for _, ref := range []string{"refs/remotes/origin/HEAD", "refs/remotes/origin/main", "refs/remotes/origin/master"} {
-		if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", ref); err == nil && gitIsAncestor(ctx, repo, tip, ref) {
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "-q", ref); err != nil {
+			continue
+		}
+		if gitIsAncestor(ctx, repo, tip, ref) || mergeAddsNothing(ctx, repo, ref, tip) {
 			return true
 		}
 	}
 	return false
+}
+
+// treeOf is the tree a commit has ("" when git can't say).
+func treeOf(ctx context.Context, repo, commit string) string {
+	out, err := gitRO(ctx, repo, "rev-parse", "--verify", "-q", commit+"^{tree}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// mergeAddsNothing says whether merging `tip` into `ref` would leave `ref`'s tree as it is: the change the branch made is
+// already there (a conflict, or a git too old for `merge-tree --write-tree`, says no).
+func mergeAddsNothing(ctx context.Context, repo, ref, tip string) bool {
+	// A branch whose commits change no file (empty ones) has no change that could be "already there": its commits are its
+	// own work, kept as before.
+	if base, err := gitRO(ctx, repo, "merge-base", ref, tip); err != nil || base == "" || treeOf(ctx, repo, base) == treeOf(ctx, repo, tip) {
+		return false
+	}
+	merged, err := gitRO(ctx, repo, "merge-tree", "--write-tree", ref, tip)
+	if err != nil {
+		return false
+	}
+	own := treeOf(ctx, repo, ref)
+	return own != "" && strings.TrimSpace(strings.SplitN(merged, "\n", 2)[0]) == own
 }
 
 // branchHasWork reports whether a branch is worth keeping: it moved past the commit it started at (its own work,

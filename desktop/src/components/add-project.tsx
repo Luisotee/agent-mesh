@@ -4,11 +4,27 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useApp, useAppState } from '@/context'
 import type { Project } from '@/gen/agentmesh/v1/mesh_pb'
 import type { HostRuntime } from '@/model'
 import { usePolled } from '@/polled'
 import { rankProjects } from '@/projects'
+
+/** Rows the shape of the project list's (a name over a path), while the host's projects are on their way. */
+export function ProjectRowsSkeleton({ label, rows = 4 }: { label: string; rows?: number }) {
+  return (
+    <div role="status" aria-label={label} className="flex flex-col">
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex flex-col gap-1.5 px-2 py-1.5">
+          <Skeleton className="h-3.5 w-1/3" />
+          <Skeleton className={i % 2 ? 'w-1/2' : 'w-2/3'} />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 const reason = (e: unknown) => (e instanceof Error ? e.message.replace(/^\[[a-z_]+\]\s*/, '') : String(e))
 
@@ -66,6 +82,7 @@ export function AddProjectDialog({ host, onClose }: { host: HostRuntime; onClose
           </Field>
           {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
           {list.error && !list.value && <p role="alert" className="text-xs text-destructive">Couldn't list the host's projects: {list.error}</p>}
+          {list.loading && !list.value && !list.error && <ProjectRowsSkeleton label="Loading the host's projects" />}
           <ul aria-label="Projects" className="flex flex-col">
             {shown.map((p) => (
               <li key={p.path}>

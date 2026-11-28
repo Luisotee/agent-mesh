@@ -21,7 +21,7 @@ describe('usageView', () => {
     },
     agyRows: [
       { group: 'Gemini', label: 'Neon', left: 60, resets: '3h' },
-      { group: 'Gemini', label: 'Hydrogen', left: 10, resets: '1h' },
+      { group: 'Gemini', label: 'Hydrogen', left: 10, resets: '1h', atReserve: true },
     ],
     agyTiers: [
       { tier: 'strong', model: 'neon', left: 60, hasLeft: true, notes: ['n1'] },
@@ -29,7 +29,7 @@ describe('usageView', () => {
     ],
   })
 
-  it('marks the windows the host lists as at the reserve, and agy rows with min_quota or less left', () => {
+  it('marks the windows and agy rows the host says are at the reserve', () => {
     const v = usageView(u)
     expect(v.claude.map((w) => w.atReserve)).toEqual([false, true])
     expect(v.agy.map((r) => r.atReserve)).toEqual([false, true])
@@ -37,24 +37,56 @@ describe('usageView', () => {
     expect(v.claudeSource).toBe('cache')
   })
 
-  it("matches the host's guard for agy at quota_stop 0, 50 and 100 (agyModelAtReserve)", () => {
-    const rows = [
-      { group: 'Gemini', label: 'full', left: 100 },
-      { group: 'Gemini', label: 'half', left: 50 },
-      { group: 'Gemini', label: 'none', left: 0 },
-    ]
-    const flags = (quotaStop: number, minQuota: number) => usageView(create(GetUsageResponseSchema, { quotaStop, minQuota, agyRows: rows })).agy.map((r) => r.atReserve)
-    expect(flags(0, 100)).toEqual([true, true, true]) // everything is held at quota_stop 0
-    expect(flags(50, 50)).toEqual([false, true, true])
-    expect(flags(100, 0)).toEqual([false, false, false]) // no reserve at quota_stop 100, even with nothing left
-    expect(usageView(create(GetUsageResponseSchema, { quotaStop: 100, minQuota: 0, agyRows: rows })).warnings).toEqual([])
+  it('takes the lines from the host: a weekly row and a window each have their own reserve, and the reviews-only mark follows', () => {
+    const v = usageView(
+      create(GetUsageResponseSchema, {
+        splitReserves: true,
+        quotaStop: 85,
+        quotaStopWeekly: 95,
+        reviewsOnlyClaude: 70,
+        reviewsOnlyAgy: 100,
+        claude: {
+          windows: [
+            { key: 'five_hour', label: 'five-hour window', used: 80, reserve: 85 },
+            { key: 'seven_day', label: 'weekly window', used: 80, reserve: 95 },
+          ],
+          reviewsOnly: ['five-hour window', 'weekly window'],
+        },
+        agyRows: [
+          { group: 'Gemini', label: 'Five Hour Limit Remaining', left: 50 },
+          { group: 'Gemini', label: 'Weekly Limit Remaining', left: 3, atReserve: true },
+          { group: 'Gemini', label: 'Other', left: 20, reviewsOnly: true },
+        ],
+      }),
+    )
+    expect([v.reserve, v.reserveWeekly, v.reviewsOnly]).toEqual([85, 95, { claude: 70, agy: 100 }])
+    expect(v.claude.map((w) => [w.reserve, w.reviewsOnly])).toEqual([[85, true], [95, true]])
+    expect(v.agy.map((r) => [r.reserve, r.atReserve, r.reviewsOnly])).toEqual([[85, false, false], [95, true, false], [85, false, true]])
+    expect(v.warnings).toEqual(['agy Gemini Weekly Limit Remaining'])
+    expect(v.reviewsOnlyWarnings).toEqual(['Claude five-hour window', 'Claude weekly window', 'agy Gemini Other'])
+  })
+
+  it('reads a host that has no weekly reserve yet as one reserve for every window', () => {
+    const v = usageView(create(GetUsageResponseSchema, { quotaStop: 80, claude: { windows: [{ key: 'seven_day', label: 'weekly window', used: 10 }] } }))
+    expect([v.reserveWeekly, v.claude[0]!.reserve, v.reviewsOnly]).toEqual([80, 80, { claude: 100, agy: 100 }])
+  })
+
+  it('reads agy rows of a host that predates the weekly reserve from min_quota, as before', () => {
+    const v = usageView(create(GetUsageResponseSchema, { quotaStop: 90, minQuota: 10, agyRows: [{ group: 'g', label: 'a', left: 5 }, { group: 'g', label: 'b', left: 60 }] }))
+    expect(v.agy.map((r) => r.atReserve)).toEqual([true, false])
+    expect(usageView(create(GetUsageResponseSchema, { quotaStop: 100, minQuota: 0, agyRows: [{ group: 'g', label: 'a', left: 0 }] })).agy.map((r) => r.atReserve)).toEqual([false])
+  })
+
+  it('reads 0 as a setting once the host has the split reserves', () => {
+    const v = usageView(create(GetUsageResponseSchema, { splitReserves: true, quotaStop: 90, quotaStopWeekly: 0, reviewsOnlyClaude: 0, reviewsOnlyAgy: 100 }))
+    expect([v.reserveWeekly, v.reviewsOnly]).toEqual([0, { claude: 0, agy: 100 }])
   })
 
   it('keeps what a tier would start on, and a missing "left"', () => {
     const v = usageView(u)
     expect(v.tiers).toEqual([
-      { tier: 'strong', model: 'neon', left: 60, notes: ['n1'] },
-      { tier: 'mid', model: '', left: undefined, notes: [] },
+      { tier: 'strong', model: 'neon', left: 60, group: '', label: '', notes: ['n1'] },
+      { tier: 'mid', model: '', left: undefined, group: '', label: '', notes: [] },
     ])
   })
 
@@ -157,6 +189,11 @@ describe("the footer's quota sections", () => {
     ])
   })
 
+  it('brings a minor window back once it is kept for PR reviews', () => {
+    const u = base({ claude: create(ClaudeUsageSchema, { windows: [win('five_hour', 'five-hour window', 20), win('seven_day_opus', 'seven-day Opus', 80)], reviewsOnly: ['seven-day Opus'] }) })
+    expect(quotaSections(u).sections[0]!.lines.map((l) => [l.label, l.reviewsOnly])).toEqual([['5h', false], ['7d Opus', true]])
+  })
+
   it('brings a minor window back once it is at the reserve', () => {
     const u = base({ claude: create(ClaudeUsageSchema, { windows: [win('five_hour', 'five-hour window', 20), win('seven_day_opus', 'seven-day Opus', 95)], atReserve: ['seven-day Opus'] }) })
     expect(quotaSections(u).sections[0]!.lines.map((l) => [l.label, l.atReserve])).toEqual([['5h', false], ['7d Opus', true]])
@@ -164,7 +201,7 @@ describe("the footer's quota sections", () => {
 
   it('shows the fullest agy row when no tier says which one is used, and an unused pool at the reserve', () => {
     expect(quotaSections(base({ agyTiers: [] })).sections[1]!.lines.map((l) => l.label)).toEqual(['Neon'])
-    const spent = base({ agyRows: [create(AgyUsageRowSchema, { group: 'Gemini and Claude models', label: 'Shared', left: 5 }), create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 60 })] })
+    const spent = base({ agyRows: [create(AgyUsageRowSchema, { group: 'Gemini and Claude models', label: 'Shared', left: 5, atReserve: true }), create(AgyUsageRowSchema, { group: 'Gemini 4 Neon', label: 'Neon', left: 60 })] })
     expect(quotaSections(spent).sections[1]!.lines.map((l) => [l.label, l.atReserve])).toEqual([['Shared', true], ['Neon', false]])
   })
 
@@ -176,6 +213,15 @@ describe("the footer's quota sections", () => {
     })
     const q = quotaSections(real)
     expect(q.sections.map((s) => [s.name, s.lines.map((l) => [l.label, l.used])])).toEqual([['agy', [['Five Hour Limit Remaining', 60]]]])
+  })
+
+  it('shows the row the host matched to a tier, where the names say nothing', () => {
+    const real = base({
+      claude: undefined,
+      agyRows: [create(AgyUsageRowSchema, { group: 'Gemini Models', label: 'Weekly Limit Remaining', left: 70 }), create(AgyUsageRowSchema, { group: 'Claude and GPT models', label: 'Five Hour Limit Remaining', left: 40 })],
+      agyTiers: [{ tier: 'light', model: 'flash', hasLeft: true, left: 70, group: 'Gemini Models', label: 'Weekly Limit Remaining', notes: [] }],
+    })
+    expect(quotaSections(real).sections.map((s) => [s.name, s.lines.map((l) => [l.label, l.used])])).toEqual([['agy', [['Weekly Limit Remaining', 30]]]])
   })
 
   it('has no sections when the host has no reading', () => {

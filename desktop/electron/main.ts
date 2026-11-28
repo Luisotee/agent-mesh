@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { allowsPermission } from './permissions.js'
 import { BrowserWindow, Menu, app, clipboard, ipcMain, session, shell, type MenuItemConstructorOptions } from 'electron'
 import type { BridgeEvent, BridgeRequest, LocalFix, NewHost, SocketEvent } from '../shared/api.js'
 import { forward } from './bridge.js'
@@ -238,7 +239,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   void app.whenReady().then(async () => {
-    session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false))
+    session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(allowsPermission(perm)))
     // The OS opens this app on a pairing link only once the app is installed that way: a dev or test run (its own
     // user-data dir, or not packaged) must never take the scheme from the user's real install.
     if (app.isPackaged && !userData) app.setAsDefaultProtocolClient(PROTOCOL)

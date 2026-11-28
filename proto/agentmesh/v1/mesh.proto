@@ -663,15 +663,16 @@ service MeshService {
     };
   }
 
-  // Store an image for a prompt to an agent (the chat's paste, drop or file button) in its run's folder on the host,
-  // which may be another machine: the path returned goes in the prompt, and the CLI reads the file with its own
-  // file tool. PNG, JPEG, GIF or WebP, at most 10 MB.
+  // Store a file for a prompt to an agent (the chat's paste, drop or file button, or a paste into its terminal) in
+  // its run's folder on the host, which may be another machine: the path returned goes in the prompt, and the CLI
+  // reads the file with its own file tool. Any file, at most 10 MB; one named like an image (PNG, JPEG, GIF or
+  // WebP) must be that image.
   rpc AddAttachment(AddAttachmentRequest) returns (AddAttachmentResponse) {
     option (action) = {
       actors: [ACTOR_CLASS_DEVICE]
       write: true
       cli: "attach"
-      summary: "Store an image on the host for a prompt to an agent"
+      summary: "Store a file (an image or any other) on the host for a prompt to an agent"
     };
   }
 
@@ -2151,6 +2152,9 @@ message ClaudeUsageWindow {
   double used = 3;
   // When the window resets, if known.
   google.protobuf.Timestamp resets_at = 4;
+  // Percent used at which this window takes no new work: quota_stop for the five-hour window, quota_stop_weekly for
+  // the weekly ones.
+  int32 reserve = 5;
 }
 
 message ClaudeUsage {
@@ -2158,8 +2162,10 @@ message ClaudeUsage {
   google.protobuf.Timestamp fetched_at = 2;
   // Where the reading came from ("statusline", "live", or "cache").
   string source = 3;
-  // Labels of windows currently at or over quota_stop.
+  // Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
   repeated string at_reserve = 4;
+  // Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+  repeated string reviews_only = 5;
 }
 
 message AgyUsageRow {
@@ -2167,6 +2173,10 @@ message AgyUsageRow {
   string label = 2;
   int32 left = 3;
   string resets = 4;
+  // At or past its reserve (quota_stop for a short window, quota_stop_weekly for a weekly one).
+  bool at_reserve = 5;
+  // Past quota_reviews_only.agy but under its reserve: the model takes only PR reviews.
+  bool reviews_only = 6;
 }
 
 message AgyTierPick {
@@ -2176,6 +2186,10 @@ message AgyTierPick {
   int32 left = 3;
   bool has_left = 4;
   repeated string notes = 5;
+  // The `agy_rows` row `left` is read from (the tightest that covers the picked model): its group and label, both
+  // empty when none matched. A client marks that row as the one this tier draws on.
+  string group = 6;
+  string label = 7;
 }
 
 message GetUsageResponse {
@@ -2186,6 +2200,14 @@ message GetUsageResponse {
   int32 min_quota = 5;
   // What the readings can't say: a CLI whose usage can't be read until the user logs in to it.
   repeated string notes = 6;
+  // quota_stop_weekly: percent of a weekly window used at which nothing new starts (quota_stop is the short one).
+  int32 quota_stop_weekly = 7;
+  // quota_reviews_only.claude and .agy: percent used at which that CLI takes only PR reviews; 100 is off.
+  int32 reviews_only_claude = 8;
+  int32 reviews_only_agy = 9;
+  // Always true from a host that has the weekly reserve and the reviews-only line: a client reads 0 in those fields as
+  // a setting of 0, and a host that sends no flag as one that predates them (`min_quota` then gives its one reserve).
+  bool split_reserves = 10;
 }
 
 message SetReserveRequest {

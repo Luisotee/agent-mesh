@@ -57,7 +57,7 @@ public interface ClaudeUsageOrBuilder extends
 
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -67,7 +67,7 @@ public interface ClaudeUsageOrBuilder extends
       getAtReserveList();
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -76,7 +76,7 @@ public interface ClaudeUsageOrBuilder extends
   int getAtReserveCount();
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -86,7 +86,7 @@ public interface ClaudeUsageOrBuilder extends
   java.lang.String getAtReserve(int index);
   /**
    * <pre>
-   * Labels of windows currently at or over quota_stop.
+   * Labels of windows currently at or over their own reserve (quota_stop, quota_stop_weekly).
    * </pre>
    *
    * <code>repeated string at_reserve = 4 [json_name = "atReserve"];</code>
@@ -95,4 +95,45 @@ public interface ClaudeUsageOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAtReserveBytes(int index);
+
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @return A list containing the reviewsOnly.
+   */
+  java.util.List<java.lang.String>
+      getReviewsOnlyList();
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @return The count of reviewsOnly.
+   */
+  int getReviewsOnlyCount();
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param index The index of the element to return.
+   * @return The reviewsOnly at the given index.
+   */
+  java.lang.String getReviewsOnly(int index);
+  /**
+   * <pre>
+   * Labels of windows at or over quota_reviews_only.claude but under their reserve: Claude takes only PR reviews.
+   * </pre>
+   *
+   * <code>repeated string reviews_only = 5 [json_name = "reviewsOnly"];</code>
+   * @param index The index of the element to return.
+   * @return The reviewsOnly at the given index.
+   */
+  com.google.protobuf.ByteString
+      getReviewsOnlyBytes(int index);
 }
