@@ -288,6 +288,24 @@ public class MeshServiceClient(
 
 
   /**
+   *  Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+   *  (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+   *  that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+   *  while an agent of the run has a process: stop the run first. There is no undo. A device only.
+   */
+  override suspend fun deleteRun(request: DeleteRunRequest, headers: Headers): ResponseMessage<DeleteRunResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "agentmesh.v1.MeshService/DeleteRun",
+      dev.agentmesh.gen.agentmesh.v1.DeleteRunRequest::class,
+      dev.agentmesh.gen.agentmesh.v1.DeleteRunResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
    */
   override suspend fun sendMessage(request: SendMessageRequest, headers: Headers): ResponseMessage<SendMessageResponse> = client.unary(

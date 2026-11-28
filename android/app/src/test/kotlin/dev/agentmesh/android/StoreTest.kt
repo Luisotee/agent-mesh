@@ -113,6 +113,18 @@ class StoreTest {
         assertEquals("a run the app doesn't know changes nothing", s.runs.keys, applyFrame(s, runStopped(4, "r9")).runs.keys)
     }
 
+    @Test fun `a deleted run takes its agents and messages with it, and no other run`() {
+        val other = a1.toBuilder().setId("b1").setRunId("r2").build()
+        var s = applyFrame(HostState(), snapshot(listOf(run("r1"), run("r2")), listOf(a1, other)))
+        s = applyFrame(s, messageSent(1, message("m1", from = "a1", to = "lead", type = MessageType.MESSAGE_TYPE_INFO)))
+        assertEquals(setOf("r1", "r2"), s.runs.keys)
+        s = applyFrame(s, runDeleted(2, "r1"))
+        assertEquals(setOf("r2"), s.runs.keys)
+        assertEquals(setOf("b1"), s.agents.keys)
+        assertEquals(emptySet<String>(), s.messages.keys)
+        assertEquals("a run the app doesn't know changes nothing", s.runs.keys, applyFrame(s, runDeleted(3, "r9")).runs.keys)
+    }
+
     @Test fun `a run renamed while we listen takes its new title`() {
         var s = applyFrame(HostState(), snapshot(listOf(run("r1", "old")), emptyList()))
         s = applyFrame(s, runRenamed(1, "r1", "new title"))

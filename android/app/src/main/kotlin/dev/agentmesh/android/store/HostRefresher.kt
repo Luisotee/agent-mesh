@@ -227,7 +227,7 @@ class HostRefresher(
             Event.PayloadCase.AGENT_REOPEN_REQUESTED, Event.PayloadCase.AGENT_REOPEN_DROPPED, Event.PayloadCase.AGENT_REOPENED,
             Event.PayloadCase.AGENT_PHASE_CHANGED, Event.PayloadCase.AGENT_ROLE_CHANGED, Event.PayloadCase.AGENT_ADOPTED -> agentTouches.incrementAndGet()
             Event.PayloadCase.PULL_REQUEST_CHANGED -> prTouches.incrementAndGet()
-            Event.PayloadCase.RUN_STOPPED -> {
+            Event.PayloadCase.RUN_STOPPED, Event.PayloadCase.RUN_DELETED -> {
                 waitingTouches.incrementAndGet()
                 schedule()
             }

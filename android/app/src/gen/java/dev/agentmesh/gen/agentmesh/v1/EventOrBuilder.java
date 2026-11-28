@@ -466,34 +466,45 @@ public interface EventOrBuilder extends
   dev.agentmesh.gen.agentmesh.v1.UserNotice getUserNotice();
 
   /**
-   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 43 [json_name = "runHeadlineChanged"];</code>
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   * @return Whether the runDeleted field is set.
+   */
+  boolean hasRunDeleted();
+  /**
+   * <code>.agentmesh.v1.RunDeleted run_deleted = 43 [json_name = "runDeleted"];</code>
+   * @return The runDeleted.
+   */
+  dev.agentmesh.gen.agentmesh.v1.RunDeleted getRunDeleted();
+
+  /**
+   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
    * @return Whether the runHeadlineChanged field is set.
    */
   boolean hasRunHeadlineChanged();
   /**
-   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 43 [json_name = "runHeadlineChanged"];</code>
+   * <code>.agentmesh.v1.RunHeadlineChanged run_headline_changed = 44 [json_name = "runHeadlineChanged"];</code>
    * @return The runHeadlineChanged.
    */
   dev.agentmesh.gen.agentmesh.v1.RunHeadlineChanged getRunHeadlineChanged();
 
   /**
-   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 44 [json_name = "agentAboutChanged"];</code>
+   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
    * @return Whether the agentAboutChanged field is set.
    */
   boolean hasAgentAboutChanged();
   /**
-   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 44 [json_name = "agentAboutChanged"];</code>
+   * <code>.agentmesh.v1.AgentAboutChanged agent_about_changed = 45 [json_name = "agentAboutChanged"];</code>
    * @return The agentAboutChanged.
    */
   dev.agentmesh.gen.agentmesh.v1.AgentAboutChanged getAgentAboutChanged();
 
   /**
-   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 45 [json_name = "decisionRecorded"];</code>
+   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
    * @return Whether the decisionRecorded field is set.
    */
   boolean hasDecisionRecorded();
   /**
-   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 45 [json_name = "decisionRecorded"];</code>
+   * <code>.agentmesh.v1.DecisionRecorded decision_recorded = 46 [json_name = "decisionRecorded"];</code>
    * @return The decisionRecorded.
    */
   dev.agentmesh.gen.agentmesh.v1.DecisionRecorded getDecisionRecorded();

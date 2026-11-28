@@ -74,6 +74,8 @@ const (
 	MeshServiceOpenViewProcedure = "/agentmesh.v1.MeshService/OpenView"
 	// MeshServiceStopRunProcedure is the fully-qualified name of the MeshService's StopRun RPC.
 	MeshServiceStopRunProcedure = "/agentmesh.v1.MeshService/StopRun"
+	// MeshServiceDeleteRunProcedure is the fully-qualified name of the MeshService's DeleteRun RPC.
+	MeshServiceDeleteRunProcedure = "/agentmesh.v1.MeshService/DeleteRun"
 	// MeshServiceSendMessageProcedure is the fully-qualified name of the MeshService's SendMessage RPC.
 	MeshServiceSendMessageProcedure = "/agentmesh.v1.MeshService/SendMessage"
 	// MeshServiceListHeldTasksProcedure is the fully-qualified name of the MeshService's ListHeldTasks
@@ -299,6 +301,11 @@ type MeshServiceClient interface {
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
+	// Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+	// (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+	// that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+	// while an agent of the run has a process: stop the run first. There is no undo. A device only.
+	DeleteRun(context.Context, *connect.Request[v1.DeleteRunRequest]) (*connect.Response[v1.DeleteRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The tasks held for a task that is not reported done yet (`SendMessage` with `after`), oldest first. A lead reads its
@@ -629,6 +636,12 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceStopRunProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("StopRun")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteRun: connect.NewClient[v1.DeleteRunRequest, v1.DeleteRunResponse](
+			httpClient,
+			baseURL+MeshServiceDeleteRunProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("DeleteRun")),
 			connect.WithClientOptions(opts...),
 		),
 		sendMessage: connect.NewClient[v1.SendMessageRequest, v1.SendMessageResponse](
@@ -1080,6 +1093,7 @@ type meshServiceClient struct {
 	getRunOverview      *connect.Client[v1.GetRunOverviewRequest, v1.GetRunOverviewResponse]
 	openView            *connect.Client[v1.OpenViewRequest, v1.OpenViewResponse]
 	stopRun             *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
+	deleteRun           *connect.Client[v1.DeleteRunRequest, v1.DeleteRunResponse]
 	sendMessage         *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
 	listHeldTasks       *connect.Client[v1.ListHeldTasksRequest, v1.ListHeldTasksResponse]
 	cancelHeldTask      *connect.Client[v1.CancelHeldTaskRequest, v1.CancelHeldTaskResponse]
@@ -1241,6 +1255,11 @@ func (c *meshServiceClient) OpenView(ctx context.Context, req *connect.Request[v
 // StopRun calls agentmesh.v1.MeshService.StopRun.
 func (c *meshServiceClient) StopRun(ctx context.Context, req *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
 	return c.stopRun.CallUnary(ctx, req)
+}
+
+// DeleteRun calls agentmesh.v1.MeshService.DeleteRun.
+func (c *meshServiceClient) DeleteRun(ctx context.Context, req *connect.Request[v1.DeleteRunRequest]) (*connect.Response[v1.DeleteRunResponse], error) {
+	return c.deleteRun.CallUnary(ctx, req)
 }
 
 // SendMessage calls agentmesh.v1.MeshService.SendMessage.
@@ -1643,6 +1662,11 @@ type MeshServiceHandler interface {
 	// Stop a run: retire every agent in it and close it. A clean worktree is removed, and its branch with it unless
 	// it moved past the commit it started at, or was pushed; a worktree with uncommitted changes stays.
 	StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error)
+	// Delete an ended run: its agents, messages, events, asks, queued prompts, pull-request marks and files on the host
+	// (`runs/<id>/`: attachments, plans, reports), after the same worktree removal as StopRun (clean worktrees and branches
+	// that hold nothing go; one with changes or commits no remote has stays on disk, and is listed in the answer). Refused
+	// while an agent of the run has a process: stop the run first. There is no undo. A device only.
+	DeleteRun(context.Context, *connect.Request[v1.DeleteRunRequest]) (*connect.Response[v1.DeleteRunResponse], error)
 	// Store a message for an agent and ring its doorbell. An agent sends only to its parent or its children.
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error)
 	// The tasks held for a task that is not reported done yet (`SendMessage` with `after`), oldest first. A lead reads its
@@ -1969,6 +1993,12 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceStopRunProcedure,
 		svc.StopRun,
 		connect.WithSchema(meshServiceMethods.ByName("StopRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceDeleteRunHandler := connect.NewUnaryHandler(
+		MeshServiceDeleteRunProcedure,
+		svc.DeleteRun,
+		connect.WithSchema(meshServiceMethods.ByName("DeleteRun")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceSendMessageHandler := connect.NewUnaryHandler(
@@ -2435,6 +2465,8 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceOpenViewHandler.ServeHTTP(w, r)
 		case MeshServiceStopRunProcedure:
 			meshServiceStopRunHandler.ServeHTTP(w, r)
+		case MeshServiceDeleteRunProcedure:
+			meshServiceDeleteRunHandler.ServeHTTP(w, r)
 		case MeshServiceSendMessageProcedure:
 			meshServiceSendMessageHandler.ServeHTTP(w, r)
 		case MeshServiceListHeldTasksProcedure:
@@ -2656,6 +2688,10 @@ func (UnimplementedMeshServiceHandler) OpenView(context.Context, *connect.Reques
 
 func (UnimplementedMeshServiceHandler) StopRun(context.Context, *connect.Request[v1.StopRunRequest]) (*connect.Response[v1.StopRunResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.StopRun is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) DeleteRun(context.Context, *connect.Request[v1.DeleteRunRequest]) (*connect.Response[v1.DeleteRunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.DeleteRun is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.Response[v1.SendMessageResponse], error) {
