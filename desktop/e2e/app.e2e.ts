@@ -139,7 +139,15 @@ test('a terminal streams the agent, takes typing, and carries on across a daemon
   await page.keyboard.press('Enter')
   await expect.poll(() => screen.innerText(), { timeout: 20_000 }).toContain('done: hello')
 
-  // A permission prompt: the sidebar says it needs you, and answering in the terminal clears it.
+  // A file pasted into the terminal is stored on the host and its path typed, as Claude Code takes one; a text file keeps its name's extension.
+  await page.evaluate(() => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['some notes'], 'notes.txt', { type: 'text/plain' }))
+    document.querySelector('[data-testid="terminal"] textarea')!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+  await expect.poll(() => screen.innerText().then((t) => t.replace(/\n/g, '')), { timeout: 20_000 }).toMatch(/attachments\/[a-z0-9]+\/i[a-z0-9]+\.txt/)
+  await page.keyboard.press('Control+u') // the typed path is not sent
+
   await page.keyboard.type('/ask')
   await page.keyboard.press('Enter')
   await expect.poll(() => panel.getByTestId('chat-status').textContent().then((t) => t ?? ''), { timeout: 20_000 }).toContain('Needs you')

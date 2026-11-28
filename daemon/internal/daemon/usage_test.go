@@ -453,6 +453,10 @@ func TestAgyUsageReserveSkipsSpentModelsOnChain(t *testing.T) {
 	if strongPick == nil || strongPick.Model != "hydrogen" || strongPick.Left != 80 {
 		t.Fatalf("strong tier pick = %+v, want hydrogen (80%%)", strongPick)
 	}
+	// It says which row the 80% is: the shared pool, not neon's own.
+	if strongPick.Group != "Gemini and Claude models" || strongPick.Label != "Shared" {
+		t.Errorf("strong tier pick draws on %q / %q, want the shared pool", strongPick.Group, strongPick.Label)
+	}
 
 	// Spawning on tier strong skips neon and lands directly on hydrogen; explicit model neon is refused by ReserveGuard.
 	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
