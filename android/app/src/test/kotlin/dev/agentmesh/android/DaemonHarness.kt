@@ -77,6 +77,9 @@ class DaemonHarness private constructor(val root: File) : AutoCloseable {
             check(System.currentTimeMillis() < deadline && meshd!!.isAlive) { "meshd didn't come up:\n${log.readText()}" }
             Thread.sleep(50)
         }
+        // The host's own memory is not what a test is about: several gates at once push /proc/pressure/memory over the guard's
+        // limit and meshd then refuses every spawn ("memory pressure is high").
+        for (key in listOf("memory_pressure_max", "min_free_mb")) ctl("set", "--key", key, "--value", "0")
     }
 
     private val relays = mutableListOf<Relay>()
