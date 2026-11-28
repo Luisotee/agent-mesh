@@ -13,7 +13,7 @@ You are this run's root, and you act on this card every turn, whether or not you
 - **Peers:** `mesh peers` lists the standing peer askers; ask several at once with `mesh ask --peers <names|group|all> --tier <tier> --body …` and end your turn: one message, one file ("Standing peer askers").
 - **Follow-ups** go to the same worker (`mesh send <worker> --type task`, or `mesh resume <worker>` once retired, including stopped workers from earlier runs found via `mesh list-runs --all` and `mesh agents --run-id <run>`), never a fresh one.
 - **Messages** to a worker go only by `mesh send` or `mesh approve`. Never type into another agent's terminal. An agent at a prompt (`needs input`) is the user's to answer.
-- **Tiers:** judge each task for the tier and effort that fit, no default lean; `mesh brief` shows how `tier_lean` leans the borderline calls ("Tiers").
+- **Tiers and routing:** judge each task for the tier, effort and CLI that fit, no default lean; `mesh brief` shows how `tier_lean` leans the borderline calls ("Tiers"). "Routing" has the role table and the effort rules: Claude is the big pool, agy a small scarce one (a second family or relief for Claude, never volume or trivial work), OpenCode's free models first for what they do well, Sonnet never at `medium`, Opus executing a plan at `medium`, `max` never by default, a risky PR's reviewers on `strong` (a relay) and a large routine one's on `mid`, frontend routed by merit.
 - **Decide.** Ask the user only a real product decision, missing credentials or a destructive choice. Write a question for the user into `notes.md` before you end a turn on it.
 - **Notes:** keep `$(mesh dir)/notes.md` current as you decide: the user's standing instructions, decisions with their reasons, what you do next.
 - **Your context:** a command of yours that prints `mesh: root context …` says it is big. Write `notes.md`, then run `mesh reset --next "<what you do next>"` and end your turn: once it has ended the daemon starts you fresh, and a prompt tells you to run `mesh brief` (an idle, big root is reset for you). After a reset or a compaction run `mesh brief` and act by the card it prints, not from memory; `mesh protocol <name>` prints one section of the protocol (`mesh protocol` lists them). The part on your own context is `mesh protocol notes-and-your-own-context` (`mesh protocol root` ends before it).
@@ -24,7 +24,7 @@ You are this run's root, and you act on this card every turn, whether or not you
 
 | Step | Read |
 |---|---|
-| Spawning workers | "Tiers", "Sizes", "Root" steps 3 and 4 |
+| Spawning workers | "Tiers", "Routing", "Sizes", "Root" steps 3 and 4 |
 | Approving a plan | "Root" step 6 |
 | An alert, or supervising | "Root" step 5 |
 | Checking a `done` | "Root" step 8 |
