@@ -4,6 +4,7 @@ import { getCost, getUsage } from '@/actions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/input'
+import { SkeletonLines } from '@/components/ui/skeleton'
 import { useHostState } from '@/context'
 import type { GetUsageResponse } from '@/gen/agentmesh/v1/mesh_pb'
 import type { GetCostResponse } from '@/gen/agentmesh/v1/report_pb'
@@ -106,13 +107,21 @@ function UsageOf({ host }: { host: HostRuntime }) {
         <div role="alert" className="flex items-start gap-2 rounded-lg border border-state-needs bg-card p-3 text-[13px]">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-state-needs" />
           <p>
-            At the reserve ({view.reserve}% of a quota used): <strong>{view.warnings.join(', ')}</strong>. The host starts nothing new on {view.warnings.length === 1 ? 'it' : 'them'} until it resets, or you run <code className="font-mono text-xs">mesh reserve off</code>.
+            At the reserve ({view.reserve}% of a five-hour window, {view.reserveWeekly}% of a weekly one): <strong>{view.warnings.join(', ')}</strong>. The host starts nothing new on {view.warnings.length === 1 ? 'it' : 'them'} until it resets, or you run <code className="font-mono text-xs">mesh reserve off</code>.
+          </p>
+        </div>
+      )}
+      {view && view.reviewsOnlyWarnings.length > 0 && (
+        <div role="status" className="flex items-start gap-2 rounded-lg border bg-card p-3 text-[13px]">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <p>
+            Only PR reviews: <strong>{view.reviewsOnlyWarnings.join(', ')}</strong>. Tasks go to another CLI until it resets (<code className="font-mono text-xs">quota_reviews_only</code>).
           </p>
         </div>
       )}
 
       <Card title="Quota">
-        {usage.kind === 'loading' && <p className="text-xs text-muted-foreground">Reading the quotas…</p>}
+        {usage.kind === 'loading' && <SkeletonLines label="Reading the quotas" lines={3} />}
         {usage.kind === 'failed' && <p role="alert" className="text-xs text-destructive">{usage.error}</p>}
         {usage.kind === 'ready' && usageError && <p role="alert" className="text-xs text-destructive">Last refresh failed: {usageError}. The reading below is from before.</p>}
         {view && (
@@ -121,7 +130,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
               <h3 className="text-xs font-semibold">Claude</h3>
               {view.claude.length === 0 && <p className="text-xs text-muted-foreground">No reading (no Claude account is signed in on the host, or it gave no usage).</p>}
               {view.claude.map((w) => (
-                <Bar key={w.key} bar={w} reserve={view.reserve} now={now} />
+                <Bar key={w.key} bar={w} now={now} />
               ))}
               {view.claude.length > 0 && view.claudeSource && view.claudeSource !== 'live' && <p className="text-xs text-muted-foreground">From the {view.claudeSource}{view.claudeFetchedAt ? `, read ${view.claudeFetchedAt.toLocaleTimeString()}` : ''}.</p>}
             </div>
@@ -136,7 +145,10 @@ function UsageOf({ host }: { host: HostRuntime }) {
                         <td className="py-1 pr-3">{r.group}</td>
                         <td className="py-1 pr-3 text-muted-foreground">{r.label}</td>
                         <td className={cn('py-1 pr-3 text-right tabular-nums', r.atReserve && 'font-semibold text-state-needs')}>{r.left}% left</td>
-                        <td className="py-1 text-xs text-muted-foreground">{r.resets && `resets ${r.resets}`}</td>
+                        <td className="py-1 text-xs text-muted-foreground">
+                          {r.reviewsOnly && <span className="mr-2">only PR reviews</span>}
+                          {r.resets && `resets ${r.resets}`}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -153,7 +165,13 @@ function UsageOf({ host }: { host: HostRuntime }) {
                 </p>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">Reserve: the host starts nothing new on a quota once {view.reserve}% of it is used (<code className="font-mono">quota_stop</code>).</p>
+            <p className="text-xs text-muted-foreground">
+              Reserve: the host starts nothing new on a quota window once {view.reserve}% of a five-hour one (<code className="font-mono">quota_stop</code>) or {view.reserveWeekly}% of a weekly one (<code className="font-mono">quota_stop_weekly</code>) is used.
+              {(['claude', 'agy'] as const)
+                .filter((k) => view.reviewsOnly[k] < 100)
+                .map((k) => ` ${k === 'claude' ? 'Claude' : 'agy'} starts only PR reviews from ${view.reviewsOnly[k]}% (quota_reviews_only.${k}).`)
+                .join('')}
+            </p>
           </div>
         )}
       </Card>
@@ -180,7 +198,7 @@ function UsageOf({ host }: { host: HostRuntime }) {
           </div>
         }
       >
-        {cost.kind === 'loading' && <p className="text-xs text-muted-foreground">Adding up the sessions…</p>}
+        {cost.kind === 'loading' && <SkeletonLines label="Adding up the sessions" lines={4} />}
         {cost.kind === 'failed' && <p role="alert" className="text-xs text-destructive">{cost.error}</p>}
         {cost.kind === 'ready' && <CostBody cost={cost.value} />}
       </Card>
@@ -201,13 +219,15 @@ function Card({ title, action, children }: { title: string; action?: React.React
 }
 
 /** One quota window: how much is used against the reserve line, and when it resets. */
-function Bar({ bar, reserve, now }: { bar: QuotaBar; reserve: number; now: Date }) {
+function Bar({ bar, now }: { bar: QuotaBar; now: Date }) {
+  const reserve = bar.reserve
   const used = Math.min(100, Math.max(0, bar.used))
   return (
     <div className="flex flex-col gap-1" data-window={bar.key}>
       <div className="flex items-baseline gap-2 text-[13px]">
         <span className="flex-1">{bar.label}</span>
         {bar.atReserve && <Badge className="border-state-needs text-state-needs">at the reserve</Badge>}
+        {bar.reviewsOnly && <Badge>only PR reviews</Badge>}
         <span className={cn('tabular-nums', bar.atReserve && 'font-semibold text-state-needs')}>{Math.round(bar.used)}% used</span>
       </div>
       <div

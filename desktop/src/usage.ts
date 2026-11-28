@@ -11,6 +11,10 @@ export interface QuotaBar {
   used: number
   /** At or past the reserve: the host starts nothing new on it (`quota_stop`, `ReserveGuard` in the daemon). */
   atReserve: boolean
+  /** The percent used at which this window's reserve is: `quota_stop` for the five-hour one, `quota_stop_weekly` for a weekly one. */
+  reserve: number
+  /** Past the CLI's reviews-only line, under the reserve: the host starts only PR reviews on it. */
+  reviewsOnly: boolean
   resetsAt?: Date
 }
 
@@ -20,6 +24,9 @@ export interface AgyRow {
   left: number
   resets: string
   atReserve: boolean
+  /** The percent used at which this row's reserve is: `quota_stop` for a short row, `quota_stop_weekly` for a weekly one. */
+  reserve: number
+  reviewsOnly: boolean
 }
 
 export interface AgyTier {
@@ -27,12 +34,19 @@ export interface AgyTier {
   /** What the tier would start on now; empty when every model of it is at the reserve. */
   model: string
   left?: number
+  /** The agy row the tier's model draws on, as the host matched it (empty from an older host, or when none matched). */
+  group: string
+  label: string
   notes: string[]
 }
 
 export interface UsageView {
-  /** The percent of a quota used at which the host starts nothing new. */
+  /** The percent of a five-hour quota used at which the host starts nothing new (`quota_stop`). */
   reserve: number
+  /** The same for a weekly quota (`quota_stop_weekly`). */
+  reserveWeekly: number
+  /** Where Claude and agy take only PR reviews (`quota_reviews_only.*`); 100 is off. */
+  reviewsOnly: { claude: number; agy: number }
   /** Claude's windows; empty when the host has no reading. */
   claude: QuotaBar[]
   claudeSource: string
@@ -41,26 +55,54 @@ export interface UsageView {
   tiers: AgyTier[]
   /** The windows and rows at the reserve, named, for a warning. */
   warnings: string[]
+  /** The windows and rows past the reviews-only line but under the reserve, named. */
+  reviewsOnlyWarnings: string[]
 }
 
 const date = (t?: { seconds: bigint }) => (t ? new Date(Number(t.seconds) * 1000) : undefined)
 
 export function usageView(u: GetUsageResponse): UsageView {
   const reserve = u.quotaStop
+  // A host that predates the weekly reserve sends no `splitReserves`: its one reserve held every window, and the new
+  // fields are unset (0 is then not a setting).
+  const split = u.splitReserves
+  const reserveWeekly = split ? u.quotaStopWeekly : u.quotaStop
   const claude = (u.claude?.windows ?? []).map((w) => ({
     key: w.key,
     label: w.label,
     used: w.used,
     // The host says which windows are at the reserve (a window whose reset has passed isn't, whatever it last read).
     atReserve: (u.claude?.atReserve ?? []).includes(w.label),
+    reserve: split ? w.reserve : w.key === 'five_hour' ? reserve : reserveWeekly,
+    reviewsOnly: (u.claude?.reviewsOnly ?? []).includes(w.label),
     resetsAt: date(w.resetsAt),
   }))
-  // agy reports what is left. The host's guard (`agyModelAtReserve`): no reserve at all once `quota_stop` is 100, else a
-  // row is at it when no more than `min_quota` (100 - `quota_stop`) is left, so at `quota_stop` 0 every row is.
-  const agy = u.agyRows.map((r) => ({ group: r.group, label: r.label, left: r.left, resets: r.resets, atReserve: reserve < 100 && r.left <= u.minQuota }))
-  const tiers = u.agyTiers.map((t) => ({ tier: t.tier, model: t.model, left: t.hasLeft ? t.left : undefined, notes: t.notes }))
+  // agy reports what is left; the host says which rows are at their line (`agyRowHit`: a weekly row has the weekly reserve).
+  const agy = u.agyRows.map((r) => ({
+    group: r.group,
+    label: r.label,
+    left: r.left,
+    resets: r.resets,
+    // A host that predates the weekly reserve sends no flags: its one reserve, from `min_quota`, is read as before.
+    atReserve: split ? r.atReserve : reserve < 100 && r.left <= u.minQuota,
+    reserve: /week/i.test(r.label) ? reserveWeekly : reserve,
+    reviewsOnly: r.reviewsOnly,
+  }))
+  const tiers = u.agyTiers.map((t) => ({ tier: t.tier, model: t.model, left: t.hasLeft ? t.left : undefined, group: t.group, label: t.label, notes: t.notes }))
   const warnings = [...claude.filter((w) => w.atReserve).map((w) => `Claude ${w.label}`), ...agy.filter((r) => r.atReserve).map((r) => `agy ${r.group} ${r.label}`)]
-  return { reserve, claude, claudeSource: u.claude?.source ?? '', claudeFetchedAt: date(u.claude?.fetchedAt), agy, tiers, warnings }
+  const reviewsOnlyWarnings = [...claude.filter((w) => w.reviewsOnly).map((w) => `Claude ${w.label}`), ...agy.filter((r) => r.reviewsOnly).map((r) => `agy ${r.group} ${r.label}`)]
+  return {
+    reserve,
+    reserveWeekly,
+    reviewsOnly: split ? { claude: u.reviewsOnlyClaude, agy: u.reviewsOnlyAgy } : { claude: 100, agy: 100 },
+    claude,
+    claudeSource: u.claude?.source ?? '',
+    claudeFetchedAt: date(u.claude?.fetchedAt),
+    agy,
+    tiers,
+    warnings,
+    reviewsOnlyWarnings,
+  }
 }
 
 /** One bar of the footer's quota: a window of a provider. */
@@ -72,6 +114,10 @@ export interface QuotaLine {
   /** Percent used, 0 to 100. */
   used: number
   atReserve: boolean
+  /** The percent used at which this bar's reserve is (its own: five-hour and weekly differ). */
+  reserve: number
+  /** Past the reviews-only line: the host starts only PR reviews on it. */
+  reviewsOnly: boolean
   resetsAt?: Date
   /** agy gives its reset as text ("1h"), not a time. */
   resetsIn?: string
@@ -95,10 +141,14 @@ function windowLabel(key: string, label: string): string {
 
 const minorWindow = (key: string, label: string) => /opus|sonnet/i.test(`${key} ${label}`)
 
-/** Whether a tier of the chain starts on the model an agy row measures: the names overlap, either way round. */
+/**
+ * Whether a tier of the chain starts on the model an agy row measures: the row the host matched to the tier (`agy.QuotaApplies`),
+ * else, from a host that does not say or a tier it matched to none, the names overlapping, either way round.
+ */
 function rowIsUsed(r: AgyRow, tiers: AgyTier[]): boolean {
   const names = [r.group, r.label].map((n) => n.trim().toLowerCase()).filter(Boolean)
   return tiers.some((t) => {
+    if (t.group || t.label) return t.group === r.group && t.label === r.label
     const m = t.model.trim().toLowerCase()
     return m !== '' && names.some((n) => n.includes(m) || m.includes(n))
   })
@@ -106,23 +156,23 @@ function rowIsUsed(r: AgyRow, tiers: AgyTier[]): boolean {
 
 /**
  * What the sidebar's footer shows of the quota, a section per provider: Claude's windows (the short ones, "5h" and "7d")
- * and the agy rows a tier of the chain starts on (the names are matched here, which the host's own rule (`agy.QuotaApplies`) does better: when none matches, the fullest row stands for agy, as before). The minor ones (Claude's Opus and Sonnet windows, an agy pool no tier
+ * and the agy rows a tier of the chain starts on (the row the host matched to the tier, else the names compared here; when none matches, the fullest row stands for agy). The minor ones (Claude's Opus and Sonnet windows, an agy pool no tier
  * uses) are left out until one is at the reserve; Usage and cost has them all. With no reading, no sections.
  */
 export function quotaSections(u: GetUsageResponse): { reserve: number; sections: QuotaSection[] } {
   const v = usageView(u)
   const sections: QuotaSection[] = []
   const claude: QuotaLine[] = v.claude
-    .filter((w) => !minorWindow(w.key, w.label) || w.atReserve)
-    .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, resetsAt: w.resetsAt }))
+    .filter((w) => !minorWindow(w.key, w.label) || w.atReserve || w.reviewsOnly)
+    .map((w) => ({ label: windowLabel(w.key, w.label), title: `Claude ${w.label}`, used: w.used, atReserve: w.atReserve, reserve: w.reserve, reviewsOnly: w.reviewsOnly, resetsAt: w.resetsAt }))
   if (claude.length > 0) sections.push({ vendor: 'claude', name: 'Claude', lines: claude })
   // With no tier to say what is used, the fullest row stands for agy; with tiers, the rows they start on.
-  const named = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || rowIsUsed(r, v.tiers)) : []
+  const named = v.tiers.some((t) => t.model) ? v.agy.filter((r) => r.atReserve || r.reviewsOnly || rowIsUsed(r, v.tiers)) : []
   const used = named.length > 0 ? named : [...v.agy].sort((x, y) => x.left - y.left).slice(0, 1)
   const chosen = used.sort((x, y) => x.left - y.left).slice(0, 3)
   // Two pools can share a label ("Weekly Limit Remaining"): the group then says which.
   const clash = (r: AgyRow) => chosen.filter((o) => (o.label || o.group) === (r.label || r.group)).length > 1
-  const agy: QuotaLine[] = chosen.map((r) => ({ label: clash(r) ? `${r.group} ${r.label}`.trim() : r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, resetsIn: r.resets }))
+  const agy: QuotaLine[] = chosen.map((r) => ({ label: clash(r) ? `${r.group} ${r.label}`.trim() : r.label || r.group, title: `agy ${r.group} ${r.label}`.trim(), used: 100 - r.left, atReserve: r.atReserve, reserve: r.reserve, reviewsOnly: r.reviewsOnly, resetsIn: r.resets }))
   if (agy.length > 0) sections.push({ vendor: 'gemini', name: 'agy', lines: agy })
   return { reserve: v.reserve, sections }
 }
