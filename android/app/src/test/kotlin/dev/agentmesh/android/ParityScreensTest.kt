@@ -5,6 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -136,11 +137,13 @@ class ParityScreensTest {
         compose.onNodeWithTag("send").assertIsEnabled().performClick()
         compose.waitUntil(5_000) { api.prompts.isNotEmpty() }
         assertEquals(listOf("w1" to "also the readme"), api.prompts.toList())
-        // Then the box is empty again.
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("also the readme").fetchSemanticsNodes().isEmpty() }
+        // Then the box is empty again: the text is the bubble under the conversation (Sent, until the record has it).
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-text").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("outgoing-text").assertTextContains("also the readme")
+        compose.onNodeWithTag("prompt").assertTextContains("", substring = false)
     }
 
-    @Test fun `the host's refusal of a prompt is shown and the text stays`() {
+    @Test fun `the host's refusal of a prompt stays on its bubble, which keeps the text`() {
         api = RecordingApi().apply { transcript = { _, _, _ -> page(emptyList()) }; failPrompt = ApiException(Code.FAILED_PRECONDITION, "[failed_precondition] the input box holds a draft") }
         NotificationsTest.api = api
         val rt = host(worker)
@@ -148,9 +151,8 @@ class ParityScreensTest {
         waitForText("Nothing said yet.")
         compose.onNodeWithTag("prompt").performTextInput("hello")
         compose.onNodeWithTag("send").performClick()
-        waitForTag("prompt-error")
-        compose.onNodeWithTag("prompt-error").assertIsDisplayed()
-        compose.onNodeWithText("the input box holds a draft").assertIsDisplayed()
+        waitForTag("outgoing-failed")
+        compose.onNodeWithText("Not sent: the input box holds a draft").assertIsDisplayed()
         compose.onNodeWithText("hello").assertIsDisplayed()
     }
 
@@ -448,7 +450,7 @@ class ParityScreensTest {
         assertEquals(emptyList<List<String>>(), api.switches.toList())
     }
 
-    @Test fun `offline, a prompt keeps its text and Send waits`() {
+    @Test fun `offline, a prompt is a bubble that waits and goes when the connection is back`() {
         api = RecordingApi().apply { transcript = { _, _, _ -> page(emptyList()) } }
         NotificationsTest.api = api
         val rt = host(worker)
@@ -458,9 +460,14 @@ class ParityScreensTest {
         compose.onNodeWithTag("send").assertIsEnabled()
         rt.onState(ConnState.Reconnecting(1, System.currentTimeMillis() + 60_000, "gone"))
         waitForTag("prompt-offline")
-        compose.onNodeWithTag("send").assertIsNotEnabled()
+        compose.onNodeWithTag("send").assertIsEnabled().performClick()
+        waitForTag("outgoing-waiting")
+        compose.onNodeWithText("Not connected: sent when it is back").assertIsDisplayed()
         compose.onNodeWithText("later").assertIsDisplayed()
         assertEquals(emptyList<Pair<String, String>>(), api.prompts.toList())
+        rt.onState(ConnState.Ready(HelloResponse.newBuilder().setActor(Actor.newBuilder().setClass_(ActorClass.ACTOR_CLASS_DEVICE).setId("device-1")).build()))
+        compose.waitUntil(5_000) { api.prompts.isNotEmpty() }
+        assertEquals(listOf("w1" to "later"), api.prompts.toList())
     }
 
     @Test fun `offline, a PR's Hold merge is off`() {
