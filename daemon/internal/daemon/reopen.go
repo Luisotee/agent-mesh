@@ -834,6 +834,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 	if m.Plan && task == "" {
 		return nil, invalid("plan is for a task: give the task it plans")
 	}
+	if task == "" && strings.TrimSpace(m.About) != "" {
+		return nil, invalid("--about goes with a task (to change an agent's line alone: `mesh about <agent> --text …`)")
+	}
 	if m.Effort != "" && !validEffort(m.Effort) {
 		return nil, invalid("effort %q: one of %s", m.Effort, strings.Join(settings.Efforts, ", "))
 	}
@@ -1030,6 +1033,9 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 					if out.Message, err = storeMessage(tx, a, v1.MessageType_MESSAGE_TYPE_TASK, taskBody); err != nil {
 						return err
 					}
+					if out.AboutNote, err = taskAboutOn(tx, a, m.About, taskBody); err != nil {
+						return err
+					}
 				}
 				if out.Reopen, err = d.revive(tx, a, spec); err != nil {
 					return err
@@ -1068,6 +1074,8 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 				Phase:              a.Phase,
 				Peer:               a.Peer, // a peer stays a peer in the new run: read-only, its worktree kept
 				Pinned:             a.Pinned,
+				About:              a.About, // the job it was started for goes on, unless this task says otherwise
+				AboutSource:        a.AboutSource,
 				Mcp:                slices.Clone(a.Mcp), // the servers its spawn named: the new launch loads them too
 				AddedTools:         slices.Clone(a.AddedTools),
 				ToolsAdded:         a.ToolsAdded,
@@ -1129,6 +1137,10 @@ func (d *Daemon) ResumeAgent(ctx context.Context, req *connect.Request[v1.Resume
 			}
 			if taskBody != "" {
 				if out.Message, err = storeMessage(tx, created, v1.MessageType_MESSAGE_TYPE_TASK, taskBody); err != nil {
+					d.rt.guard.release(created.Id)
+					return err
+				}
+				if out.AboutNote, err = taskAboutOn(tx, created, m.About, taskBody); err != nil {
 					d.rt.guard.release(created.Id)
 					return err
 				}

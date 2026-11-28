@@ -32,7 +32,7 @@ type authorWorld struct {
 func startAuthor(t *testing.T, reviews string, tweaks ...func(*daemon.AgentConfig)) *authorWorld {
 	t.Helper()
 	w := startReviews(t, tweaks...)
-	worker := w.spawnUnder(t, w.asRoot, "fix", &v1.SpawnAgentRequest{Repo: w.pr.repo, Reviews: reviews})
+	worker := w.spawnUnder(t, w.asRoot, "fix", &v1.SpawnAgentRequest{About: "test worker", Repo: w.pr.repo, Reviews: reviews})
 	w.pr.headRef = worker.Branch
 	return &authorWorld{reviewWorld: w, worker: worker, asWorker: w.as(w.token(t, worker.Id))}
 }
@@ -142,14 +142,14 @@ func TestAWorkerReviewsOnlyItsOwnPRAndNotWhereItsParentRunsTheRounds(t *testing.
 		t.Errorf("--reviews worker under review.by root: %v", err)
 	}
 	// A value that is neither.
-	if _, err := c.asRoot.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{Repo: c.pr.repo, Slug: "bad", Tier: "mid", Reviews: "both"})); code(err) != connect.CodeInvalidArgument {
+	if _, err := c.asRoot.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: c.pr.repo, Slug: "bad", Tier: "mid", Reviews: "both"})); code(err) != connect.CodeInvalidArgument {
 		t.Errorf("reviews both: %v", err)
 	}
 }
 
 func TestAnApprovalCanMoveAWorkersReviewsToTheRoot(t *testing.T) {
 	w := startReviews(t)
-	worker := w.spawnUnder(t, w.asRoot, "risky", &v1.SpawnAgentRequest{Repo: w.pr.repo, Plan: true, ExecTier: "mid"})
+	worker := w.spawnUnder(t, w.asRoot, "risky", &v1.SpawnAgentRequest{About: "test worker", Repo: w.pr.repo, Plan: true, ExecTier: "mid"})
 	w.say(t, worker.Id, v1.MessageType_MESSAGE_TYPE_PLAN, "the plan")
 	if _, err := w.asRoot.ApproveAgent(context.Background(), connect.NewRequest(&v1.ApproveAgentRequest{Meta: meta(""), Agent: worker.Name, Tier: "mid", Reviews: "root"})); err != nil {
 		t.Fatal(err)
@@ -753,7 +753,7 @@ func TestAWorkerThatMovedToAnotherBranchStillReviewsItsPR(t *testing.T) {
 		t.Errorf("another PR: %v", err)
 	}
 	// Switching its worktree onto another worker's branch does not make that worker's PR its own.
-	other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+	other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{About: "test worker", Repo: a.pr.repo})
 	if out, err := exec.Command("git", "-C", a.worker.Worktree, "checkout", "-q", "--ignore-other-worktrees", other.Branch).CombinedOutput(); err != nil {
 		t.Fatalf("git checkout: %v %s", err, out)
 	}
@@ -784,7 +784,7 @@ func TestAWorkersOwnStackedPRsAreItsOwn(t *testing.T) {
 	a.movedAskRefused(t, "a different slug that begins with its own", series+"-ui")
 	a.movedAskRefused(t, "a different slug", series+"x-3")
 	// Another worker registered on a branch of the series owns it: its PR is not this worker's.
-	other := a.reviewWorld.spawnUnder(t, a.asRoot, parts[2]+"-5", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+	other := a.reviewWorld.spawnUnder(t, a.asRoot, parts[2]+"-5", &v1.SpawnAgentRequest{About: "test worker", Repo: a.pr.repo})
 	if other.Branch != series+"-5" {
 		t.Fatalf("the other worker is on %s, want %s", other.Branch, series+"-5")
 	}
@@ -818,7 +818,7 @@ func TestAMovedBranchIsTheWorkersOwnOnlyWhenNothingMakesItAnothers(t *testing.T)
 	})
 	t.Run("checked out by another worker", func(t *testing.T) {
 		a := startAuthor(t, "")
-		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{About: "test worker", Repo: a.pr.repo})
 		gitIn(t, other.Worktree, "switch", "-q", "-c", "feat-b") // it moved, as this worker will claim to have
 		gitIn(t, other.Worktree, "commit", "-q", "--allow-empty", "-m", "theirs")
 		a.commit(t)
@@ -827,7 +827,7 @@ func TestAMovedBranchIsTheWorkersOwnOnlyWhenNothingMakesItAnothers(t *testing.T)
 	})
 	t.Run("a PR another worker owns", func(t *testing.T) {
 		a := startAuthor(t, "")
-		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{About: "test worker", Repo: a.pr.repo})
 		gitIn(t, a.worker.Worktree, "switch", "-q", "-c", "moved-on")
 		a.commit(t)
 		a.pr.headRef = "moved-on"
@@ -902,7 +902,7 @@ func TestAWorkerReviewsAPRFromAnotherBranchOfItsRunThatItMade(t *testing.T) {
 		a := startAuthor(t, "")
 		head := "mesh/" + a.worker.RunId + "/extra"
 		newBranch(a, head, true)
-		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{About: "test worker", Repo: a.pr.repo})
 		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {
 			cur, err := tx.GetAgent(other.Id)
 			if err != nil {
@@ -919,7 +919,7 @@ func TestAWorkerReviewsAPRFromAnotherBranchOfItsRunThatItMade(t *testing.T) {
 		a := startAuthor(t, "")
 		head := "mesh/" + a.worker.RunId + "/extra"
 		newBranch(a, head, true)
-		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{Repo: a.pr.repo})
+		other := a.reviewWorld.spawnUnder(t, a.asRoot, "other", &v1.SpawnAgentRequest{About: "test worker", Repo: a.pr.repo})
 		a.pr.headRef = head
 		a.pr.push(t, "theirs")
 		if err := a.d.Store().Write(context.Background(), nil, "", func(tx *store.Tx) error {

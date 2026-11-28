@@ -20,7 +20,7 @@ import (
 func (w *resetWorld) plainRoot(t *testing.T) (*v1.Run, *v1.Agent, agentmeshv1connect.MeshServiceClient) {
 	t.Helper()
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "chat", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestTheMeshNeverResetsAPlainAgent(t *testing.T) {
 	w := startReset(t, daemon.ResetTimings{Every: 100 * time.Millisecond, Quiet: 300 * time.Millisecond, UserQuiet: 300 * time.Millisecond, Backoff: time.Hour})
 	ctx := context.Background()
 	spawnLive := func(as agentmeshv1connect.MeshServiceClient) {
-		res, err := as.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
+		res, err := as.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "w", Tier: "mid", Task: "Direct task (no plan): work"}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -124,7 +124,7 @@ func TestAPlainAgentsFirstDoorbellNamesTheMessagingRulesNotTheRootCard(t *testin
 	share := t.TempDir()
 	w, log := boxWorld(t, map[string]string{}, func(c *daemon.AgentConfig) { c.Share = share })
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "chat", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestTwoPlainAgentsOfOneRepoAreNamedApart(t *testing.T) {
 	spawn := func() *v1.Agent {
 		t.Helper()
 		run := startRun(t, w.device.Mesh, "")
-		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 			RunId: run.Id, Repo: repo, Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
 		if err != nil {
 			t.Fatal(err)
@@ -168,7 +168,7 @@ func TestTwoPlainAgentsOfOneRepoAreNamedApart(t *testing.T) {
 		t.Errorf("after the second was stopped, a new one is %q, want shop-api-claude-2", again.Name)
 	}
 	other := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: other.Id, Repo: gitRepo(t), Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +262,7 @@ func TestPlainAgentsSpawnedAtOnceAreNamedApart(t *testing.T) {
 	for i := 0; i < n; i++ {
 		run := startRun(t, w.device.Mesh, "")
 		go func() {
-			res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 				RunId: run.Id, Repo: repo, Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
 			if err != nil {
 				errs <- err

@@ -227,7 +227,7 @@ func TestTheExitAlertCarriesWhatTheWorkerLeft(t *testing.T) {
 	w := startReopen(t)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{})
+	crasher := w.spawnUnder(t, asLead, "crasher", &v1.SpawnAgentRequest{About: "test worker"})
 	if err := os.WriteFile(filepath.Join(crasher.Worktree, "x.txt"), []byte("x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestTheParentIsToldWhenMeshdMovesAWorkerOffItsLimit(t *testing.T) {
 	w.set(t, "tiers.claude.mid.model", []any{"sonnet", "haiku"})
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "lim", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "lim", &v1.SpawnAgentRequest{About: "test worker"})
 	w.typeInto(a, "/limit You've hit your Sonnet limit · resets 11pm (UTC)\r")
 	re := w.waitReopened(t, a.Id, a.TerminalId)
 	head := "[mesh alert moved " + a.Id + "]"

@@ -32,7 +32,7 @@ test('a run is renamed in place, a held permission prompt is allowed from the ap
   await until('the lead', async () => (await host.client().listAgents({})).agents.length === 1)
   const lead = (await host.client().listAgents({})).agents[0]!
   const asLead = host.client(host.agentToken(lead.id))
-  const { agent: worker } = await asLead.spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  const { agent: worker } = await asLead.spawnAgent({ about: 'test worker', repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
 
   // Rename: the run's menu (or F2) edits the title in place; the host's event updates the sidebar (and so would another device's).
   const nav = page.getByRole('navigation', { name: 'Projects' })

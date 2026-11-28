@@ -46,6 +46,9 @@ func (w *reopenWorld) spawnUnder(t *testing.T, asRoot agentmeshv1connect.MeshSer
 		req.Repo = gitRepo(t)
 	}
 	req.Slug = slug
+	if req.About == "" { // a root's change worker needs one (about.go); the tests of that pass it themselves
+		req.About = "test worker"
+	}
 	if req.Tier == "" && req.Model == "" {
 		req.Tier = "mid"
 	}
@@ -75,8 +78,8 @@ func TestRetireStopsTheProcessKeepsTheConversationAndAMessageResumesIt(t *testin
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "idle", &v1.SpawnAgentRequest{})
-	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "idle", &v1.SpawnAgentRequest{About: "test worker"})
+	other := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{About: "test worker"})
 	oldTok := w.token(t, a.Id)
 
 	// Only its parent or a device; a sibling can't.
@@ -159,7 +162,7 @@ func TestAnAnswerBringsARetiredPlannerBackPlanningAndOnlyADirectTaskEndsThePhase
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	a := w.spawnUnder(t, asLead, "plan", &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 	w.report(t, a, v1.MessageType_MESSAGE_TYPE_QUESTION)
 	if _, err := asLead.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: a.Id})); err != nil {
 		t.Fatal(err)
@@ -208,13 +211,13 @@ func TestAnIdleAgentIsRetiredAfterItsReportUnlessSomethingHoldsItOpen(t *testing
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
 
-	done := w.spawnUnder(t, asLead, "done", &v1.SpawnAgentRequest{})
-	failed := w.spawnUnder(t, asLead, "failed", &v1.SpawnAgentRequest{})
-	planned := w.spawnUnder(t, asLead, "planned", &v1.SpawnAgentRequest{})
-	asked := w.spawnUnder(t, asLead, "asked", &v1.SpawnAgentRequest{})
-	mail := w.spawnUnder(t, asLead, "mail", &v1.SpawnAgentRequest{})
-	viewed := w.spawnUnder(t, asLead, "viewed", &v1.SpawnAgentRequest{})
-	silent := w.spawnUnder(t, asLead, "silent", &v1.SpawnAgentRequest{})
+	done := w.spawnUnder(t, asLead, "done", &v1.SpawnAgentRequest{About: "test worker"})
+	failed := w.spawnUnder(t, asLead, "failed", &v1.SpawnAgentRequest{About: "test worker"})
+	planned := w.spawnUnder(t, asLead, "planned", &v1.SpawnAgentRequest{About: "test worker"})
+	asked := w.spawnUnder(t, asLead, "asked", &v1.SpawnAgentRequest{About: "test worker"})
+	mail := w.spawnUnder(t, asLead, "mail", &v1.SpawnAgentRequest{About: "test worker"})
+	viewed := w.spawnUnder(t, asLead, "viewed", &v1.SpawnAgentRequest{About: "test worker"})
+	silent := w.spawnUnder(t, asLead, "silent", &v1.SpawnAgentRequest{About: "test worker"})
 
 	w.report(t, done, v1.MessageType_MESSAGE_TYPE_DONE)
 	w.report(t, failed, v1.MessageType_MESSAGE_TYPE_FAILED)
@@ -279,7 +282,7 @@ func TestAMessageArrivingJustBeforeAnIdleRetireKeepsTheAgentOpen(t *testing.T) {
 	w.set(t, "idle_retire", 1)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "busy", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "busy", &v1.SpawnAgentRequest{About: "test worker"})
 	w.report(t, a, v1.MessageType_MESSAGE_TYPE_DONE)
 	// A task before the delay is up: it works on it, and the new report restarts the count.
 	time.Sleep(600 * time.Millisecond)
@@ -307,10 +310,10 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	untouched := w.spawnUnder(t, asLead, "untouched", &v1.SpawnAgentRequest{})
-	committed := w.spawnUnder(t, asLead, "committed", &v1.SpawnAgentRequest{})
-	dirty := w.spawnUnder(t, asLead, "dirty", &v1.SpawnAgentRequest{})
-	pushed := w.spawnUnder(t, asLead, "pushed", &v1.SpawnAgentRequest{})
+	untouched := w.spawnUnder(t, asLead, "untouched", &v1.SpawnAgentRequest{About: "test worker"})
+	committed := w.spawnUnder(t, asLead, "committed", &v1.SpawnAgentRequest{About: "test worker"})
+	dirty := w.spawnUnder(t, asLead, "dirty", &v1.SpawnAgentRequest{About: "test worker"})
+	pushed := w.spawnUnder(t, asLead, "pushed", &v1.SpawnAgentRequest{About: "test worker"})
 	remote := filepath.Join(t.TempDir(), "remote.git")
 	gitIn(t, pushed.Repo, "init", "-q", "--bare", remote)
 	gitIn(t, pushed.Repo, "remote", "add", "origin", remote)
@@ -322,11 +325,11 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 	gitIn(t, based, "remote", "add", "origin", baseRemote)
 	gitIn(t, based, "push", "-q", "origin", "HEAD:refs/heads/main")
 	gitIn(t, based, "fetch", "-q", "origin")
-	fromRemote := w.spawnUnder(t, asLead, "fromremote", &v1.SpawnAgentRequest{Repo: based, Base: "origin/main"})
+	fromRemote := w.spawnUnder(t, asLead, "fromremote", &v1.SpawnAgentRequest{About: "test worker", Repo: based, Base: "origin/main"})
 	if up := gitIn(t, fromRemote.Worktree, "rev-parse", "--abbrev-ref", fromRemote.Branch+"@{upstream}"); up != "origin/main" {
 		t.Fatalf("the test needs an upstream on the branch: %q", up)
 	}
-	gone := w.spawnUnder(t, asLead, "gone", &v1.SpawnAgentRequest{})
+	gone := w.spawnUnder(t, asLead, "gone", &v1.SpawnAgentRequest{About: "test worker"})
 	os.WriteFile(filepath.Join(committed.Worktree, "done.txt"), []byte("work"), 0o644)
 	gitIn(t, committed.Worktree, "add", "done.txt")
 	gitIn(t, committed.Worktree, "commit", "-q", "-m", "work")
@@ -387,7 +390,7 @@ func TestStopRunRetiresEveryAgentClosesTheRunAndKeepsWhatHoldsWork(t *testing.T)
 		t.Errorf("the exited agent's %v", o)
 	}
 	// The run is closed: nothing starts in it, and nothing resumes.
-	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: gitRepo(t), Slug: "late", Tier: "mid"})); code(err) != connect.CodeFailedPrecondition {
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: gitRepo(t), Slug: "late", Tier: "mid"})); code(err) != connect.CodeFailedPrecondition {
 		t.Errorf("a spawn in a stopped run: %v", err)
 	}
 	if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Meta: meta(""), Agent: dirty.Id})); code(err) != connect.CodeFailedPrecondition ||
@@ -424,7 +427,7 @@ func TestTheAgentCapRefusesWhatWouldPassIt(t *testing.T) {
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
 	spawn := func(slug string) (*v1.Agent, error) {
-		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("sp-" + slug), RunId: run.Id, Repo: repo,
+		res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta("sp-" + slug), RunId: run.Id, Repo: repo,
 			Slug: slug, Tier: "mid"}))
 		if err != nil {
 			return nil, err
@@ -510,7 +513,7 @@ func TestSpawnsInABurstCannotAllPassTheCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, results[i] = w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id, Repo: repo,
+			_, results[i] = w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta(""), RunId: run.Id, Repo: repo,
 				Slug: "burst-" + string(rune('a'+i)), Tier: "mid"}))
 		}()
 	}
@@ -558,7 +561,7 @@ func TestTheMemoryGuardRefusesALaunchUnderTheFloorOrUnderPressure(t *testing.T) 
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
 	spawn := func(slug string) error {
-		_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id, Repo: repo, Slug: slug, Tier: "mid"}))
+		_, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta(""), RunId: run.Id, Repo: repo, Slug: slug, Tier: "mid"}))
 		return err
 	}
 	// 1500 MB free over a 1000 MB floor: room for the first two; each launched agent counts 400 MB until it has
@@ -660,7 +663,7 @@ func TestAFailedResumeGivesItsMemoryReservationBack(t *testing.T) {
 		}
 	}
 	// 2000 free over a 1000 floor: three leaked reservations would read 800.
-	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(""), RunId: run.Id, Repo: gitRepo(t),
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta(""), RunId: run.Id, Repo: gitRepo(t),
 		Slug: "next", Tier: "mid"})); err != nil {
 		t.Errorf("a spawn after three failed resumes: %v", err)
 	}
@@ -676,7 +679,7 @@ func TestASpawnWithNoBaseStartsFromTheRemotesDefaultBranch(t *testing.T) {
 	plain := gitRepo(t)
 	gitIn(t, plain, "switch", "-q", "-c", "feature")
 	gitIn(t, plain, "commit", "-q", "--allow-empty", "-m", "feature work")
-	a := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{Repo: plain})
+	a := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{About: "test worker", Repo: plain})
 	if got, want := gitIn(t, a.Worktree, "rev-parse", "HEAD"), gitIn(t, plain, "rev-parse", "HEAD"); got != want {
 		t.Errorf("without an origin the base is HEAD %s, got %s", want, got)
 	}
@@ -692,12 +695,12 @@ func TestASpawnWithNoBaseStartsFromTheRemotesDefaultBranch(t *testing.T) {
 	mainSHA := gitIn(t, repo, "rev-parse", "main")
 	gitIn(t, repo, "switch", "-q", "-c", "feature")
 	gitIn(t, repo, "commit", "-q", "--allow-empty", "-m", "feature work")
-	b := w.spawnUnder(t, asLead, "remote", &v1.SpawnAgentRequest{Repo: repo})
+	b := w.spawnUnder(t, asLead, "remote", &v1.SpawnAgentRequest{About: "test worker", Repo: repo})
 	if got := gitIn(t, b.Worktree, "rev-parse", "HEAD"); got != mainSHA {
 		t.Errorf("the base is origin/main %s, got %s (the checkout's feature branch)", mainSHA, got)
 	}
 	// An explicit base still wins.
-	c := w.spawnUnder(t, asLead, "named", &v1.SpawnAgentRequest{Repo: repo, Base: "feature"})
+	c := w.spawnUnder(t, asLead, "named", &v1.SpawnAgentRequest{About: "test worker", Repo: repo, Base: "feature"})
 	if got, want := gitIn(t, c.Worktree, "rev-parse", "HEAD"), gitIn(t, repo, "rev-parse", "feature"); got != want {
 		t.Errorf("--base feature: %s, want %s", got, want)
 	}
@@ -713,7 +716,7 @@ func TestAReviewerOrAskerIsRetiredSoonerThanAWorkerAfterItsReport(t *testing.T) 
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 
-	worker := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	reviewer := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_REVIEWER, "rev")
 	asker := startAsker(t, w, asLead, v1.AgentRole_AGENT_ROLE_ASKER, "ask")
 	for _, a := range []*v1.Agent{reviewer, asker} { // their question is unread mail until they read it

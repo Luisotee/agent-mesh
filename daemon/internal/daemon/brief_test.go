@@ -28,7 +28,7 @@ func TestTheBriefGivesARootItsCardNotesWorkersAndMailWithoutReadingIt(t *testing
 	os.WriteFile(notes, []byte("the user wants the retry fix\n"+strings.Repeat("x", 5000)), 0o644)
 	w.size(t, w.agent(lead.Id), 200000, five, 10*time.Minute)
 
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "strong",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "strong",
 		Plan: true, Task: "plan the fix"}))
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestADoneTheRootHasReadIsNotWaitingOnItInTheBrief(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "strong", Task: "fix it"}))
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "strong", Task: "fix it"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestTheBriefCarriesTheModelNoticeToTheRootOnly(t *testing.T) {
 	if !strings.Contains(b.Msg.Text, "mesh: new agy models no tier names: xenon") {
 		t.Errorf("the root's brief lacks the model notice:\n%s", b.Msg.Text)
 	}
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "strong", Task: "fix it"}))
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "strong", Task: "fix it"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestASessionThatStartsAgainIsToldWhereItIs(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid",
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid",
 		Task: "Direct task (no plan): fix the flaky test\n\nit fails on CI only"}))
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +234,7 @@ func TestAnAgentCannotBriefAnotherAgent(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid"}))
+	res, err := asLead.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid"}))
 	if err != nil {
 		t.Fatal(err)
 	}

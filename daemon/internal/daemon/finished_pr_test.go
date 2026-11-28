@@ -81,7 +81,7 @@ func TestResumeMovesOffMergedPROntoFetchedDefaultBranch(t *testing.T) {
 		}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "fix", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -159,7 +159,7 @@ func TestResumeClosedPROpenPRDirtyMergeAndSkippedCases(t *testing.T) {
 		}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "cls", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -231,7 +231,7 @@ func TestResumeClosedPROpenPRDirtyMergeAndSkippedCases(t *testing.T) {
 	a = w.waitReopened(t, a.Id, oldTerm)
 
 	// gh error doesn't block resume; read-only asker never calls gh.
-	askerRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	askerRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "ask", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_ASKER,
 	}))
 	if err != nil {
@@ -268,7 +268,7 @@ func TestResumeRecreatesRemovedWorktreeAndSkipsNonGitHub(t *testing.T) {
 		}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "rec", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -320,7 +320,7 @@ func TestFinishedPRMissingRemoteHeadCommitAndOpenPRPrecedence(t *testing.T) {
 		}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "fix", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -393,7 +393,7 @@ func TestEnsureWorktreePrunesManuallyRemovedDir(t *testing.T) {
 		c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "manualrm", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {
@@ -435,7 +435,7 @@ func TestSendMessageWorktreePrepErrorsAndFailedReviveBranchNote(t *testing.T) {
 		}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	leadRes, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 	}))
 	if err != nil {
@@ -443,7 +443,7 @@ func TestSendMessageWorktreePrepErrorsAndFailedReviveBranchNote(t *testing.T) {
 	}
 	_ = w.waitState(leadRes.Msg.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
 
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "cap", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_WORKER,
 	}))
 	if err != nil {

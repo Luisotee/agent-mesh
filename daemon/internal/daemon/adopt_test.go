@@ -135,7 +135,7 @@ func TestAnAdoptedSessionIsTheRootAndIsRungThroughItsSocket(t *testing.T) {
 	// It starts a worker, whose report reaches the session over the socket. The session is the user's own
 	// process: it fills none of the daemon's agent slots (one slot here is the worker's).
 	w.set(t, "caps.agents", 1)
-	spawned, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "work"}))
+	spawned, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "work"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestAdoptingTakesOverTheRunsOwnRoot(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{})
+	worker := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{About: "test worker"})
 	asWorker := w.as(w.token(t, worker.Id))
 	pending := send(t, asWorker, "parent", v1.MessageType_MESSAGE_TYPE_QUESTION, "which way?")
 	sess := startUserSession(t, cfg, accepting)
@@ -479,7 +479,7 @@ func TestAnAdoptedSessionIsRungUnderItsOwnFoldersPolicy(t *testing.T) {
 	root := res.Agent
 	file, _ := statedir.Paths{Dir: w.state}.ReadAdopted(sess.pid)
 	asRoot := w.as(file.Env["AGENT_MESH_TOKEN"])
-	spawned, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "work"}))
+	spawned, err := asRoot.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix", Tier: "mid", Task: "work"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +515,7 @@ func TestASecondSessionOnTheSameRowGetsTheProtocolPointer(t *testing.T) {
 		}
 		file, _ := statedir.Paths{Dir: w.state}.ReadAdopted(sess.pid)
 		asRoot := w.as(file.Env["AGENT_MESH_TOKEN"])
-		spawned, err := asRoot.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{Repo: gitRepo(t), Slug: "fix" + body, Tier: "mid", Task: "work"}))
+		spawned, err := asRoot.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Repo: gitRepo(t), Slug: "fix" + body, Tier: "mid", Task: "work"}))
 		if err != nil {
 			t.Fatal(err)
 		}

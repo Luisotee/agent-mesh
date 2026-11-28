@@ -40,6 +40,19 @@ message Run {
   // settings alone apply. When set it replaces the settings' repo lists for this run (unless `keep_repo_lists`), and
   // its `ask_before` is added to the settings'.
   RunAutonomy autonomy = 8;
+  // What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+  // it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+  string headline = 9;
+  google.protobuf.Timestamp headline_at = 10;
+  int64 headline_seq = 11;
+}
+
+// A choice the lead made that the user may want to revisit (`RecordDecision`), newest first in the run's overview.
+message RunDecision {
+  int64 id = 1;
+  google.protobuf.Timestamp at = 2;
+  Actor by = 3;
+  string text = 4;
 }
 
 // What the user lets this run's root do without asking, for every repo of the run.
@@ -178,6 +191,13 @@ message Agent {
   // CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
   // lost nothing.
   bool had_turn = 44;
+  // One line (at most 80 characters) on what the agent is for, shown beside its name. Set by its parent or a device
+  // (`SetAgentAbout`, `--about` on a spawn, task or resume), else derived from its plan, task, peer or run.
+  string about = 45;
+  // Where `about` came from: "set" (a parent or device wrote it: a derived one never replaces it), "plan" (its plan's
+  // title), "task" (its task's first line), "peer" (its peer's own description) or "run" (the run's title, for a lead).
+  // The line the daemon writes for a question or a review it starts counts as "set". Empty: none yet.
+  string about_source = 46;
 }
 
 // AgentPhase is where an agent is in a task that has a plan: planning until approved, then executing.
@@ -295,6 +315,9 @@ message Event {
     AgentArchived agent_archived = 41;
     UserNotice user_notice = 42;
     RunDeleted run_deleted = 43;
+    RunHeadlineChanged run_headline_changed = 44;
+    AgentAboutChanged agent_about_changed = 45;
+    DecisionRecorded decision_recorded = 46;
   }
 }
 
@@ -344,6 +367,24 @@ message Worktree {
 
 message WorktreeCreated {
   Worktree worktree = 1;
+}
+
+// A run's headline was written (`SetRunHeadline`).
+message RunHeadlineChanged {
+  string headline = 1;
+  string previous = 2;
+}
+
+// An agent's about line changed (set, or derived from its plan or task).
+message AgentAboutChanged {
+  string about = 1;
+  string source = 2;
+  string previous = 3;
+}
+
+// The lead recorded a decision (`RecordDecision`).
+message DecisionRecorded {
+  RunDecision decision = 1;
 }
 
 // A run's title changed (`RenameRun`).

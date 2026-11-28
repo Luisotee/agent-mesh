@@ -33,7 +33,7 @@ import (
 // conversation in the peer's own detached worktree. One process per conversation: a peer whose agent is still
 // running in another run is not asked from this one.
 
-const maxAbout = 400
+const maxPeerAbout = 400
 
 // refPartRE is a remote or a branch name git may be given as an argument: plain characters, never a leading dash
 // (empty is allowed: no upstream).
@@ -184,8 +184,8 @@ func (d *Daemon) AddPeer(ctx context.Context, req *connect.Request[v1.AddPeerReq
 		return nil, invalid("give the URL to clone, or the path of a clone")
 	case !peerNameRE.MatchString(group):
 		return nil, invalid("group %q: letters, digits, dots, dashes and underscores", group)
-	case utf8.RuneCountInString(m.About) > maxAbout:
-		return nil, invalid("about is %d characters: at most %d", utf8.RuneCountInString(m.About), maxAbout)
+	case utf8.RuneCountInString(m.About) > maxPeerAbout:
+		return nil, invalid("about is %d characters: at most %d", utf8.RuneCountInString(m.About), maxPeerAbout)
 	case m.Name != "" && !peerNameRE.MatchString(m.Name):
 		return nil, invalid("name %q: letters, digits, dots, dashes and underscores", m.Name)
 	}
@@ -299,8 +299,8 @@ func (d *Daemon) EditPeer(ctx context.Context, req *connect.Request[v1.EditPeerR
 	if m.Target == "" {
 		return nil, invalid("name a peer or a group")
 	}
-	if utf8.RuneCountInString(m.About) > maxAbout {
-		return nil, invalid("about is %d characters: at most %d", utf8.RuneCountInString(m.About), maxAbout)
+	if utf8.RuneCountInString(m.About) > maxPeerAbout {
+		return nil, invalid("about is %d characters: at most %d", utf8.RuneCountInString(m.About), maxPeerAbout)
 	}
 	out := &v1.EditPeerResponse{}
 	_, err := d.write(ctx, m.Meta, agentmeshv1connect.MeshServiceEditPeerProcedure, out, func(tx *store.Tx) error {
@@ -525,8 +525,8 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 			continue
 		}
 		about := e.About
-		if utf8.RuneCountInString(about) > maxAbout {
-			about = string([]rune(about)[:maxAbout])
+		if utf8.RuneCountInString(about) > maxPeerAbout {
+			about = string([]rune(about)[:maxPeerAbout])
 		}
 		seen := e.Seen
 		if _, err := git(ctx, e.Repo, "cat-file", "-e", seen+"^{commit}"); seen == "" || err != nil {
@@ -591,8 +591,8 @@ func (d *Daemon) ImportPeers(ctx context.Context, req *connect.Request[v1.Import
 		for _, g := range gnames {
 			if _, err := tx.GetPeerGroup(g); errors.Is(err, store.ErrNotFound) && peerNameRE.MatchString(g) {
 				about := f.Groups[g].About
-				if r := []rune(about); len(r) > maxAbout {
-					about = string(r[:maxAbout])
+				if r := []rune(about); len(r) > maxPeerAbout {
+					about = string(r[:maxPeerAbout])
 				}
 				if err := tx.PutPeerGroup(&v1.PeerGroup{Name: g, About: about}); err != nil {
 					return err
@@ -1026,6 +1026,9 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 		Kind: p.Kind, Repo: p.Repo, Worktree: p.Worktree, BaseCommit: p.Seen, Model: model, Effort: effort, Tier: tier,
 		State: v1.AgentState_AGENT_STATE_STARTING, LastActivity: timestamppb.New(now), CreatedAt: timestamppb.New(now),
 		DenyEdits: true, Peer: true, SessionId: p.SessionId}
+	if p.About != "" {
+		agent.About, agent.AboutSource = capAbout(p.About), aboutPeer
+	}
 	mu := d.agentLock(agent.Id)
 	mu.Lock()
 	defer mu.Unlock()

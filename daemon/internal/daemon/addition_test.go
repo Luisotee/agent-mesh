@@ -39,7 +39,7 @@ func TestADirectTaskAddedToAPlannerStillPlanningChangesNoPhase(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	p := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	p := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 	w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.setWorking(t, p.Id)
 	res, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: p.Id,
@@ -87,7 +87,7 @@ func TestADirectTaskToAPlannerThatHasNotReadItsTaskIsAnAddition(t *testing.T) {
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
 	for i, state := range []v1.AgentState{v1.AgentState_AGENT_STATE_STARTING, v1.AgentState_AGENT_STATE_NEEDS_INPUT, v1.AgentState_AGENT_STATE_IDLE} {
-		p := w.spawnUnder(t, asLead, "planner-"+string(rune('a'+i)), &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+		p := w.spawnUnder(t, asLead, "planner-"+string(rune('a'+i)), &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 		w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
 		if state != v1.AgentState_AGENT_STATE_IDLE { // starting, or held at a permission prompt mid-plan
 			w.setState(t, p.Id, state)
@@ -115,7 +115,7 @@ func TestApprovingAPlannerWithNoPlanSkipsItsPlan(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	p := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	p := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 	w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.setWorking(t, p.Id)
 	ap, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: p.Id, Tier: "mid"}))
@@ -129,7 +129,7 @@ func TestApprovingAPlannerWithNoPlanSkipsItsPlan(t *testing.T) {
 		t.Errorf("after the skip: phase %v tier %q", got.Phase, got.ExecTier)
 	}
 	// No plan phase, no plan: nothing to approve.
-	plain := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{Tier: "mid"})
+	plain := w.spawnUnder(t, asLead, "plain", &v1.SpawnAgentRequest{About: "test worker", Tier: "mid"})
 	w.waitState(plain.Id, v1.AgentState_AGENT_STATE_IDLE)
 	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{Agent: plain.Id})); code(err) != connect.CodeFailedPrecondition {
 		t.Errorf("approve an agent with no plan phase: %v", err)

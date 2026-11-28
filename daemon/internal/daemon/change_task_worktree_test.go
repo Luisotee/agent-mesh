@@ -24,7 +24,7 @@ func TestACrossRunChangeTaskToAStoppedAskerRecreatesItsWorktree(t *testing.T) {
 	w := startReopen(t, func(c *daemon.AgentConfig) { c.Usage = &daemon.UsageOps{DisableClaudeNetwork: true} })
 	repo := gitRepo(t)
 	run1 := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run1.Id, Repo: repo,
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run1.Id, Repo: repo,
 		Slug: "asker", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_ASKER, Task: "Question (read-only): where is the thing?"}))
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestAStoppedReviewerGivenAChangeTaskLeavesAMergedPRBranch(t *testing.T) {
 		}
 	})
 	run := startRun(t, w.device.Mesh, "")
-	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{RunId: run.Id, Repo: repo,
+	res, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", RunId: run.Id, Repo: repo,
 		Slug: "rev", Tier: "mid", Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Task: "Review (read-only): the PR."}))
 	if err != nil {
 		t.Fatal(err)

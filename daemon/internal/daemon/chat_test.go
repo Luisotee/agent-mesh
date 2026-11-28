@@ -235,7 +235,7 @@ func TestEveryBuiltInCLIHasAChatView(t *testing.T) {
 	h := startWithAgents(t, state, t.TempDir())
 	t.Cleanup(func() { stopTermHost(t, state) })
 	run := startRun(t, h.device.Mesh, "")
-	res, err := h.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("spawn-agy"), RunId: run.Id, Repo: gitRepo(t), Slug: "agy", Kind: "agy", Tier: "mid"}))
+	res, err := h.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker", Meta: meta("spawn-agy"), RunId: run.Id, Repo: gitRepo(t), Slug: "agy", Kind: "agy", Tier: "mid"}))
 	if err != nil {
 		t.Fatal(err)
 	}

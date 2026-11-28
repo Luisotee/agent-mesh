@@ -17,6 +17,7 @@ public  final class Run extends
   private Run() {
     id_ = "";
     title_ = "";
+    headline_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -424,6 +425,151 @@ public  final class Run extends
   private void clearAutonomy() {
     autonomy_ = null;
     bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
+  public static final int HEADLINE_FIELD_NUMBER = 9;
+  private java.lang.String headline_;
+  /**
+   * <pre>
+   * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+   * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+   * </pre>
+   *
+   * <code>string headline = 9 [json_name = "headline"];</code>
+   * @return The headline.
+   */
+  @java.lang.Override
+  public java.lang.String getHeadline() {
+    return headline_;
+  }
+  /**
+   * <pre>
+   * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+   * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+   * </pre>
+   *
+   * <code>string headline = 9 [json_name = "headline"];</code>
+   * @return The bytes for headline.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getHeadlineBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(headline_);
+  }
+  /**
+   * <pre>
+   * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+   * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+   * </pre>
+   *
+   * <code>string headline = 9 [json_name = "headline"];</code>
+   * @param value The headline to set.
+   */
+  private void setHeadline(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    headline_ = value;
+  }
+  /**
+   * <pre>
+   * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+   * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+   * </pre>
+   *
+   * <code>string headline = 9 [json_name = "headline"];</code>
+   */
+  private void clearHeadline() {
+
+    headline_ = getDefaultInstance().getHeadline();
+  }
+  /**
+   * <pre>
+   * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+   * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+   * </pre>
+   *
+   * <code>string headline = 9 [json_name = "headline"];</code>
+   * @param value The bytes for headline to set.
+   */
+  private void setHeadlineBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    headline_ = value.toStringUtf8();
+
+  }
+
+  public static final int HEADLINE_AT_FIELD_NUMBER = 10;
+  private com.google.protobuf.Timestamp headlineAt_;
+  /**
+   * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+   */
+  @java.lang.Override
+  public boolean hasHeadlineAt() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+   */
+  @java.lang.Override
+  public com.google.protobuf.Timestamp getHeadlineAt() {
+    return headlineAt_ == null ? com.google.protobuf.Timestamp.getDefaultInstance() : headlineAt_;
+  }
+  /**
+   * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+   */
+  private void setHeadlineAt(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    headlineAt_ = value;
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeHeadlineAt(com.google.protobuf.Timestamp value) {
+    java.util.Objects.requireNonNull(value);
+    if (headlineAt_ != null &&
+        headlineAt_ != com.google.protobuf.Timestamp.getDefaultInstance()) {
+      headlineAt_ =
+        com.google.protobuf.Timestamp.newBuilder(headlineAt_).mergeFrom(value).buildPartial();
+    } else {
+      headlineAt_ = value;
+    }
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+   */
+  private void clearHeadlineAt() {
+    headlineAt_ = null;
+    bitField0_ = (bitField0_ & ~0x00000008);
+  }
+
+  public static final int HEADLINE_SEQ_FIELD_NUMBER = 11;
+  private long headlineSeq_;
+  /**
+   * <code>int64 headline_seq = 11 [json_name = "headlineSeq"];</code>
+   * @return The headlineSeq.
+   */
+  @java.lang.Override
+  public long getHeadlineSeq() {
+    return headlineSeq_;
+  }
+  /**
+   * <code>int64 headline_seq = 11 [json_name = "headlineSeq"];</code>
+   * @param value The headlineSeq to set.
+   */
+  private void setHeadlineSeq(long value) {
+    
+    headlineSeq_ = value;
+  }
+  /**
+   * <code>int64 headline_seq = 11 [json_name = "headlineSeq"];</code>
+   */
+  private void clearHeadlineSeq() {
+
+    headlineSeq_ = 0L;
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.Run parseFrom(
@@ -952,6 +1098,155 @@ public  final class Run extends
       return this;
     }
 
+    /**
+     * <pre>
+     * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+     * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+     * </pre>
+     *
+     * <code>string headline = 9 [json_name = "headline"];</code>
+     * @return The headline.
+     */
+    @java.lang.Override
+    public java.lang.String getHeadline() {
+      return instance.getHeadline();
+    }
+    /**
+     * <pre>
+     * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+     * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+     * </pre>
+     *
+     * <code>string headline = 9 [json_name = "headline"];</code>
+     * @return The bytes for headline.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getHeadlineBytes() {
+      return instance.getHeadlineBytes();
+    }
+    /**
+     * <pre>
+     * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+     * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+     * </pre>
+     *
+     * <code>string headline = 9 [json_name = "headline"];</code>
+     * @param value The headline to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadline(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setHeadline(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+     * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+     * </pre>
+     *
+     * <code>string headline = 9 [json_name = "headline"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeadline() {
+      copyOnWrite();
+      instance.clearHeadline();
+      return this;
+    }
+    /**
+     * <pre>
+     * What the lead tells the user: where the run is and what comes next, one to three lines (`SetRunHeadline`), and when
+     * it was written. `headline_seq` is the run's newest event then, which `RunOverview.events_since_headline` counts from.
+     * </pre>
+     *
+     * <code>string headline = 9 [json_name = "headline"];</code>
+     * @param value The bytes for headline to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadlineBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setHeadlineBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+     */
+    @java.lang.Override
+    public boolean hasHeadlineAt() {
+      return instance.hasHeadlineAt();
+    }
+    /**
+     * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+     */
+    @java.lang.Override
+    public com.google.protobuf.Timestamp getHeadlineAt() {
+      return instance.getHeadlineAt();
+    }
+    /**
+     * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+     */
+    public Builder setHeadlineAt(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.setHeadlineAt(value);
+      return this;
+      }
+    /**
+     * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+     */
+    public Builder setHeadlineAt(
+        com.google.protobuf.Timestamp.Builder builderForValue) {
+      copyOnWrite();
+      instance.setHeadlineAt(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+     */
+    public Builder mergeHeadlineAt(com.google.protobuf.Timestamp value) {
+      copyOnWrite();
+      instance.mergeHeadlineAt(value);
+      return this;
+    }
+    /**
+     * <code>.google.protobuf.Timestamp headline_at = 10 [json_name = "headlineAt"];</code>
+     */
+    public Builder clearHeadlineAt() {  copyOnWrite();
+      instance.clearHeadlineAt();
+      return this;
+    }
+
+    /**
+     * <code>int64 headline_seq = 11 [json_name = "headlineSeq"];</code>
+     * @return The headlineSeq.
+     */
+    @java.lang.Override
+    public long getHeadlineSeq() {
+      return instance.getHeadlineSeq();
+    }
+    /**
+     * <code>int64 headline_seq = 11 [json_name = "headlineSeq"];</code>
+     * @param value The headlineSeq to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHeadlineSeq(long value) {
+      copyOnWrite();
+      instance.setHeadlineSeq(value);
+      return this;
+    }
+    /**
+     * <code>int64 headline_seq = 11 [json_name = "headlineSeq"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHeadlineSeq() {
+      copyOnWrite();
+      instance.clearHeadlineSeq();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Run)
   }
   @java.lang.Override
@@ -977,10 +1272,14 @@ public  final class Run extends
             "overReserve_",
             "setup_",
             "autonomy_",
+            "headline_",
+            "headlineAt_",
+            "headlineSeq_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\f" +
-              "\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0007\u0007\u0007\b\u1009\u0002";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\f\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u0007\u0007\u0007\b\u1009\u0002" +
+              "\t\u0208\n\u1009\u0003\u000b\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

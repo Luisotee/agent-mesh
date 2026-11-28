@@ -291,7 +291,7 @@ func TestConfinementPinsDescendantsAndThreadsAndSkipsRoots(t *testing.T) {
 	fs.setErr = errors.New("EINVAL")
 	fs.scopeErr = errors.New("no user bus")
 	fs.resetCalls()
-	a := w.spawnUnder(t, asLead, "scoped", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "scoped", &v1.SpawnAgentRequest{About: "test worker"})
 	if a.State != v1.AgentState_AGENT_STATE_IDLE {
 		t.Errorf("spawn failed on confinement errors: %v", a.State)
 	}
@@ -304,7 +304,7 @@ func TestConfinementPinsDescendantsAndThreadsAndSkipsRoots(t *testing.T) {
 	// ApproveAgent reopens the worker into a new terminal and confines the reopened process too.
 	fs.setErr = nil
 	fs.scopeErr = nil
-	planner := w.spawnUnder(t, asLead, "planned", &v1.SpawnAgentRequest{Tier: "strong", Plan: true})
+	planner := w.spawnUnder(t, asLead, "planned", &v1.SpawnAgentRequest{About: "test worker", Tier: "strong", Plan: true})
 	w.report(t, planner, v1.MessageType_MESSAGE_TYPE_PLAN)
 	fs.resetCalls()
 	if _, err := asLead.ApproveAgent(ctx, connect.NewRequest(&v1.ApproveAgentRequest{
@@ -322,7 +322,7 @@ func TestConfinementPinsDescendantsAndThreadsAndSkipsRoots(t *testing.T) {
 	w.set(t, "worker_cpus", 0)
 	w.set(t, "worker_memory_high", 0)
 	fs.resetCalls()
-	w.spawnUnder(t, asLead, "unconfined", &v1.SpawnAgentRequest{})
+	w.spawnUnder(t, asLead, "unconfined", &v1.SpawnAgentRequest{About: "test worker"})
 	fs.mu.Lock()
 	if fs.tableReads != 0 || len(fs.pins) != 0 || len(fs.scopes) != 0 {
 		t.Errorf("confined when off: tableReads=%d pins=%v scopes=%v", fs.tableReads, fs.pins, fs.scopes)
@@ -476,8 +476,8 @@ func TestRetireAndStopRunSweepLeftoverProcesses(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "swept", &v1.SpawnAgentRequest{})
-	b := w.spawnUnder(t, asLead, "stopped", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "swept", &v1.SpawnAgentRequest{About: "test worker"})
+	b := w.spawnUnder(t, asLead, "stopped", &v1.SpawnAgentRequest{About: "test worker"})
 
 	// Simulate a's own agent exiting across 2 polls, then leaving 20811 and stubborn 20834.
 	mk := func(pid, ppid int, argv, cwd string) proc.Info {
@@ -515,7 +515,7 @@ func TestRetireAndStopRunSweepLeftoverProcesses(t *testing.T) {
 	})
 
 	// A ProcTable error during sweep never fails RetireAgent.
-	c := w.spawnUnder(t, asLead, "errproc", &v1.SpawnAgentRequest{})
+	c := w.spawnUnder(t, asLead, "errproc", &v1.SpawnAgentRequest{About: "test worker"})
 	fs.resetCalls()
 	fs.mu.Lock()
 	fs.tableErr = errors.New("no /proc")
@@ -569,7 +569,7 @@ func TestMemoryGuardEarlyCheckRefreshCancelAndAdoptSeed(t *testing.T) {
 	repo := gitRepo(t)
 
 	// 1. Early check in SpawnAgent refuses before creating a worktree or branch, and takes no reservation.
-	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	if _, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		Meta: meta(""), RunId: run.Id, Repo: repo, Slug: "early-fail", Tier: "mid"})); code(err) != connect.CodeResourceExhausted {
 		t.Fatalf("expected ResourceExhausted, got %v", err)
 	}

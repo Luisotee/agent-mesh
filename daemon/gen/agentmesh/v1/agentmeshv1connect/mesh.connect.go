@@ -58,6 +58,18 @@ const (
 	MeshServiceRetireAgentProcedure = "/agentmesh.v1.MeshService/RetireAgent"
 	// MeshServiceRenameRunProcedure is the fully-qualified name of the MeshService's RenameRun RPC.
 	MeshServiceRenameRunProcedure = "/agentmesh.v1.MeshService/RenameRun"
+	// MeshServiceSetAgentAboutProcedure is the fully-qualified name of the MeshService's SetAgentAbout
+	// RPC.
+	MeshServiceSetAgentAboutProcedure = "/agentmesh.v1.MeshService/SetAgentAbout"
+	// MeshServiceSetRunHeadlineProcedure is the fully-qualified name of the MeshService's
+	// SetRunHeadline RPC.
+	MeshServiceSetRunHeadlineProcedure = "/agentmesh.v1.MeshService/SetRunHeadline"
+	// MeshServiceRecordDecisionProcedure is the fully-qualified name of the MeshService's
+	// RecordDecision RPC.
+	MeshServiceRecordDecisionProcedure = "/agentmesh.v1.MeshService/RecordDecision"
+	// MeshServiceGetRunOverviewProcedure is the fully-qualified name of the MeshService's
+	// GetRunOverview RPC.
+	MeshServiceGetRunOverviewProcedure = "/agentmesh.v1.MeshService/GetRunOverview"
 	// MeshServiceOpenViewProcedure is the fully-qualified name of the MeshService's OpenView RPC.
 	MeshServiceOpenViewProcedure = "/agentmesh.v1.MeshService/OpenView"
 	// MeshServiceStopRunProcedure is the fully-qualified name of the MeshService's StopRun RPC.
@@ -274,6 +286,17 @@ type MeshServiceClient interface {
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
 	// Change a run's title. A root may rename its own run; a device any.
 	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
+	// Say what an agent is for, one line of at most 80 characters (a parent or a device). It is shown beside the agent's
+	// name; a derived line (from its plan or task) never replaces it.
+	SetAgentAbout(context.Context, *connect.Request[v1.SetAgentAboutRequest]) (*connect.Response[v1.SetAgentAboutResponse], error)
+	// Write the run's headline: where it is and what comes next, one to three lines for the user who comes back to it.
+	SetRunHeadline(context.Context, *connect.Request[v1.SetRunHeadlineRequest]) (*connect.Response[v1.SetRunHeadlineResponse], error)
+	// Record a decision the user may want to revisit (a declined finding, a design pick, a scope cut). `mesh brief` and
+	// the run's overview list them, so they need no entry in the notes.
+	RecordDecision(context.Context, *connect.Request[v1.RecordDecisionRequest]) (*connect.Response[v1.RecordDecisionResponse], error)
+	// One run as the user who comes back to it needs it: what waits on them, what broke, the lead's headline, who works
+	// on what, what was merged, what is next, the decisions. Derived from stored state: no GitHub or transcript read.
+	GetRunOverview(context.Context, *connect.Request[v1.GetRunOverviewRequest]) (*connect.Response[v1.GetRunOverviewResponse], error)
 	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
 	// which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
 	// An agent may ask once in 10 seconds.
@@ -584,6 +607,30 @@ func NewMeshServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+MeshServiceRenameRunProcedure,
 			connect.WithSchema(meshServiceMethods.ByName("RenameRun")),
+			connect.WithClientOptions(opts...),
+		),
+		setAgentAbout: connect.NewClient[v1.SetAgentAboutRequest, v1.SetAgentAboutResponse](
+			httpClient,
+			baseURL+MeshServiceSetAgentAboutProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SetAgentAbout")),
+			connect.WithClientOptions(opts...),
+		),
+		setRunHeadline: connect.NewClient[v1.SetRunHeadlineRequest, v1.SetRunHeadlineResponse](
+			httpClient,
+			baseURL+MeshServiceSetRunHeadlineProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("SetRunHeadline")),
+			connect.WithClientOptions(opts...),
+		),
+		recordDecision: connect.NewClient[v1.RecordDecisionRequest, v1.RecordDecisionResponse](
+			httpClient,
+			baseURL+MeshServiceRecordDecisionProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("RecordDecision")),
+			connect.WithClientOptions(opts...),
+		),
+		getRunOverview: connect.NewClient[v1.GetRunOverviewRequest, v1.GetRunOverviewResponse](
+			httpClient,
+			baseURL+MeshServiceGetRunOverviewProcedure,
+			connect.WithSchema(meshServiceMethods.ByName("GetRunOverview")),
 			connect.WithClientOptions(opts...),
 		),
 		openView: connect.NewClient[v1.OpenViewRequest, v1.OpenViewResponse](
@@ -1053,6 +1100,10 @@ type meshServiceClient struct {
 	resumeAgent         *connect.Client[v1.ResumeAgentRequest, v1.ResumeAgentResponse]
 	retireAgent         *connect.Client[v1.RetireAgentRequest, v1.RetireAgentResponse]
 	renameRun           *connect.Client[v1.RenameRunRequest, v1.RenameRunResponse]
+	setAgentAbout       *connect.Client[v1.SetAgentAboutRequest, v1.SetAgentAboutResponse]
+	setRunHeadline      *connect.Client[v1.SetRunHeadlineRequest, v1.SetRunHeadlineResponse]
+	recordDecision      *connect.Client[v1.RecordDecisionRequest, v1.RecordDecisionResponse]
+	getRunOverview      *connect.Client[v1.GetRunOverviewRequest, v1.GetRunOverviewResponse]
 	openView            *connect.Client[v1.OpenViewRequest, v1.OpenViewResponse]
 	stopRun             *connect.Client[v1.StopRunRequest, v1.StopRunResponse]
 	deleteRun           *connect.Client[v1.DeleteRunRequest, v1.DeleteRunResponse]
@@ -1188,6 +1239,26 @@ func (c *meshServiceClient) RetireAgent(ctx context.Context, req *connect.Reques
 // RenameRun calls agentmesh.v1.MeshService.RenameRun.
 func (c *meshServiceClient) RenameRun(ctx context.Context, req *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error) {
 	return c.renameRun.CallUnary(ctx, req)
+}
+
+// SetAgentAbout calls agentmesh.v1.MeshService.SetAgentAbout.
+func (c *meshServiceClient) SetAgentAbout(ctx context.Context, req *connect.Request[v1.SetAgentAboutRequest]) (*connect.Response[v1.SetAgentAboutResponse], error) {
+	return c.setAgentAbout.CallUnary(ctx, req)
+}
+
+// SetRunHeadline calls agentmesh.v1.MeshService.SetRunHeadline.
+func (c *meshServiceClient) SetRunHeadline(ctx context.Context, req *connect.Request[v1.SetRunHeadlineRequest]) (*connect.Response[v1.SetRunHeadlineResponse], error) {
+	return c.setRunHeadline.CallUnary(ctx, req)
+}
+
+// RecordDecision calls agentmesh.v1.MeshService.RecordDecision.
+func (c *meshServiceClient) RecordDecision(ctx context.Context, req *connect.Request[v1.RecordDecisionRequest]) (*connect.Response[v1.RecordDecisionResponse], error) {
+	return c.recordDecision.CallUnary(ctx, req)
+}
+
+// GetRunOverview calls agentmesh.v1.MeshService.GetRunOverview.
+func (c *meshServiceClient) GetRunOverview(ctx context.Context, req *connect.Request[v1.GetRunOverviewRequest]) (*connect.Response[v1.GetRunOverviewResponse], error) {
+	return c.getRunOverview.CallUnary(ctx, req)
 }
 
 // OpenView calls agentmesh.v1.MeshService.OpenView.
@@ -1592,6 +1663,17 @@ type MeshServiceHandler interface {
 	RetireAgent(context.Context, *connect.Request[v1.RetireAgentRequest]) (*connect.Response[v1.RetireAgentResponse], error)
 	// Change a run's title. A root may rename its own run; a device any.
 	RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error)
+	// Say what an agent is for, one line of at most 80 characters (a parent or a device). It is shown beside the agent's
+	// name; a derived line (from its plan or task) never replaces it.
+	SetAgentAbout(context.Context, *connect.Request[v1.SetAgentAboutRequest]) (*connect.Response[v1.SetAgentAboutResponse], error)
+	// Write the run's headline: where it is and what comes next, one to three lines for the user who comes back to it.
+	SetRunHeadline(context.Context, *connect.Request[v1.SetRunHeadlineRequest]) (*connect.Response[v1.SetRunHeadlineResponse], error)
+	// Record a decision the user may want to revisit (a declined finding, a design pick, a scope cut). `mesh brief` and
+	// the run's overview list them, so they need no entry in the notes.
+	RecordDecision(context.Context, *connect.Request[v1.RecordDecisionRequest]) (*connect.Response[v1.RecordDecisionResponse], error)
+	// One run as the user who comes back to it needs it: what waits on them, what broke, the lead's headline, who works
+	// on what, what was merged, what is next, the decisions. Derived from stored state: no GitHub or transcript read.
+	GetRunOverview(context.Context, *connect.Request[v1.GetRunOverviewRequest]) (*connect.Response[v1.GetRunOverviewResponse], error)
 	// Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
 	// which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
 	// An agent may ask once in 10 seconds.
@@ -1898,6 +1980,30 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 		MeshServiceRenameRunProcedure,
 		svc.RenameRun,
 		connect.WithSchema(meshServiceMethods.ByName("RenameRun")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceSetAgentAboutHandler := connect.NewUnaryHandler(
+		MeshServiceSetAgentAboutProcedure,
+		svc.SetAgentAbout,
+		connect.WithSchema(meshServiceMethods.ByName("SetAgentAbout")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceSetRunHeadlineHandler := connect.NewUnaryHandler(
+		MeshServiceSetRunHeadlineProcedure,
+		svc.SetRunHeadline,
+		connect.WithSchema(meshServiceMethods.ByName("SetRunHeadline")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceRecordDecisionHandler := connect.NewUnaryHandler(
+		MeshServiceRecordDecisionProcedure,
+		svc.RecordDecision,
+		connect.WithSchema(meshServiceMethods.ByName("RecordDecision")),
+		connect.WithHandlerOptions(opts...),
+	)
+	meshServiceGetRunOverviewHandler := connect.NewUnaryHandler(
+		MeshServiceGetRunOverviewProcedure,
+		svc.GetRunOverview,
+		connect.WithSchema(meshServiceMethods.ByName("GetRunOverview")),
 		connect.WithHandlerOptions(opts...),
 	)
 	meshServiceOpenViewHandler := connect.NewUnaryHandler(
@@ -2376,6 +2482,14 @@ func NewMeshServiceHandler(svc MeshServiceHandler, opts ...connect.HandlerOption
 			meshServiceRetireAgentHandler.ServeHTTP(w, r)
 		case MeshServiceRenameRunProcedure:
 			meshServiceRenameRunHandler.ServeHTTP(w, r)
+		case MeshServiceSetAgentAboutProcedure:
+			meshServiceSetAgentAboutHandler.ServeHTTP(w, r)
+		case MeshServiceSetRunHeadlineProcedure:
+			meshServiceSetRunHeadlineHandler.ServeHTTP(w, r)
+		case MeshServiceRecordDecisionProcedure:
+			meshServiceRecordDecisionHandler.ServeHTTP(w, r)
+		case MeshServiceGetRunOverviewProcedure:
+			meshServiceGetRunOverviewHandler.ServeHTTP(w, r)
 		case MeshServiceOpenViewProcedure:
 			meshServiceOpenViewHandler.ServeHTTP(w, r)
 		case MeshServiceStopRunProcedure:
@@ -2581,6 +2695,22 @@ func (UnimplementedMeshServiceHandler) RetireAgent(context.Context, *connect.Req
 
 func (UnimplementedMeshServiceHandler) RenameRun(context.Context, *connect.Request[v1.RenameRunRequest]) (*connect.Response[v1.RenameRunResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RenameRun is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SetAgentAbout(context.Context, *connect.Request[v1.SetAgentAboutRequest]) (*connect.Response[v1.SetAgentAboutResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetAgentAbout is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) SetRunHeadline(context.Context, *connect.Request[v1.SetRunHeadlineRequest]) (*connect.Response[v1.SetRunHeadlineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.SetRunHeadline is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) RecordDecision(context.Context, *connect.Request[v1.RecordDecisionRequest]) (*connect.Response[v1.RecordDecisionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.RecordDecision is not implemented"))
+}
+
+func (UnimplementedMeshServiceHandler) GetRunOverview(context.Context, *connect.Request[v1.GetRunOverviewRequest]) (*connect.Response[v1.GetRunOverviewResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentmesh.v1.MeshService.GetRunOverview is not implemented"))
 }
 
 func (UnimplementedMeshServiceHandler) OpenView(context.Context, *connect.Request[v1.OpenViewRequest]) (*connect.Response[v1.OpenViewResponse], error) {

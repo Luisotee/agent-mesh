@@ -192,6 +192,64 @@ service MeshService {
     };
   }
 
+  // Say what an agent is for, one line of at most 80 characters (a parent or a device). It is shown beside the agent's
+  // name; a derived line (from its plan or task) never replaces it.
+  rpc SetAgentAbout(SetAgentAboutRequest) returns (SetAgentAboutResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "about"
+      summary: "Say what an agent is for (one line)"
+    };
+  }
+
+  // Write the run's headline: where it is and what comes next, one to three lines for the user who comes back to it.
+  rpc SetRunHeadline(SetRunHeadlineRequest) returns (SetRunHeadlineResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "headline"
+      summary: "Write the run's headline for the user (where it is, what is next)"
+    };
+  }
+
+  // Record a decision the user may want to revisit (a declined finding, a design pick, a scope cut). `mesh brief` and
+  // the run's overview list them, so they need no entry in the notes.
+  rpc RecordDecision(RecordDecisionRequest) returns (RecordDecisionResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_DEVICE
+      ]
+      write: true
+      cli: "decision"
+      summary: "Record a decision for the user (what and why)"
+    };
+  }
+
+  // One run as the user who comes back to it needs it: what waits on them, what broke, the lead's headline, who works
+  // on what, what was merged, what is next, the decisions. Derived from stored state: no GitHub or transcript read.
+  rpc GetRunOverview(GetRunOverviewRequest) returns (GetRunOverviewResponse) {
+    option (action) = {
+      actors: [
+        ACTOR_CLASS_ROOT,
+        ACTOR_CLASS_WORKER,
+        ACTOR_CLASS_ASKER,
+        ACTOR_CLASS_REVIEWER,
+        ACTOR_CLASS_DEVICE,
+        ACTOR_CLASS_READ_ONLY_DEVICE
+      ]
+      cli: "overview"
+      summary: "Show a run's overview: what waits, what broke, who does what, what merged, what is next"
+    };
+  }
+
   // Ask the user's app to show a view (an agent's chat or terminal, the settings, a run): sent to the apps connected now,
   // which show it as a toast the user opens or dismisses (and switch by themselves only when the user turned `app.open_views` on).
   // An agent may ask once in 10 seconds.
@@ -1261,6 +1319,113 @@ message RenameRunResponse {
   Run run = 1;
 }
 
+message SetAgentAboutRequest {
+  RequestMeta meta = 1;
+  // Agent id or name.
+  string agent = 2;
+  // One line; at most 80 characters (longer is cut). Empty clears it, and the derived one returns.
+  string text = 3;
+}
+message SetAgentAboutResponse {
+  Agent agent = 1;
+}
+
+message SetRunHeadlineRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+  // One to three lines, at most 400 characters (longer is cut).
+  string text = 3;
+}
+message SetRunHeadlineResponse {
+  Run run = 1;
+}
+
+message RecordDecisionRequest {
+  RequestMeta meta = 1;
+  string run_id = 2;
+  // What was decided and why, one or two lines (at most 400 characters; longer is cut).
+  string text = 3;
+}
+message RecordDecisionResponse {
+  RunDecision decision = 1;
+}
+
+message GetRunOverviewRequest {
+  // The run (a device names it; an agent's is its own).
+  string run_id = 1;
+  // An event number the caller last saw (`Event.seq`): with it the overview counts what happened since.
+  int64 since_seq = 2;
+}
+message GetRunOverviewResponse {
+  RunOverview overview = 1;
+}
+
+message RunOverview {
+  string run_id = 1;
+  string title = 2;
+  RunStatus status = 3;
+  // The run's newest event number now: what a client keeps as the next `since_seq`.
+  int64 seq = 4;
+  // The lead's headline and when it was written; empty when it never wrote one.
+  string headline = 5;
+  google.protobuf.Timestamp headline_at = 6;
+  // How many events that mattered (an agent started, a PR changed, a plan, question, done or failed) came since the
+  // headline was written: how stale it may be.
+  int32 events_since_headline = 7;
+  // What waits on the user or the lead (`ListWaiting`'s items of this run, `for_user` marks the user's).
+  repeated Waiting needs_you = 8;
+  // Agents that failed, exited, were lost, hit a usage limit or ended a turn in an error.
+  repeated OverviewAgent trouble = 9;
+  // Agents starting or working.
+  repeated OverviewAgent working = 10;
+  // The other live agents: idle, waiting for a task, or reported.
+  repeated OverviewAgent idle = 11;
+  // Pull requests merged or closed, newest first, with the agent that owned each.
+  repeated OverviewPR done_prs = 12;
+  // Agents whose last report was a done and that have no pull request (research, a question, a review): its first line.
+  repeated OverviewAgent done_reports = 13;
+  // Pull requests still open.
+  repeated OverviewPR open_prs = 14;
+  // Tasks held for another task (`mesh held`).
+  repeated HeldTask held = 15;
+  // The lead's decisions, newest first (the last 20).
+  repeated RunDecision decisions = 16;
+  // What happened after `since_seq`; unset when none was given.
+  OverviewSince since = 17;
+}
+
+message OverviewAgent {
+  string agent_id = 1;
+  string name = 2;
+  AgentRole role = 3;
+  string kind = 4;
+  AgentState state = 5;
+  // What the agent is for (`Agent.about`).
+  string about = 6;
+  // What it is doing or waiting for, as one sentence: its state, its detail, what it declared it waits on.
+  string now = 7;
+  repeated PullRequest pull_requests = 8;
+  // The first line of its report to its parent (done or failed) since its last task; empty with none.
+  string report = 9;
+  MessageType report_type = 10;
+  google.protobuf.Timestamp last_activity = 11;
+}
+
+message OverviewPR {
+  PullRequest pull_request = 1;
+  string agent_name = 2;
+  // The owning agent's about line.
+  string about = 3;
+}
+
+message OverviewSince {
+  int32 merged = 1;
+  int32 closed = 2;
+  int32 started = 3;
+  int32 done = 4;
+  int32 failed = 5;
+}
+
 message OpenViewRequest {
   RequestMeta meta = 1;
   // "agent" (its chat), "terminal" (its terminal), "settings", "run" (the run's lead), "messages" (an agent's messages, or
@@ -1363,6 +1528,9 @@ message SpawnAgentRequest {
   // A plain agent: the user's own conversation with the CLI, like running it in a terminal (role ROOT, no task, no
   // plan). The mesh never resets or compacts it, and sends it no root reminders or context hints.
   bool plain = 16;
+  // What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+  // must give it; the others may leave it out and it is derived (the task's first line that says something, the ask, the run's title).
+  string about = 17;
 }
 
 message SpawnAgentResponse {
@@ -1593,6 +1761,9 @@ message SendMessageRequest {
   // told. Sent at once when that task was already answered with a `done`. Another run's task, or a message that is not a
   // task, is refused. `mesh held` lists what is held and `mesh cancel-held` drops it.
   string after = 7;
+  // Only for a task: what the agent is for from now on, when the task changes its job (`mesh send --about`). Without
+  // it the agent keeps the about line it has, and the response says which (`about_note`).
+  string about = 8;
 }
 
 message SendMessageResponse {
@@ -1605,6 +1776,8 @@ message SendMessageResponse {
   string resume_error = 3;
   // Set instead of `message` when the task was held for `after`: the held task's id (`mesh held`).
   string held = 4;
+  // For a task sent without `about` to a worker or lead that already has one: `about kept: "<the line>"`, so the sender can change it.
+  string about_note = 5;
 }
 
 // A task held until another task is reported done (`SendMessageRequest.after`).
@@ -1620,6 +1793,8 @@ message HeldTask {
   // Who asked for it.
   Actor from = 6;
   google.protobuf.Timestamp created_at = 7;
+  // The `about` the task was sent with, applied when it is sent.
+  string about = 8;
 }
 
 message ListHeldTasksRequest {
@@ -2012,6 +2187,8 @@ message ResumeAgentRequest {
   // Replace the agent's extra MCP servers on resume (Claude only; "none" clears them). Empty carries over what it
   // had, dropping any exclusive server another live agent now holds.
   repeated string mcp = 12;
+  // With a task: what the agent is for from now on (see `SendMessageRequest.about`).
+  string about = 13;
 }
 
 message ResumeAgentResponse {
@@ -2023,6 +2200,8 @@ message ResumeAgentResponse {
   repeated string notes = 4;
   // URL of the merged or closed PR whose branch the resume moved off, if any.
   string left_pr = 5;
+  // As `SendMessageResponse.about_note`, for a task given with the resume.
+  string about_note = 6;
 }
 
 message CreatePairingRequest {

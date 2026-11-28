@@ -311,7 +311,7 @@ func TestResumeReopensARetiredWorkerWithTheFeedbackAsADirectTask(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{Repo: repo})
+	a := w.spawnUnder(t, asLead, "fix", &v1.SpawnAgentRequest{About: "test worker", Repo: repo})
 	gitIn(t, a.Worktree, "commit", "--allow-empty", "-m", "work")
 	tip.Store(gitIn(t, a.Worktree, "rev-parse", "HEAD"))
 	w.set(t, "prs.feedback", "resume")

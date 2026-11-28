@@ -30,7 +30,7 @@ test('the open tabs, a split and the folded sidebar come back after the app rest
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
   await until('the lead', async () => (await host.client().listAgents({})).agents.length === 1)
   const lead = (await host.client().listAgents({})).agents[0]!
-  await host.client(host.agentToken(lead.id)).spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  await host.client(host.agentToken(lead.id)).spawnAgent({ about: 'test worker', repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
 
   app = await launchApp({ state: host.state, home: host.home })
   let { page } = app

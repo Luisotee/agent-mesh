@@ -330,4 +330,26 @@ public interface SpawnAgentRequestOrBuilder extends
    * @return The plain.
    */
   boolean getPlain();
+
+  /**
+   * <pre>
+   * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+   * must give it; the others may leave it out and it is derived (the task's first line that says something, the ask, the run's title).
+   * </pre>
+   *
+   * <code>string about = 17 [json_name = "about"];</code>
+   * @return The about.
+   */
+  java.lang.String getAbout();
+  /**
+   * <pre>
+   * What the agent is for, one line of at most 80 characters (`mesh spawn --about`). A root starting a change worker
+   * must give it; the others may leave it out and it is derived (the task's first line that says something, the ask, the run's title).
+   * </pre>
+   *
+   * <code>string about = 17 [json_name = "about"];</code>
+   * @return The bytes for about.
+   */
+  com.google.protobuf.ByteString
+      getAboutBytes();
 }

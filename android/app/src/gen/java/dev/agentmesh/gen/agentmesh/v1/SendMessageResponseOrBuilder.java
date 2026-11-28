@@ -83,4 +83,24 @@ public interface SendMessageResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getHeldBytes();
+
+  /**
+   * <pre>
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * </pre>
+   *
+   * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+   * @return The aboutNote.
+   */
+  java.lang.String getAboutNote();
+  /**
+   * <pre>
+   * For a task sent without `about` to a worker or lead that already has one: `about kept: "&lt;the line&gt;"`, so the sender can change it.
+   * </pre>
+   *
+   * <code>string about_note = 5 [json_name = "aboutNote"];</code>
+   * @return The bytes for aboutNote.
+   */
+  com.google.protobuf.ByteString
+      getAboutNoteBytes();
 }

@@ -45,7 +45,7 @@ func (w *reopenWorld) agyTurn(t *testing.T, a *v1.Agent, line string) *v1.Agent 
 
 func (w *reopenWorld) agyRoot(t *testing.T, run string) (*v1.Agent, agentmeshv1connect.MeshServiceClient) {
 	t.Helper()
-	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{
+	res, err := w.device.Mesh.SpawnAgent(context.Background(), connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run, Repo: gitRepo(t), Slug: "agy-lead", Role: v1.AgentRole_AGENT_ROLE_ROOT,
 		Kind: "agy", Tier: "strong",
 	}))
@@ -60,7 +60,7 @@ func TestAgyEveryReportReachesTheRootAndRingsItsDoorbell(t *testing.T) {
 	w := startReopen(t)
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.agyRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{Kind: "agy"})
+	worker := w.spawnUnder(t, asLead, "reporter", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy"})
 
 	// A wait is not a report: stored for the root to read, it rings no doorbell.
 	wait := w.sendToParent(t, worker, v1.MessageType_MESSAGE_TYPE_WAIT)
@@ -87,7 +87,7 @@ func TestAgyReportSentWhileRootIsWorkingRingsAtNextIdle(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.agyRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "early", &v1.SpawnAgentRequest{Kind: "agy"})
+	worker := w.spawnUnder(t, asLead, "early", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy"})
 
 	w.typeInto(lead, "/hold\r")
 	w.waitState(lead.Id, v1.AgentState_AGENT_STATE_WORKING)
@@ -109,7 +109,7 @@ func TestAgyPlanFromWorkerResumedIntoPlanningReachesTheRoot(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.agyRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{Kind: "agy"})
+	worker := w.spawnUnder(t, asLead, "again", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy"})
 
 	// First task records agy's conversationId on the worker via SessionStart/PreInvocation.
 	if _, err := asLead.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{
@@ -162,7 +162,7 @@ func TestAgyPlaceholderNeverHoldsADoorbellAndTypingDoes(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.agyRoot(t, run.Id)
-	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{Kind: "agy"})
+	worker := w.spawnUnder(t, asLead, "fresh", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy"})
 
 	screen := w.screen(t, worker)
 	if want := `Auto mode: edits & safe commands auto-approved`; !contains(screen, want) {
@@ -208,7 +208,7 @@ func TestAgy429LimitSetsLimitedStateAndSwitchNextReopensSameConversation(t *test
 	w.set(t, "limits.auto", "off") // these switch it by hand
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	worker, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	worker, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "lim", Kind: "agy", Tier: "strong",
 	}))
 	if err != nil {
@@ -313,7 +313,7 @@ func TestAgyTrackedRepoHooksNeutralizedForReviewersAndMergedForWorkers(t *testin
 				base = git("rev-parse", "HEAD")
 				git("checkout", "-q", "main")
 			}
-			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+			sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 				RunId: run.Id, Repo: repo, Slug: "hooks", Kind: "agy", Tier: "light", Role: c.role, Base: base,
 			}))
 			if err != nil {
@@ -342,7 +342,7 @@ func TestAgyHooksIgnoredOnlyInTheAgentsWorktree(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	repo := gitRepo(t)
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: repo, Slug: "ign", Kind: "agy", Tier: "light",
 	}))
 	if err != nil {
@@ -371,7 +371,7 @@ func TestAgyPlanningAndReadOnlyEnforcePreToolUseDenyAndLiftOnApprove(t *testing.
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "plan-agy", Kind: "agy", Tier: "strong", Plan: true,
 	}))
 	if err != nil {
@@ -391,7 +391,7 @@ func TestAgyPlanningAndReadOnlyEnforcePreToolUseDenyAndLiftOnApprove(t *testing.
 
 	// Under a root, send plan, approve it, and verify /edit succeeds afterwards.
 	_, asLead := w.agyRoot(t, run.Id)
-	w2 := w.spawnUnder(t, asLead, "exec-agy", &v1.SpawnAgentRequest{Kind: "agy", Plan: true, Tier: "strong"})
+	w2 := w.spawnUnder(t, asLead, "exec-agy", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy", Plan: true, Tier: "strong"})
 	w2 = w.agyTurn(t, w2, "/edit")
 	if _, err := os.Stat(filepath.Join(w2.Worktree, "blocked.txt")); err == nil {
 		t.Fatal("w2 created blocked.txt while planning")
@@ -463,7 +463,7 @@ func TestAgyLookupSessionFallbackWhenNoHookReportedYet(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "lookup", Kind: "agy", Tier: "light",
 	}))
 	if err != nil {
@@ -499,7 +499,7 @@ func TestAgyLookupSessionOnlyWhenTheActionNeedsIt(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "noneed", Kind: "agy", Tier: "light",
 	}))
 	if err != nil {
@@ -526,7 +526,7 @@ func TestAgyAgentAtErrorStillGetsItsDoorbell(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "stuck", Kind: "agy", Tier: "light",
 	}))
 	if err != nil {
@@ -551,7 +551,7 @@ func TestAgyAgentAtLimitHoldsItsDoorbellUntilTheSwitch(t *testing.T) {
 	w.set(t, "limits.auto", "off") // these switch it by hand
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "lim", Kind: "agy", Tier: "strong",
 	}))
 	if err != nil {
@@ -585,7 +585,7 @@ func TestAgyExactModelIDWithoutEffortLaunchesAsNamed(t *testing.T) {
 	w := startReopen(t, func(c *daemon.AgentConfig) { c.Env["FAKEAGY_ARGV_LOG"] = argvLog })
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "exact", Kind: "agy", Model: "gemini-4-neon-low",
 	}))
 	if err != nil {
@@ -618,7 +618,7 @@ func TestAgyStartupWaitsForQuietOutput(t *testing.T) {
 	w := startReopen(t, func(c *daemon.AgentConfig) { c.Env["FAKEAGY_DRAW_FOR"] = "2s" })
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "drawing", Kind: "agy", Tier: "light",
 	}))
 	if err != nil {
@@ -642,7 +642,7 @@ func TestAgyStartupAfterLongDelayStillWaitsForQuietOutput(t *testing.T) {
 	})
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
-	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{
+	sp, err := w.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{About: "test worker",
 		RunId: run.Id, Repo: gitRepo(t), Slug: "slow-draw", Kind: "agy", Tier: "light",
 	}))
 	if err != nil {
@@ -678,7 +678,7 @@ exec ` + bins + `/mesh "$@"
 	_, asLead := w.agyRoot(t, run.Id)
 
 	// Writer (no deny rules): read_file, write_file and run_command all succeed despite broken PreToolUse.
-	writer := w.spawnUnder(t, asLead, "writer", &v1.SpawnAgentRequest{Kind: "agy"})
+	writer := w.spawnUnder(t, asLead, "writer", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy"})
 	w.agyTurn(t, writer, "read ok")
 	w.agyTurn(t, writer, "/edit")
 	if _, err := os.Stat(filepath.Join(writer.Worktree, "blocked.txt")); err != nil {
@@ -691,7 +691,7 @@ exec ` + bins + `/mesh "$@"
 
 	// Planner (with deny rules): every tool (read_file, /edit, /push) fails closed when PreToolUse fails.
 	os.Remove(hookLog)
-	planner := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{Kind: "agy", Plan: true, Tier: "strong"})
+	planner := w.spawnUnder(t, asLead, "planner", &v1.SpawnAgentRequest{About: "test worker", Kind: "agy", Plan: true, Tier: "strong"})
 	w.agyTurn(t, planner, "read please")
 	w.agyTurn(t, planner, "/edit")
 	if _, err := os.Stat(filepath.Join(planner.Worktree, "blocked.txt")); err == nil {

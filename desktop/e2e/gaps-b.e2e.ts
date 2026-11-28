@@ -39,7 +39,7 @@ test('a worktree is archived with a warning and restored, its files listed, the 
   await host.client().spawnAgent({ runId: run!.id, repo: host.repo, slug: 'lead', role: AgentRole.ROOT, kind: 'claude', tier: 'mid' })
   await until('the lead', async () => (await host.client().listAgents({})).agents.length === 1)
   const lead = (await host.client().listAgents({})).agents[0]!
-  const { agent: worker } = await host.client(host.agentToken(lead.id)).spawnAgent({ repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
+  const { agent: worker } = await host.client(host.agentToken(lead.id)).spawnAgent({ about: 'test worker', repo: host.repo, slug: 'fix', role: AgentRole.WORKER, kind: 'claude', tier: 'mid' })
   const wt = worker!.worktree
   // The new worktree got the ignored file the repo listed.
   expect(readFileSync(path.join(wt, '.env'), 'utf8')).toBe('TOKEN=1\n')

@@ -35,7 +35,7 @@ func TestAgentChangesListsFilesUncommittedWorkAndUnpushedCommits(t *testing.T) {
 	w := startReopen(t)
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	if ch := w.changes(t, a.Id); !ch.Available || len(ch.Files) != 0 || ch.Uncommitted != 0 || ch.Commits != 0 || ch.Unpushed != 0 {
 		t.Fatalf("a fresh worktree: %v", ch)
 	}
@@ -77,7 +77,7 @@ func TestAgentChangesListsTheIgnoredFilesArchivingWouldDelete(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	// A restore copies from the repo's own checkout: `.env` is the same there (so it comes back); `.env.edited` is not (the agent
 	// changed it, and the repo's older copy would come back); `.env.local` is not in the list; `.env.mine` is listed but the repo
 	// has none.
@@ -160,7 +160,7 @@ func TestAgentChangesNamesADeletedTrackedFileAndAnUnreadableBranch(t *testing.T)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	writeFile(t, filepath.Join(a.Worktree, "x.txt"), "x\n", 0o644)
 	gitIn(t, a.Worktree, "add", "x.txt")
 	gitIn(t, a.Worktree, "commit", "-q", "-m", "add x")
@@ -202,7 +202,7 @@ func TestArchiveRemovesTheWorktreeKeepsTheBranchAndResumeBringsItBack(t *testing
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	archive := func(force bool) (*v1.ArchiveAgentResponse, error) {
 		res, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(""), Agent: a.Id, Force: force}))
 		if err != nil {
@@ -276,7 +276,7 @@ func TestArchiveIsForWorkersOnly(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	lead, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	for name, role := range map[string]v1.AgentRole{"root": v1.AgentRole_AGENT_ROLE_ROOT, "asker": v1.AgentRole_AGENT_ROLE_ASKER, "reviewer": v1.AgentRole_AGENT_ROLE_REVIEWER} {
 		if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
 			cur, err := tx.GetAgent(a.Id)
@@ -306,8 +306,8 @@ func TestArchiveKeepsAWorktreeAnotherAgentShares(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
-	b := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
+	b := w.spawnUnder(t, asLead, "other", &v1.SpawnAgentRequest{About: "test worker"})
 	if err := w.d.Store().Write(ctx, nil, "", func(tx *store.Tx) error {
 		cur, err := tx.GetAgent(b.Id)
 		if err != nil {
@@ -336,7 +336,7 @@ func TestArchiveRetriesAndRacesRecordOneArchive(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	call := func(mid string) (*v1.ArchiveAgentResponse, error) {
 		res, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: meta(mid), Agent: a.Id}))
 		if err != nil {
@@ -371,7 +371,7 @@ func TestArchiveRetriesAndRacesRecordOneArchive(t *testing.T) {
 		t.Errorf("%d archive events", n)
 	}
 
-	b := w.spawnUnder(t, asLead, "racer", &v1.SpawnAgentRequest{})
+	b := w.spawnUnder(t, asLead, "racer", &v1.SpawnAgentRequest{About: "test worker"})
 	results := make(chan error, 2)
 	for i := 0; i < 2; i++ {
 		go func(i int) {
@@ -409,7 +409,7 @@ func TestArchiveRefusesAnExpiredCallBeforeItRemovesAnythingAndTwoRetriesAtOnceSh
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	late := &v1.RequestMeta{MutationId: "late", ExpiresAt: timestamppb.New(time.Now().Add(-time.Minute))}
 	if _, err := w.device.Mesh.ArchiveAgent(ctx, connect.NewRequest(&v1.ArchiveAgentRequest{Meta: late, Agent: a.Id})); code(err) != connect.CodeFailedPrecondition || !strings.Contains(err.Error(), "expired") {
 		t.Fatalf("an expired call: %v", err)
@@ -478,7 +478,7 @@ func TestOpenInEditorRunsTheEditorOnAPathInsideTheWorktree(t *testing.T) {
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)
-	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{})
+	a := w.spawnUnder(t, asLead, "work", &v1.SpawnAgentRequest{About: "test worker"})
 	record := filepath.Join(t.TempDir(), "args")
 	editor := filepath.Join(t.TempDir(), "myeditor")
 	writeFile(t, editor, "#!/bin/sh\nprintf '%s\\n' \"$@\" > "+record+"\n", 0o755)
