@@ -1633,8 +1633,8 @@ public  final class Agent extends
   private boolean peer_;
   /**
    * <pre>
-   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-   * peer's conversation, and is never given a change task or have its worktree removed.
+   * A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+   * (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
    * </pre>
    *
    * <code>bool peer = 30 [json_name = "peer"];</code>
@@ -1646,8 +1646,8 @@ public  final class Agent extends
   }
   /**
    * <pre>
-   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-   * peer's conversation, and is never given a change task or have its worktree removed.
+   * A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+   * (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
    * </pre>
    *
    * <code>bool peer = 30 [json_name = "peer"];</code>
@@ -1659,8 +1659,8 @@ public  final class Agent extends
   }
   /**
    * <pre>
-   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-   * peer's conversation, and is never given a change task or have its worktree removed.
+   * A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+   * (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
    * </pre>
    *
    * <code>bool peer = 30 [json_name = "peer"];</code>
@@ -4413,8 +4413,8 @@ public  final class Agent extends
 
     /**
      * <pre>
-     * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-     * peer's conversation, and is never given a change task or have its worktree removed.
+     * A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+     * (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
      * </pre>
      *
      * <code>bool peer = 30 [json_name = "peer"];</code>
@@ -4426,8 +4426,8 @@ public  final class Agent extends
     }
     /**
      * <pre>
-     * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-     * peer's conversation, and is never given a change task or have its worktree removed.
+     * A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+     * (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
      * </pre>
      *
      * <code>bool peer = 30 [json_name = "peer"];</code>
@@ -4441,8 +4441,8 @@ public  final class Agent extends
     }
     /**
      * <pre>
-     * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-     * peer's conversation, and is never given a change task or have its worktree removed.
+     * A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+     * (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
      * </pre>
      *
      * <code>bool peer = 30 [json_name = "peer"];</code>

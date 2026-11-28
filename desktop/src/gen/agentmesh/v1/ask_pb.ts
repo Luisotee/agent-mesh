@@ -425,7 +425,7 @@ export type AskRequest = Message<"agentmesh.v1.AskRequest"> & {
 
   /**
    * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`. A question
-   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
+   * (or peers) that names no tier and no model runs on the asker role (`roles.asker.*`; a kind narrows it to that CLI).
    *
    * @generated from field: string tier = 7;
    */
@@ -736,8 +736,8 @@ export const PeerUpstreamSchema: GenMessage<PeerUpstream> = /*@__PURE__*/
   messageDesc(file_agentmesh_v1_ask, 9);
 
 /**
- * Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
- * asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+ * Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+ * asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
  *
  * @generated from message agentmesh.v1.Peer
  */

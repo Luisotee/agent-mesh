@@ -269,7 +269,7 @@ func TestAskingPeersCollectsOneFileStartsFreshAskersAndContinuesTheirConversatio
 	}
 	// The registry noted who asked, and the conversation.
 	got := w.peer(t, pa.Name)
-	if got.SessionId == "" || got.SessionId != a1.SessionId || got.LastRun != w.run.Id || got.LastAgent != a1.Id || got.Seen != newA || got.Asked == nil {
+	if got.SessionId != "" || got.LastRun != w.run.Id || got.LastAgent != a1.Id || got.Seen != newA || got.Asked == nil {
 		t.Errorf("registry after the ask %v", got)
 	}
 	if got.RunningRun != w.run.Id || got.RunningAgent != a1.Id {
@@ -302,8 +302,10 @@ func TestAskingPeersCollectsOneFileStartsFreshAskersAndContinuesTheirConversatio
 			t.Errorf("file lacks %q:\n%s", want, file)
 		}
 	}
-	if got := w.peer(t, pa.Name); got.LastAnswers != res.Ask.AnswersPath {
-		t.Errorf("last answers %q", got.LastAnswers)
+	// The answering asker's conversation is the one `--continue` goes back to (not one only started).
+	got = w.peer(t, pa.Name)
+	if got.LastAnswers != res.Ask.AnswersPath || got.SessionId != a1.SessionId || got.SessionId == "" || got.Kind != "claude" {
+		t.Errorf("registry after the answer %v", got)
 	}
 
 	// A plain task never makes a peer a worker.
@@ -391,8 +393,8 @@ func TestAskingPeersCollectsOneFileStartsFreshAskersAndContinuesTheirConversatio
 	if f := res4.Msg.Agents[0]; f.SessionId == sid || f.SessionId == "" || res4.Msg.Ask.Members[0].How != "fresh" || f.RunId != run3.Id {
 		t.Errorf("a fresh asker %v, how %q", f, res4.Msg.Ask.Members[0].How)
 	}
-	if got := w.peer(t, pa.Name); got.SessionId != res4.Msg.Agents[0].SessionId || got.Kind != "claude" || got.LastRun != run3.Id {
-		t.Errorf("the registry after a fresh ask: %v", got)
+	if got := w.peer(t, pa.Name); got.SessionId != sid || got.LastAgent != res4.Msg.Agents[0].Id || got.LastRun != run3.Id {
+		t.Errorf("the registry after a fresh ask (the last answering conversation stays until the new one answers): %v", got)
 	}
 }
 

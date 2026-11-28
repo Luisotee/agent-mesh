@@ -128,7 +128,7 @@ public interface AskRequestOrBuilder extends
   /**
    * <pre>
    * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
-   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
+   * (or peers) that names no tier and no model runs on the asker role (`roles.asker.*`; a kind narrows it to that CLI).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>
@@ -138,7 +138,7 @@ public interface AskRequestOrBuilder extends
   /**
    * <pre>
    * The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.&lt;size&gt;`. A question
-   * (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
+   * (or peers) that names no tier and no model runs on the asker role (`roles.asker.*`; a kind narrows it to that CLI).
    * </pre>
    *
    * <code>string tier = 7 [json_name = "tier"];</code>

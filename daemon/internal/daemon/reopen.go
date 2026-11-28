@@ -758,7 +758,8 @@ func (d *Daemon) hasProcessOnSessionOrWorktree(r store.Reader, a *v1.Agent) erro
 			return failedPrecondition("conversation %s is already running in %s (run %s): stop it before resuming",
 				a.SessionId, other.Name, other.RunId)
 		}
-		if a.Worktree != "" && other.Worktree == a.Worktree {
+		// Askers of one peer share its checkout (their conversations differ).
+		if a.Worktree != "" && other.Worktree == a.Worktree && !(a.Peer && other.Peer) {
 			return failedPrecondition("worktree %s is already in use by %s (run %s): stop it before resuming",
 				a.Worktree, other.Name, other.RunId)
 		}

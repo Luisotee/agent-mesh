@@ -396,8 +396,8 @@ export type Agent = Message$1<"agentmesh.v1.Agent"> & {
   resumedFromAgentId: string;
 
   /**
-   * A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-   * peer's conversation, and is never given a change task or have its worktree removed.
+   * A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+   * (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
    *
    * @generated from field: bool peer = 30;
    */

@@ -16,7 +16,7 @@ The CLI of a new agent is `--kind claude` (the default), `--kind agy`, `--kind o
 
 ### Tiers
 
-You pick every agent's model and effort as a **tier**, from the task: the daemon has no default and refuses a spawn without `--tier` (or a named `--model`). An asker is the exception: a question (`mesh ask --repo`, or `--peers`) that names no tier, kind or model runs on the **asker role** (`roles.asker.*`: the free OpenCode models first, then Sonnet). A tier is a model chain (the first with quota) and an effort per CLI, with a note on what it is for (`tiers.<kind>.<tier>.*`).
+You pick every agent's model and effort as a **tier**, from the task: the daemon has no default and refuses a spawn without `--tier` (or a named `--model`). An asker is the exception: a question (`mesh ask --repo`, or `--peers`) that names no tier and no model (`--kind` narrows it to that CLI) runs on the **asker role** (`roles.asker.*`: the free OpenCode models first, then Sonnet). A tier is a model chain (the first with quota) and an effort per CLI, with a note on what it is for (`tiers.<kind>.<tier>.*`).
 
 | Tier | For |
 |---|---|
@@ -46,10 +46,10 @@ The tier says how strong, the CLI says whose quota. Pick both by the work. Model
 | Work | CLI, in order | Tier and effort |
 |---|---|---|
 | Planning, unclear work, a bug of unknown cause | Claude; agy `strong` when Claude is near its limit | `strong`, `high` (`xhigh` only for the hardest) |
-| Executing a clear plan | Claude; agy `mid` when it has headroom | `mid` (Sonnet at `high`, never `medium`); a plan that left something open: `strong` with Opus at `medium` |
+| Executing a clear plan | Claude; agy `mid` when it has headroom | `mid` (Sonnet at `high`, never `medium` for work that changes code); a plan that left something open: `strong` with Opus at `medium` |
 | Frontend and design | by quality and headroom, like other work (no vendor rule) | `mid` at a high effort, or `strong` at `medium`; agy's work gets a Claude reviewer |
 | Trivial and mechanical work | OpenCode, then Claude `light`; not agy | `light` |
-| An asker or a peer | OpenCode (a model with a long context), then Claude `mid`: the asker role, taken when the ask names no tier, kind or model | the role's (`roles.asker.*`: free models at `high`, Sonnet at `medium`); `--kind claude --tier strong` for a hard question |
+| An asker or a peer | OpenCode (a model with a long context), then Claude `mid`: the asker role, taken when the ask names no tier and no model | the role's (`roles.asker.*`: free models at `high`, Sonnet at `medium`); `--kind claude --tier strong` for a hard question |
 | A small PR's review | OpenCode, then Claude | `mid` |
 | A large routine PR's review | OpenCode plus Claude (two slots) | `mid` |
 | A risky PR's review (any size) | a relay ("A relay for a risky PR") | `strong` |
@@ -235,7 +235,7 @@ mesh ask --peers <name> --body "…"                                            
 mesh ask --peers <name> --continue --body "…"                                                      # go on in its last asker's conversation
 ```
 
-- **A fresh asker each ask:** every peer asked gets a read-only asker of its own in the peer's worktree (`<state>/worktrees/peers/<name>`, never removed by `mesh stop-run`), named as the peer and then `<peer>-2`, …, on the **asker role** (`roles.asker.*`: the free OpenCode models first, Sonnet when they are out; `mesh settings --prefix roles.asker.`). Name `--tier`, `--kind`, `--model` or `--effort` to choose otherwise (`--kind claude --tier mid` is the ask-again-on-Sonnet fallback). The asker is closed by the idle retire once it has answered; nothing runs between asks.
+- **A fresh asker each ask:** every peer asked gets a read-only asker of its own in the peer's worktree (`<state>/worktrees/peers/<name>`, never removed by `mesh stop-run`), named as the peer and then `<peer>-2`, …, on the **asker role** (`roles.asker.*`: the free OpenCode models first, Sonnet when they are out; `mesh settings --prefix roles.asker.`). Name `--tier` or `--model` to choose otherwise (`--kind` alone narrows the role to that CLI, `--effort` changes its effort; `--kind claude --tier mid` is the ask-again-on-Sonnet fallback). The asker is closed by the idle retire once it has answered; nothing runs between asks.
 - **One message, one file:** like a review round, the peers are asked at once and you end your turn; when the last has answered (or the timeout passed: `ask.timeout`, 30 minutes by default, `--timeout` seconds instead) you get **one** `info` `[mesh answers <id>]` with who answered and the path of `reports/peers-<stamp>.md`, which holds the question and every answer. Read the file, not N inboxes.
 - **Continuing is your choice, never the default.** A fresh asker reads the project cold; ask fresh unless the earlier answer's context is what the question needs. `--continue` goes back to each named peer's last asker conversation (this run's asker, or an earlier run's resumed in a new one) on that conversation's own CLI (`--kind` or `--model` of another is refused). A peer with no conversation, or whose transcript is gone (Claude Code deletes old ones), is asked fresh, and the message says so. A conversation running in another run is not continued from this one: ask fresh.
 - **What changed upstream** is in the task before your question: the daemon fetches the peer's project, moves its checkout to the new head when it is clean and no other run's asker is reading it, and lists the new commits. `--no-refresh` skips that. A checkout another run's asker holds stays where it is: the note says so and points at `git show <head>:<path>`.

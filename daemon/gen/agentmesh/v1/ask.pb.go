@@ -772,7 +772,7 @@ type AskRequest struct {
 	// trivial, small or large: the review's slots (`review.reviewers.<size>`), /code-review level and rounds.
 	Size string `protobuf:"bytes,6,opt,name=size,proto3" json:"size,omitempty"`
 	// The tier the reviewers (or a fresh agent) run on. A review without one takes `review.tier.<size>`. A question
-	// (or peers) that names no tier, kind or model runs on the asker role (`roles.asker.*`).
+	// (or peers) that names no tier and no model runs on the asker role (`roles.asker.*`; a kind narrows it to that CLI).
 	Tier string `protobuf:"bytes,7,opt,name=tier,proto3" json:"tier,omitempty"`
 	// The CLI of a fresh agent; a round chooses its own.
 	Kind   string `protobuf:"bytes,8,opt,name=kind,proto3" json:"kind,omitempty"`
@@ -1378,8 +1378,8 @@ func (x *PeerUpstream) GetUrl() string {
 	return ""
 }
 
-// Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
-// asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+// Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+// asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
 type Peer struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// `<repo>-research` (the repo part cut to 20 characters), unique on the host.

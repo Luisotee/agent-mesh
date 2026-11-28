@@ -12,17 +12,17 @@ var askerDefaults = []struct {
 	models []string
 	effort string
 }{
-	{"opencode", []string{"opencode/hy4-flash-free", "opencode/seaglass-alpha-free", "opencode/deepseek-v4.1-flash-free"}, "high"},
+	{"opencode", []string{"opencode/hy4-flash-free", "opencode/seaglass-alpha-free", "opencode/deepseek-v4.1-flash-free", "free"}, "high"},
 	{"claude", []string{"sonnet"}, "medium"},
 	{"agy", []string{"hydrogen"}, "high"},
 	{"copilot", []string{"auto"}, "medium"},
 }
 
 // roleLeaves are the settings of the asker role: which CLIs a fresh asker (a plain ask, or a peer's) runs on when the
-// ask names no tier, kind or model, and the models and effort on each.
+// ask names no tier and no model, and the models and effort on each.
 func roleLeaves() []Leaf {
 	ls := []Leaf{{Key: "roles.asker.kinds", Label: "CLIs of a fresh asker", Group: GroupAgents, Type: Kinds, Default: chain(AskerKinds...), Choices: AgentKinds,
-		Summary: "the CLIs a fresh asker (an `ask` or an `ask --peers` that names no tier, kind or model) tries in order: the first that is installed, allowed for the repo (`repos.no_free_models`) and has a model with quota"}}
+		Summary: "the CLIs a fresh asker (an `ask` or an `ask --peers` that names no tier and no model) tries in order: the first that is installed, allowed for the repo (`repos.no_free_models`) and has a model with quota; a tier or a model named in the ask takes the tier path instead (a kind alone only narrows this list to that CLI)"}}
 	for _, r := range askerDefaults {
 		p := "roles.asker." + r.kind + "."
 		name := tierKindNames[r.kind] + ", asker: "

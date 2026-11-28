@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -32,7 +33,7 @@ func (w *peerWorld) patchPeer(t *testing.T, name string, fn func(*v1.Peer)) {
 	}
 }
 
-// A peers ask that names no tier, kind or model runs its askers on the asker role (`roles.asker.*`); naming any of
+// A peers ask that names no tier and no model runs its askers on the asker role (`roles.asker.*`); naming any of
 // them keeps the tier path, and each ask of a peer is a fresh asker named after it, then `<peer>-2`.
 func TestAnAskOfPeersTakesTheAskerRoleUnlessTheAskNamesATierAKindOrAModel(t *testing.T) {
 	w := startPeers(t)
@@ -113,15 +114,16 @@ func TestContinuingAPeerStaysOnItsCLIAndAnUnaskedPeerIsAskedFresh(t *testing.T) 
 		t.Errorf("a peer never asked: %v", m)
 	}
 	first := res.Agents[0]
+	w.quiet(t, first.Id)
+	w.say(t, first.Id, v1.MessageType_MESSAGE_TYPE_DONE, "one")
+	waitFor(t, "the first answer", func() bool { return len(w.answers(t)) == 1 })
+	w.quiet(t, first.Id)
 	// Its conversation is claude's: another CLI is refused, and nothing was started.
 	_, err := w.asRoot.Ask(ctx, connect.NewRequest(&v1.AskRequest{Peers: p.Name, Continue: true, Kind: "agy", Body: "second", NoRefresh: true}))
 	if err == nil || !strings.Contains(err.Error(), "its last conversation is on claude") {
 		t.Errorf("--continue on another CLI: %v", err)
 	}
-	// On its own CLI it goes back to the same asker of this run, given the question (it answers first).
-	w.quiet(t, first.Id)
-	w.say(t, first.Id, v1.MessageType_MESSAGE_TYPE_DONE, "one")
-	w.quiet(t, first.Id)
+	// On its own CLI it goes back to the same asker of this run, given the question.
 	again := w.ask(t, &v1.AskRequest{Peers: p.Name, Continue: true, Body: "second", NoRefresh: true})
 	if again.Agents[0].Id != first.Id || again.Ask.Members[0].How != "continued" {
 		t.Errorf("continued %v, how %q", again.Agents[0], again.Ask.Members[0].How)
@@ -129,7 +131,7 @@ func TestContinuingAPeerStaysOnItsCLIAndAnUnaskedPeerIsAskedFresh(t *testing.T) 
 	// Without it the same peer gets a new asker.
 	w.quiet(t, first.Id)
 	w.say(t, first.Id, v1.MessageType_MESSAGE_TYPE_DONE, "two")
-	waitFor(t, "both rounds' messages", func() bool { return len(w.answers(t)) == 2 })
+	waitFor(t, "the second round's message", func() bool { return len(w.answers(t)) == 2 })
 	other := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "third", NoRefresh: true})
 	if other.Agents[0].Id == first.Id || other.Agents[0].Name != p.Name+"-2" {
 		t.Errorf("a fresh ask went to %v", other.Agents[0])
@@ -166,8 +168,9 @@ func TestACheckoutAnotherRunsAskerReadsIsNotMoved(t *testing.T) {
 	if out := gitOut(t, p.Worktree, "rev-parse", "HEAD"); out != head {
 		t.Errorf("the checkout moved to %s under the asker reading it", out)
 	}
-	if got := w.peer(t, p.Name); got.Seen != next {
-		t.Errorf("seen %s, want %s", got.Seen, next)
+	// The checkout stayed behind, so the peer has not "seen" the new head: a later ask moves it and says so until it does.
+	if got := w.peer(t, p.Name); got.Seen != head {
+		t.Errorf("seen %s, want %s (the head the checkout is at)", got.Seen, head)
 	}
 }
 
@@ -278,5 +281,63 @@ func TestAnAskerOfThisRunStillAnsweringHoldsTheCheckout(t *testing.T) {
 	}
 	if out := gitOut(t, p.Worktree, "rev-parse", "HEAD"); out != head {
 		t.Errorf("the checkout moved to %s under the first asker", out)
+	}
+}
+
+// A retired asker is brought back by a task while another asker of the peer runs in the same checkout.
+func TestAskingARetiredAskerWorksWhileASiblingRunsInTheSameCheckout(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	w.set(t, "roles.asker.kinds", []any{"claude"})
+	up := newUpstream(t, "alpha")
+	p := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g"})
+	first := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "first", NoRefresh: true}).Agents[0]
+	w.quiet(t, first.Id)
+	w.say(t, first.Id, v1.MessageType_MESSAGE_TYPE_DONE, "one")
+	waitFor(t, "the answer", func() bool { return len(w.answers(t)) == 1 })
+	if _, err := w.asRoot.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta(""), Agent: first.Id})); err != nil {
+		t.Fatal(err)
+	}
+	w.waitState(first.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	sibling := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "second", NoRefresh: true}).Agents[0]
+	if sibling.Name != p.Name+"-2" {
+		t.Fatalf("sibling %v", sibling)
+	}
+	res := w.ask(t, &v1.AskRequest{Agent: first.Id, Body: "third"})
+	if len(res.Agents) != 1 || res.Agents[0].Id != first.Id || !strings.Contains(strings.Join(res.Notes, "|"), "resumed in its own conversation") {
+		t.Errorf("asking the retired asker beside its sibling: %v %v", res.Agents, res.Notes)
+	}
+}
+
+// The role walks past a Claude model at its quota reserve to the next model of its list.
+func TestTheAskerRoleWalksPastAClaudeModelAtItsReserve(t *testing.T) {
+	w := startPeers(t)
+	ctx := context.Background()
+	w.set(t, "roles.asker.kinds", []any{"claude"})
+	w.set(t, "roles.asker.claude.model", []any{"opus", "sonnet"})
+	up := newUpstream(t, "alpha")
+	p := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g"})
+	reset := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	w.typeInto(w.spawnClaude(t, w.run, "usage", v1.AgentRole_AGENT_ROLE_WORKER),
+		`/ratelimits {"seven_day_opus":{"used_percentage":97,"resets_at":"`+reset+`"}}`+"\r")
+	waitFor(t, "the Opus window to fill", func() bool {
+		return w.d.ReserveGuard(ctx, w.d.Store().Read(ctx), w.run.Id, "claude", "opus", "high", "test", false) != nil
+	})
+	if a := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "q", NoRefresh: true}).Agents[0]; a.Model != "sonnet" {
+		t.Errorf("the asker took %s past a full Opus window", a.Model)
+	}
+}
+
+// Two agy askers don't share a checkout (agy's hooks are per checkout): the role falls through to the next CLI.
+func TestASecondAgyAskerOfAPeerFallsThroughToTheNextCLI(t *testing.T) {
+	w := startPeers(t)
+	w.set(t, "roles.asker.kinds", []any{"agy", "claude"})
+	up := newUpstream(t, "alpha")
+	p := w.add(t, &v1.AddPeerRequest{Meta: meta(""), Source: up.url(), Group: "g"})
+	if a := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "first", NoRefresh: true}).Agents[0]; a.Kind != "agy" {
+		t.Fatalf("first asker %v", a)
+	}
+	if b := w.ask(t, &v1.AskRequest{Peers: p.Name, Body: "second", NoRefresh: true}).Agents[0]; b.Kind != "claude" {
+		t.Errorf("a second asker beside a live agy one: %v", b)
 	}
 }

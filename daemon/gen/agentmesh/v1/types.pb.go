@@ -712,8 +712,8 @@ type Agent struct {
 	// When resumed from an earlier run, the run and agent id it came from.
 	ResumedFromRunId   string `protobuf:"bytes,28,opt,name=resumed_from_run_id,json=resumedFromRunId,proto3" json:"resumed_from_run_id,omitempty"`
 	ResumedFromAgentId string `protobuf:"bytes,29,opt,name=resumed_from_agent_id,json=resumedFromAgentId,proto3" json:"resumed_from_agent_id,omitempty"`
-	// A standing peer's agent in this run (`mesh ask --peers`): it works in the peer's own worktree, resumes the
-	// peer's conversation, and is never given a change task or have its worktree removed.
+	// A peer's asker in this run (`mesh ask --peers`): it works in the peer's own worktree, a fresh conversation or
+	// (`--continue`) the peer's last one, and is never given a change task or have its worktree removed.
 	Peer bool `protobuf:"varint,30,opt,name=peer,proto3" json:"peer,omitempty"`
 	// The user's MCP servers the spawn asked for (`mesh spawn --mcp`), loaded on top of the always-loaded ones
 	// (`claude.mcp_keep`); every reopen keeps them.

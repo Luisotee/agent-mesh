@@ -7,8 +7,8 @@ package dev.agentmesh.gen.agentmesh.v1;
 
 /**
  * <pre>
- * Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
- * asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+ * Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+ * asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
  * </pre>
  *
  * Protobuf type {@code agentmesh.v1.Peer}
@@ -1141,8 +1141,8 @@ public  final class Peer extends
 
   /**
    * <pre>
-   * Peer is a standing read-only asker for a cloned project: it keeps its conversation across runs (each run that
-   * asks it gets its own agent record that resumes it) and its own detached worktree of the clone.
+   * Peer is a registered cloned project with its own detached worktree. Each `ask --peers` starts a fresh read-only
+   * asker in that worktree; the registry keeps the last answering asker's conversation for `--continue`.
    * </pre>
    *
    * Protobuf type {@code agentmesh.v1.Peer}

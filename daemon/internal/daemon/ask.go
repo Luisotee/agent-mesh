@@ -184,7 +184,7 @@ func (d *Daemon) askFresh(ctx context.Context, m *v1.AskRequest, body string) (*
 			if only == "" && len(mcpNames) > 0 {
 				only = "claude"
 			}
-			if kind, model, effort, err = d.askerChoice(ctx, r, actor.RunId, top, only, m.Effort, "an asker in "+top); err != nil {
+			if kind, model, effort, err = d.askerChoice(ctx, r, actor.RunId, top, only, m.Effort, "an asker in "+top, nil); err != nil {
 				return nil, err
 			}
 		}
