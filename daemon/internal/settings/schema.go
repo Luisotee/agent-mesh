@@ -303,7 +303,7 @@ func Check(l Leaf, v any) (any, error) {
 var tierNotes = map[string]string{
 	"light":  "trivial tasks (copy, translations, a version bump, config) and short mechanical text",
 	"mid":    "executing a clear plan, small tasks, routine questions and follow-ups, reviews of routine PRs (small or large)",
-	"strong": "planning, unclear or risky work (auth, money, data migrations, concurrency), a bug of unknown cause, reviews of risky PRs",
+	"strong": "planning, unclear or risky work (money, data that matters, secrets or the machine exposed to others, a deploy: not concurrency, local permission logic, protocol changes or the daemon's own internals), a bug of unknown cause, reviews of risky PRs",
 	"top":    "only when the user names it",
 }
 
@@ -415,10 +415,10 @@ func DefaultLeaves() []Leaf {
 	}
 	ls = append(ls,
 		Leaf{Key: "review.reviewers.small", Label: "Reviewers of a small PR", Group: GroupReviews, Type: Slots, Default: []any{chain("opencode", "claude", "agy")}, Choices: AgentKinds,
-			Summary: "reviewer slots of a small PR: each takes its first available kind not picked yet (one slot: a free model first, then Claude, then agy, whose plan is small)"},
+			Summary: "reviewer slots of a small PR (up to about 10 hand-written files, never judged by lines): each takes its first available kind not picked yet (one slot: a free model first, then Claude, then agy, whose plan is small)"},
 		Leaf{Key: "review.reviewers.large", Label: "Reviewers of a large PR", Group: GroupReviews, Type: Slots, Default: []any{chain("opencode", "claude", "agy"), chain("claude", "agy", "opencode")},
 			Choices: AgentKinds,
-			Summary: "reviewer slots of a large PR: each takes its first available kind not picked yet (two slots: a free model, and a Claude reviewer, or another family when Claude wrote the PR and agy has quota; a risky PR gets a relay instead)"},
+			Summary: "reviewer slots of a large PR (more than about 10 hand-written files): each takes its first available kind not picked yet (two slots: a free model, and a Claude reviewer, or another family when Claude wrote the PR and agy has quota; a risky PR gets a relay instead)"},
 		Leaf{Key: "review.re_review.skip", Label: "Reviewers not asked again after a fix", Group: GroupReviews, Type: Kinds, Default: chain("copilot"), Choices: AgentKinds,
 			Summary: "kinds that review a PR once and are not asked again after a fix"},
 		Leaf{Key: "review.re_review.keep.small", Label: "Asked again after a fix, small PR", Group: GroupReviews, Advanced: true, Type: Kinds, Default: []any{}, Choices: AgentKinds,

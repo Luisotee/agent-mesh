@@ -1,5 +1,7 @@
 # Model tiers per role, reviewers, and the root's weight (2026-11-26)
 
+*Note, 2026-11-28: where this report calls a PR risky for "security, money, data migrations, concurrency" or a very large diff, the shipped definition is now narrower (ORCHESTRATE "Tiers": money, data that matters, exposure to others, a deploy), and a PR's size counts hand-written files, never lines.*
+
 A research round on three questions: which model tier each role (orchestrator, planner, executor, reviewer) should run on to be good while cheap; whether the reviewer setup (the other CLI plus one OpenCode free model per PR) is the right one; and where the root's tokens go. It builds on `README.md` in this folder (ledger #4, #11, #12 and "Settled"): don't re-propose what is settled there without new evidence.
 
 Our numbers are from 2026-11-25 onwards only: the mesh changed a lot on 11-24 and 11-25. The web evidence was gathered by Sonnet subagents. Every benchmark below is vendor-run unless marked otherwise.
