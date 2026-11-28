@@ -25,6 +25,7 @@ public  final class TranscriptEntry extends
     tool_ = "";
     toolInput_ = "";
     toolUseId_ = "";
+    questions_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -532,6 +533,155 @@ public  final class TranscriptEntry extends
   private void clearOffset() {
 
     offset_ = 0L;
+  }
+
+  public static final int QUESTIONS_FIELD_NUMBER = 11;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> questions_;
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> getQuestionsList() {
+    return questions_;
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.PromptQuestionOrBuilder> 
+      getQuestionsOrBuilderList() {
+    return questions_;
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public int getQuestionsCount() {
+    return questions_.size();
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PromptQuestion getQuestions(int index) {
+    return questions_.get(index);
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.PromptQuestionOrBuilder getQuestionsOrBuilder(
+      int index) {
+    return questions_.get(index);
+  }
+  private void ensureQuestionsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> tmp = questions_;
+    if (!tmp.isModifiable()) {
+      questions_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  private void setQuestions(
+      int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.set(index, value);
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  private void addQuestions(dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.add(value);
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  private void addQuestions(
+      int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.add(index, value);
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  private void addAllQuestions(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PromptQuestion> values) {
+    ensureQuestionsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, questions_);
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  private void clearQuestions() {
+    questions_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+   * it after it was answered. `tool_input` is its one-line summary.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+   */
+  private void removeQuestions(int index) {
+    ensureQuestionsIsMutable();
+    questions_.remove(index);
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.TranscriptEntry parseFrom(
@@ -1163,6 +1313,168 @@ public  final class TranscriptEntry extends
       return this;
     }
 
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> getQuestionsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getQuestionsList());
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public int getQuestionsCount() {
+      return instance.getQuestionsCount();
+    }/**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PromptQuestion getQuestions(int index) {
+      return instance.getQuestions(index);
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder setQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+      copyOnWrite();
+      instance.setQuestions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder setQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.setQuestions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+      copyOnWrite();
+      instance.addQuestions(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+      copyOnWrite();
+      instance.addQuestions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        dev.agentmesh.gen.agentmesh.v1.PromptQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQuestions(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQuestions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder addAllQuestions(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PromptQuestion> values) {
+      copyOnWrite();
+      instance.addAllQuestions(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder clearQuestions() {
+      copyOnWrite();
+      instance.clearQuestions();
+      return this;
+    }
+    /**
+     * <pre>
+     * For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+     * it after it was answered. `tool_input` is its one-line summary.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 11 [json_name = "questions"];</code>
+     */
+    public Builder removeQuestions(int index) {
+      copyOnWrite();
+      instance.removeQuestions(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.TranscriptEntry)
   }
   @java.lang.Override
@@ -1190,10 +1502,13 @@ public  final class TranscriptEntry extends
             "isError_",
             "truncated_",
             "offset_",
+            "questions_",
+            dev.agentmesh.gen.agentmesh.v1.PromptQuestion.class,
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u1009\u0000\u0003" +
-              "\f\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0007\t\u0007\n\u0002";
+              "\u0000\u000b\u0000\u0001\u0001\u000b\u000b\u0000\u0001\u0000\u0001\u0208\u0002\u1009" +
+              "\u0000\u0003\f\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u0007\t\u0007\n" +
+              "\u0002\u000b\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

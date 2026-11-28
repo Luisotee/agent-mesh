@@ -1,4 +1,4 @@
-import { TranscriptKind, type ReadTranscriptResponse, type TranscriptEntry } from './gen/agentmesh/v1/chat_pb'
+import { TranscriptKind, type PromptQuestion, type ReadTranscriptResponse, type TranscriptEntry } from './gen/agentmesh/v1/chat_pb'
 import type { Message } from './gen/agentmesh/v1/types_pb'
 
 /**
@@ -47,22 +47,27 @@ export function withLater(t: Transcript, res: ReadTranscriptResponse, from: bigi
   return { kind: 'more', transcript: { ...t, entries: [...t.entries, ...res.entries], end: res.endOffset } }
 }
 
-/** What the chat shows, in order: a prompt, a mesh doorbell, a reply, what a typed command printed, or a run of tool calls with their answers. */
+/** What the chat shows, in order: a prompt, a mesh doorbell, a reply, what a typed command printed, a question the agent asked the user, or a run of tool calls with their answers. */
 export type Block =
   | { kind: 'user'; id: string; at: number; entry: TranscriptEntry }
   | { kind: 'mesh'; id: string; at: number; entry: TranscriptEntry }
   | { kind: 'assistant'; id: string; at: number; entry: TranscriptEntry }
   | { kind: 'output'; id: string; at: number; entry: TranscriptEntry }
   | { kind: 'tools'; id: string; at: number; calls: ToolCall[] }
+  | { kind: 'asked'; id: string; at: number; call: ToolCall }
 
 const ms = (t?: { seconds: bigint; nanos: number }) => (t ? Number(t.seconds) * 1000 + Math.floor(t.nanos / 1e6) : 0)
 
 export interface ToolCall {
   id: string
+  /** The CLI's id of the call (`TranscriptEntry.tool_use_id`): what a held prompt of the agent names. */
+  toolUseId: string
   tool: string
   input: string
   /** What the tool answered; unset until it did. */
   result?: TranscriptEntry
+  /** For a question the agent asked the user (AskUserQuestion): what it asked. */
+  questions: PromptQuestion[]
 }
 
 /** Entries as blocks: consecutive tool calls fold into one block, each call with the result that carries its id. */
@@ -73,8 +78,14 @@ export function toBlocks(entries: TranscriptEntry[]): Block[] {
   for (const e of entries) {
     switch (e.kind) {
       case TranscriptKind.TOOL_CALL: {
-        const call: ToolCall = { id: e.id, tool: e.tool, input: e.toolInput }
+        const call: ToolCall = { id: e.id, toolUseId: e.toolUseId, tool: e.tool, input: e.toolInput, questions: e.questions }
         calls.set(e.toolUseId, call)
+        if (call.questions.length > 0) {
+          // A question to the user is not folded in with the tools: it is what the agent waited on.
+          run = undefined
+          blocks.push({ kind: 'asked', id: e.id, at: ms(e.time), call })
+          break
+        }
         if (!run) blocks.push((run = { kind: 'tools', id: e.id, at: ms(e.time), calls: [] }))
         run.calls.push(call)
         break
@@ -84,7 +95,7 @@ export function toBlocks(entries: TranscriptEntry[]): Block[] {
         if (call) call.result = e
         else {
           // A result whose call is before the window we hold: shown on its own, as a call we can't name.
-          const orphan: ToolCall = { id: e.id, tool: 'tool', input: '', result: e }
+          const orphan: ToolCall = { id: e.id, toolUseId: e.toolUseId, tool: 'tool', input: '', result: e, questions: [] }
           if (!run) blocks.push((run = { kind: 'tools', id: e.id, at: ms(e.time), calls: [] }))
           run.calls.push(orphan)
         }
@@ -163,6 +174,7 @@ export function sameBlock(a: Block, b: Block): boolean {
   if (a.kind === 'tools' && b.kind === 'tools') {
     return a.calls.length === b.calls.length && a.calls.every((c, i) => c.id === b.calls[i]!.id && c.tool === b.calls[i]!.tool && c.input === b.calls[i]!.input && c.result?.id === b.calls[i]!.result?.id && c.result?.text === b.calls[i]!.result?.text && c.result?.isError === b.calls[i]!.result?.isError && c.result?.truncated === b.calls[i]!.result?.truncated)
   }
-  if (a.kind !== 'tools' && b.kind !== 'tools') return a.entry.text === b.entry.text && a.entry.truncated === b.entry.truncated && a.entry.isError === b.entry.isError
+  if (a.kind === 'asked' && b.kind === 'asked') return a.call.result?.id === b.call.result?.id && a.call.result?.text === b.call.result?.text
+  if (a.kind !== 'tools' && a.kind !== 'asked' && b.kind !== 'tools' && b.kind !== 'asked') return a.entry.text === b.entry.text && a.entry.truncated === b.entry.truncated && a.entry.isError === b.entry.isError
   return false
 }

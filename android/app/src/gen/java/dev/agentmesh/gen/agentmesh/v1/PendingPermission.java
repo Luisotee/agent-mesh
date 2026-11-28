@@ -26,6 +26,10 @@ public  final class PendingPermission extends
     parentId_ = "";
     tool_ = "";
     summary_ = "";
+    toolUseId_ = "";
+    questions_ = emptyProtobufList();
+    plan_ = "";
+    planFile_ = "";
   }
   private int bitField0_;
   public static final int ID_FIELD_NUMBER = 1;
@@ -422,6 +426,412 @@ public  final class PendingPermission extends
   private void clearSince() {
     since_ = null;
     bitField0_ = (bitField0_ & ~0x00000001);
+  }
+
+  public static final int KIND_FIELD_NUMBER = 9;
+  private int kind_;
+  /**
+   * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+   * @return The enum numeric value on the wire for kind.
+   */
+  @java.lang.Override
+  public int getKindValue() {
+    return kind_;
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+   * @return The kind.
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PermissionKind getKind() {
+    dev.agentmesh.gen.agentmesh.v1.PermissionKind result = dev.agentmesh.gen.agentmesh.v1.PermissionKind.forNumber(kind_);
+    return result == null ? dev.agentmesh.gen.agentmesh.v1.PermissionKind.UNRECOGNIZED : result;
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+   * @param value The enum numeric value on the wire for kind to set.
+   */
+  private void setKindValue(int value) {
+      kind_ = value;
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+   * @param value The kind to set.
+   * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+   */
+  private void setKind(dev.agentmesh.gen.agentmesh.v1.PermissionKind value) {
+    kind_ = value.getNumber();
+
+  }
+  /**
+   * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+   */
+  private void clearKind() {
+
+    kind_ = 0;
+  }
+
+  public static final int FOR_USER_FIELD_NUMBER = 10;
+  private boolean forUser_;
+  /**
+   * <pre>
+   * Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+   * agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+   * its worktree). It tells nobody and waits `permission.user_wait`.
+   * </pre>
+   *
+   * <code>bool for_user = 10 [json_name = "forUser"];</code>
+   * @return The forUser.
+   */
+  @java.lang.Override
+  public boolean getForUser() {
+    return forUser_;
+  }
+  /**
+   * <pre>
+   * Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+   * agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+   * its worktree). It tells nobody and waits `permission.user_wait`.
+   * </pre>
+   *
+   * <code>bool for_user = 10 [json_name = "forUser"];</code>
+   * @param value The forUser to set.
+   */
+  private void setForUser(boolean value) {
+    
+    forUser_ = value;
+  }
+  /**
+   * <pre>
+   * Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+   * agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+   * its worktree). It tells nobody and waits `permission.user_wait`.
+   * </pre>
+   *
+   * <code>bool for_user = 10 [json_name = "forUser"];</code>
+   */
+  private void clearForUser() {
+
+    forUser_ = false;
+  }
+
+  public static final int TOOL_USE_ID_FIELD_NUMBER = 11;
+  private java.lang.String toolUseId_;
+  /**
+   * <pre>
+   * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+   * </pre>
+   *
+   * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+   * @return The toolUseId.
+   */
+  @java.lang.Override
+  public java.lang.String getToolUseId() {
+    return toolUseId_;
+  }
+  /**
+   * <pre>
+   * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+   * </pre>
+   *
+   * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+   * @return The bytes for toolUseId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getToolUseIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(toolUseId_);
+  }
+  /**
+   * <pre>
+   * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+   * </pre>
+   *
+   * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+   * @param value The toolUseId to set.
+   */
+  private void setToolUseId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    toolUseId_ = value;
+  }
+  /**
+   * <pre>
+   * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+   * </pre>
+   *
+   * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+   */
+  private void clearToolUseId() {
+
+    toolUseId_ = getDefaultInstance().getToolUseId();
+  }
+  /**
+   * <pre>
+   * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+   * </pre>
+   *
+   * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+   * @param value The bytes for toolUseId to set.
+   */
+  private void setToolUseIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    toolUseId_ = value.toStringUtf8();
+
+  }
+
+  public static final int QUESTIONS_FIELD_NUMBER = 12;
+  private com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> questions_;
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> getQuestionsList() {
+    return questions_;
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  public java.util.List<? extends dev.agentmesh.gen.agentmesh.v1.PromptQuestionOrBuilder> 
+      getQuestionsOrBuilderList() {
+    return questions_;
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public int getQuestionsCount() {
+    return questions_.size();
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public dev.agentmesh.gen.agentmesh.v1.PromptQuestion getQuestions(int index) {
+    return questions_.get(index);
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  public dev.agentmesh.gen.agentmesh.v1.PromptQuestionOrBuilder getQuestionsOrBuilder(
+      int index) {
+    return questions_.get(index);
+  }
+  private void ensureQuestionsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> tmp = questions_;
+    if (!tmp.isModifiable()) {
+      questions_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  private void setQuestions(
+      int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.set(index, value);
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  private void addQuestions(dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.add(value);
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  private void addQuestions(
+      int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.add(index, value);
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  private void addAllQuestions(
+      java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PromptQuestion> values) {
+    ensureQuestionsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, questions_);
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  private void clearQuestions() {
+    questions_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * For a question: what it asks.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+   */
+  private void removeQuestions(int index) {
+    ensureQuestionsIsMutable();
+    questions_.remove(index);
+  }
+
+  public static final int PLAN_FIELD_NUMBER = 13;
+  private java.lang.String plan_;
+  /**
+   * <pre>
+   * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+   * </pre>
+   *
+   * <code>string plan = 13 [json_name = "plan"];</code>
+   * @return The plan.
+   */
+  @java.lang.Override
+  public java.lang.String getPlan() {
+    return plan_;
+  }
+  /**
+   * <pre>
+   * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+   * </pre>
+   *
+   * <code>string plan = 13 [json_name = "plan"];</code>
+   * @return The bytes for plan.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPlanBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(plan_);
+  }
+  /**
+   * <pre>
+   * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+   * </pre>
+   *
+   * <code>string plan = 13 [json_name = "plan"];</code>
+   * @param value The plan to set.
+   */
+  private void setPlan(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    plan_ = value;
+  }
+  /**
+   * <pre>
+   * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+   * </pre>
+   *
+   * <code>string plan = 13 [json_name = "plan"];</code>
+   */
+  private void clearPlan() {
+
+    plan_ = getDefaultInstance().getPlan();
+  }
+  /**
+   * <pre>
+   * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+   * </pre>
+   *
+   * <code>string plan = 13 [json_name = "plan"];</code>
+   * @param value The bytes for plan to set.
+   */
+  private void setPlanBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    plan_ = value.toStringUtf8();
+
+  }
+
+  public static final int PLAN_FILE_FIELD_NUMBER = 14;
+  private java.lang.String planFile_;
+  /**
+   * <code>string plan_file = 14 [json_name = "planFile"];</code>
+   * @return The planFile.
+   */
+  @java.lang.Override
+  public java.lang.String getPlanFile() {
+    return planFile_;
+  }
+  /**
+   * <code>string plan_file = 14 [json_name = "planFile"];</code>
+   * @return The bytes for planFile.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPlanFileBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(planFile_);
+  }
+  /**
+   * <code>string plan_file = 14 [json_name = "planFile"];</code>
+   * @param value The planFile to set.
+   */
+  private void setPlanFile(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    planFile_ = value;
+  }
+  /**
+   * <code>string plan_file = 14 [json_name = "planFile"];</code>
+   */
+  private void clearPlanFile() {
+
+    planFile_ = getDefaultInstance().getPlanFile();
+  }
+  /**
+   * <code>string plan_file = 14 [json_name = "planFile"];</code>
+   * @param value The bytes for planFile to set.
+   */
+  private void setPlanFileBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    planFile_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.PendingPermission parseFrom(
@@ -935,6 +1345,436 @@ public  final class PendingPermission extends
       return this;
     }
 
+    /**
+     * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+     * @return The enum numeric value on the wire for kind.
+     */
+    @java.lang.Override
+    public int getKindValue() {
+      return instance.getKindValue();
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+     * @param value The kind to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setKindValue(int value) {
+      copyOnWrite();
+      instance.setKindValue(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+     * @return The kind.
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PermissionKind getKind() {
+      return instance.getKind();
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+     * @param value The enum numeric value on the wire for kind to set.
+     * @return This builder for chaining.
+     */
+    public Builder setKind(dev.agentmesh.gen.agentmesh.v1.PermissionKind value) {
+      copyOnWrite();
+      instance.setKind(value);
+      return this;
+    }
+    /**
+     * <code>.agentmesh.v1.PermissionKind kind = 9 [json_name = "kind"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearKind() {
+      copyOnWrite();
+      instance.clearKind();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+     * agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+     * its worktree). It tells nobody and waits `permission.user_wait`.
+     * </pre>
+     *
+     * <code>bool for_user = 10 [json_name = "forUser"];</code>
+     * @return The forUser.
+     */
+    @java.lang.Override
+    public boolean getForUser() {
+      return instance.getForUser();
+    }
+    /**
+     * <pre>
+     * Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+     * agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+     * its worktree). It tells nobody and waits `permission.user_wait`.
+     * </pre>
+     *
+     * <code>bool for_user = 10 [json_name = "forUser"];</code>
+     * @param value The forUser to set.
+     * @return This builder for chaining.
+     */
+    public Builder setForUser(boolean value) {
+      copyOnWrite();
+      instance.setForUser(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Only the user answers it (an app, or `mesh permission` from a device): a question, a plan, or a tool prompt of an
+     * agent with no parent to answer it (a root, a plain agent) or that a parent is never asked (a push, a write outside
+     * its worktree). It tells nobody and waits `permission.user_wait`.
+     * </pre>
+     *
+     * <code>bool for_user = 10 [json_name = "forUser"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearForUser() {
+      copyOnWrite();
+      instance.clearForUser();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+     * </pre>
+     *
+     * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+     * @return The toolUseId.
+     */
+    @java.lang.Override
+    public java.lang.String getToolUseId() {
+      return instance.getToolUseId();
+    }
+    /**
+     * <pre>
+     * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+     * </pre>
+     *
+     * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+     * @return The bytes for toolUseId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getToolUseIdBytes() {
+      return instance.getToolUseIdBytes();
+    }
+    /**
+     * <pre>
+     * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+     * </pre>
+     *
+     * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+     * @param value The toolUseId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setToolUseId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setToolUseId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+     * </pre>
+     *
+     * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearToolUseId() {
+      copyOnWrite();
+      instance.clearToolUseId();
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLI's id of the tool call (`TranscriptEntry.tool_use_id`).
+     * </pre>
+     *
+     * <code>string tool_use_id = 11 [json_name = "toolUseId"];</code>
+     * @param value The bytes for toolUseId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setToolUseIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setToolUseIdBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.agentmesh.gen.agentmesh.v1.PromptQuestion> getQuestionsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getQuestionsList());
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public int getQuestionsCount() {
+      return instance.getQuestionsCount();
+    }/**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public dev.agentmesh.gen.agentmesh.v1.PromptQuestion getQuestions(int index) {
+      return instance.getQuestions(index);
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder setQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+      copyOnWrite();
+      instance.setQuestions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder setQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.setQuestions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+      copyOnWrite();
+      instance.addQuestions(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion value) {
+      copyOnWrite();
+      instance.addQuestions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        dev.agentmesh.gen.agentmesh.v1.PromptQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQuestions(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        int index, dev.agentmesh.gen.agentmesh.v1.PromptQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQuestions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder addAllQuestions(
+        java.lang.Iterable<? extends dev.agentmesh.gen.agentmesh.v1.PromptQuestion> values) {
+      copyOnWrite();
+      instance.addAllQuestions(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder clearQuestions() {
+      copyOnWrite();
+      instance.clearQuestions();
+      return this;
+    }
+    /**
+     * <pre>
+     * For a question: what it asks.
+     * </pre>
+     *
+     * <code>repeated .agentmesh.v1.PromptQuestion questions = 12 [json_name = "questions"];</code>
+     */
+    public Builder removeQuestions(int index) {
+      copyOnWrite();
+      instance.removeQuestions(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+     * </pre>
+     *
+     * <code>string plan = 13 [json_name = "plan"];</code>
+     * @return The plan.
+     */
+    @java.lang.Override
+    public java.lang.String getPlan() {
+      return instance.getPlan();
+    }
+    /**
+     * <pre>
+     * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+     * </pre>
+     *
+     * <code>string plan = 13 [json_name = "plan"];</code>
+     * @return The bytes for plan.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPlanBytes() {
+      return instance.getPlanBytes();
+    }
+    /**
+     * <pre>
+     * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+     * </pre>
+     *
+     * <code>string plan = 13 [json_name = "plan"];</code>
+     * @param value The plan to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlan(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPlan(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+     * </pre>
+     *
+     * <code>string plan = 13 [json_name = "plan"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlan() {
+      copyOnWrite();
+      instance.clearPlan();
+      return this;
+    }
+    /**
+     * <pre>
+     * For a plan: the plan as Markdown, and the file the CLI keeps it in.
+     * </pre>
+     *
+     * <code>string plan = 13 [json_name = "plan"];</code>
+     * @param value The bytes for plan to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlanBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPlanBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>string plan_file = 14 [json_name = "planFile"];</code>
+     * @return The planFile.
+     */
+    @java.lang.Override
+    public java.lang.String getPlanFile() {
+      return instance.getPlanFile();
+    }
+    /**
+     * <code>string plan_file = 14 [json_name = "planFile"];</code>
+     * @return The bytes for planFile.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPlanFileBytes() {
+      return instance.getPlanFileBytes();
+    }
+    /**
+     * <code>string plan_file = 14 [json_name = "planFile"];</code>
+     * @param value The planFile to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlanFile(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPlanFile(value);
+      return this;
+    }
+    /**
+     * <code>string plan_file = 14 [json_name = "planFile"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPlanFile() {
+      copyOnWrite();
+      instance.clearPlanFile();
+      return this;
+    }
+    /**
+     * <code>string plan_file = 14 [json_name = "planFile"];</code>
+     * @param value The bytes for planFile to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPlanFileBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPlanFileBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.PendingPermission)
   }
   @java.lang.Override
@@ -960,10 +1800,18 @@ public  final class PendingPermission extends
             "tool_",
             "summary_",
             "since_",
+            "kind_",
+            "forUser_",
+            "toolUseId_",
+            "questions_",
+            dev.agentmesh.gen.agentmesh.v1.PromptQuestion.class,
+            "plan_",
+            "planFile_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u1009\u0000";
+              "\u0000\u000e\u0000\u0001\u0001\u000e\u000e\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0208\b\u1009\u0000\t\f\n" +
+              "\u0007\u000b\u0208\f\u001b\r\u0208\u000e\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

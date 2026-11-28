@@ -858,8 +858,13 @@ func TestRenderLogAndRing(t *testing.T) {
 func TestRenderPermissionsAndUsageNotes(t *testing.T) {
 	var out strings.Builder
 	renderPermissions(&v1.ListPermissionsResponse{Permissions: []*v1.PendingPermission{
-		{Id: "p1", AgentName: "repo-wk", Tool: "Bash", Summary: "rm -rf build"}, {Id: "p2", AgentName: "repo-w2", Tool: "Write"}}}, &out)
-	for _, want := range []string{`p1  repo-wk  Bash: "rm -rf build"`, "p2  repo-w2  Write\n"} {
+		{Id: "p1", AgentName: "repo-wk", Tool: "Bash", Summary: "rm -rf build"}, {Id: "p2", AgentName: "repo-w2", Tool: "Write"},
+		{Id: "p3", AgentName: "repo-w3", Tool: "AskUserQuestion", Kind: v1.PermissionKind_PERMISSION_KIND_QUESTION, Questions: []*v1.PromptQuestion{
+			{Question: "Which color?", Options: []*v1.PromptOption{{Label: "Red"}, {Label: "Blue"}}},
+			{Question: "Toppings?", MultiSelect: true, Options: []*v1.PromptOption{{Label: "Ham"}}}}},
+		{Id: "p4", AgentName: "repo-w4", Tool: "ExitPlanMode", Kind: v1.PermissionKind_PERMISSION_KIND_PLAN, Plan: "do it", PlanFile: "/p/plan.md"}}}, &out)
+	for _, want := range []string{`p1  repo-wk  Bash: "rm -rf build"`, "p2  repo-w2  Write\n",
+		"    question \"Which color?\": \"Red\", \"Blue\"\n", "    question (several) \"Toppings?\": \"Ham\"\n", "    plan \"/p/plan.md\"\n"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("renderPermissions missing %q in:\n%s", want, out.String())
 		}
