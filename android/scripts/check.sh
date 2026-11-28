@@ -24,7 +24,7 @@ if ! git -C "$repo" diff --quiet -- android/app/src/gen || [ -n "$(git -C "$repo
   exit 1
 fi
 
-# Gradle and its test JVM are the heaviest of the gates: wait for a host-wide slot (scripts/gate-slot.sh) first.
+# Gradle and its test JVM are the heaviest of the gates: wait for room in the host-wide gate queue (scripts/gate-slot.sh) first.
 source "$repo/scripts/gate-slot.sh"
 gate_slot android
 

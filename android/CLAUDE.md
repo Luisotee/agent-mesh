@@ -12,7 +12,7 @@ Run from `android/`.
 
 ```bash
 scripts/setup.sh                             # once: the SDK, the JDK, Gradle
-scripts/check.sh                             # the CI equivalent: gen current, unit + Compose + meshd e2e tests, lint, debug APK, release-type APK (waits for a slot of the host-wide gate queue before gradle: root CLAUDE.md, scripts/gate-slot.sh)
+scripts/check.sh                             # the CI equivalent: gen current, unit + Compose + meshd e2e tests, lint, debug APK, release-type APK (waits for room in the host-wide gate queue before gradle: root CLAUDE.md, scripts/gate-slot.sh)
 SKIP_E2E=1 scripts/check.sh                  # without the meshd end-to-end tests
 scripts/gen.sh                               # after a .proto change: regenerate app/src/gen
 source scripts/env.sh && ./gradlew testDebugUnitTest                                       # the JVM tests

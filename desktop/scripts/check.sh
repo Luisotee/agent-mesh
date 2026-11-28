@@ -31,7 +31,7 @@ if ! diff -r "$before" src/gen >/dev/null; then
   exit 1
 fi
 
-# The heavy part (typecheck, tests, build, e2e) waits for a host-wide gate slot (scripts/gate-slot.sh).
+# The heavy part (typecheck, tests, build, e2e) waits for room in the host-wide gate queue (scripts/gate-slot.sh).
 source "$desktop_dir/../scripts/gate-slot.sh"
 gate_slot desktop
 
