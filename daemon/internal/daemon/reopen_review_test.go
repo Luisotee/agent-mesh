@@ -295,8 +295,10 @@ func TestAPlannedFollowUpKeepsAPlannerPlanningAndADevicesDirectTaskLiftsItsList(
 	w.waitState(p.Id, v1.AgentState_AGENT_STATE_IDLE)
 }
 
-// A resume that plans names its tier or model: the tier an agent has recorded may be the one it executed on.
-func TestResumePlanNeedsATierOrAModel(t *testing.T) {
+// A resume that plans and names no tier plans on the tier the agent planned on, else strong (a re-plan's default):
+// the tier an agent has recorded may be the one it executed on, so that one is not taken. An effort alone steps up
+// the model it is on.
+func TestResumePlanWithNoTierPlansOnStrong(t *testing.T) {
 	w := startReopen(t)
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
@@ -304,9 +306,12 @@ func TestResumePlanNeedsATierOrAModel(t *testing.T) {
 	before := w.waitState(a.Id, v1.AgentState_AGENT_STATE_IDLE)
 	w.typeInto(before, "/exit\r")
 	w.waitState(a.Id, v1.AgentState_AGENT_STATE_EXITED)
-	if _, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Agent: a.Id, Task: "x", Plan: true})); code(err) != connect.CodeInvalidArgument ||
-		!strings.Contains(err.Error(), "give a tier") {
-		t.Errorf("a planned resume with no tier: %v", err)
+	res, err := w.device.Mesh.ResumeAgent(ctx, connect.NewRequest(&v1.ResumeAgentRequest{Agent: a.Id, Task: "x", Plan: true}))
+	if err != nil {
+		t.Fatalf("a planned resume with no tier: %v", err)
+	}
+	if r := res.Msg.Reopen; r == nil || r.Model != "opus" || !r.DenyEdits {
+		t.Errorf("reopen %v", r)
 	}
 }
 
