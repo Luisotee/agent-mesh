@@ -408,6 +408,28 @@ describe('AgentPanel', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
+  it('sends a task with a plan first: back to planning, on the tier chosen or the one it planned on', async () => {
+    const { host, wrap, client } = fixture()
+    fixtureHost = host
+    panel(wrap)
+    const dialog = await openSend()
+    expect(within(dialog).queryByRole('combobox', { name: 'Planning tier' })).toBeNull()
+    await userEvent.type(within(dialog).getByLabelText('Message', { exact: true }), 'should we rewrite it?')
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Plan first' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1))
+    expect(client.sendMessage.mock.calls[0]?.[0]).toMatchObject({ to: 'w1', type: MessageType.TASK, plan: true, tier: '' })
+    // A tier named, and an info is never a re-plan even with the box ticked.
+    client.sendMessage.mockClear()
+    const again = await openSend()
+    await userEvent.type(within(again).getByLabelText('Message', { exact: true }), 'think about options')
+    await userEvent.click(within(again).getByRole('checkbox', { name: 'Plan first' }))
+    await userEvent.selectOptions(within(again).getByRole('combobox', { name: 'Planning tier' }), 'top')
+    await userEvent.click(within(again).getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(client.sendMessage).toHaveBeenCalledTimes(1))
+    expect(client.sendMessage.mock.calls[0]?.[0]).toMatchObject({ plan: true, tier: 'top' })
+  })
+
   it("keeps the dialog open and says why when the host couldn't bring a stopped agent back", async () => {
     const { host, wrap, client } = fixture()
     fixtureHost = host

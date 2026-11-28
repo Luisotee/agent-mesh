@@ -485,6 +485,8 @@ func DefaultLeaves() []Leaf {
 			Summary: "seconds a Claude agent's permission prompt is held for its parent to answer (`mesh permission`), at most 3600; unanswered, the prompt stays on the agent's screen for the person there; 0 never holds it"},
 		Leaf{Key: "permission.user_wait", Label: "Hold prompts for the user", Group: GroupAgents, Advanced: true, Type: Seconds, Default: 3600.0,
 			Summary: "seconds a Claude agent's question, plan or permission prompt that only the user answers (a root's own, a push, an AskUserQuestion, an ExitPlanMode) is held for an app or `mesh permission` to answer, at most 3600; unanswered, it stays on the agent's screen; 0 never holds it"},
+		Leaf{Key: "plan_mode.claude", Label: "Plan in Claude's plan mode", Group: GroupAgents, Advanced: true, Type: Bool, Default: true,
+			Summary: "a Claude worker in its plan phase also runs in Claude Code's own plan mode, and its ExitPlanMode becomes its plan report; the deny list stays the enforcement. false: the deny list alone. Read at each launch, so a worker already planning keeps the mode it started in"},
 		Leaf{Key: "delivery.socket", Label: "Use the inbox socket for doorbells", Group: GroupDelivery, Advanced: true, Type: Bool, Default: true,
 			Summary: "write a Claude agent's doorbell into its inbox socket (never into its input box) where it takes cross-session messages; false types every doorbell"},
 		Leaf{Key: "delivery.confirm_after", Label: "Ring again after", Group: GroupDelivery, Advanced: true, Type: Seconds, Default: 10.0,

@@ -31,6 +31,7 @@ var FieldDocs = map[string]string{
 	"agentmesh.adapter.v1.PlanLaunchRequest.env":               "The environment to start from: the daemon's allowlist plus the agent's identity.",
 	"agentmesh.adapter.v1.PlanLaunchRequest.hook_argv":         "The command every hook runs, as argv; the adapter appends its own arguments (the event name).",
 	"agentmesh.adapter.v1.PlanLaunchRequest.lean":              "A lean session (Claude only): what it starts without. Unset, the CLI loads the user's full set.",
+	"agentmesh.adapter.v1.PlanLaunchRequest.plan_mode":         "The agent is a worker in its plan phase: start the CLI in its own plan mode too (Claude `--permission-mode plan`), on top of the deny list, which stays the enforcement. An adapter with no plan mode ignores it.",
 	"agentmesh.adapter.v1.PlanLaunchRequest.repo":              "The repository's main checkout. An ASKER or REVIEWER (read-only) agent may not edit it or its worktree.",
 	"agentmesh.adapter.v1.PlanLaunchRequest.resume_session_id": "Reopen this conversation instead of starting one (`claude --resume <id>`).",
 	"agentmesh.adapter.v1.PlanLaunchRequest.skip_permissions":  "Start the CLI with its permission prompts off.",

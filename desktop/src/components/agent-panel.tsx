@@ -5,7 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Select } from '@/components/ui/input'
 import { MarkdownField } from '@/components/ui/markdown-field'
 import { useApp, useAppState, useHostState } from '@/context'
-import { MessageType } from '@/gen/agentmesh/v1/types_pb'
+import { AgentRole, MessageType } from '@/gen/agentmesh/v1/types_pb'
 import type { AgentTab, HostRuntime } from '@/model'
 import { ChatView } from './chat-view'
 import { TerminalView } from './terminal-view'
@@ -48,6 +48,9 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">{children}</div>
 }
 
+/** The tiers a re-plan can name (`tiers.<cli>.<tier>`). */
+const PLAN_TIERS = ['light', 'mid', 'strong', 'top']
+
 const SEND_TYPES: Array<[MessageType, string]> = [
   [MessageType.TASK, 'Task'],
   [MessageType.ANSWER, 'Answer'],
@@ -77,13 +80,18 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
+  const [plan, setPlan] = useState(false)
+  const [tier, setTier] = useState('')
+  // A root, an asker and a reviewer have no plan phase to go back to.
+  const canPlan = type === MessageType.TASK && agent?.role === AgentRole.WORKER
+  const planning = plan && canPlan
   async function submit() {
     // Each send has its own mutation id, so a double Enter would send twice: one at a time.
     if (busy || !body.trim()) return
     setBusy(true)
     setError('')
     try {
-      const res = await sendMessage(host.client, agentId, type, body.trim())
+      const res = await sendMessage(host.client, agentId, type, body.trim(), planning ? { tier } : undefined)
       // Stored either way; a stopped agent the host couldn't start again (a cap, a closed run) says why, and the dialog stays.
       if (res.resumeError) {
         // It is stored: the body goes, so a second Send can't store it twice.
@@ -98,7 +106,7 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
     }
   }
   return (
-    <DialogContent title={`Message ${agent?.name ?? agentId}`} description="A mesh message, as an agent sends one: it reaches the agent at its next turn. A task or an answer brings a stopped one back; an info waits.">
+    <DialogContent title={`Message ${agent?.name ?? agentId}`} description="A mesh message, as an agent sends one: it reaches the agent at its next turn. A task or an answer brings a stopped one back; an info waits. A task can send the agent back to planning first.">
       <form
         aria-label="Send a message"
         className="flex flex-col gap-2"
@@ -110,6 +118,19 @@ function SendForm({ host, agentId, onDone }: { host: HostRuntime; agentId: strin
         <Select aria-label="Message type" className="w-28" value={type} onChange={(e) => setType(Number(e.target.value))}>
           {SEND_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
+        {canPlan && (
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs whitespace-nowrap">
+              <input type="checkbox" checked={plan} onChange={(e) => setPlan(e.target.checked)} /> Plan first
+            </label>
+            {plan && (
+              <Select aria-label="Planning tier" className="h-7 w-40 text-xs" value={tier} onChange={(e) => setTier(e.target.value)}>
+                <option value="">The tier it planned on</option>
+                {PLAN_TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            )}
+          </div>
+        )}
         <MarkdownField aria-label="Message" autoFocus className="min-h-20" value={body} onValueChange={setBody} placeholder="Write to the agent" />
         {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">

@@ -76,6 +76,9 @@ message PlanLaunchRequest {
   // Open outside any run for the user's own terminal: resume the conversation without hooks, deny rules,
   // lean cuts, or skip-permissions flags.
   bool standalone = 16;
+  // The agent is a worker in its plan phase: start the CLI in its own plan mode too (Claude `--permission-mode plan`),
+  // on top of the deny list, which stays the enforcement. An adapter with no plan mode ignores it.
+  bool plan_mode = 17;
 }
 
 // LeanLaunch is the policy of a lean Claude session (design §11 of docs/design.md): tools, skills and plugins

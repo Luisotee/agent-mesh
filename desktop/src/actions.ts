@@ -90,8 +90,9 @@ export const checkModels = (c: MeshClient) => c.checkModels({ meta: meta(), chec
 /** Moves an agent to the next model of its chain (its model hit a quota), in its own conversation. */
 export const switchToNextModel = (c: MeshClient, agent: string) => c.switchAgent({ meta: meta(), agent, next: true })
 
-export const sendMessage = (c: MeshClient, to: string, type: MessageType, body: string) =>
-  c.sendMessage({ meta: meta(), to, type, body })
+/** `plan` puts the agent back into planning with this task (a task only): on `tier`, else the tier it planned on. */
+export const sendMessage = (c: MeshClient, to: string, type: MessageType, body: string, plan?: { tier?: string }) =>
+  c.sendMessage({ meta: meta(), to, type, body, ...(plan ? { plan: true, tier: plan.tier ?? '' } : {}) })
 
 /** A one-time ticket for an agent's terminal stream; `input` asks for the right to type (the host decides). */
 export const openTerminal = (c: MeshClient, agent: string, input: boolean) => c.openTerminal({ agent, input })

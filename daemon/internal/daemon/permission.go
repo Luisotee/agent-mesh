@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -283,6 +284,12 @@ func (d *Daemon) RequestPermission(ctx context.Context, req *connect.Request[v1.
 		return none, nil
 	}
 
+	// A worker planning in Claude's plan mode: its ExitPlanMode is the plan it reports to its parent.
+	if kind == v1.PermissionKind_PERMISSION_KIND_PLAN && a.Role == v1.AgentRole_AGENT_ROLE_WORKER &&
+		a.Phase == v1.AgentPhase_AGENT_PHASE_PLANNING && owesParent(a) && d.planModeFor(r, a.Kind) {
+		return d.planFromExit(ctx, a, p.Plan), nil
+	}
+
 	// Whose prompt it is. A question or a plan is the user's. A tool prompt goes to the agent's parent, unless it has
 	// none (a root, a plain agent: its prompt is the user's), the parent stopped, or it is one the parent is never
 	// asked (`neverForward`): then it is the user's too. This is the one place that says whose a prompt is: a mesh worker's
@@ -486,4 +493,29 @@ func (d *Daemon) permissionEnded(agentID, event string, payload []byte) {
 			d.endedPermissions(d.perms.endFor(agentID, cutLine(p.Tool, 80), cutLine(claude.PermissionSummary(p.Input), maxPermissionSummary), cutLine(p.ToolUseID, 120)))
 		}
 	}
+}
+
+// planFromExit sends the plan of a worker's ExitPlanMode to its parent as its `plan` report (the file under the run's
+// plans folder too once it went, as `mesh send --type plan --body @file` has it), and answers the hook with a refusal that says so:
+// the worker stays in plan mode, ends its turn and waits for the answer, as after any plan. A refusal of the send (it
+// has unread instructions, say) is the refusal's reason, so the plan is sent again once that is dealt with.
+func (d *Daemon) planFromExit(ctx context.Context, a *v1.Agent, plan string) *connect.Response[v1.RequestPermissionResponse] {
+	deny := func(why string) *connect.Response[v1.RequestPermissionResponse] {
+		return connect.NewResponse(&v1.RequestPermissionResponse{Decision: "deny", Reason: why})
+	}
+	_, err := d.SendMessage(ctx, connect.NewRequest(&v1.SendMessageRequest{To: "parent", Type: v1.MessageType_MESSAGE_TYPE_PLAN, Body: plan}))
+	if err != nil {
+		var ce *connect.Error
+		msg := err.Error()
+		if errors.As(err, &ce) {
+			msg = ce.Message()
+		}
+		return deny("Your plan was NOT sent: " + msg + ". Deal with that, then call ExitPlanMode again.")
+	}
+	dir := filepath.Join(d.paths.RunDir(a.RunId), "plans")
+	if err := os.MkdirAll(dir, 0o755); err == nil {
+		_ = os.WriteFile(filepath.Join(dir, a.Name+".md"), []byte(plan), 0o644)
+	}
+	return deny("Your plan was sent to your parent (the `plan` report the mesh asks for). End your turn and wait for its answer: " +
+		"`approved` lifts the plan mode, anything else asks you to change the plan and send it again. Do not call ExitPlanMode again until then.")
 }

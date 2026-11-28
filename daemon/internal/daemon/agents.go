@@ -1283,6 +1283,25 @@ func (d *Daemon) SpawnAgent(ctx context.Context, req *connect.Request[v1.SpawnAg
 	return connect.NewResponse(&v1.SpawnAgentResponse{Agent: d.view(launched), Capacity: d.capacityLine(ctx)}), nil
 }
 
+// planModeFor reports whether the host starts a worker of this CLI in the CLI's own plan mode while it plans
+// (`plan_mode.claude`; only Claude has one wired: OpenCode's plan agent keeps a session's last model, so a re-plan or a
+// quota switch would not take, and agy's and Copilot's are unchecked: README, "Live checks").
+func (d *Daemon) planModeFor(r store.Reader, kind string) bool {
+	if kind != "claude" {
+		return false
+	}
+	on, err := d.Setting(r, "plan_mode.claude")
+	b, _ := on.(bool)
+	return err == nil && b
+}
+
+// inPlanMode is whether an agent launches in its CLI's own plan mode: a worker in its plan phase, under the deny list
+// (which stays the enforcement), where the host has it on.
+func (d *Daemon) inPlanMode(ctx context.Context, a *v1.Agent) bool {
+	return a.Phase == v1.AgentPhase_AGENT_PHASE_PLANNING && a.DenyEdits && !a.Plain &&
+		a.Role == v1.AgentRole_AGENT_ROLE_WORKER && d.planModeFor(d.store.Read(ctx), a.Kind)
+}
+
 // planLaunch asks the adapter for an agent's command line: a fresh conversation, or (resume set) a reopen of
 // that one. The model, effort and deny list are the agent's.
 func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent, token, resume string) (*adapterv1.PlanLaunchResponse, error) {
@@ -1299,7 +1318,7 @@ func (d *Daemon) planLaunch(ctx context.Context, ad adapter.Adapter, a *v1.Agent
 		RunId: a.RunId, Role: a.Role, Cwd: a.Worktree, Repo: a.Repo, Model: a.Model, Effort: a.Effort, Binary: d.rt.cfg.Binaries[a.Kind],
 		HookArgv: []string{mesh, "hook", a.Kind, "--state", d.paths.Dir, "--agent", a.Id},
 		Env:      env, SkipPermissions: d.rt.cfg.SkipPermissions,
-		ResumeSessionId: resume, DenyEdits: a.DenyEdits, Lean: lean}))
+		ResumeSessionId: resume, DenyEdits: a.DenyEdits, Lean: lean, PlanMode: d.inPlanMode(ctx, a)}))
 	if err != nil {
 		return nil, err
 	}
