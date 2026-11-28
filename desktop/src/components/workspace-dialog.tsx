@@ -3,6 +3,7 @@ import { MarkdownField } from '@/components/ui/markdown-field'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listProjects, spawnAgent, startRun } from '@/actions'
 import { Button } from '@/components/ui/button'
+import { ProjectRowsSkeleton } from './add-project'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
 import { Field } from '@/components/ui/label'
 import { Input, Select } from '@/components/ui/input'
@@ -65,6 +66,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
   const [busy, setBusy] = useState(false)
   const autonomy = useRunAutonomy()
   const pinned = useAppState((s) => s.pins[host.info.id]) ?? NO_PINS
+  const [projectsRead, setProjectsRead] = useState(false)
   const read = useRef(0)
   // A run this form started that its agent then failed to join: a retry joins it, not a second empty run.
   const started = useRef<string | undefined>(undefined)
@@ -72,8 +74,8 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
   useEffect(() => {
     let alive = true
     listProjects(host.client).then(
-      (r) => alive && setProjects(r.projects),
-      (e: unknown) => alive && setListError(message(e)),
+      (r) => alive && (setProjects(r.projects), setProjectsRead(true)),
+      (e: unknown) => alive && (setListError(message(e)), setProjectsRead(true)),
     )
     return () => {
       alive = false
@@ -167,6 +169,7 @@ function WorkspaceForm({ host, onDone }: { host: HostRuntime; onDone: () => void
           placeholder="/home/you/projects/app"
         />
       </Field>
+      {!projectsRead && !listError && listed.length === 0 && <ProjectRowsSkeleton label="Loading the host's projects" rows={3} />}
       {listed.length > 0 && (
         <ul aria-label="Repos on this host" className="-mt-1 max-h-40 overflow-y-auto rounded-md border">
           {listed.map((p) => {

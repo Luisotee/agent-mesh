@@ -127,7 +127,7 @@ func TestRewindWaitsForAPendingCompaction(t *testing.T) {
 	}
 }
 
-func TestAddAttachmentKeepsAnImageInTheRunFolder(t *testing.T) {
+func TestAddAttachmentKeepsAnImageOrAFileInTheRunFolder(t *testing.T) {
 	h, a := chatDaemon(t, nil)
 	add := func(name string, data []byte, mid string) (string, error) {
 		res, err := h.device.Mesh.AddAttachment(context.Background(), connect.NewRequest(&v1.AddAttachmentRequest{Meta: meta(mid), Agent: a.Id, Name: name, Data: data}))
@@ -154,13 +154,22 @@ func TestAddAttachmentKeepsAnImageInTheRunFolder(t *testing.T) {
 		name string
 		data []byte
 	}{
-		{"notes.txt", []byte("hello")},
 		{"fake.png", []byte("GIF89a not a png at all")},
 		{"empty.png", nil},
 		{"huge.png", append(png, make([]byte, 10<<20)...)},
 	} {
 		if _, err := add(c.name, c.data, "att-"+c.name); connect.CodeOf(err) != connect.CodeInvalidArgument {
 			t.Errorf("%s: %v, want invalid_argument", c.name, err)
+		}
+	}
+	// Any other file is kept, with only a plain extension of its name in the stored path (never a part of the name).
+	for name, ext := range map[string]string{"notes.txt": ".txt", "report.final.PDF": ".pdf", "Makefile": "", "../../etc/x.sh": ".sh", "odd.name with space": "", "a.verylongextension": ""} {
+		p, err := add(name, []byte("hello"), "att-"+name)
+		if err != nil || filepath.Ext(p) != ext || filepath.Dir(p) != filepath.Dir(path) {
+			t.Errorf("%q: %s, %v, want an extension %q in the attachment folder", name, p, err, ext)
+		}
+		if got, err := os.ReadFile(p); err != nil || string(got) != "hello" {
+			t.Errorf("%q stored: %q, %v", name, got, err)
 		}
 	}
 }

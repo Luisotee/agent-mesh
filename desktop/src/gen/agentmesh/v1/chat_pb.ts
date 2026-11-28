@@ -636,7 +636,8 @@ export type AddAttachmentRequest = Message<"agentmesh.v1.AddAttachmentRequest"> 
   agent: string;
 
   /**
-   * The file's name, for its extension (.png, .jpg, .jpeg, .gif or .webp).
+   * The file's name, for its extension: only a plain one (letters and digits) is kept. One of .png, .jpg, .jpeg, .gif or
+   * .webp says the bytes are that image, and they must be.
    *
    * @generated from field: string name = 3;
    */
