@@ -69,8 +69,11 @@ func (d *Daemon) effortProblems(r store.Reader, offered map[string]map[string][]
 				continue
 			}
 			var models []string
-			for _, m := range mv.([]any) {
-				models = append(models, m.(string))
+			list, _ := mv.([]any)
+			for _, m := range list {
+				if name, ok := m.(string); ok {
+					models = append(models, name)
+				}
 			}
 			for _, leaf := range []string{"effort", "exec_effort", "review_effort"} {
 				ev, err := d.Setting(r, base+"."+leaf)

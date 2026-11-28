@@ -230,7 +230,7 @@ func renderUsage(m proto.Message, w io.Writer) {
 		}
 	}
 	if u.Unit != "" {
-		fmt.Fprintf(w, "\nsizes are in %s: tokens a percent of each window is worth, measured from the readings the daemon keeps (a pool says \"not measured yet\" until two readings of one window moved at least 5 points)\n", u.Unit)
+		fmt.Fprintf(w, "\nsizes are in %s: tokens a percent of each window is worth, measured from the readings the daemon keeps and the tokens the mesh counted between them, so a lower bound when the plan is also used outside the mesh (a pool says \"not measured yet\" until two readings of one window, at most 12 hours apart, moved at least 5 points)\n", u.Unit)
 	}
 	weekly := u.QuotaStopWeekly
 	if !u.SplitReserves {

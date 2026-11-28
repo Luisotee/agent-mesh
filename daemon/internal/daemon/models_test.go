@@ -364,4 +364,21 @@ func TestModelsFlagsATierEffortAModelDoesNotOffer(t *testing.T) {
 	if !strings.Contains(res.Msg.Notice, "settings name an effort a model doesn't offer") {
 		t.Errorf("notice = %q", res.Msg.Notice)
 	}
+	// Fixing the setting stops the report at once, though the listing itself is cached for a day.
+	if _, err := h.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{
+		Meta: meta("s2"), Key: "tiers.agy.light.effort", Value: val(t, "high")})); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"tiers.agy.light.exec_effort", "tiers.agy.light.review_effort", "tiers.agy.mid.review_effort", "tiers.agy.strong.review_effort"} {
+		if _, err := h.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta("s-" + k), Key: k, Value: val(t, "high")})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{Meta: meta("e2")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kindEntry(again.Msg, "agy").EffortProblems; len(got) != 0 {
+		t.Errorf("agy problems after the fix: %v", got)
+	}
 }

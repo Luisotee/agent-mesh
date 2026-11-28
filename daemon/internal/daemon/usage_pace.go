@@ -36,6 +36,10 @@ const (
 	sizeMinPoints    = 5.0                 // percent a period's readings must have moved for it to count
 	paceAhead        = 15.0                // points of use over the share of the window gone that make a warning
 	sizeEvery        = 24 * time.Hour
+	// A reading further than this from the one before it starts a new period: the percent moved in a long gap is
+	// mostly use the mesh's tokens don't show (the user's own sessions), which would make a pool look bigger in
+	// percent and so smaller in tokens.
+	maxReadingGap = 12 * time.Hour
 )
 
 // paceOf is how far through its window a pool is (percent) and, when use runs ahead of that and would reach the
@@ -196,8 +200,9 @@ func kindOfPool(pool string) string {
 // estimateSizes works out each pool's tokens per percent from the readings kept: in each reset period (readings
 // whose reset times are within 90 minutes of each other) the first and the last reading, if the percent moved at
 // least sizeMinPoints, give the points and the tokens `mesh cost` counts for that CLI between them. The periods of
-// the last 30 days add up, and the result is stored in meta for `mesh usage`. agy's pools share one token count for
-// the CLI (the tokens are not split by model): an estimate, as the note of each says.
+// the last 30 days add up, and the result is stored in meta for `mesh usage`. Only the mesh's own tokens are
+// counted, so a plan the user also spends outside the mesh reads smaller than it is (a lower bound), and agy's pools
+// share one token count for the CLI (the tokens are not split by model): both are estimates.
 func (d *Daemon) estimateSizes(ctx context.Context) { d.estimateSizesWith(ctx, d.costTokens) }
 
 // costTokens is the tokens `mesh cost` counts for a CLI between two times, across every run.
@@ -251,7 +256,8 @@ func (d *Daemon) estimateSizesWith(ctx context.Context, tokensBetween func(ctx c
 }
 
 // periodsOf splits a pool's readings (oldest first) into reset periods: a reading starts a new one when its reset
-// time is more than 90 minutes from the period's, or its use fell (the window reset).
+// time is more than 90 minutes from the period's, its use fell (the window reset), or it is more than maxReadingGap
+// after the one before.
 func periodsOf(samples []store.UsageSample) [][]store.UsageSample {
 	var out [][]store.UsageSample
 	for _, s := range samples {
@@ -259,7 +265,7 @@ func periodsOf(samples []store.UsageSample) [][]store.UsageSample {
 			cur := out[n-1]
 			first, last := cur[0], cur[len(cur)-1]
 			sameReset := first.Resets.IsZero() || s.Resets.IsZero() || s.Resets.Sub(first.Resets).Abs() <= 90*time.Minute
-			if sameReset && s.Used >= last.Used {
+			if sameReset && s.Used >= last.Used && s.At.Sub(last.At) <= maxReadingGap {
 				out[n-1] = append(cur, s)
 				continue
 			}

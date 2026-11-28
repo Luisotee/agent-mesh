@@ -49,8 +49,9 @@ func TestPeriodsSplitWhereTheWindowResetsOrTheUseFalls(t *testing.T) {
 	s := func(h int, used float64, resets time.Time) store.UsageSample {
 		return store.UsageSample{Pool: "claude:seven_day", At: t0.Add(time.Duration(h) * time.Hour), Used: used, Resets: resets}
 	}
-	got := periodsOf([]store.UsageSample{s(1, 10, reset1), s(5, 18, reset1.Add(time.Minute)), s(30, 40, reset1), s(60, 3, reset2), s(70, 9, reset2)})
-	if len(got) != 2 || len(got[0]) != 3 || len(got[1]) != 2 {
+	got := periodsOf([]store.UsageSample{s(1, 10, reset1), s(5, 18, reset1.Add(time.Minute)), s(14, 40, reset1), s(60, 3, reset2), s(70, 9, reset2), s(90, 12, reset2)})
+	// The last reading is 20 hours after the one before it: a gap that long starts a period of its own.
+	if len(got) != 3 || len(got[0]) != 3 || len(got[1]) != 2 || len(got[2]) != 1 {
 		t.Fatalf("periods %v", got)
 	}
 }

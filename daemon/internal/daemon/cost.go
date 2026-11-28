@@ -785,8 +785,9 @@ func (d *Daemon) buildCostSegments(r store.Reader) (map[string][]*costSegment, m
 					}
 				case *v1.Event_AgentReopened:
 					addSess(p.AgentReopened.SessionId)
-					if p.AgentReopened.Reopen != nil && p.AgentReopened.Reopen.Model != "" {
-						models = append(models, modelMark{at: et, model: p.AgentReopened.Reopen.Model, effort: p.AgentReopened.Reopen.Effort})
+					if ro := p.AgentReopened.Reopen; ro != nil && (ro.Model != "" || ro.Effort != "") {
+						// A reopen that changes only the effort has no model: the one before it stays (forward-filled below).
+						models = append(models, modelMark{at: et, model: ro.Model, effort: ro.Effort})
 					}
 				case *v1.Event_AgentPhaseChanged:
 					if !hasPhaseChange {
@@ -802,6 +803,11 @@ func (d *Daemon) buildCostSegments(r store.Reader) (map[string][]*costSegment, m
 			}
 			if initialModel != "" {
 				models = append([]modelMark{{at: time.Time{}, model: initialModel, effort: initialEffort}}, models...)
+			}
+			for i := 1; i < len(models); i++ {
+				if models[i].model == "" {
+					models[i].model = models[i-1].model
+				}
 			}
 
 			var phaseMarksOut []phaseMark
@@ -1418,6 +1424,8 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					segModel, effort := modelEffortAt(seg, c.t)
 					if m == "" {
 						m = segModel
+					} else if segModel != "" && costModelFamily(m) != costModelFamily(segModel) {
+						effort = "" // the conversation ran another model than the one recorded: its effort is not known
 					}
 					return &placedCall{
 						kind:   seg.kind,
@@ -1462,6 +1470,8 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					segModel, effort := modelEffortAt(seg, c.t)
 					if m == "" {
 						m = segModel
+					} else if segModel != "" && costModelFamily(m) != costModelFamily(segModel) {
+						effort = "" // the conversation ran another model than the one recorded: its effort is not known
 					}
 					return &placedCall{
 						kind:   seg.kind,
@@ -1506,6 +1516,8 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					segModel, effort := modelEffortAt(seg, c.t)
 					if m == "" {
 						m = segModel
+					} else if segModel != "" && costModelFamily(m) != costModelFamily(segModel) {
+						effort = "" // the conversation ran another model than the one recorded: its effort is not known
 					}
 					return &placedCall{
 						kind:   seg.kind,

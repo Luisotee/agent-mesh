@@ -32,8 +32,16 @@ type modelCheckState struct {
 	New     map[string][]string `json:"new,omitempty"`
 	Retired map[string][]string `json:"retired,omitempty"`
 	Acked   map[string][]string `json:"acked,omitempty"`
-	// Efforts are the tier efforts a model of the chain doesn't offer, by CLI (effortProblems).
-	Efforts map[string][]string `json:"efforts,omitempty"`
+	// Offered is the efforts each listed model offers, by CLI (offeredEfforts); Efforts are the tier efforts a model of
+	// the chain doesn't offer, worked out from it and the settings each time the state is read (withEfforts), so a
+	// fixed setting stops being reported at once.
+	Offered map[string]map[string][]string `json:"offered,omitempty"`
+	Efforts map[string][]string            `json:"-"`
+}
+
+func (d *Daemon) withEfforts(r store.Reader, s modelCheckState) modelCheckState {
+	s.Efforts = d.effortProblems(r, s.Offered)
+	return s
 }
 
 func loadModelCheckState(r store.Reader) modelCheckState {
@@ -383,7 +391,7 @@ func (d *Daemon) ModelNotice(ctx context.Context) string {
 	if d == nil || d.store == nil {
 		return ""
 	}
-	saved := loadModelCheckState(d.store.Read(ctx))
+	saved := d.withEfforts(d.store.Read(ctx), loadModelCheckState(d.store.Read(ctx)))
 	now := d.nowTime()
 	if saved.At > 0 && now.Sub(time.Unix(saved.At, 0)) < modelCheckTTL {
 		return formatModelNotice(saved)
@@ -401,16 +409,20 @@ func (d *Daemon) ModelNotice(ctx context.Context) string {
 			return nil
 		}
 		out = d.computeModelCheck(tx.Reader, listed, cur.Acked, cur, tx.Now())
-		out.Efforts = d.effortProblems(tx.Reader, offered)
+		out.Offered = offered
+		if len(offered) == 0 {
+			out.Offered = cur.Offered // a listing that failed keeps what the last good one said
+		}
 		return saveModelCheckState(tx, out)
 	})
 	if err != nil {
 		return formatModelNotice(saved)
 	}
-	return formatModelNotice(out)
+	return formatModelNotice(d.withEfforts(d.store.Read(ctx), out))
 }
 
 func (d *Daemon) buildCheckModelsResponse(r store.Reader, s modelCheckState) *v1.CheckModelsResponse {
+	s = d.withEfforts(r, s)
 	kindsSet := map[string]bool{}
 	for k := range s.Listed {
 		kindsSet[k] = true
@@ -501,7 +513,10 @@ func (d *Daemon) CheckModels(ctx context.Context, req *connect.Request[v1.CheckM
 			acked[a.kind] = sortedKeys(set)
 		}
 		next := d.computeModelCheck(tx.Reader, listed, acked, cur, tx.Now())
-		next.Efforts = d.effortProblems(tx.Reader, offered)
+		next.Offered = offered
+		if len(offered) == 0 {
+			next.Offered = cur.Offered
+		}
 		if err := saveModelCheckState(tx, next); err != nil {
 			return err
 		}
