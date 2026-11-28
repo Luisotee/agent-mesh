@@ -566,7 +566,7 @@ func TestEndToEnd(t *testing.T) {
 	// A model change reopens the same conversation: a switch to another tier, then a stop and a resume for a
 	// task it plans (the strong tier, under the deny list).
 	session := str(after, "agent", "sessionId")
-	w.ctl("switch", "--agent", agent, "--tier", "strong", "--why", "e2e")
+	w.ctl("switch", "--agent", agent, "--tier", "light", "--why", "e2e")
 	var moved map[string]any
 	w.waitFor("the switch's reopen", func() bool {
 		moved = w.ctl("agent", "--agent", agent)
