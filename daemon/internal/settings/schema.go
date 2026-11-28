@@ -303,7 +303,7 @@ func Check(l Leaf, v any) (any, error) {
 var tierNotes = map[string]string{
 	"light":  "trivial tasks (copy, translations, a version bump, config) and short mechanical text",
 	"mid":    "executing a clear plan, small tasks, routine questions and follow-ups, reviews of routine PRs (small or large)",
-	"strong": "planning, unclear or risky work (money, data that matters, secrets or the machine exposed to others, a deploy: not concurrency or the mesh's own internals), a bug of unknown cause, reviews of risky PRs",
+	"strong": "planning, unclear or risky work (money, data that matters, secrets or the machine exposed to others, a deploy: not concurrency, local permission logic, protocol changes or the daemon's own internals), a bug of unknown cause, reviews of risky PRs",
 	"top":    "only when the user names it",
 }
 

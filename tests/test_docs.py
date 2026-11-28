@@ -55,7 +55,7 @@ def test_risky_and_large_keep_their_definitions():
     """The user's 2026-11-28 definitions (ORCHESTRATE "Tiers" and "Sizes"): risky is money, data that matters, exposure
     to others or a deploy, never concurrency; size counts hand-written files, never lines. The old wording must not
     come back in the shipped protocol, skills, settings or docs."""
-    old = ("(auth, money, data migrations, concurrency)", "(security, money, data migrations, concurrency)",
+    old = ("(auth, money, data migrations, concurrency)", "(security, money, data migrations, concurrency)", "concurrency, a very large diff)",
            "a few hundred lines", "1,000 changed lines", "additions,deletions,changedFiles")
     files = [*ROOT.glob("daemon/share/**/*.md"), ROOT / "README.md", ROOT / "daemon/README.md",
              ROOT / "docs/apps.md", ROOT / "daemon/internal/settings/schema.go"]
