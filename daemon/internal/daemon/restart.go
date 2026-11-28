@@ -212,7 +212,7 @@ func (d *Daemon) resumeLost(ctx context.Context, id string) error {
 		}
 		if cur.Role != v1.AgentRole_AGENT_ROLE_ROOT {
 			model, effort, _ := target(cur)
-			if err := d.reserveCheck(tx.Reader, cur.RunId, cur.Kind, model, effort, "resuming "+cur.Name); err != nil {
+			if err := d.reserveCheck(tx.Reader, cur.RunId, cur.Kind, model, effort, "resuming "+cur.Name, isReviewer(cur)); err != nil {
 				return err
 			}
 		}
