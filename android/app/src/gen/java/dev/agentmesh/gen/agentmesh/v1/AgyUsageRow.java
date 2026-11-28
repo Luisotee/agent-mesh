@@ -18,6 +18,8 @@ public  final class AgyUsageRow extends
     group_ = "";
     label_ = "";
     resets_ = "";
+    pace_ = "";
+    worth_ = "";
   }
   public static final int GROUP_FIELD_NUMBER = 1;
   private java.lang.String group_;
@@ -260,6 +262,138 @@ public  final class AgyUsageRow extends
   private void clearReviewsOnly() {
 
     reviewsOnly_ = false;
+  }
+
+  public static final int ELAPSED_FIELD_NUMBER = 7;
+  private double elapsed_;
+  /**
+   * <pre>
+   * As ClaudeUsageWindow.elapsed, .pace and .worth.
+   * </pre>
+   *
+   * <code>double elapsed = 7 [json_name = "elapsed"];</code>
+   * @return The elapsed.
+   */
+  @java.lang.Override
+  public double getElapsed() {
+    return elapsed_;
+  }
+  /**
+   * <pre>
+   * As ClaudeUsageWindow.elapsed, .pace and .worth.
+   * </pre>
+   *
+   * <code>double elapsed = 7 [json_name = "elapsed"];</code>
+   * @param value The elapsed to set.
+   */
+  private void setElapsed(double value) {
+    
+    elapsed_ = value;
+  }
+  /**
+   * <pre>
+   * As ClaudeUsageWindow.elapsed, .pace and .worth.
+   * </pre>
+   *
+   * <code>double elapsed = 7 [json_name = "elapsed"];</code>
+   */
+  private void clearElapsed() {
+
+    elapsed_ = 0D;
+  }
+
+  public static final int PACE_FIELD_NUMBER = 8;
+  private java.lang.String pace_;
+  /**
+   * <code>string pace = 8 [json_name = "pace"];</code>
+   * @return The pace.
+   */
+  @java.lang.Override
+  public java.lang.String getPace() {
+    return pace_;
+  }
+  /**
+   * <code>string pace = 8 [json_name = "pace"];</code>
+   * @return The bytes for pace.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getPaceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(pace_);
+  }
+  /**
+   * <code>string pace = 8 [json_name = "pace"];</code>
+   * @param value The pace to set.
+   */
+  private void setPace(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    pace_ = value;
+  }
+  /**
+   * <code>string pace = 8 [json_name = "pace"];</code>
+   */
+  private void clearPace() {
+
+    pace_ = getDefaultInstance().getPace();
+  }
+  /**
+   * <code>string pace = 8 [json_name = "pace"];</code>
+   * @param value The bytes for pace to set.
+   */
+  private void setPaceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    pace_ = value.toStringUtf8();
+
+  }
+
+  public static final int WORTH_FIELD_NUMBER = 9;
+  private java.lang.String worth_;
+  /**
+   * <code>string worth = 9 [json_name = "worth"];</code>
+   * @return The worth.
+   */
+  @java.lang.Override
+  public java.lang.String getWorth() {
+    return worth_;
+  }
+  /**
+   * <code>string worth = 9 [json_name = "worth"];</code>
+   * @return The bytes for worth.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getWorthBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(worth_);
+  }
+  /**
+   * <code>string worth = 9 [json_name = "worth"];</code>
+   * @param value The worth to set.
+   */
+  private void setWorth(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    worth_ = value;
+  }
+  /**
+   * <code>string worth = 9 [json_name = "worth"];</code>
+   */
+  private void clearWorth() {
+
+    worth_ = getDefaultInstance().getWorth();
+  }
+  /**
+   * <code>string worth = 9 [json_name = "worth"];</code>
+   * @param value The bytes for worth to set.
+   */
+  private void setWorthBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    worth_ = value.toStringUtf8();
+
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.AgyUsageRow parseFrom(
@@ -614,6 +748,144 @@ public  final class AgyUsageRow extends
       return this;
     }
 
+    /**
+     * <pre>
+     * As ClaudeUsageWindow.elapsed, .pace and .worth.
+     * </pre>
+     *
+     * <code>double elapsed = 7 [json_name = "elapsed"];</code>
+     * @return The elapsed.
+     */
+    @java.lang.Override
+    public double getElapsed() {
+      return instance.getElapsed();
+    }
+    /**
+     * <pre>
+     * As ClaudeUsageWindow.elapsed, .pace and .worth.
+     * </pre>
+     *
+     * <code>double elapsed = 7 [json_name = "elapsed"];</code>
+     * @param value The elapsed to set.
+     * @return This builder for chaining.
+     */
+    public Builder setElapsed(double value) {
+      copyOnWrite();
+      instance.setElapsed(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * As ClaudeUsageWindow.elapsed, .pace and .worth.
+     * </pre>
+     *
+     * <code>double elapsed = 7 [json_name = "elapsed"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearElapsed() {
+      copyOnWrite();
+      instance.clearElapsed();
+      return this;
+    }
+
+    /**
+     * <code>string pace = 8 [json_name = "pace"];</code>
+     * @return The pace.
+     */
+    @java.lang.Override
+    public java.lang.String getPace() {
+      return instance.getPace();
+    }
+    /**
+     * <code>string pace = 8 [json_name = "pace"];</code>
+     * @return The bytes for pace.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getPaceBytes() {
+      return instance.getPaceBytes();
+    }
+    /**
+     * <code>string pace = 8 [json_name = "pace"];</code>
+     * @param value The pace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPace(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setPace(value);
+      return this;
+    }
+    /**
+     * <code>string pace = 8 [json_name = "pace"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPace() {
+      copyOnWrite();
+      instance.clearPace();
+      return this;
+    }
+    /**
+     * <code>string pace = 8 [json_name = "pace"];</code>
+     * @param value The bytes for pace to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPaceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setPaceBytes(value);
+      return this;
+    }
+
+    /**
+     * <code>string worth = 9 [json_name = "worth"];</code>
+     * @return The worth.
+     */
+    @java.lang.Override
+    public java.lang.String getWorth() {
+      return instance.getWorth();
+    }
+    /**
+     * <code>string worth = 9 [json_name = "worth"];</code>
+     * @return The bytes for worth.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getWorthBytes() {
+      return instance.getWorthBytes();
+    }
+    /**
+     * <code>string worth = 9 [json_name = "worth"];</code>
+     * @param value The worth to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWorth(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setWorth(value);
+      return this;
+    }
+    /**
+     * <code>string worth = 9 [json_name = "worth"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearWorth() {
+      copyOnWrite();
+      instance.clearWorth();
+      return this;
+    }
+    /**
+     * <code>string worth = 9 [json_name = "worth"];</code>
+     * @param value The bytes for worth to set.
+     * @return This builder for chaining.
+     */
+    public Builder setWorthBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setWorthBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AgyUsageRow)
   }
   @java.lang.Override
@@ -636,10 +908,13 @@ public  final class AgyUsageRow extends
             "resets_",
             "atReserve_",
             "reviewsOnly_",
+            "elapsed_",
+            "pace_",
+            "worth_",
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0004\u0004\u0208\u0005\u0007\u0006\u0007";
+              "\u0000\t\u0000\u0000\u0001\t\t\u0000\u0000\u0000\u0001\u0208\u0002\u0208\u0003\u0004" +
+              "\u0004\u0208\u0005\u0007\u0006\u0007\u0007\u0000\b\u0208\t\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

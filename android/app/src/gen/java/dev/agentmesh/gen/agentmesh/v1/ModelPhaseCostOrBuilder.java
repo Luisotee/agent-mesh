@@ -97,4 +97,24 @@ public interface ModelPhaseCostOrBuilder extends
    * @return The total.
    */
   long getTotal();
+
+  /**
+   * <pre>
+   * The effort the agent ran at when it spent these tokens; empty for a conversation no event records an effort for.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  java.lang.String getEffort();
+  /**
+   * <pre>
+   * The effort the agent ran at when it spent these tokens; empty for a conversation no event records an effort for.
+   * </pre>
+   *
+   * <code>string effort = 13 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  com.google.protobuf.ByteString
+      getEffortBytes();
 }

@@ -619,3 +619,63 @@ func TestCostRootIsNotScopedToItsRunButAWorkerIs(t *testing.T) {
 		t.Fatalf("worker own run: %v", err)
 	}
 }
+
+// A Claude agent's tokens are filed under the effort it ran at then: the spawn's, and a reopen's that changes only
+// the effort (the same model), so `mesh cost` can compare the same model at two efforts.
+func TestCostFilesAClaudeAgentsTokensUnderTheEffortItRanAt(t *testing.T) {
+	home := t.TempDir()
+	var now atomic.Int64
+	now.Store(costT0.UnixNano())
+	state := shortdir.State(t)
+	d, err := daemon.New(daemon.Config{
+		StateDir: state,
+		TCP:      "127.0.0.1:0",
+		Now:      func() time.Time { return time.Unix(0, now.Load()).UTC() },
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Agents: daemon.AgentConfig{
+			LookPath: func(string) (string, bool) { return "", false },
+			Env:      map[string]string{"HOME": home},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := serve(t, d, state)
+	ctx := context.Background()
+	write := func(minutes float64, fn func(tx *store.Tx) error) {
+		now.Store(costT0.Add(time.Duration(minutes * float64(time.Minute))).UnixNano())
+		if err := h.d.Store().Write(ctx, nil, "", fn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := &v1.Agent{Id: "w1", RunId: "r1", Name: "repo-fix", Role: v1.AgentRole_AGENT_ROLE_WORKER, Kind: "claude", Worktree: "/wt1", Repo: "/repo",
+		Model: "opus", Effort: "high", Phase: v1.AgentPhase_AGENT_PHASE_EXECUTING, SessionId: "ws1", CreatedAt: costTS(1)}
+	write(1, func(tx *store.Tx) error {
+		if err := tx.PutRun(&v1.Run{Id: "r1", Title: "one", Status: v1.RunStatus_RUN_STATUS_OPEN, CreatedAt: costTS(0)}); err != nil {
+			return err
+		}
+		if err := tx.PutAgent(w); err != nil {
+			return err
+		}
+		_, err := tx.AppendEvent(&v1.Event{RunId: "r1", AgentId: "w1", Payload: &v1.Event_AgentSpawned{AgentSpawned: &v1.AgentSpawned{Agent: w}}})
+		return err
+	})
+	write(30, func(tx *store.Tx) error {
+		_, err := tx.AppendEvent(&v1.Event{RunId: "r1", AgentId: "w1", Payload: &v1.Event_AgentReopened{AgentReopened: &v1.AgentReopened{
+			Reopen: &v1.Reopen{Effort: "medium"}, SessionId: "ws1"}}})
+		return err
+	})
+	writeClaudeTranscript(t, home, "/wt1", "ws1", "",
+		append(claudeReply(5, "a", "", 100, 0, 0, 0, 1000, 1, ""), claudeReply(45, "b", "", 200, 0, 0, 0, 1000, 1, "")...)...)
+	res, err := h.device.Mesh.GetCost(ctx, connect.NewRequest(&v1.GetCostRequest{RunId: "r1"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, bm := range res.Msg.ByModel {
+		got[bm.Model+" "+bm.Effort] += bm.Total
+	}
+	if got["opus high"] != 1100 || got["opus medium"] != 1200 || len(got) != 2 {
+		t.Errorf("by model and effort = %v, want opus high 1100 and opus medium 1200", got)
+	}
+}

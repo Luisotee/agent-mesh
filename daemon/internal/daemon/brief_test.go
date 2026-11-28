@@ -279,3 +279,76 @@ func TestTheBriefSaysHowTheRootLeansOnTiers(t *testing.T) {
 		t.Errorf("a worker's brief carries the tier lean:\n%s", got)
 	}
 }
+
+// The root's brief prints the host's plan facts (`plans.<cli>`, only the ones set) and a line for each model its
+// tiers name (`models.strengths`); a worker's brief has neither.
+func TestTheBriefPrintsThePlansAndTheStrengthsOfTheTiersModels(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	brief := func(c interface {
+		GetBrief(context.Context, *connect.Request[v1.GetBriefRequest]) (*connect.Response[v1.GetBriefResponse], error)
+	}) string {
+		res, err := c.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Text
+	}
+	got := brief(w.asRoot)
+	if strings.Contains(got, "plan, ") {
+		t.Errorf("a plan nobody set is printed:\n%s", got)
+	}
+	for _, want := range []string{"sonnet: within a point of Opus", "neon: best value per task", "opencode/deepseek-v4.1-flash-free: the strongest free model"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the brief lacks the strength line %q:\n%s", want, got)
+		}
+	}
+	w.set(t, "plans.agy", "AI Pro: small, a second family")
+	w.set(t, "models.strengths", map[string]any{"sonnet": "my line on sonnet"})
+	got = brief(w.asRoot)
+	if !strings.Contains(got, "plan, agy (`plans.agy`): AI Pro: small, a second family") || !strings.Contains(got, "sonnet: my line on sonnet") || strings.Contains(got, "neon:") {
+		t.Errorf("the brief ignores the host's facts:\n%s", got)
+	}
+	wk := w.worker(t, "wk")
+	if got := brief(w.as(w.token(t, wk.Id))); strings.Contains(got, "plan, agy") || strings.Contains(got, "my line on sonnet") {
+		t.Errorf("a worker's brief carries the routing facts:\n%s", got)
+	}
+}
+
+// The root's brief shows each reviewer model's record at each effort over the last 30 days: reviews, the share of
+// findings agreed or useful, blocking findings per review.
+func TestTheBriefShowsTheReviewersRecordByModelAndEffort(t *testing.T) {
+	w := startReviews(t)
+	ctx := context.Background()
+	brief := func() string {
+		res, err := w.asRoot.GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg.Text
+	}
+	if strings.Contains(brief(), "reviewers, last 30 days") {
+		t.Errorf("a record with no verdicts:\n%s", brief())
+	}
+	w.pr.push(t, "the feature")
+	round := w.ask(t, &v1.AskRequest{Repo: w.pr.repo, Review: "7", Size: "small", Tier: "strong", Reviewers: "claude,agy"})
+	for _, a := range round.Agents {
+		if _, err := w.asRoot.RecordVerdict(ctx, connect.NewRequest(&v1.RecordVerdictRequest{Meta: meta(""), Pr: w.pr.url(), Reviewer: a.Name, Agree: 3, Other: 0, Disagree: 1, Blocking: 1})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := brief()
+	for _, want := range []string{"reviewers, last 30 days, by model and effort", "claude opus, medium: 1 reviews, 75% agreed, 1.0 blocking per review", "agy neon, medium: 1 reviews, 75% agreed"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the brief lacks %q:\n%s", want, got)
+		}
+	}
+	wk := w.worker(t, "wk")
+	res, err := w.as(w.token(t, wk.Id)).GetBrief(ctx, connect.NewRequest(&v1.GetBriefRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Msg.Text, "reviewers, last 30 days") {
+		t.Errorf("a worker's brief carries the reviewers' record:\n%s", res.Msg.Text)
+	}
+}

@@ -24,10 +24,14 @@ import (
 
 const (
 	agyListingBase = "gemini-4-neon-high\tGemini 4 Neon (High)\n" +
+		"gemini-4-neon-medium\tGemini 4 Neon (Medium)\n" +
 		"gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n" +
+		"gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)\n" +
 		"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
+		"gemini-4-carbon-medium\tGemini 4 Carbon (Medium)\n" +
 		"gemini-3.10-flash-low\tGemini 3.10 Flash (Low)\n" +
 		"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n" +
+		"claude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\n" +
 		"claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)\n" +
 		"gemini-4-argon-high\tGemini 4 Argon (High)\n"
 	agyListingNew = agyListingBase + "gemini-5-xenon-high\tGemini 5 Xenon (High)\n"
@@ -325,5 +329,56 @@ func TestModelsAKindWhoseCLIIsGoneIsDroppedAndTheCacheApplies(t *testing.T) {
 	}
 	if second.Msg.CheckedAt == nil {
 		t.Fatal("checked_at unset: the 24h cache would never apply")
+	}
+}
+
+// `mesh models --check` flags a tier effort a model of the chain doesn't offer: agy with no id of that family at
+// that level, OpenCode with no variant of that name; a model that offers it, or none at all, is left alone.
+func TestModelsFlagsATierEffortAModelDoesNotOffer(t *testing.T) {
+	// hydrogen has only high; the shipped agy light and mid tiers name medium (and high).
+	listing := strings.Replace(agyListingBase, "gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)\n", "", 1)
+	oc := opencodeListingBase +
+		"opencode/cinder-free\n{\"cost\":{\"input\":0,\"output\":0},\"capabilities\":{\"toolcall\":true},\"release_date\":\"2026-11-10\",\"variants\":{\"high\":{},\"max\":{}}}\n"
+	now := time.Date(2026, 11, 26, 10, 0, 0, 0, time.UTC)
+	h := startModelsHarness(t, &listing, &oc, &now)
+	ctx := context.Background()
+	if _, err := h.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{
+		Meta: meta("s1"), Key: "tiers.opencode.light.model", Value: val(t, []any{"opencode/cinder-free", "opencode/beam-free"})})); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{Meta: meta("e1"), Check: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agyProblems := strings.Join(kindEntry(res.Msg, "agy").EffortProblems, "\n")
+	if !strings.Contains(agyProblems, "tiers.agy.light.effort = medium: hydrogen (has high)") {
+		t.Errorf("agy problems:\n%s", agyProblems)
+	}
+	if strings.Contains(agyProblems, "neon") || strings.Contains(agyProblems, "carbon") {
+		t.Errorf("a model that offers the effort is flagged:\n%s", agyProblems)
+	}
+	ocProblems := strings.Join(kindEntry(res.Msg, "opencode").EffortProblems, "\n")
+	if !strings.Contains(ocProblems, "tiers.opencode.light.effort = low: opencode/cinder-free (has high, max)") || strings.Contains(ocProblems, "beam") {
+		t.Errorf("opencode problems:\n%s", ocProblems)
+	}
+	if !strings.Contains(res.Msg.Notice, "settings name an effort a model doesn't offer") {
+		t.Errorf("notice = %q", res.Msg.Notice)
+	}
+	// Fixing the setting stops the report at once, though the listing itself is cached for a day.
+	if _, err := h.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{
+		Meta: meta("s2"), Key: "tiers.agy.light.effort", Value: val(t, "high")})); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"tiers.agy.light.exec_effort", "tiers.agy.light.review_effort", "tiers.agy.mid.review_effort", "tiers.agy.strong.review_effort"} {
+		if _, err := h.device.Mesh.SetSetting(ctx, connect.NewRequest(&v1.SetSettingRequest{Meta: meta("s-" + k), Key: k, Value: val(t, "high")})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := h.device.Mesh.CheckModels(ctx, connect.NewRequest(&v1.CheckModelsRequest{Meta: meta("e2")}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kindEntry(again.Msg, "agy").EffortProblems; len(got) != 0 {
+		t.Errorf("agy problems after the fix: %v", got)
 	}
 }

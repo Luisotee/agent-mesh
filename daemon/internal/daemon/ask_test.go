@@ -556,12 +556,19 @@ func TestAVerdictIsRecordedOnTheReviewersNewestRoundAndChecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := res.Msg.Verdict; v.Kind != claude.Kind || v.Tier != "mid" || v.Model == "" || v.Agree != 2 || v.Blocking != 1 || v.Reviewer != claude.Name {
+	if v := res.Msg.Verdict; v.Kind != claude.Kind || v.Tier != "mid" || v.Effort != "high" || v.Model == "" || v.Agree != 2 || v.Blocking != 1 || v.Reviewer != claude.Name {
 		t.Errorf("verdict %v", v)
 	}
 	list, _ := w.asRoot.ListAsks(ctx, connect.NewRequest(&v1.ListAsksRequest{Pr: "7"}))
 	if len(list.Msg.Asks) != 1 || len(list.Msg.Asks[0].Verdicts) != 1 {
 		t.Errorf("asks %v", list.Msg.Asks)
+	}
+	// The effort each reviewer ran at is recorded with the member and the verdict (a Claude mid reviewer: high; agy's own: medium).
+	for _, mem := range list.Msg.Asks[0].Members {
+		want := map[string]string{"claude": "high", "agy": "medium"}[mem.Kind]
+		if mem.Effort != want {
+			t.Errorf("member %s (%s) ran at %q, want %q", mem.Name, mem.Kind, mem.Effort, want)
+		}
 	}
 	// Said again: replaced, not added.
 	if _, err := w.asRoot.RecordVerdict(ctx, connect.NewRequest(&v1.RecordVerdictRequest{Meta: meta(""), Pr: "7", Reviewer: claude.Name, Agree: 1})); err != nil {

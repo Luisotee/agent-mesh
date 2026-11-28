@@ -624,9 +624,10 @@ func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, ext
 	}
 	switch kind {
 	case "claude":
-		_ = d.claudeUsage(ctx, true, false)
+		d.recordUsage(ctx, d.claudeUsage(ctx, true, false), nil, time.Time{})
 	case "agy":
-		rows, _ := d.agyUsageRows(ctx, true, false)
+		rows, agyAt := d.agyUsageRows(ctx, true, false)
+		d.recordUsage(ctx, nil, rows, agyAt)
 		if len(rows) > 0 || (d.rt.cfg.Usage != nil && d.rt.cfg.Usage.ReadAgyModels != nil) {
 			for _, tier := range d.agyTierNames() {
 				chain, effort, err := d.tierChain(r, "agy", tier)
@@ -883,7 +884,8 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		SplitReserves:     true,
 	}
 
-	if snap := d.claudeUsage(ctx, true, refresh); snap != nil {
+	snap := d.claudeUsage(ctx, true, refresh)
+	if snap != nil {
 		cu := &v1.ClaudeUsage{
 			Source: snap.Source,
 		}
@@ -905,6 +907,12 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 			}
 			if rt, ok := parseClaudeReset(w.Resets); ok {
 				cw.ResetsAt = timestamppb.New(rt)
+				if !claudeWindowStale(w, now) {
+					cw.Elapsed, cw.Pace = paceOf(w.Used, rt, windowOf(meta.key != "five_hour"), now)
+				}
+			}
+			if !claudeWindowStale(w, now) { // a window whose reset has passed is full again: its old reading says nothing
+				cw.Worth = d.worth(r, claudePool(meta.key), 100-w.Used)
 			}
 			cu.Windows = append(cu.Windows, cw)
 			if stale := claudeWindowStale(w, now); !stale {
@@ -918,21 +926,47 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 		out.Claude = cu
 	}
 
-	rows, _ := d.agyUsageRows(ctx, true, refresh)
+	rows, agyAt := d.agyUsageRows(ctx, true, refresh)
 	if since, _ := d.agyLoginState(d.now()); !since.IsZero() {
 		out.Notes = append(out.Notes, agyLoginNote)
 	}
 	for _, row := range rows {
 		line := alimits.stopLine(row.Weekly())
 		atReserve := line < 100 && row.Left <= int(math.Round(100-line))
-		out.AgyRows = append(out.AgyRows, &v1.AgyUsageRow{
+		ar := &v1.AgyUsageRow{
 			Group:       row.Group,
 			Label:       row.Label,
 			Left:        int32(row.Left),
 			Resets:      row.Resets,
 			AtReserve:   atReserve,
 			ReviewsOnly: !atReserve && alimits.reviews < 100 && row.Left <= int(math.Round(100-alimits.reviews)),
-		})
+			Worth:       d.worth(r, agyPool(row), float64(row.Left)),
+		}
+		if at := agyAt; !at.IsZero() {
+			if rt, ok := parseAgyReset(row.Resets, at); ok {
+				ar.Elapsed, ar.Pace = paceOf(float64(100-row.Left), rt, windowOf(row.Weekly()), d.nowTime())
+			}
+		}
+		out.AgyRows = append(out.AgyRows, ar)
+	}
+	d.recordUsage(ctx, snap, rows, agyAt)
+	out.Unit = refPoolName
+	pools, _ := r.UsagePools()
+	for _, pool := range pools {
+		if sz, ok := d.sizeOf(r, pool); ok {
+			out.Pools = append(out.Pools, &v1.PoolSize{Pool: pool, TokensPerPercent: math.Round(sz.TokensPerPercent), Points: sz.Points, Tokens: sz.Tokens, MeasuredAt: timestamppb.New(sz.At)})
+		}
+	}
+	if limits, err := r.ModelLimits("opencode"); err == nil {
+		for _, l := range limits {
+			if l.Until.After(d.nowTime()) {
+				model := l.Model
+				if model == "*" {
+					model = "every model"
+				}
+				out.Held = append(out.Held, fmt.Sprintf("opencode %s until %s", model, l.Until.UTC().Format(time.RFC3339)))
+			}
+		}
 	}
 
 	now := d.now()

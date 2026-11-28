@@ -20,6 +20,7 @@ public  final class KindModels extends
     newFamilies_ = emptyProtobufList();
     retiredFamilies_ = emptyProtobufList();
     ackedFamilies_ = emptyProtobufList();
+    effortProblems_ = emptyProtobufList();
   }
   public static final int KIND_FIELD_NUMBER = 1;
   private java.lang.String kind_;
@@ -439,6 +440,144 @@ public  final class KindModels extends
     checkByteStringIsUtf8(value);
     ensureAckedFamiliesIsMutable();
     ackedFamilies_.add(value.toStringUtf8());
+  }
+
+  public static final int EFFORT_PROBLEMS_FIELD_NUMBER = 6;
+  private com.google.protobuf.Internal.ProtobufList<java.lang.String> effortProblems_;
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @return A list containing the effortProblems.
+   */
+  @java.lang.Override
+  public java.util.List<java.lang.String> getEffortProblemsList() {
+    return effortProblems_;
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @return The count of effortProblems.
+   */
+  @java.lang.Override
+  public int getEffortProblemsCount() {
+    return effortProblems_.size();
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param index The index of the element to return.
+   * @return The effortProblems at the given index.
+   */
+  @java.lang.Override
+  public java.lang.String getEffortProblems(int index) {
+    return effortProblems_.get(index);
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param index The index of the value to return.
+   * @return The bytes of the effortProblems at the given index.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEffortProblemsBytes(int index) {
+    return com.google.protobuf.ByteString.copyFromUtf8(
+        effortProblems_.get(index));
+  }
+  private void ensureEffortProblemsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<java.lang.String> tmp =
+        effortProblems_;  if (!tmp.isModifiable()) {
+      effortProblems_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param index The index to set the value at.
+   * @param value The effortProblems to set.
+   */
+  private void setEffortProblems(
+      int index, java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureEffortProblemsIsMutable();
+    effortProblems_.set(index, value);
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param value The effortProblems to add.
+   */
+  private void addEffortProblems(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+    ensureEffortProblemsIsMutable();
+    effortProblems_.add(value);
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param values The effortProblems to add.
+   */
+  private void addAllEffortProblems(
+      java.lang.Iterable<java.lang.String> values) {
+    ensureEffortProblemsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, effortProblems_);
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   */
+  private void clearEffortProblems() {
+    effortProblems_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+   * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+   * </pre>
+   *
+   * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+   * @param value The bytes of the effortProblems to add.
+   */
+  private void addEffortProblemsBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    ensureEffortProblemsIsMutable();
+    effortProblems_.add(value.toStringUtf8());
   }
 
   public static dev.agentmesh.gen.agentmesh.v1.KindModels parseFrom(
@@ -965,6 +1104,143 @@ public  final class KindModels extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @return A list containing the effortProblems.
+     */
+    @java.lang.Override
+    public java.util.List<java.lang.String>
+        getEffortProblemsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getEffortProblemsList());
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @return The count of effortProblems.
+     */
+    @java.lang.Override
+    public int getEffortProblemsCount() {
+      return instance.getEffortProblemsCount();
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @param index The index of the element to return.
+     * @return The effortProblems at the given index.
+     */
+    @java.lang.Override
+    public java.lang.String getEffortProblems(int index) {
+      return instance.getEffortProblems(index);
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @param index The index of the value to return.
+     * @return The bytes of the effortProblems at the given index.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEffortProblemsBytes(int index) {
+      return instance.getEffortProblemsBytes(index);
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @param index The index to set the value at.
+     * @param value The effortProblems to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEffortProblems(
+        int index, java.lang.String value) {
+      copyOnWrite();
+      instance.setEffortProblems(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @param value The effortProblems to add.
+     * @return This builder for chaining.
+     */
+    public Builder addEffortProblems(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.addEffortProblems(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @param values The effortProblems to add.
+     * @return This builder for chaining.
+     */
+    public Builder addAllEffortProblems(
+        java.lang.Iterable<java.lang.String> values) {
+      copyOnWrite();
+      instance.addAllEffortProblems(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEffortProblems() {
+      copyOnWrite();
+      instance.clearEffortProblems();
+      return this;
+    }
+    /**
+     * <pre>
+     * Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+     * family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+     * </pre>
+     *
+     * <code>repeated string effort_problems = 6 [json_name = "effortProblems"];</code>
+     * @param value The bytes of the effortProblems to add.
+     * @return This builder for chaining.
+     */
+    public Builder addEffortProblemsBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.addEffortProblemsBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.KindModels)
   }
   @java.lang.Override
@@ -987,10 +1263,11 @@ public  final class KindModels extends
             "newFamilies_",
             "retiredFamilies_",
             "ackedFamilies_",
+            "effortProblems_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0004\u0000\u0001\u0208\u0002\u001b" +
-              "\u0003\u021a\u0004\u021a\u0005\u021a";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0005\u0000\u0001\u0208\u0002\u001b" +
+              "\u0003\u021a\u0004\u021a\u0005\u021a\u0006\u021a";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

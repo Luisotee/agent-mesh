@@ -138,4 +138,94 @@ public interface GetUsageResponseOrBuilder extends
    * @return The splitReserves.
    */
   boolean getSplitReserves();
+
+  /**
+   * <pre>
+   * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+   * </pre>
+   *
+   * <code>string unit = 11 [json_name = "unit"];</code>
+   * @return The unit.
+   */
+  java.lang.String getUnit();
+  /**
+   * <pre>
+   * The unit the pools are compared in ("a Claude week": the seven-day window of the Claude plan).
+   * </pre>
+   *
+   * <code>string unit = 11 [json_name = "unit"];</code>
+   * @return The bytes for unit.
+   */
+  com.google.protobuf.ByteString
+      getUnitBytes();
+
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  java.util.List<dev.agentmesh.gen.agentmesh.v1.PoolSize> 
+      getPoolsList();
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  dev.agentmesh.gen.agentmesh.v1.PoolSize getPools(int index);
+  /**
+   * <pre>
+   * Each pool's measured size (tokens a percent of its window is worth), from the readings the daemon kept: only the
+   * pools it could measure.
+   * </pre>
+   *
+   * <code>repeated .agentmesh.v1.PoolSize pools = 12 [json_name = "pools"];</code>
+   */
+  int getPoolsCount();
+
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @return A list containing the held.
+   */
+  java.util.List<java.lang.String>
+      getHeldList();
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @return The count of held.
+   */
+  int getHeldCount();
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param index The index of the element to return.
+   * @return The held at the given index.
+   */
+  java.lang.String getHeld(int index);
+  /**
+   * <pre>
+   * OpenCode's models held at a limit now, with when each is free again (it has per-model caps, no percent).
+   * </pre>
+   *
+   * <code>repeated string held = 13 [json_name = "held"];</code>
+   * @param index The index of the element to return.
+   * @return The held at the given index.
+   */
+  com.google.protobuf.ByteString
+      getHeldBytes(int index);
 }

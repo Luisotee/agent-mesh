@@ -297,3 +297,25 @@ func TestTheShippedRoutingFollowsTheResearch(t *testing.T) {
 		}
 	}
 }
+
+// A leaf whose default is empty is optional: "" is its unset state, and a leaf with a default still refuses "".
+func TestAStringLeafWithAnEmptyDefaultTakesAnEmptyString(t *testing.T) {
+	s, err := NewSchema(DefaultLeaves())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _ := s.Lookup("plans.claude")
+	if _, err := Check(plan, ""); err != nil {
+		t.Errorf("an empty plan: %v", err)
+	}
+	if _, err := Check(plan, "Max 5x"); err != nil {
+		t.Errorf("a plan: %v", err)
+	}
+	note, _ := s.Lookup("tiers.claude.mid.note")
+	if _, err := Check(note, ""); err == nil {
+		t.Error("a note with a default took an empty string")
+	}
+	if _, ok := s.Lookup("models.strengths"); !ok {
+		t.Error("no models.strengths leaf")
+	}
+}

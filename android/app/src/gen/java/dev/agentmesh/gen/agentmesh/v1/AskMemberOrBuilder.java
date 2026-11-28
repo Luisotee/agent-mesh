@@ -228,4 +228,24 @@ public interface AskMemberOrBuilder extends
    */
   com.google.protobuf.ByteString
       getAboutBytes();
+
+  /**
+   * <pre>
+   * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+   * </pre>
+   *
+   * <code>string effort = 15 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  java.lang.String getEffort();
+  /**
+   * <pre>
+   * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+   * </pre>
+   *
+   * <code>string effort = 15 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  com.google.protobuf.ByteString
+      getEffortBytes();
 }

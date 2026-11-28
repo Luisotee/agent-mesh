@@ -32,6 +32,29 @@ type modelCheckState struct {
 	New     map[string][]string `json:"new,omitempty"`
 	Retired map[string][]string `json:"retired,omitempty"`
 	Acked   map[string][]string `json:"acked,omitempty"`
+	// Offered is the efforts each listed model offers, by CLI (offeredEfforts); Efforts are the tier efforts a model of
+	// the chain doesn't offer, worked out from it and the settings each time the state is read (withEfforts), so a
+	// fixed setting stops being reported at once.
+	Offered map[string]map[string][]string `json:"offered,omitempty"`
+	Efforts map[string][]string            `json:"-"`
+}
+
+// mergeOffered is the efforts each CLI offers: this listing's for the CLIs it read, the last good one's for the
+// others (a listing that failed keeps what the last one said).
+func mergeOffered(prev, now map[string]map[string][]string) map[string]map[string][]string {
+	out := map[string]map[string][]string{}
+	for k, v := range prev {
+		out[k] = v
+	}
+	for k, v := range now {
+		out[k] = v
+	}
+	return out
+}
+
+func (d *Daemon) withEfforts(r store.Reader, s modelCheckState) modelCheckState {
+	s.Efforts = d.effortProblems(r, s.Offered)
+	return s
 }
 
 func loadModelCheckState(r store.Reader) modelCheckState {
@@ -335,6 +358,11 @@ func formatModelNotice(s modelCheckState) string {
 			kinds[k] = true
 		}
 	}
+	for k, v := range s.Efforts {
+		if len(v) > 0 && k == "agy" { // agy's launch fails; OpenCode's model runs on its default variant: listed by `mesh models`, not told to the root
+			kinds[k] = true
+		}
+	}
 	if len(kinds) == 0 {
 		return ""
 	}
@@ -350,6 +378,23 @@ func formatModelNotice(s modelCheckState) string {
 			parts = append(parts, fmt.Sprintf("%s no longer lists: %s (a tier names it)", k, strings.Join(v, ", ")))
 		}
 	}
+	for _, k := range ordered {
+		if v := s.Efforts[k]; len(v) > 0 && k == "agy" {
+			shown := v
+			more := ""
+			if len(v) > 3 {
+				shown, more = v[:3], fmt.Sprintf("; … %d more (`mesh models --check`)", len(v)-3)
+			}
+			parts = append(parts, fmt.Sprintf("%s settings name an effort a model doesn't offer: %s%s", k, strings.Join(shown, "; "), more))
+		}
+	}
+	hasModels := false
+	for k := range kinds {
+		hasModels = hasModels || len(s.New[k]) > 0 || len(s.Retired[k]) > 0
+	}
+	if !hasModels {
+		return "mesh: " + strings.Join(parts, "; ") + ". Fix the settings (`mesh settings`) or the tier's models"
+	}
 	return "mesh: " + strings.Join(parts, "; ") + `. Propose a research ask on them to the user (ORCHESTRATE "New models"), or ` + "`mesh models --ack <kind>:<name>` once decided"
 }
 
@@ -359,7 +404,7 @@ func (d *Daemon) ModelNotice(ctx context.Context) string {
 	if d == nil || d.store == nil {
 		return ""
 	}
-	saved := loadModelCheckState(d.store.Read(ctx))
+	saved := d.withEfforts(d.store.Read(ctx), loadModelCheckState(d.store.Read(ctx)))
 	now := d.nowTime()
 	if saved.At > 0 && now.Sub(time.Unix(saved.At, 0)) < modelCheckTTL {
 		return formatModelNotice(saved)
@@ -368,6 +413,7 @@ func (d *Daemon) ModelNotice(ctx context.Context) string {
 	if len(listed) == 0 {
 		return formatModelNotice(saved)
 	}
+	offered := d.offeredEfforts(ctx, false)
 	var out modelCheckState
 	err := d.store.Write(ctx, nil, "", func(tx *store.Tx) error {
 		cur := loadModelCheckState(tx.Reader)
@@ -376,15 +422,17 @@ func (d *Daemon) ModelNotice(ctx context.Context) string {
 			return nil
 		}
 		out = d.computeModelCheck(tx.Reader, listed, cur.Acked, cur, tx.Now())
+		out.Offered = mergeOffered(cur.Offered, offered)
 		return saveModelCheckState(tx, out)
 	})
 	if err != nil {
 		return formatModelNotice(saved)
 	}
-	return formatModelNotice(out)
+	return formatModelNotice(d.withEfforts(d.store.Read(ctx), out))
 }
 
 func (d *Daemon) buildCheckModelsResponse(r store.Reader, s modelCheckState) *v1.CheckModelsResponse {
+	s = d.withEfforts(r, s)
 	kindsSet := map[string]bool{}
 	for k := range s.Listed {
 		kindsSet[k] = true
@@ -396,6 +444,9 @@ func (d *Daemon) buildCheckModelsResponse(r store.Reader, s modelCheckState) *v1
 		kindsSet[k] = true
 	}
 	for k := range s.Acked {
+		kindsSet[k] = true
+	}
+	for k := range s.Efforts {
 		kindsSet[k] = true
 	}
 	out := &v1.CheckModelsResponse{
@@ -411,6 +462,7 @@ func (d *Daemon) buildCheckModelsResponse(r store.Reader, s modelCheckState) *v1
 			NewFamilies:     append([]string(nil), s.New[kind]...),
 			RetiredFamilies: append([]string(nil), s.Retired[kind]...),
 			AckedFamilies:   append([]string(nil), s.Acked[kind]...),
+			EffortProblems:  append([]string(nil), s.Efforts[kind]...),
 		}
 		for _, fam := range s.Listed[kind] {
 			km.Listed = append(km.Listed, &v1.ModelFamilyEntry{
@@ -447,9 +499,11 @@ func (d *Daemon) CheckModels(ctx context.Context, req *connect.Request[v1.CheckM
 	needCompute := force || saved.At == 0 || d.nowTime().Sub(time.Unix(saved.At, 0)) >= modelCheckTTL
 
 	var listed map[string][]string
+	var offered map[string]map[string][]string
 	if needCompute {
 		// Shell out / read caches outside SQLite's writer lock.
 		listed = d.listedFamilies(ctx, force)
+		offered = d.offeredEfforts(ctx, force)
 	}
 
 	out := &v1.CheckModelsResponse{}
@@ -469,6 +523,7 @@ func (d *Daemon) CheckModels(ctx context.Context, req *connect.Request[v1.CheckM
 			acked[a.kind] = sortedKeys(set)
 		}
 		next := d.computeModelCheck(tx.Reader, listed, acked, cur, tx.Now())
+		next.Offered = mergeOffered(cur.Offered, offered)
 		if err := saveModelCheckState(tx, next); err != nil {
 			return err
 		}

@@ -94,6 +94,8 @@ message ModelPhaseCost {
   int64 output = 11;
   // input + w1 + w5 + output, as AgentCost.total.
   int64 total = 12;
+  // The effort the agent ran at when it spent these tokens; empty for a conversation no event records an effort for.
+  string effort = 13;
 }
 
 // Deprecated: GetCostResponse.by_model now carries agy and OpenCode as well; this list is no longer filled.
@@ -133,6 +135,8 @@ message VerdictCostSummary {
   bool has_agreed_pct = 11;
   // Of `reviews`, how many carry the PR author's verdict (a worker's), not the root's.
   int64 by_author = 12;
+  // The effort the reviewers ran at; rows are per kind, model, tier and effort.
+  string effort = 13;
 }
 
 // One CLI's tokens in the measured span, and how far to trust them.
@@ -194,6 +198,9 @@ message KindModels {
   repeated string new_families = 3;
   repeated string retired_families = 4;
   repeated string acked_families = 5;
+  // Tier efforts (its own, execution, review) that a model of the tier's chain doesn't offer: agy has no id of that
+  // family at that level (the launch fails), OpenCode has no variant of that name (the model runs on its default).
+  repeated string effort_problems = 6;
 }
 
 message CheckModelsResponse {

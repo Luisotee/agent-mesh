@@ -31,6 +31,7 @@ public  final class AskMember extends
     head_ = "";
     peerRepo_ = "";
     about_ = "";
+    effort_ = "";
   }
   public static final int AGENT_ID_FIELD_NUMBER = 1;
   private java.lang.String agentId_;
@@ -807,6 +808,73 @@ public  final class AskMember extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     about_ = value.toStringUtf8();
+
+  }
+
+  public static final int EFFORT_FIELD_NUMBER = 15;
+  private java.lang.String effort_;
+  /**
+   * <pre>
+   * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+   * </pre>
+   *
+   * <code>string effort = 15 [json_name = "effort"];</code>
+   * @return The effort.
+   */
+  @java.lang.Override
+  public java.lang.String getEffort() {
+    return effort_;
+  }
+  /**
+   * <pre>
+   * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+   * </pre>
+   *
+   * <code>string effort = 15 [json_name = "effort"];</code>
+   * @return The bytes for effort.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getEffortBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(effort_);
+  }
+  /**
+   * <pre>
+   * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+   * </pre>
+   *
+   * <code>string effort = 15 [json_name = "effort"];</code>
+   * @param value The effort to set.
+   */
+  private void setEffort(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    effort_ = value;
+  }
+  /**
+   * <pre>
+   * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+   * </pre>
+   *
+   * <code>string effort = 15 [json_name = "effort"];</code>
+   */
+  private void clearEffort() {
+
+    effort_ = getDefaultInstance().getEffort();
+  }
+  /**
+   * <pre>
+   * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+   * </pre>
+   *
+   * <code>string effort = 15 [json_name = "effort"];</code>
+   * @param value The bytes for effort to set.
+   */
+  private void setEffortBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    effort_ = value.toStringUtf8();
 
   }
 
@@ -1719,6 +1787,75 @@ public  final class AskMember extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+     * </pre>
+     *
+     * <code>string effort = 15 [json_name = "effort"];</code>
+     * @return The effort.
+     */
+    @java.lang.Override
+    public java.lang.String getEffort() {
+      return instance.getEffort();
+    }
+    /**
+     * <pre>
+     * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+     * </pre>
+     *
+     * <code>string effort = 15 [json_name = "effort"];</code>
+     * @return The bytes for effort.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getEffortBytes() {
+      return instance.getEffortBytes();
+    }
+    /**
+     * <pre>
+     * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+     * </pre>
+     *
+     * <code>string effort = 15 [json_name = "effort"];</code>
+     * @param value The effort to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEffort(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setEffort(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+     * </pre>
+     *
+     * <code>string effort = 15 [json_name = "effort"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearEffort() {
+      copyOnWrite();
+      instance.clearEffort();
+      return this;
+    }
+    /**
+     * <pre>
+     * The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+     * </pre>
+     *
+     * <code>string effort = 15 [json_name = "effort"];</code>
+     * @param value The bytes for effort to set.
+     * @return This builder for chaining.
+     */
+    public Builder setEffortBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setEffortBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.AskMember)
   }
   @java.lang.Override
@@ -1749,11 +1886,12 @@ public  final class AskMember extends
             "peerRepo_",
             "upstreamNew_",
             "about_",
+            "effort_",
           };
           java.lang.String info =
-              "\u0000\u000e\u0000\u0000\u0001\u000e\u000e\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u000f\u0000\u0000\u0001\u000f\u000f\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\f\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
-              "\u000b\u0208\f\u0208\r\u0004\u000e\u0208";
+              "\u000b\u0208\f\u0208\r\u0004\u000e\u0208\u000f\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

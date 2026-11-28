@@ -214,9 +214,11 @@ type AskMember struct {
 	// The commit this agent reviewed at (a review), or a peer's checkout when it was asked.
 	Head string `protobuf:"bytes,11,opt,name=head,proto3" json:"head,omitempty"`
 	// A peer: its clone, how many upstream commits came since it was last asked, and what it is for.
-	PeerRepo      string `protobuf:"bytes,12,opt,name=peer_repo,json=peerRepo,proto3" json:"peer_repo,omitempty"`
-	UpstreamNew   int32  `protobuf:"varint,13,opt,name=upstream_new,json=upstreamNew,proto3" json:"upstream_new,omitempty"`
-	About         string `protobuf:"bytes,14,opt,name=about,proto3" json:"about,omitempty"`
+	PeerRepo    string `protobuf:"bytes,12,opt,name=peer_repo,json=peerRepo,proto3" json:"peer_repo,omitempty"`
+	UpstreamNew int32  `protobuf:"varint,13,opt,name=upstream_new,json=upstreamNew,proto3" json:"upstream_new,omitempty"`
+	About       string `protobuf:"bytes,14,opt,name=about,proto3" json:"about,omitempty"`
+	// The effort it ran at when the ask started or reached it (a reviewer's, whatever the CLI calls it).
+	Effort        string `protobuf:"bytes,15,opt,name=effort,proto3" json:"effort,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -349,6 +351,13 @@ func (x *AskMember) GetAbout() string {
 	return ""
 }
 
+func (x *AskMember) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
+}
+
 // Verdict is the judgement of one reviewer's findings on a round (`mesh verdict`): the PR author's, or the root's.
 type Verdict struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
@@ -368,8 +377,10 @@ type Verdict struct {
 	// How many of the reviewer's blocking findings the judge declined (disagree or other, not fixed): a PR with one
 	// is not settled without the root, whatever the author says (the outcome line in a worker's `done`).
 	DeclinedBlocking int32 `protobuf:"varint,11,opt,name=declined_blocking,json=declinedBlocking,proto3" json:"declined_blocking,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The effort the reviewer ran at (`mesh cost` and the root's brief show verdicts per model and effort).
+	Effort        string `protobuf:"bytes,12,opt,name=effort,proto3" json:"effort,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Verdict) Reset() {
@@ -477,6 +488,13 @@ func (x *Verdict) GetDeclinedBlocking() int32 {
 		return x.DeclinedBlocking
 	}
 	return 0
+}
+
+func (x *Verdict) GetEffort() string {
+	if x != nil {
+		return x.Effort
+	}
+	return ""
 }
 
 // Ask is the record of one `mesh ask` that started or reached agents.
@@ -2167,7 +2185,7 @@ var File_agentmesh_v1_ask_proto protoreflect.FileDescriptor
 
 const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\n" +
-	"\x16agentmesh/v1/ask.proto\x12\fagentmesh.v1\x1a\x1aagentmesh/v1/options.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe7\x02\n" +
+	"\x16agentmesh/v1/ask.proto\x12\fagentmesh.v1\x1a\x1aagentmesh/v1/options.proto\x1a\x18agentmesh/v1/types.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xff\x02\n" +
 	"\tAskMember\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -2183,7 +2201,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x04head\x18\v \x01(\tR\x04head\x12\x1b\n" +
 	"\tpeer_repo\x18\f \x01(\tR\bpeerRepo\x12!\n" +
 	"\fupstream_new\x18\r \x01(\x05R\vupstreamNew\x12\x14\n" +
-	"\x05about\x18\x0e \x01(\tR\x05about\"\xb6\x02\n" +
+	"\x05about\x18\x0e \x01(\tR\x05about\x12\x16\n" +
+	"\x06effort\x18\x0f \x01(\tR\x06effort\"\xce\x02\n" +
 	"\aVerdict\x12\x1a\n" +
 	"\breviewer\x18\x01 \x01(\tR\breviewer\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
@@ -2196,7 +2215,8 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\x02at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\x02at\x12\x14\n" +
 	"\x05judge\x18\n" +
 	" \x01(\tR\x05judge\x12+\n" +
-	"\x11declined_blocking\x18\v \x01(\x05R\x10declinedBlocking\"\xca\x06\n" +
+	"\x11declined_blocking\x18\v \x01(\x05R\x10declinedBlocking\x12\x16\n" +
+	"\x06effort\x18\f \x01(\tR\x06effort\"\xca\x06\n" +
 	"\x03Ask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +

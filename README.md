@@ -129,7 +129,8 @@ Every worker and reviewer is a full Claude Code or agy session drawing on your o
 - **Idle workers are closed** 5 minutes after they report, and reopened in the same conversation when you need them again, compacted first if they grew large (sooner once their prompt cache has gone cold); a big planner is compacted at approval, and a big worker before a follow-up.
 - **One machine's memory:** each worker gets a share of the cores (`worker_cpus`), so the test suites it runs start fewer workers; reviewers read the PR's CI before running tests; and no agent starts while memory runs short or the machine thrashes.
 - **A quota reserve:** it plans on the best model with quota left, the root moves an agy worker that hits a quota to the next model (a Claude worker is continued at the reset), and by default nothing new starts on a quota window once it is 90% used. The five-hour and weekly windows have a reserve each (`quota_stop`, `quota_stop_weekly`), and an optional reviews-only line per CLI (`quota_reviews_only.claude`, `.agy`, off by default) keeps a nearly spent CLI for PR reviews.
-- **`mesh cost`** shows the tokens each agent of a run used, by phase, for Claude, agy and OpenCode (cache reads apart), with Claude's API-equivalent dollars beside them.
+- **`mesh cost`** shows the tokens each agent of a run used, by phase, model and effort, for Claude, agy and OpenCode (cache reads apart), with Claude's API-equivalent dollars beside them; its review rows are per model and effort too.
+- **`mesh usage`** shows each plan's windows with their pace (a warning when use runs ahead of the clock) and, once the daemon has measured them from its own readings, what is left of each in one unit ("≈ 3% of a Claude week").
 
 ## How it compares
 
