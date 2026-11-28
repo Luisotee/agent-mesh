@@ -44,7 +44,8 @@ export function Dock() {
   const showResting = asked.on && asked.scope === scope
   // A folded helper counts as it would on its own tile: working, or waiting on an answer, or the open agent.
   const waits = new Set(all.filter((t) => t.waiting).map((t) => t.agent.id))
-  const live = shown.filter(({ tile: t, helpers }) => isActive(t.agent, { waiting: t.waiting, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }) || helpers.some((h) => isActive(h, { waiting: waits.has(h.id), keep: t.hostId === hostId && h.id === agentId })))
+  const ownWaits = new Map(all.map((t) => [t.agent.id, t.wait]))
+  const live = shown.filter(({ tile: t, helpers }) => isActive(t.agent, { waiting: t.waiting, wait: t.wait, keep: t.isNew || (t.hostId === hostId && t.agent.id === agentId) }) || helpers.some((h) => isActive(h, { waiting: waits.has(h.id), wait: ownWaits.get(h.id), keep: t.hostId === hostId && h.id === agentId })))
   const resting = shown.reduce((n, t) => n + (live.includes(t) ? 0 : 1 + t.helpers.length), 0)
   const listed = showResting ? shown : live
   const tiles = listed.map((t) => t.tile)
@@ -123,7 +124,7 @@ function DockTile({ tile, helpers, now, many, selected }: { tile: Tile; helpers:
           {many && <Chip>{tile.hostName}</Chip>}
           {helpers.length > 0 && <Chip>{helpersLabel(helpers)}</Chip>}
         </Chips>
-        <span className="truncate text-xs">{tile.activity ? `Working: ${tile.activity}` : statusSentence(a)}</span>
+        <span className="truncate text-xs">{tile.activity ? `Working: ${tile.activity}` : statusSentence(a, tile.wait)}</span>
         <span className="flex min-w-0 gap-2 truncate text-xs text-muted-foreground">
           {tile.lastSent && <span className="truncate">{sentLabel(tile.lastSent)}</span>}
           {when && <span className="ml-auto shrink-0 tabular-nums">{when}</span>}

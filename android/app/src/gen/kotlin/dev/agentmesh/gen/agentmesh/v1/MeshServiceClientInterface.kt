@@ -504,6 +504,13 @@ public interface MeshServiceClientInterface {
   public suspend fun getAgentProgress(request: GetAgentProgressRequest, headers: Headers = emptyMap()): ResponseMessage<GetAgentProgressResponse>
 
   /**
+   *  What every idle agent waits on, in one call (`GetAgentProgress.wait` for each, sharing the reads): the apps' sidebar,
+   *  dock and tree word an idle agent by it, and count one on its own background job or declared wait as live. Only
+   *  agents that are idle now (not archived); a root reads its own run's unless it names another.
+   */
+  public suspend fun listAgentWaits(request: ListAgentWaitsRequest, headers: Headers = emptyMap()): ResponseMessage<ListAgentWaitsResponse>
+
+  /**
    *  Archive an agent: retire it and remove its worktree, keeping its branch. Refused while the worktree has uncommitted
    *  changes, and, without `force`, while the branch has commits no remote branch has. A message to the agent or
    *  ResumeAgent brings it back: the worktree is made again from the branch.
