@@ -164,6 +164,11 @@ export function makeHost(bins: string, opts: HostOptions = {}): Host {
       await until('meshd to start', () => existsSync(info) || daemon?.exitCode != null, 15_000)
       if (daemon.exitCode != null) throw new Error(`meshd exited: ${err}`)
       await until('the device token', () => existsSync(path.join(state, 'device.token')), 5000)
+      // The host's own memory is not what a test is about: several gates at once push /proc/pressure/memory over the guard's
+      // limit and meshd then refuses every spawn ("memory pressure is high").
+      for (const key of ['memory_pressure_max', 'min_free_mb']) {
+        execFileSync(path.join(bins, 'mesh'), ['--state', state, 'set', '--key', key, '--value', '0'], { env: { ...baseEnv(), HOME: home }, stdio: 'pipe' })
+      }
     },
     async stopDaemon() {
       const d = daemon

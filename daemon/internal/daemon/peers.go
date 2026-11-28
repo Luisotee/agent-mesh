@@ -1142,6 +1142,8 @@ func peerSummary(a *v1.Ask) string {
 	for _, m := range a.Members {
 		if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED {
 			fmt.Fprintf(&b, "- %s: answered\n", m.Name)
+		} else if m.Status == v1.AskMemberStatus_ASK_MEMBER_STATUS_LOST {
+			fmt.Fprintf(&b, "- %s: %s\n", m.Name, lostLine(m))
 		} else {
 			fmt.Fprintf(&b, "- %s: no answer: %s\n", m.Name, m.Line)
 		}

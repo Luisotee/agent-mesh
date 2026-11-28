@@ -119,7 +119,11 @@ func (d *Daemon) alertAsMember(tx *store.Tx, member *v1.Agent, kind, text string
 	if err != nil || a == nil {
 		return nil, false, err
 	}
-	ring, err = d.settleMember(tx, a, idx, v1.AskMemberStatus_ASK_MEMBER_STATUS_SETTLED, kind, lineOf(text), "")
+	status, typ := v1.AskMemberStatus_ASK_MEMBER_STATUS_SETTLED, kind
+	if kind == "exited" {
+		status, typ = v1.AskMemberStatus_ASK_MEMBER_STATUS_LOST, "lost" // its process ended: the answer is not coming
+	}
+	ring, err = d.settleMember(tx, a, idx, status, typ, lineOf(text), "")
 	return ring, true, err
 }
 
@@ -157,6 +161,8 @@ func (d *Daemon) settleOverdueAsks(ctx context.Context) {
 					return err
 				}
 				switch {
+				case member != nil && d.bootHeld(member.Id):
+					continue // lost in a machine restart and about to be resumed (or told lost: restart.go): not stopped on purpose
 				case member == nil || stopped(member) && member.PendingReopen == nil:
 					if member != nil {
 						if rep, err := lastReport(tx.Reader, member); err != nil || rep != nil {

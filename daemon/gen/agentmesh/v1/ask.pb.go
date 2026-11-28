@@ -135,11 +135,14 @@ const (
 	AskMemberStatus_ASK_MEMBER_STATUS_PENDING     AskMemberStatus = 1
 	// It sent a `done`.
 	AskMemberStatus_ASK_MEMBER_STATUS_ANSWERED AskMemberStatus = 2
-	// It will not answer in this ask: a `failed`, a question back, an exit or silence the daemon told the caller of,
-	// or the deadline.
+	// It will not answer in this ask: a `failed`, a question back, silence the daemon told the caller of, it was
+	// stopped, or the deadline.
 	AskMemberStatus_ASK_MEMBER_STATUS_SETTLED AskMemberStatus = 3
 	// Not asked: its kind is not installed, or it was skipped; `line` says why.
 	AskMemberStatus_ASK_MEMBER_STATUS_NOT_ASKED AskMemberStatus = 4
+	// Its process ended before it answered (it exited, was killed, or its terminal was lost in a machine restart and
+	// meshd could not resume it): the answer is not coming, and the caller was told so.
+	AskMemberStatus_ASK_MEMBER_STATUS_LOST AskMemberStatus = 5
 )
 
 // Enum value maps for AskMemberStatus.
@@ -150,6 +153,7 @@ var (
 		2: "ASK_MEMBER_STATUS_ANSWERED",
 		3: "ASK_MEMBER_STATUS_SETTLED",
 		4: "ASK_MEMBER_STATUS_NOT_ASKED",
+		5: "ASK_MEMBER_STATUS_LOST",
 	}
 	AskMemberStatus_value = map[string]int32{
 		"ASK_MEMBER_STATUS_UNSPECIFIED": 0,
@@ -157,6 +161,7 @@ var (
 		"ASK_MEMBER_STATUS_ANSWERED":    2,
 		"ASK_MEMBER_STATUS_SETTLED":     3,
 		"ASK_MEMBER_STATUS_NOT_ASKED":   4,
+		"ASK_MEMBER_STATUS_LOST":        5,
 	}
 )
 
@@ -2343,13 +2348,14 @@ const file_agentmesh_v1_ask_proto_rawDesc = "" +
 	"\tAskStatus\x12\x1a\n" +
 	"\x16ASK_STATUS_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fASK_STATUS_OPEN\x10\x01\x12\x17\n" +
-	"\x13ASK_STATUS_FINISHED\x10\x02*\xb3\x01\n" +
+	"\x13ASK_STATUS_FINISHED\x10\x02*\xcf\x01\n" +
 	"\x0fAskMemberStatus\x12!\n" +
 	"\x1dASK_MEMBER_STATUS_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19ASK_MEMBER_STATUS_PENDING\x10\x01\x12\x1e\n" +
 	"\x1aASK_MEMBER_STATUS_ANSWERED\x10\x02\x12\x1d\n" +
 	"\x19ASK_MEMBER_STATUS_SETTLED\x10\x03\x12\x1f\n" +
-	"\x1bASK_MEMBER_STATUS_NOT_ASKED\x10\x04B\xb1\x01\n" +
+	"\x1bASK_MEMBER_STATUS_NOT_ASKED\x10\x04\x12\x1a\n" +
+	"\x16ASK_MEMBER_STATUS_LOST\x10\x05B\xb1\x01\n" +
 	"\x10com.agentmesh.v1B\bAskProtoP\x01ZBgithub.com/Luisotee/agent-mesh/daemon/gen/agentmesh/v1;agentmeshv1\xa2\x02\x03AXX\xaa\x02\fAgentmesh.V1\xca\x02\fAgentmesh\\V1\xe2\x02\x18Agentmesh\\V1\\GPBMetadata\xea\x02\rAgentmesh::V1b\x06proto3"
 
 var (
