@@ -9,6 +9,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.test.core.app.ApplicationProvider
@@ -76,6 +78,27 @@ class JumpToLatestTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("jump-to-latest").fetchSemanticsNodes().isEmpty() }
         // At the end again, following it.
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Reply number 43", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun `sending from up in the history takes the reader to the end, where the message just sent is`() {
+        api.transcript = { _, _, _ -> page(1..40, 0, 100) }
+        val repo = HostRepository(tmp.newFile("hosts.json").also { it.delete() }, Plain)
+        val host = repo.add("Home", listOf(Route.Direct("http://127.0.0.1:1")), "t")
+        val rt = HostRuntime(host.id, repo, { _, _ -> api }, CoroutineScope(Dispatchers.Unconfined))
+        rt.start(); started += rt
+        rt.onState(ConnState.Ready(HelloResponse.getDefaultInstance()))
+        rt.onFrame(snapshot(listOf(run("r1")), listOf(agent("a1", name = "shop-fix", state = AgentState.AGENT_STATE_IDLE).toBuilder().setKind("claude").setTerminalId("t-a1").build())))
+        val container = AppContainer(ApplicationProvider.getApplicationContext<Application>(), Plain, newApi = { _, _ -> api })
+        compose.setContent { CompositionLocalProvider(LocalContainer provides container) { AgentMeshTheme(theme) { AgentScreen(rt, "a1", {}, Tab.Chat) } } }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("chat-assistant")).fetchSemanticsNodes().isNotEmpty() }
+        repeat(4) { compose.onNodeWithTag("chat").performTouchInput { swipeDown() }; compose.waitForIdle() }
+        compose.onAllNodes(hasText("Reply number 40", substring = true)).assertCountEquals(0)
+        compose.onNodeWithTag("prompt").performTextInput("and one more thing")
+        compose.onNodeWithTag("send").performClick()
+        // The bubble just sent is on screen, and the reader is at the end (the last reply is back in view).
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("outgoing-text").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("outgoing-text").assertIsDisplayed()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Reply number 40", substring = true)).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test fun `a reader at the end has no pill`() {

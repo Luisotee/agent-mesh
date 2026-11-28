@@ -88,7 +88,7 @@ class AppContainer(
             hosts.hosts.collect { list ->
                 val old = _runtimes.value
                 val next = LinkedHashMap<String, HostRuntime>()
-                for (h in list) next[h.id] = old[h.id] ?: HostRuntime(h.id, hosts, newApi, scope).also {
+                for (h in list) next[h.id] = old[h.id] ?: HostRuntime(h.id, hosts, newApi, scope, outboxStore = prefs).also {
                     watchNotices(it)
                     it.start()
                     // UnifiedPush asks an app to register on every start: the library sends the endpoint again
