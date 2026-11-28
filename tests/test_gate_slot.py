@@ -228,6 +228,23 @@ def test_a_gate_without_an_identity_declares_nothing(host):
     assert not log.exists()
 
 
+def test_what_the_admission_starts_does_not_hold_the_admission_lock(host):
+    # A stub ps lists its own open descriptors: fd 8 (the admission lock) must not be one of them.
+    bindir = host.tmp / "bin"
+    bindir.mkdir()
+    seen = host.tmp / "ps-fds.txt"
+    real_ps = subprocess.run(["which", "ps"], capture_output=True, text=True).stdout.strip()
+    stub = bindir / "ps"
+    stub.write_text(f'#!/bin/sh\nls /proc/$$/fd >> "{seen}"\nexec {real_ps} "$@"\n')
+    stub.chmod(0o755)
+    a = host.start("daemon")
+    assert host.got(a)
+    b = host.start("daemon", {"PATH": f"{bindir}:{os.environ['PATH']}"})  # ps runs when a gate already runs
+    assert host.got(b)
+    fds = seen.read_text().split()
+    assert fds and "8" not in fds, fds
+
+
 def test_a_killed_gate_never_leaves_its_slot_held(host):
     e = {"GATE_SLOTS_MAX": "1"}
     a = host.start("daemon", e)

@@ -137,7 +137,7 @@ gate_tickets() {
 gate_reserve_mb() {
   local spec
   spec=$(awk '{ printf "%s:%s ", $2, $3 }' <<<"$1")
-  ps -e -o pid=,ppid=,rss= 2>/dev/null | awk -v spec="$spec" '
+  { ps -e -o pid=,ppid=,rss= 2>/dev/null || true; } | awk -v spec="$spec" '
     { ppid[$1] = $2; rss[$1] = $3 }
     END {
       n = split(spec, h, " "); total = 0
@@ -158,12 +158,13 @@ gate_reserve_mb() {
 gate_try_locked() {
   local dir=$1 max=$2 need=$3 part=$4 holders nheld free i avail reserve psi ahead
   gate_why=
-  ahead=$(gate_tickets "$dir" | awk -v me="$$" '$2 == me { exit } { n++ } END { print n + 0 }')
+  # Nothing started here keeps the admission lock (fd 8) open: a helper that hangs must not stall every gate.
+  ahead=$(gate_tickets "$dir" 8>&- | awk -v me="$$" '$2 == me { exit } { n++ } END { print n + 0 }' || true)
   if [ "$ahead" -gt 0 ]; then
     gate_why="$ahead waiting before it"
     return 1
   fi
-  holders=$(gate_holders "$dir" "$max")
+  holders=$(gate_holders "$dir" "$max" 8>&- || true)
   nheld=0
   [ -z "$holders" ] || nheld=$(grep -c . <<<"$holders")
   free=-1
@@ -175,14 +176,14 @@ gate_try_locked() {
       gate_why="all $max slots busy"
       return 1
     fi
-    psi=$(gate_psi)
+    psi=$(gate_psi 8>&-)
     if ! awk -v a="$psi" -v m="$(gate_whole GATE_PSI_MAX 5)" 'BEGIN { exit !(a + 0 < m + 0) }'; then
       gate_why="memory pressure ${psi}% (the limit is $(gate_whole GATE_PSI_MAX 5)%)"
       return 1
     fi
-    avail=$(gate_avail_mb)
+    avail=$(gate_avail_mb 8>&-)
     if [ -n "$avail" ]; then
-      reserve=$(gate_reserve_mb "$holders")
+      reserve=$(gate_reserve_mb "$holders" 8>&-)
       if [ "$((avail - reserve))" -lt "$need" ]; then
         gate_why="${avail} MB available less ${reserve} MB the running gates still need; this gate needs ${need} MB"
         return 1
