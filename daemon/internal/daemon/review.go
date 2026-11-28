@@ -199,8 +199,50 @@ func (d *Daemon) kindAvailable(r store.Reader, kind, tier, top, freeOff string) 
 		return d.openCodeAvailable(r, tier, top, freeOff)
 	case copilot.Kind:
 		return d.copilotAvailable(r, tier)
+	case "agy":
+		return d.agyAvailable(r, tier)
 	}
 	return true, ""
+}
+
+// agyAvailable is whether a reviewer of the tier could start on agy now: some model of the tier's chain is neither
+// held nor at the reserve (`quota_stop`, `quota_stop_weekly`) of the window its usage shows. agy's plan is small
+// and its week can run out in days, so a slot that lists it falls through to the next kind then, instead of
+// naming a reviewer the reserve guard would refuse at its start. A usage reading not taken yet (or a login that
+// is missing) counts as available: the guard still decides at the start.
+func (d *Daemon) agyAvailable(r store.Reader, tier string) (bool, string) {
+	if !d.installed("agy") {
+		return false, ""
+	}
+	if tier == "" {
+		return true, ""
+	}
+	chain, effort, err := d.tierChain(r, "agy", tier)
+	if err != nil {
+		return true, ""
+	}
+	if e, err := d.reviewEffort(r, "agy", tier, false); err == nil && e != "" {
+		effort = e
+	}
+	now := d.now()
+	lim := d.reserveLimits(r, "agy")
+	var soonest time.Time
+	for _, m := range chain {
+		if held, _, err := r.ModelHold("agy", m, now); err == nil && !held.IsZero() {
+			if soonest.IsZero() || held.Before(soonest) {
+				soonest = held
+			}
+			continue
+		}
+		if hit := d.agyModelAtReserveCached(m, effort, lim, true); hit != nil {
+			continue
+		}
+		return true, ""
+	}
+	if !soonest.IsZero() {
+		return false, fmt.Sprintf("all agy %s models are held until %s", tier, soonest.UTC().Format(time.RFC3339))
+	}
+	return false, "agy is at its quota reserve (`mesh usage`)"
 }
 
 // copilotAvailable is whether Copilot is installed, has the asked tier, and is not out of quota (or refused by
@@ -379,7 +421,7 @@ func (d *Daemon) pickReviewers(r store.Reader, mode, size, tier, author string, 
 					missing = append(missing, k)
 					continue
 				}
-				if k == opencode.Kind || k == copilot.Kind {
+				if k == opencode.Kind || k == copilot.Kind || k == "agy" {
 					if ok, why := d.kindAvailable(r, k, tier, top, off); !ok {
 						if why != "" {
 							held = append(held, why)

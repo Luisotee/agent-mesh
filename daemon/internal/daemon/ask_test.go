@@ -669,7 +669,9 @@ func TestARoundOnTheSameHeadAgainStartsFreshReviewers(t *testing.T) {
 		t.Fatalf("round 2 %v", round2.Ask)
 	}
 	for _, m := range round2.Ask.Members {
-		if m.How != "fresh" || !strings.HasSuffix(m.Name, "-2") {
+		// A kind that reviewed round 1 starts again as <name>-2; one that is new to the PR (the default slots add
+		// OpenCode) has no earlier name to number past.
+		if m.How != "fresh" || ((m.Kind == "claude" || m.Kind == "agy") && !strings.HasSuffix(m.Name, "-2")) {
 			t.Errorf("member %v: the same head again is a round of fresh reviewers", m)
 		}
 	}

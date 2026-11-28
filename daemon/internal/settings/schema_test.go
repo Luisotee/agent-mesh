@@ -18,8 +18,8 @@ func TestTheDefaultTableIsValid(t *testing.T) {
 	if got := s.Keys("tiers.agy.top"); len(got) != 0 {
 		t.Errorf("agy top tier: %v", got)
 	}
-	if got := s.Keys("tiers.claude.mid."); len(got) != 3 {
-		t.Errorf("a tier has model, effort and note: %v", got)
+	if got := s.Keys("tiers.claude.mid."); len(got) != 5 {
+		t.Errorf("a tier has model, effort, exec_effort, review_effort and note: %v", got)
 	}
 	if l, _ := s.Lookup("caps.agents"); l.Type != IntOrAuto || l.Default != "auto" {
 		t.Errorf("the agent cap = %+v, want int_or_auto defaulting to auto", l)
@@ -236,5 +236,64 @@ func TestEveryLeafHasALabelAndAGroupAndTheScreenHasEachGroup(t *testing.T) {
 	}
 	if l, _ := s.Lookup("app.theme"); l.Group != GroupAppearance || l.Advanced {
 		t.Errorf("the theme = %+v", l)
+	}
+}
+
+// The shipped routing (docs/model-routing-research.md, section 5): the pins a change of the table has to touch on purpose.
+func TestTheShippedRoutingFollowsTheResearch(t *testing.T) {
+	s := Default()
+	def := func(key string) any {
+		l, ok := s.Lookup(key)
+		if !ok {
+			t.Fatalf("no setting %s", key)
+		}
+		return l.Default
+	}
+	chainOf := func(key string) []string {
+		var out []string
+		for _, m := range def(key).([]any) {
+			out = append(out, m.(string))
+		}
+		return out
+	}
+	for _, tier := range []string{"mid", "strong"} {
+		got := chainOf("tiers.opencode." + tier + ".model")
+		if got[0] != "opencode/deepseek-v4.1-flash-free" || got[len(got)-1] != "free" ||
+			got[len(got)-3] != "opencode/beam-free" || got[len(got)-2] != "opencode/flint-40b-free" {
+			t.Errorf("opencode %s chain = %v: want DeepSeek first, beam and flint just before free", tier, got)
+		}
+	}
+	for key, want := range map[string]any{
+		"tiers.agy.light.effort":            "medium",
+		"tiers.claude.strong.effort":        "high",
+		"tiers.claude.strong.exec_effort":   "medium", // Opus executes a plan at medium
+		"tiers.claude.mid.exec_effort":      "high",   // and Sonnet never at medium
+		"tiers.claude.mid.review_effort":    "high",
+		"tiers.claude.strong.review_effort": "medium",
+		"tiers.agy.strong.review_effort":    "medium",
+		"tiers.opencode.mid.review_effort":  "high",
+		"tiers.claude.top.effort":           "medium",
+		"tiers.claude.top.exec_effort":      "high",
+		"review.effort.relay":               "high",
+		"review.tier.large":                 "mid",
+		"review.tier.small":                 "mid",
+	} {
+		if got := def(key); got != want {
+			t.Errorf("%s = %v, want %v", key, got, want)
+		}
+	}
+	if _, ok := s.Lookup("review.effort"); ok {
+		t.Error("review.effort is gone: a reviewer's effort comes from its tier, or review.effort.relay in a relay")
+	}
+	if got := def("review.reviewers.small").([]any); len(got) != 1 {
+		t.Errorf("a small PR has one reviewer slot: %v", got)
+	}
+	if got := def("review.reviewers.large").([]any); len(got) != 2 {
+		t.Errorf("a large PR has two reviewer slots: %v", got)
+	}
+	for _, tier := range []string{"light", "mid", "strong"} {
+		if l, _ := s.Lookup("tiers.agy." + tier + ".note"); tier == "light" && !strings.Contains(l.Default.(string), "agy's plan is small") {
+			t.Errorf("agy light's note = %q", l.Default)
+		}
 	}
 }

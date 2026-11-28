@@ -296,7 +296,7 @@ func (d *Daemon) reviewOne(ctx context.Context, actor *v1.Actor, m *v1.AskReques
 	}
 	effort := m.Effort
 	if effort == "" && m.Model == "" {
-		if effort, err = d.settingString(r, "review.effort"); err != nil {
+		if effort, err = d.reviewEffort(r, kind, m.Tier, false); err != nil {
 			return nil, err
 		}
 	}
@@ -411,6 +411,7 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 		}
 	}
 	d.warmOpenCodeModels(ctx, "opencode")
+	d.warmUsage(ctx, r, "agy") // a slot that lists agy falls through when its plan is at the reserve (agyAvailable)
 	kinds, notes, err := d.pickReviewers(r, m.Reviewers, m.Size, m.Tier, d.reviewAuthorKind(ctx, r, actor, top, pr.HeadRef), earlierKinds, top)
 	if err != nil {
 		return nil, err
@@ -418,12 +419,6 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 	level, err := d.settingString(r, "review.level."+m.Size)
 	if err != nil {
 		return nil, err
-	}
-	effort := m.Effort
-	if effort == "" {
-		if effort, err = d.settingString(r, "review.effort"); err != nil {
-			return nil, err
-		}
 	}
 	timeout, err := d.askTimeout(r, m.Timeout)
 	if err != nil {
@@ -477,7 +472,7 @@ func (d *Daemon) reviewRoundOf(ctx context.Context, actor *v1.Actor, m *v1.AskRe
 	}
 	narrow := narrowSince(ctx, top, since, pr.Head)
 	return d.collectRound(ctx, actor, m.Meta, ask, out, kinds, true, running, func(ctx context.Context, i int) (*v1.AskMember, *v1.Agent, string) {
-		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: effort,
+		return d.startReviewer(ctx, actor, reviewJob{kind: kinds[i], pr: pr, top: top, level: level, effort: m.Effort, relay: relay != nil,
 			tier: m.Tier, body: body, since: since, narrow: narrow, last: reuseFrom, meta: m.Meta})
 	}, func(r store.Reader, a *v1.Ask) string { return d.roundsHint(r, a, false) },
 		func(r store.Reader) error {
@@ -628,11 +623,12 @@ func (d *Daemon) noReviewer(a *v1.Ask) error {
 	return connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("%s (%s)", what, strings.Join(why, "; ")))
 }
 
-// reviewJob is what starting or re-asking one reviewer of a round needs.
+// reviewJob is what starting or re-asking one reviewer of a round needs. effort is the caller's own, "" for the
+// reviewer's by its CLI and tier (reviewEffort); relay marks a step of a relay.
 type reviewJob struct {
 	kind, top, level, effort, tier, body, since string
 	pr                                          *prInfo
-	narrow                                      bool
+	narrow, relay                               bool
 	last                                        *v1.Ask
 	meta                                        *v1.RequestMeta
 }
@@ -729,7 +725,14 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 		}
 		return member, d.view(cur), note
 	}
-	// A fresh one.
+	// A fresh one, at the effort its CLI and tier call for unless the caller named one.
+	effort := j.effort
+	if effort == "" {
+		var err error
+		if effort, err = d.reviewEffort(r, j.kind, j.tier, j.relay); err != nil {
+			return fail(j.kind, err.Error())
+		}
+	}
 	// A retry whose spawn went through replays it: the slug and the reserve are not looked at again.
 	spawnMeta := subMeta(j.meta, "spawn-"+j.kind)
 	slug := fmt.Sprintf("review-%d-%s", j.pr.Number, j.kind)
@@ -739,7 +742,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			return fail(j.kind, err.Error())
 		}
 		member.Name = filepath.Base(j.top) + "-" + slug
-		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, j.kind, "", j.effort, "a "+j.kind+" reviewer in "+j.top, true); err != nil {
+		if err := d.ReserveGuard(ctx, d.store.Read(ctx), actor.RunId, j.kind, "", effort, "a "+j.kind+" reviewer in "+j.top, true); err != nil {
 			return fail(member.Name, err.Error())
 		}
 	} else {
@@ -751,7 +754,7 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 	}
 	task := reviewTask(spec)
 	res, err := d.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: spawnMeta, Repo: j.top, Slug: slug,
-		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: j.effort, Tier: j.tier, Base: j.pr.Head, Task: task, About: reviewAbout(j.pr, spec.last)}))
+		Role: v1.AgentRole_AGENT_ROLE_REVIEWER, Kind: j.kind, Effort: effort, Tier: j.tier, Base: j.pr.Head, Task: task, About: reviewAbout(j.pr, spec.last)}))
 	if err != nil {
 		var ce *connect.Error
 		msg := err.Error()

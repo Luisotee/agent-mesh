@@ -65,7 +65,9 @@ func main() {
 	if len(args) > 0 && args[0] == "models" {
 		fmt.Print("gemini-4-neon-high\tGemini 4 Neon (High)\n" +
 			"gemini-4-neon-low\tGemini 4 Neon (Low)\n" +
+			"gemini-4-neon-medium\tGemini 4 Neon (Medium)\n" +
 			"gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)\n" +
+			"gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)\n" +
 			"gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
 			"gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n" +
 			"claude-opus-5-5-high\tClaude Opus 5.5 (High)\n")

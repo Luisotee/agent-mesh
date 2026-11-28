@@ -633,8 +633,26 @@ func (d *Daemon) warmUsage(ctx context.Context, r store.Reader, kind string, ext
 				if err != nil {
 					continue
 				}
+				// The efforts a model of the tier really runs at: its plan, its execution and its review (a reviewer
+				// asks the cache at that effort, and a miss there reads as "not at the reserve").
+				efforts := []string{effort}
+				if e, err := d.execEffort(r, "agy", tier); err == nil && e != "" {
+					efforts = append(efforts, e)
+				}
+				if e, err := d.reviewEffort(r, "agy", tier, false); err == nil && e != "" {
+					efforts = append(efforts, e)
+				}
+				if e, err := d.reviewEffort(r, "agy", tier, true); err == nil && e != "" {
+					efforts = append(efforts, e)
+				}
 				for _, m := range chain {
-					d.resolveAgyModelDisplay(ctx, m, effort, true)
+					seen := map[string]bool{}
+					for _, e := range efforts {
+						if !seen[e] {
+							seen[e] = true
+							d.resolveAgyModelDisplay(ctx, m, e, true)
+						}
+					}
 				}
 			}
 			for _, k := range extra {
