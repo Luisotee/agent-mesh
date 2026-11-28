@@ -283,7 +283,12 @@ function EmptyProjectActions({ hostId, repo }: { hostId: string; repo: string })
 /** A folded part of a project: "Earlier", or "Also working here" (`also`: copies of rows the sidebar has elsewhere, which Alt+↑/↓ skips). `open` unfolds it from outside (a rename in it). */
 function Folded({ title, count, also, open: forced, children }: { title: string; count: number; also?: boolean; open?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
-  if (forced && !open) setOpen(true)
+  // Forced open once, when `forced` turns on: a click can fold it again while the reason holds (the open agent is in it).
+  const [wasForced, setWasForced] = useState(false)
+  if (!!forced !== wasForced) {
+    setWasForced(!!forced)
+    if (forced) setOpen(true)
+  }
   return (
     <div data-also={also ? '' : undefined}>
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
@@ -365,7 +370,7 @@ const LeadItem = memo(LeadItemView, (a, b) => a.elsewhere === b.elsewhere && sam
 function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean }) {
   const app = useApp()
   const host = useAppState((s) => s.hosts.find((h) => h.info.id === row.hostId))
-  const selectedHere = useAppState((s) => s.hostId === row.hostId && !!s.agentId && s.agentId !== row.lead?.id && [...row.helpers, ...flatAgents(row.workers)].some((a) => a.id === s.agentId))
+  const selectedHere = useAppState((s) => s.hostId === row.hostId && !!s.agentId && s.agentId !== row.lead?.id && [...row.helpers, ...flatAgents(row.workers), ...row.ended].some((a) => a.id === s.agentId))
   // The title is edited under the lead's own project only, so one editor is ever open.
   const renaming = useAppState((s) => !elsewhere && s.renaming?.hostId === row.hostId && s.renaming.runId === row.run.id)
   // Unset, the open agent's lead is open, so the open agent's row is in sight; the chevron then decides.
@@ -384,7 +389,8 @@ function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean })
       ? (['separator', ...agentEntries(app, row.hostId, lead, setDialog).slice(1), ...archiveEntry(lead, setDialog)] as MenuEntry[])
       : []),
   ]
-  const kids = row.workers.length > 0
+  const kids = row.workers.length > 0 || row.ended.length > 0
+  const endedOpen = useAppState((s) => s.hostId === row.hostId && !!s.agentId && row.ended.some((a) => a.id === s.agentId))
   return (
     <m.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.14 }} aria-label={title}>
       <RowContextMenu entries={entries}>
@@ -411,10 +417,38 @@ function LeadItemView({ row, elsewhere }: { row: LeadRow; elsewhere?: boolean })
           <AnimatePresence initial={false}>
             {row.workers.map((w) => <WorkerItem key={w.agent.id} hostId={row.hostId} row={w} />)}
           </AnimatePresence>
+          {row.ended.length > 0 && (
+            <li data-ended>
+              <Folded title="Ended" count={row.ended.length} open={endedOpen}>
+                {row.ended.map((a) => <EndedItem key={a.id} hostId={row.hostId} agent={a} />)}
+              </Folded>
+            </li>
+          )}
         </ul>
       )}
       <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
     </m.li>
+  )
+}
+
+/** An ended agent (exited or retired), listed in its run's "Ended" fold: reachable, kept out of the tree. */
+const EndedItem = memo(EndedItemView, (a, b) => a.hostId === b.hostId && a.agent === b.agent)
+
+function EndedItemView({ hostId, agent: a }: { hostId: string; agent: Agent }) {
+  const app = useApp()
+  const host = useAppState((s) => s.hosts.find((h) => h.info.id === hostId))
+  const [dialog, setDialog] = useState<RowDialog>()
+  const entries: MenuEntry[] = [...agentEntries(app, hostId, a, setDialog), ...archiveEntry(a, setDialog)]
+  return (
+    <li>
+      <RowContextMenu entries={entries}>
+        <div data-row className="group flex items-start gap-0.5 pr-1">
+          <AgentButton hostId={hostId} agent={a} helpers={[]} onKeyDown={menuKey} />
+          <span data-row-more className="mt-1.5 flex"><MoreButton label={`Menu of ${a.name}`} entries={entries} /></span>
+        </div>
+      </RowContextMenu>
+      <RowDialogs host={host} dialog={dialog} onClose={() => setDialog(undefined)} />
+    </li>
   )
 }
 
