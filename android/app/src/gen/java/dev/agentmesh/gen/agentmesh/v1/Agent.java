@@ -2466,6 +2466,50 @@ public  final class Agent extends
     plain_ = false;
   }
 
+  public static final int HAD_TURN_FIELD_NUMBER = 44;
+  private boolean hadTurn_;
+  /**
+   * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   * @return The hadTurn.
+   */
+  @java.lang.Override
+  public boolean getHadTurn() {
+    return hadTurn_;
+  }
+  /**
+   * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   * @param value The hadTurn to set.
+   */
+  private void setHadTurn(boolean value) {
+    
+    hadTurn_ = value;
+  }
+  /**
+   * <pre>
+   * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+   * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+   * lost nothing.
+   * </pre>
+   *
+   * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+   */
+  private void clearHadTurn() {
+
+    hadTurn_ = false;
+  }
+
   public static dev.agentmesh.gen.agentmesh.v1.Agent parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -5079,6 +5123,52 @@ public  final class Agent extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+     * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+     * lost nothing.
+     * </pre>
+     *
+     * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+     * @return The hadTurn.
+     */
+    @java.lang.Override
+    public boolean getHadTurn() {
+      return instance.getHadTurn();
+    }
+    /**
+     * <pre>
+     * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+     * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+     * lost nothing.
+     * </pre>
+     *
+     * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+     * @param value The hadTurn to set.
+     * @return This builder for chaining.
+     */
+    public Builder setHadTurn(boolean value) {
+      copyOnWrite();
+      instance.setHadTurn(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Its CLI has run a turn (the agent was WORKING once): a conversation exists to resume, so a reopen that finds the
+     * CLI's record of it gone (Claude Code deletes old transcripts) lost its context, where one before the first turn
+     * lost nothing.
+     * </pre>
+     *
+     * <code>bool had_turn = 44 [json_name = "hadTurn"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearHadTurn() {
+      copyOnWrite();
+      instance.clearHadTurn();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.Agent)
   }
   @java.lang.Override
@@ -5139,15 +5229,16 @@ public  final class Agent extends
             "adoptedPidStart_",
             "archived_",
             "plain_",
+            "hadTurn_",
           };
           java.lang.String info =
-              "\u0000+\u0000\u0001\u0001++\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0000,\u0000\u0001\u0001,,\u0000\u0002\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
               "\u0004\f\u0005\u0208\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208\u000b\u0208" +
               "\f\u0208\r\u0208\u000e\f\u000f\u0004\u0010\u0208\u0011\u1009\u0000\u0012\u1009\u0001" +
               "\u0013\u0004\u0014\f\u0015\u0208\u0016\u0208\u0017\f\u0018\u0007\u0019\u0007\u001a" +
               "\u1009\u0002\u001b\u0208\u001c\u0208\u001d\u0208\u001e\u0007\u001f\u021a \u1009\u0003" +
               "!\u1009\u0004\"\u1009\u0005#\u0007$\u021a%\u0007&\u0007\'\u0208(\u0004)\u0003*\u0007" +
-              "+\u0007";
+              "+\u0007,\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

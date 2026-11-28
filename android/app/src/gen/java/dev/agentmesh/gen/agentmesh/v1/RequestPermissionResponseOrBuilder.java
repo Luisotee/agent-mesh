@@ -12,7 +12,7 @@ public interface RequestPermissionResponseOrBuilder extends
 
   /**
    * <pre>
-   * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+   * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
    * </pre>
    *
    * <code>string decision = 1 [json_name = "decision"];</code>
@@ -21,7 +21,7 @@ public interface RequestPermissionResponseOrBuilder extends
   java.lang.String getDecision();
   /**
    * <pre>
-   * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+   * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
    * </pre>
    *
    * <code>string decision = 1 [json_name = "decision"];</code>
@@ -32,7 +32,7 @@ public interface RequestPermissionResponseOrBuilder extends
 
   /**
    * <pre>
-   * The parent's reason for a denial, which the agent reads.
+   * The reason for a denial, which the agent reads.
    * </pre>
    *
    * <code>string reason = 2 [json_name = "reason"];</code>
@@ -41,7 +41,7 @@ public interface RequestPermissionResponseOrBuilder extends
   java.lang.String getReason();
   /**
    * <pre>
-   * The parent's reason for a denial, which the agent reads.
+   * The reason for a denial, which the agent reads.
    * </pre>
    *
    * <code>string reason = 2 [json_name = "reason"];</code>
@@ -49,4 +49,85 @@ public interface RequestPermissionResponseOrBuilder extends
    */
   com.google.protobuf.ByteString
       getReasonBytes();
+
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  int getAnswersCount();
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  boolean containsAnswers(
+      java.lang.String key);
+  /**
+   * Use {@link #getAnswersMap()} instead.
+   */
+  @java.lang.Deprecated
+  java.util.Map<java.lang.String, java.lang.String>
+  getAnswers();
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  java.util.Map<java.lang.String, java.lang.String>
+  getAnswersMap();
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+
+  /* nullable */
+java.lang.String getAnswersOrDefault(
+      java.lang.String key,
+      /* nullable */
+java.lang.String defaultValue);
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+
+  java.lang.String getAnswersOrThrow(
+      java.lang.String key);
+
+  /**
+   * <pre>
+   * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+   * </pre>
+   *
+   * <code>string mode = 4 [json_name = "mode"];</code>
+   * @return The mode.
+   */
+  java.lang.String getMode();
+  /**
+   * <pre>
+   * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+   * </pre>
+   *
+   * <code>string mode = 4 [json_name = "mode"];</code>
+   * @return The bytes for mode.
+   */
+  com.google.protobuf.ByteString
+      getModeBytes();
 }

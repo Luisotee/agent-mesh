@@ -17,6 +17,12 @@
 //	/hold         UserPromptSubmit and PreToolUse, then waits for a line (a long turn); then PostToolUse and
 //	              Stop. With $FAKECLAUDE_ESC set, a lone Esc instead ends the turn with no Stop hook, as
 //	              interrupting the real one does
+//	/perm <Tool> <command or path>
+//	              UserPromptSubmit, then a PermissionRequest hook the daemon answers (`permission: allow`, `deny <why>`,
+//	              or `pane` when nobody does), PostToolUse on an allow, and Stop
+//	/question     like /perm for an AskUserQuestion of two questions with the tool's real input and tool_use_id: the
+//	              answer prints as `answered: {...}` (the hook's updated input), a denial as `permission: deny <why>`
+//	/exitplan     like /question for an ExitPlanMode (`plan approved: mode=<mode> input=...`)
 //	/exit         SessionEnd, then exits 0
 //	/crash        exits 7 without any hook
 //	/limit <text> UserPromptSubmit, then StopFailure (rate_limit, <text> as the message): a usage limit
@@ -42,7 +48,12 @@
 // With $FAKECLAUDE_CLEAR_CRASH_FILE naming a file that exists, /clear exits 7 before any hook.
 //
 // With $FAKECLAUDE_FAIL_FILE naming a file that exists, a fresh start (not a resume) exits 3 before anything is
-// drawn or reported: a launch that fails.
+// drawn or reported, after one line on stderr ("fakeclaude: startup failed"): a launch that fails.
+//
+// Like Claude Code, `--resume` of a session id it has no conversation for exits 1 ("No conversation found with
+// session ID: <id>"). The conversation is an empty file under $HOME/.claude/projects (found by its id) that exists
+// from the start, so a reopen resumes it whatever was typed; with $FAKECLAUDE_LAZY_SESSION set it is written with
+// the first prompt typed, as Claude Code does, and a reopen before that has nothing to resume.
 //
 // With -p (print mode: the last argument is the prompt) it runs no hooks and reads no input: a prompt that starts
 // with /compact appends the compact_boundary line and exits 0 (1 with $FAKECLAUDE_PRINT_FAIL set), as a headless
@@ -257,8 +268,14 @@ func main() {
 		}
 		return
 	}
+	// Like Claude Code: `--resume` of a conversation it never wrote (nothing was typed in it yet) is an error.
+	if source == "resume" && !sessionOnDisk() {
+		fmt.Fprintf(os.Stderr, "No conversation found with session ID: %s\n", session)
+		os.Exit(1)
+	}
 	if file := os.Getenv("FAKECLAUDE_FAIL_FILE"); file != "" && source == "startup" {
 		if _, err := os.Stat(file); err == nil {
+			fmt.Fprintln(os.Stderr, "fakeclaude: startup failed")
 			os.Exit(3)
 		}
 	}
@@ -272,6 +289,9 @@ func main() {
 	frames := make(chan string, 8)
 	if dir := os.Getenv("FAKECLAUDE_INBOX"); dir != "" {
 		serveInbox(dir, frames)
+	}
+	if os.Getenv("FAKECLAUDE_LAZY_SESSION") == "" {
+		touchSession() // the conversation exists from the start: a reopen resumes it, whatever was typed
 	}
 	fmt.Printf("fake claude %s\r\n", session)
 	if os.Getenv("FAKECLAUDE_TRUST_DIALOG") != "" && !trusted() {
@@ -437,6 +457,69 @@ func run(line string, next func() string) {
 			hook("PostToolUse", map[string]any{"tool_name": tool})
 		case "deny":
 			say("permission: deny %s\r\n", d.H.Decision.Message)
+		default:
+			say("permission: pane\r\n")
+		}
+		hook("Stop", map[string]any{"stop_hook_active": false})
+		prompt()
+		return
+	case line == "/question" || line == "/exitplan":
+		// `/question`: an AskUserQuestion (two questions, as Claude Code 2.1.332 sends them); `/exitplan`: an ExitPlanMode. The
+		// PermissionRequest hook answers with an updated input (the user's `answers`, the plan echoed with a mode) or a
+		// denial, or leaves it to the person at the terminal (`permission: pane`).
+		hook("UserPromptSubmit", map[string]any{"prompt": line})
+		tool, id := "AskUserQuestion", "toolu_fake_ask"
+		input := map[string]any{"questions": []any{
+			map[string]any{"question": "Which color do you want?", "header": "Color", "multiSelect": false, "options": []any{
+				map[string]any{"label": "Red", "description": "Select Red.", "preview": "RED swatch"},
+				map[string]any{"label": "Blue", "description": "Select Blue.", "preview": "BLUE swatch"}}},
+			map[string]any{"question": "Which toppings do you want?", "header": "Toppings", "multiSelect": true, "options": []any{
+				map[string]any{"label": "Cheese", "description": "Add cheese."},
+				map[string]any{"label": "Ham", "description": "Add ham."}}}}}
+		if line == "/exitplan" {
+			tool, id = "ExitPlanMode", "toolu_fake_plan"
+			input = map[string]any{"plan": "# Plan\n\n1. Create hello.txt\n", "planFilePath": "/tmp/plan.md"}
+		}
+		recordTool("call", line, tool, id, input, "")
+		out := hook("PermissionRequest", map[string]any{"tool_name": tool, "tool_input": input, "tool_use_id": id})
+		var d struct {
+			H struct {
+				Decision struct {
+					Behavior     string          `json:"behavior"`
+					Message      string          `json:"message"`
+					UpdatedInput json.RawMessage `json:"updatedInput"`
+					Permissions  []struct {
+						Mode string `json:"mode"`
+					} `json:"updatedPermissions"`
+				} `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		switch _ = json.Unmarshal(out, &d); d.H.Decision.Behavior {
+		case "allow":
+			if tool == "AskUserQuestion" {
+				var in struct {
+					Answers map[string]string `json:"answers"`
+				}
+				_ = json.Unmarshal(d.H.Decision.UpdatedInput, &in)
+				b, _ := json.Marshal(in.Answers)
+				say("answered: %s\r\n", b)
+				var pairs []string
+				for _, q := range input["questions"].([]any) {
+					text := q.(map[string]any)["question"].(string)
+					pairs = append(pairs, fmt.Sprintf("%q=%q", text, in.Answers[text]))
+				}
+				recordTool("result", "", tool, id, nil, "The user answered: "+strings.Join(pairs, ", ")+". Read the answers carefully.")
+			} else {
+				mode := ""
+				if len(d.H.Decision.Permissions) > 0 {
+					mode = d.H.Decision.Permissions[0].Mode
+				}
+				say("plan approved: mode=%s input=%s\r\n", mode, d.H.Decision.UpdatedInput)
+			}
+			hook("PostToolUse", map[string]any{"tool_name": tool, "tool_input": input, "tool_use_id": id})
+		case "deny":
+			say("permission: deny %s\r\n", d.H.Decision.Message)
+			recordTool("result", "", tool, id, nil, d.H.Decision.Message)
 		default:
 			say("permission: pane\r\n")
 		}
@@ -773,6 +856,7 @@ var recorded int
 // line with text and a tool call, the tool's result, the closing text), when $FAKECLAUDE_TRANSCRIPT is set: the file
 // the chat view reads. Off by default, as a transcript that exists changes what compaction tests see (`boundary`).
 func recordTurn(prompt string) {
+	touchSession()
 	home := os.Getenv("HOME")
 	if os.Getenv("FAKECLAUDE_TRANSCRIPT") == "" || home == "" || session == "" {
 		return
@@ -806,6 +890,37 @@ func recordTurn(prompt string) {
 		{"type": "tool_use", "id": "toolu_" + id, "name": "Bash", "input": map[string]any{"command": "echo " + prompt, "description": "say it"}}})
 	line("user", id+"-r", []map[string]any{{"type": "tool_result", "tool_use_id": "toolu_" + id, "content": prompt}})
 	line("assistant", id+"-a2", []map[string]any{{"type": "text", "text": "Done: " + prompt}})
+}
+
+// recordTool appends lines to the session's transcript for a tool call a prompt raised: `call` the assistant's tool_use
+// (before the dialog, as Claude Code writes it), `result` the tool_result after the answer. Off without $FAKECLAUDE_TRANSCRIPT.
+func recordTool(kind, prompt, tool, id string, input map[string]any, result string) {
+	home := os.Getenv("HOME")
+	if os.Getenv("FAKECLAUDE_TRANSCRIPT") == "" || home == "" || session == "" {
+		return
+	}
+	dir := filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"))
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, session+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	recorded++
+	uuid := fmt.Sprintf("%s-%d", session, recorded)
+	line := func(typ string, content any) {
+		b, _ := json.Marshal(map[string]any{"type": typ, "uuid": uuid + "-" + typ, "timestamp": time.Now().UTC().Format(time.RFC3339Nano), "sessionId": session,
+			"isSidechain": false, "message": map[string]any{"role": typ, "content": content}})
+		f.Write(append(b, '\n'))
+	}
+	if kind == "call" {
+		line("user", prompt)
+		line("assistant", []map[string]any{{"type": "tool_use", "id": id, "name": tool, "input": input}})
+		return
+	}
+	line("user", []map[string]any{{"type": "tool_result", "tool_use_id": id, "content": result}})
 }
 
 // readLines sends each line typed, as the terminal's line discipline hands them over (canonical mode). A bracketed
@@ -862,5 +977,32 @@ func readKeys(lines chan<- string) {
 				line = append(line, b)
 			}
 		}
+	}
+}
+
+// sessionOnDisk reports whether a conversation with this session id exists under $HOME/.claude/projects (in any
+// folder: Claude Code finds it by its id).
+func sessionOnDisk() bool {
+	home := os.Getenv("HOME")
+	if home == "" || session == "" {
+		return true
+	}
+	found, _ := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", session+".jsonl"))
+	return len(found) > 0
+}
+
+// touchSession makes the session's transcript exist (empty unless $FAKECLAUDE_TRANSCRIPT writes turns to it): Claude
+// Code writes the conversation with the first turn, and `--resume` finds it from then on.
+func touchSession() {
+	home := os.Getenv("HOME")
+	if home == "" || session == "" {
+		return
+	}
+	dir := filepath.Join(home, ".claude", "projects", nonAlnum.ReplaceAllString(cwd, "-"))
+	if os.MkdirAll(dir, 0o700) != nil {
+		return
+	}
+	if f, err := os.OpenFile(filepath.Join(dir, session+".jsonl"), os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		f.Close()
 	}
 }

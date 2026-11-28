@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { create } from '@bufbuild/protobuf'
 import { timestampFromMs } from '@bufbuild/protobuf/wkt'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { DesktopApi } from '../shared/api'
@@ -43,8 +43,8 @@ import { SettingSchema$ as SettingDescriptor, SettingSchemaSchema, AgentPhase, A
 import { fromJson } from '@bufbuild/protobuf'
 import { ValueSchema } from '@bufbuild/protobuf/wkt'
 import { createAppModel, type HostRuntime } from './model'
-import { AgentWaitKind, AgentWaitSchema, AgyUsageRowSchema, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
-import { ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
+import { AgentWaitKind, AgentWaitSchema, AgyUsageRowSchema, PendingPermissionSchema, PermissionKind, WaitingKind, WaitingSchema } from './gen/agentmesh/v1/mesh_pb'
+import { PromptOptionSchema, PromptQuestionSchema, ReadTranscriptResponseSchema, TranscriptEntrySchema, TranscriptKind } from './gen/agentmesh/v1/chat_pb'
 import { ActorClass } from './gen/agentmesh/v1/actor_pb'
 import { createHostStore } from './store'
 import { AgentPullRequestsSchema, PullRequestSchema } from './gen/agentmesh/v1/pr_pb'
@@ -1436,11 +1436,17 @@ describe('SidebarFooter', () => {
   })
 
   it('has one way to each thing: the gear for the settings, Hosts for a host and pairing, and no + for a new lead', async () => {
-    const { wrap, model } = fixture()
+    const { client, wrap, model } = fixture()
     render(wrap(<SidebarFooter />))
     expect(screen.queryByRole('button', { name: 'New' })).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
-    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Connect a host…', 'Pair a device', expect.stringMatching(/^Remove /)])
+    // This fixture is a paired device, not the host's own: it may not make pairing links, so it asks the setup assistant.
+    expect((await screen.findAllByRole('menuitem')).map((m) => m.textContent)).toEqual(['Connect a host…', 'Pair a device with the assistant', expect.stringMatching(/^Remove /)])
+    const startSetup = vi.fn(async () => ({ agent: { id: 'setup-agent', runId: 'rs' } }))
+    Object.assign(client, { startSetup })
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Pair a device with the assistant' }))
+    await waitFor(() => expect(startSetup).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByRole('button', { name: 'Hosts' }))
     await userEvent.keyboard('{Escape}')
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
     expect(model.store.getState().settingsOpen).toBe(true)
@@ -1938,6 +1944,164 @@ describe('ChatView', () => {
     const ui = f.wrap(<ChatView host={f.host} agentId="w1" active />)
     return { ...f, readTranscript, promptAgent, listPrompts, withdrawPrompt, interruptAgent, rewindAgent, addAttachment, sendPromptAnyway, ui }
   }
+
+  describe('prompts only the user answers', () => {
+    const opt = (label: string, preview = '') => create(PromptOptionSchema, { label, description: `${label}.`, preview })
+    const colour = create(PromptQuestionSchema, { question: 'Which color?', header: 'Color', options: [opt('Red', 'RED swatch'), opt('Blue', 'BLUE swatch')] })
+    const toppings = create(PromptQuestionSchema, { question: 'Which toppings?', header: 'Toppings', multiSelect: true, options: [opt('Cheese'), opt('Ham')] })
+    const question = create(PendingPermissionSchema, { id: 'p1', agentId: 'w1', agentName: 'w1', forUser: true, kind: PermissionKind.QUESTION, tool: 'AskUserQuestion', toolUseId: 'tq', questions: [colour, toppings] })
+    const plan = create(PendingPermissionSchema, { id: 'p2', agentId: 'w1', agentName: 'w1', forUser: true, kind: PermissionKind.PLAN, tool: 'ExitPlanMode', plan: '# The plan\n\n1. Create hello.txt' })
+    const tool = create(PendingPermissionSchema, { id: 'p3', agentId: 'w1', agentName: 'w1', forUser: true, kind: PermissionKind.TOOL, tool: 'Bash', summary: 'git push origin main' })
+    const lastDecision = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.at(-1)![0] as { id: string; decision: string; why: string; mode: string; answers: Array<{ question: string; labels: string[]; other: string }> }
+    const held = (c: ReturnType<typeof chat>, ...ps: (typeof question)[]) => {
+      Object.assign(c.client, { decidePermission: vi.fn(async (_req: unknown): Promise<unknown> => ({})) })
+      c.host.store.setState({ permissions: ps })
+      return c.client as typeof c.client & { decidePermission: ReturnType<typeof vi.fn> }
+    }
+
+    it('shows a question as a card at the end of the conversation, in place of the terminal hint', async () => {
+      const c = chat({ agent: { state: AgentState.NEEDS_INPUT, needsInput: 1 } })
+      held(c, question)
+      render(c.ui)
+      const card = await screen.findByRole('article', { name: '2 questions from w1' })
+      expect(card).toHaveTextContent('Which color?')
+      expect(card).toHaveTextContent('Which toppings?')
+      expect(within(card).getByRole('radio', { name: /Red/ })).toBeInTheDocument()
+      expect(within(card).getByRole('checkbox', { name: /Cheese/ })).toBeInTheDocument()
+      expect(within(card).getByLabelText('Other answer to Which color?')).toBeInTheDocument()
+      expect(screen.queryByText(/answer it there/)).toBeNull()
+    })
+
+    it('sends one answer for each question: a single choice, and a multi-select with the Other text', async () => {
+      const c = chat()
+      const client = held(c, question)
+      render(c.ui)
+      const send = await screen.findByRole('button', { name: 'Send answers' })
+      expect(send).toBeDisabled()
+      await userEvent.click(screen.getByRole('radio', { name: /Blue/ }))
+      expect(send).toBeDisabled()
+      await userEvent.click(screen.getByRole('checkbox', { name: /Cheese/ }))
+      await userEvent.click(screen.getByRole('checkbox', { name: /Ham/ }))
+      await userEvent.type(screen.getByLabelText('Other answer to Which toppings?'), 'extra jam')
+      await userEvent.click(send)
+      expect(lastDecision(client.decidePermission)).toMatchObject({
+        id: 'p1',
+        decision: 'allow',
+        answers: [
+          { question: 'Which color?', labels: ['Blue'], other: '' },
+          { question: 'Which toppings?', labels: ['Cheese', 'Ham'], other: 'extra jam' },
+        ],
+      })
+      expect(c.host.store.getState().permissions).toEqual([])
+    })
+
+    it('takes the text written under Other as the answer of a single choice, in place of the option', async () => {
+      const c = chat()
+      const client = held(c, question)
+      render(c.ui)
+      await userEvent.click(await screen.findByRole('radio', { name: /Red/ }))
+      await userEvent.type(screen.getByLabelText('Other answer to Which color?'), 'Purple')
+      expect(screen.getByRole('radio', { name: /Red/ })).not.toBeChecked()
+      await userEvent.click(screen.getByRole('checkbox', { name: /Ham/ }))
+      await userEvent.click(screen.getByRole('button', { name: 'Send answers' }))
+      expect(lastDecision(client.decidePermission).answers[0]).toEqual({ question: 'Which color?', labels: [], other: 'Purple' })
+    })
+
+    it('shows the preview of the option looked at beside the options', async () => {
+      const c = chat()
+      held(c, question)
+      render(c.ui)
+      const preview = await screen.findByLabelText('Preview')
+      expect(preview).toHaveTextContent('RED swatch')
+      await userEvent.click(screen.getByRole('radio', { name: /Blue/ }))
+      expect(preview).toHaveTextContent('BLUE swatch')
+      await userEvent.hover(screen.getByRole('radio', { name: /Red/ }))
+      expect(preview).toHaveTextContent('RED swatch')
+    })
+
+    it('dismisses a question with a reason the agent reads', async () => {
+      const c = chat()
+      const client = held(c, question)
+      render(c.ui)
+      await userEvent.click(await screen.findByRole('button', { name: 'Dismiss' }))
+      expect(lastDecision(client.decidePermission)).toMatchObject({ id: 'p1', decision: 'deny' })
+      expect(lastDecision(client.decidePermission).why).toContain('dismissed')
+    })
+
+    it('approves a plan with the mode it goes on in, or sends it back with what to change', async () => {
+      const c = chat()
+      const client = held(c, plan)
+      render(c.ui)
+      const card = await screen.findByRole('article', { name: 'Plan from w1' })
+      expect(card).toHaveTextContent('Create hello.txt')
+      expect(screen.getByLabelText('After approving')).toHaveValue('')
+      await userEvent.selectOptions(screen.getByLabelText('After approving'), 'acceptEdits')
+      await userEvent.click(screen.getByRole('button', { name: 'Approve' }))
+      expect(lastDecision(client.decidePermission)).toMatchObject({ id: 'p2', decision: 'allow', mode: 'acceptEdits' })
+      c.host.store.setState({ permissions: [plan] })
+      await userEvent.click(await screen.findByRole('button', { name: 'Ask for changes…' }))
+      const send = screen.getByRole('button', { name: 'Send back' })
+      expect(send).toBeDisabled()
+      await userEvent.type(screen.getByLabelText('What to change'), 'add a test step')
+      await userEvent.click(send)
+      expect(lastDecision(client.decidePermission)).toMatchObject({ id: 'p2', decision: 'deny', why: 'add a test step' })
+    })
+
+    it('allows or denies a tool only the user decides, a denial with its reason', async () => {
+      const c = chat()
+      const client = held(c, tool)
+      render(c.ui)
+      const card = await screen.findByRole('article', { name: 'Permission from w1' })
+      expect(card).toHaveTextContent('git push origin main')
+      await userEvent.click(within(card).getByRole('button', { name: 'Deny…' }))
+      await userEvent.type(screen.getByLabelText('Why w1 may not'), 'open a PR instead')
+      await userEvent.click(screen.getByRole('button', { name: 'Deny' }))
+      expect(lastDecision(client.decidePermission)).toMatchObject({ id: 'p3', decision: 'deny', why: 'open a PR instead' })
+      c.host.store.setState({ permissions: [tool] })
+      await userEvent.click(await screen.findByRole('button', { name: 'Allow' }))
+      expect(lastDecision(client.decidePermission)).toMatchObject({ id: 'p3', decision: 'allow' })
+    })
+
+    it('says a prompt answered elsewhere is already answered, and leaves a read-only device nothing to press', async () => {
+      const c = chat()
+      const client = held(c, tool)
+      client.decidePermission.mockRejectedValue(new ConnectError('no pending permission', Code.NotFound))
+      render(c.ui)
+      await userEvent.click(await screen.findByRole('button', { name: 'Allow' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Already answered')
+      expect(screen.getByRole('button', { name: 'Allow' })).toBeDisabled()
+      cleanup()
+      const ro = chat({ readOnly: true })
+      held(ro, question)
+      render(ro.ui)
+      expect(await screen.findByRole('button', { name: 'Send answers' })).toBeDisabled()
+      expect(screen.getByText(/answer it from another device/)).toBeInTheDocument()
+    })
+
+    it('does not show a prompt held for the agent\'s parent, or another agent\'s', async () => {
+      const c = chat()
+      held(c, create(PendingPermissionSchema, { id: 'p4', agentId: 'w1', agentName: 'w1', parentId: 'lead', tool: 'Bash', summary: 'ls' }), create(PendingPermissionSchema, { id: 'p5', agentId: 'other', forUser: true, kind: PermissionKind.TOOL, tool: 'Bash' }))
+      render(c.ui)
+      await screen.findByText('fix the typo')
+      expect(screen.queryByRole('list', { name: 'Waiting for you' })).toBeNull()
+    })
+
+    it('draws a question already asked in the conversation, with its answers', async () => {
+      const asked = create(TranscriptEntrySchema, { id: 'q1', kind: TranscriptKind.TOOL_CALL, tool: 'AskUserQuestion', toolUseId: 'tq', questions: [colour, toppings] })
+      const result = create(TranscriptEntrySchema, { id: 'q2', kind: TranscriptKind.TOOL_RESULT, toolUseId: 'tq', text: 'Your questions have been answered: "Which color?"="Red", "Which toppings?"="Cheese, Ham". You can now continue with these answers in mind.' })
+      const c = chat({ read: vi.fn(async () => res([...tail, asked, result])) })
+      render(c.ui)
+      const row = await waitFor(() => {
+        const el = document.querySelector('[data-kind="asked"]')
+        expect(el).not.toBeNull()
+        return el as HTMLElement
+      })
+      expect(row).toHaveTextContent('Asked 2 questions')
+      expect(row).toHaveTextContent('Which color?')
+      expect(row).toHaveTextContent('→ Red')
+      expect(row).toHaveTextContent('→ Cheese, Ham')
+    })
+  })
 
   it('draws only the newest 60 blocks of a long conversation, and Show earlier draws the next lot above without moving the reader', async () => {
     const many = Array.from({ length: 150 }, (_, n) => entry(`q${n}`, TranscriptKind.USER, { text: `question number ${n}` }))
@@ -2579,6 +2743,19 @@ describe('Project shells', () => {
     await userEvent.click(await screen.findByRole('menuitem', { name: 'New Claude agent' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('the host is at its agent cap')
     // The run it started for the refused agent is stopped, not left empty in the sidebar.
+    expect(stopRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r9' }))
+  })
+
+  it('stops the run it made when the host answers a chat in the setup project with the setup agent, which has a run of its own', async () => {
+    const { client, wrap, model } = shells()
+    client.startRun.mockResolvedValue({ run: { id: 'r9' } })
+    client.spawnAgent.mockResolvedValue({ agent: { id: 'setup-agent', runId: 'rsetup' } })
+    const stopRun = vi.fn(async () => ({}))
+    Object.assign(client, { stopRun })
+    render(wrap(<TabBar />))
+    await userEvent.click(screen.getByRole('button', { name: 'New in app' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'New Claude agent' }))
+    await waitFor(() => expect(model.store.getState()).toMatchObject({ agentId: 'setup-agent', tab: 'chat' }))
     expect(stopRun).toHaveBeenCalledWith(expect.objectContaining({ runId: 'r9' }))
   })
 

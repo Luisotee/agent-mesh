@@ -296,3 +296,69 @@ func TestTheSetupAgentsReminderIsSilentWhileItsResetTypes(t *testing.T) {
 		t.Fatalf("a reminder while the reset types: %q", text)
 	}
 }
+
+// A chat the user opens in the setup project (the scratch repo `<state>/setup`) is the setup agent, not a plain
+// conversation with none of its rights or instructions; one that is gone comes back, and a spawn elsewhere is
+// untouched.
+func TestAChatOpenedInTheSetupProjectIsTheSetupAgent(t *testing.T) {
+	share := shareWithSetup(t)
+	state := shortdir.State(t)
+	h := startWithAgents(t, state, t.TempDir(), func(c *daemon.AgentConfig) { c.Share = share })
+	ctx := context.Background()
+	first := startSetup(t, h)
+	a := h.waitState(first.Agent.Id, v1.AgentState_AGENT_STATE_IDLE)
+	setupRepo := filepath.Join(state, "setup")
+
+	plain := func(mid string) (*v1.Agent, error) {
+		run, err := h.device.Mesh.StartRun(ctx, connect.NewRequest(&v1.StartRunRequest{Meta: meta("run-" + mid), Title: "claude in setup"}))
+		if err != nil {
+			return nil, err
+		}
+		res, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta(mid), RunId: run.Msg.Run.Id, Repo: setupRepo,
+			Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
+		if err != nil {
+			return nil, err
+		}
+		return res.Msg.Agent, nil
+	}
+	got, err := plain("chat-1")
+	if err != nil || got.Id != a.Id || got.Plain {
+		t.Fatalf("a new chat in the setup project = %+v, %v; want the setup agent %s", got, err, a.Id)
+	}
+	// The run the caller made for the chat is left empty: the host stops it, whatever the client.
+	runs, err := h.device.Mesh.ListRuns(ctx, connect.NewRequest(&v1.ListRunsRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range runs.Msg.Runs {
+		if r.Id != first.Run.Id && r.Status == v1.RunStatus_RUN_STATUS_OPEN {
+			t.Errorf("run %s (%q) was left open and empty", r.Id, r.Title)
+		}
+	}
+
+	// Gone (retired), it comes back with its conversation, even if it never had a first turn.
+	if _, err := h.device.Mesh.RetireAgent(ctx, connect.NewRequest(&v1.RetireAgentRequest{Meta: meta("retire-setup"), Agent: a.Id})); err != nil {
+		t.Fatal(err)
+	}
+	h.waitState(a.Id, v1.AgentState_AGENT_STATE_RETIRED)
+	back, err := plain("chat-2")
+	if err != nil || back.Id != a.Id {
+		t.Fatalf("a chat in the setup project after the setup agent was retired = %+v, %v", back, err)
+	}
+	waitFor(t, "the setup agent to come back", func() bool {
+		s := h.agent(a.Id).State
+		return s != v1.AgentState_AGENT_STATE_RETIRED && s != v1.AgentState_AGENT_STATE_EXITED
+	})
+
+	// Another project's chat is still plain.
+	repo := gitRepo(t)
+	run, err := h.device.Mesh.StartRun(ctx, connect.NewRequest(&v1.StartRunRequest{Meta: meta("run-other"), Title: "claude in other"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.device.Mesh.SpawnAgent(ctx, connect.NewRequest(&v1.SpawnAgentRequest{Meta: meta("chat-other"), RunId: run.Msg.Run.Id, Repo: repo,
+		Slug: "claude", Role: v1.AgentRole_AGENT_ROLE_ROOT, Kind: "claude", Plain: true}))
+	if err != nil || !res.Msg.Agent.Plain || res.Msg.Agent.Id == a.Id {
+		t.Fatalf("a chat elsewhere = %+v, %v; want its own plain agent", res, err)
+	}
+}

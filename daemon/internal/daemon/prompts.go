@@ -452,7 +452,7 @@ func (d *Daemon) recordInterrupted(ctx context.Context, agentID string) error {
 			Kind: &adapterv1.AgentEvent_TurnEnded{TurnEnded: &adapterv1.TurnEnded{}}}})
 	})
 	if err == nil {
-		d.perms.endFor(agentID, "", "") // a permission prompt the Esc dismissed is over, as a Stop hook would say
+		d.perms.endFor(agentID, "", "", "") // a permission prompt the Esc dismissed is over, as a Stop hook would say
 	}
 	return err
 }

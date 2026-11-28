@@ -17,6 +17,8 @@ public  final class RequestPermissionRequest extends
   private RequestPermissionRequest() {
     tool_ = "";
     summary_ = "";
+    toolUseId_ = "";
+    input_ = "";
   }
   public static final int TOOL_FIELD_NUMBER = 1;
   private java.lang.String tool_;
@@ -129,6 +131,145 @@ public  final class RequestPermissionRequest extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     summary_ = value.toStringUtf8();
+
+  }
+
+  public static final int TOOL_USE_ID_FIELD_NUMBER = 3;
+  private java.lang.String toolUseId_;
+  /**
+   * <pre>
+   * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+   * </pre>
+   *
+   * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+   * @return The toolUseId.
+   */
+  @java.lang.Override
+  public java.lang.String getToolUseId() {
+    return toolUseId_;
+  }
+  /**
+   * <pre>
+   * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+   * </pre>
+   *
+   * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+   * @return The bytes for toolUseId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getToolUseIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(toolUseId_);
+  }
+  /**
+   * <pre>
+   * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+   * </pre>
+   *
+   * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+   * @param value The toolUseId to set.
+   */
+  private void setToolUseId(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    toolUseId_ = value;
+  }
+  /**
+   * <pre>
+   * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+   * </pre>
+   *
+   * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+   */
+  private void clearToolUseId() {
+
+    toolUseId_ = getDefaultInstance().getToolUseId();
+  }
+  /**
+   * <pre>
+   * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+   * </pre>
+   *
+   * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+   * @param value The bytes for toolUseId to set.
+   */
+  private void setToolUseIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    toolUseId_ = value.toStringUtf8();
+
+  }
+
+  public static final int INPUT_FIELD_NUMBER = 4;
+  private java.lang.String input_;
+  /**
+   * <pre>
+   * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+   * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+   * </pre>
+   *
+   * <code>string input = 4 [json_name = "input"];</code>
+   * @return The input.
+   */
+  @java.lang.Override
+  public java.lang.String getInput() {
+    return input_;
+  }
+  /**
+   * <pre>
+   * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+   * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+   * </pre>
+   *
+   * <code>string input = 4 [json_name = "input"];</code>
+   * @return The bytes for input.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getInputBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(input_);
+  }
+  /**
+   * <pre>
+   * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+   * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+   * </pre>
+   *
+   * <code>string input = 4 [json_name = "input"];</code>
+   * @param value The input to set.
+   */
+  private void setInput(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    input_ = value;
+  }
+  /**
+   * <pre>
+   * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+   * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+   * </pre>
+   *
+   * <code>string input = 4 [json_name = "input"];</code>
+   */
+  private void clearInput() {
+
+    input_ = getDefaultInstance().getInput();
+  }
+  /**
+   * <pre>
+   * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+   * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+   * </pre>
+   *
+   * <code>string input = 4 [json_name = "input"];</code>
+   * @param value The bytes for input to set.
+   */
+  private void setInputBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    input_ = value.toStringUtf8();
 
   }
 
@@ -347,6 +488,149 @@ public  final class RequestPermissionRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+     * </pre>
+     *
+     * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+     * @return The toolUseId.
+     */
+    @java.lang.Override
+    public java.lang.String getToolUseId() {
+      return instance.getToolUseId();
+    }
+    /**
+     * <pre>
+     * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+     * </pre>
+     *
+     * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+     * @return The bytes for toolUseId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getToolUseIdBytes() {
+      return instance.getToolUseIdBytes();
+    }
+    /**
+     * <pre>
+     * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+     * </pre>
+     *
+     * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+     * @param value The toolUseId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setToolUseId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setToolUseId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+     * </pre>
+     *
+     * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearToolUseId() {
+      copyOnWrite();
+      instance.clearToolUseId();
+      return this;
+    }
+    /**
+     * <pre>
+     * The CLI's id for this tool call: the `tool_use_id` of the chat's tool-call entry, so an app ties the prompt to it.
+     * </pre>
+     *
+     * <code>string tool_use_id = 3 [json_name = "toolUseId"];</code>
+     * @param value The bytes for toolUseId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setToolUseIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setToolUseIdBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+     * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+     * </pre>
+     *
+     * <code>string input = 4 [json_name = "input"];</code>
+     * @return The input.
+     */
+    @java.lang.Override
+    public java.lang.String getInput() {
+      return instance.getInput();
+    }
+    /**
+     * <pre>
+     * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+     * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+     * </pre>
+     *
+     * <code>string input = 4 [json_name = "input"];</code>
+     * @return The bytes for input.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getInputBytes() {
+      return instance.getInputBytes();
+    }
+    /**
+     * <pre>
+     * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+     * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+     * </pre>
+     *
+     * <code>string input = 4 [json_name = "input"];</code>
+     * @param value The input to set.
+     * @return This builder for chaining.
+     */
+    public Builder setInput(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setInput(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+     * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+     * </pre>
+     *
+     * <code>string input = 4 [json_name = "input"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearInput() {
+      copyOnWrite();
+      instance.clearInput();
+      return this;
+    }
+    /**
+     * <pre>
+     * The tool's whole input as JSON, sent only for the two tools whose prompt is a form for the user, `AskUserQuestion`
+     * (the questions) and `ExitPlanMode` (the plan): never for a tool that writes or runs something.
+     * </pre>
+     *
+     * <code>string input = 4 [json_name = "input"];</code>
+     * @param value The bytes for input to set.
+     * @return This builder for chaining.
+     */
+    public Builder setInputBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setInputBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:agentmesh.v1.RequestPermissionRequest)
   }
   @java.lang.Override
@@ -365,10 +649,12 @@ public  final class RequestPermissionRequest extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "tool_",
             "summary_",
+            "toolUseId_",
+            "input_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "";
+              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

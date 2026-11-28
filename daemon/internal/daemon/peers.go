@@ -935,7 +935,7 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		agent = d.view(cur)
 		member.AgentId, member.Model = mine.Id, mine.Model
 	} else {
-		a, err := d.launchPeerAgent(ctx, actor, p, m.Tier, task)
+		a, missing, err := d.launchPeerAgent(ctx, actor, p, m.Tier, task)
 		if err != nil {
 			restore()
 			var ce *connect.Error
@@ -948,6 +948,9 @@ func (d *Daemon) startPeer(ctx context.Context, actor *v1.Actor, p *v1.Peer, m *
 		member.How = "fresh"
 		if p.SessionId != "" {
 			member.How = "resumed its conversation"
+			if missing {
+				member.How = "fresh (its conversation was not found)"
+			}
 		}
 		member.AgentId, member.Model = a.Id, a.Model
 		agent = a
@@ -991,31 +994,31 @@ func (d *Daemon) dropStoredTask(ctx context.Context, actor *v1.Actor, agentID, m
 
 // launchPeerAgent starts a peer's agent in this run: a new agent record of role asker named as the peer, in the
 // peer's own worktree, resuming the peer's conversation (a fresh one when it has none yet).
-func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Peer, tier, task string) (*v1.Agent, error) {
+func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Peer, tier, task string) (*v1.Agent, bool, error) {
 	if d.rt.term == nil {
-		return nil, connect.NewError(connect.CodeUnavailable, errors.New("this daemon runs without a terminal host"))
+		return nil, false, connect.NewError(connect.CodeUnavailable, errors.New("this daemon runs without a terminal host"))
 	}
 	ad, err := d.rt.adapters.Get(p.Kind)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	d.warmOpenCodeModels(ctx, p.Kind)
 	r := d.store.Read(ctx)
 	model, effort, err := d.pickIn(r, p.Repo, d.freeOffFor(r, p.Kind, p.Repo), p.Kind, tier, "", "", "the peer", false)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := d.reserveCheck(r, actor.RunId, p.Kind, model, effort, "asking "+p.Name, false); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := d.capGuard(r, "peer "+p.Name, ""); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := d.checkMemoryGuard(r, "peer "+p.Name); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := d.ensureRunDir(actor.RunId); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	token := auth.NewToken()
 	now := d.now()
@@ -1029,10 +1032,15 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	plan, err := d.planLaunch(ctx, ad, agent, token, p.SessionId)
 	if err != nil {
 		os.RemoveAll(d.paths.Agent(agent.Id))
-		return nil, err
+		return nil, false, err
 	}
+	missing := p.SessionId != "" && plan.ResumeMissing
 	if p.SessionId == "" {
 		agent.SessionId = plan.SessionId
+	} else if plan.ResumeMissing {
+		// Its conversation is gone (Claude Code deletes old ones): it answers from its worktree only, and says so.
+		task = "Your earlier conversation was not found where Claude Code keeps it, so you start with no memory of it: answer from " +
+			"your worktree and what you can read there, and say in your answer that your earlier research is not in your context.\n\n" + task
 	}
 	if err := d.store.Write(ctx, actor, "", func(tx *store.Tx) error {
 		if run, err := tx.GetRun(actor.RunId); err != nil {
@@ -1076,17 +1084,17 @@ func (d *Daemon) launchPeerAgent(ctx context.Context, actor *v1.Actor, p *v1.Pee
 	}); err != nil {
 		d.rt.guard.release(agent.Id)
 		os.RemoveAll(d.paths.Agent(agent.Id)) // planLaunch wrote its MCP file, which may hold servers' secrets
-		return nil, err
+		return nil, false, err
 	}
 	launched, err := d.launch(ctx, agent, token, plan)
 	if err != nil {
 		d.log.Error("launch failed", "agent", agent.Name, "err", err)
 		d.failLaunch(ctx, actor, "", agent, err)
 		d.rt.guard.release(agent.Id)
-		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("launching %s: %w", agent.Name, err))
+		return nil, false, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("launching %s: %w", agent.Name, err))
 	}
 	d.deliverSoon(agent.Id)
-	return d.view(launched), nil
+	return d.view(launched), missing, nil
 }
 
 // writePeerAnswers writes a finished peers ask's answers into its file (bin/mesh's peers-<stamp>.md).

@@ -35,9 +35,15 @@ const Kind = "claude"
 // warning in the apps.
 var VerifiedVersions = []string{"2.1.332"}
 
-// PermissionTimeout is the seconds Claude Code gives a PermissionRequest hook: it is held while the agent's parent
-// decides (`permission.wait`, at most 540).
-const PermissionTimeout = 600
+// PermissionTimeout is the seconds Claude Code gives a PermissionRequest hook: it is held while the agent's parent or
+// the user decides (`permission.wait`, `permission.user_wait`, at most 3600).
+const PermissionTimeout = 3700
+
+// The tools whose permission prompt is a form for the user (the hook's `tool_name`).
+const (
+	ToolAskUserQuestion = "AskUserQuestion"
+	ToolExitPlanMode    = "ExitPlanMode"
+)
 
 // HookTimeout is the seconds Claude Code gives each hook. The hook command never waits on a down daemon: it
 // spools within about 3 seconds.
@@ -248,13 +254,17 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 			return nil, fmt.Errorf("standalone launch requires resume_session_id")
 		}
 		argv := []string{bin, "--resume", m.ResumeSessionId}
+		missing := !SessionExists(m.Env, m.ResumeSessionId)
+		if missing {
+			argv = []string{bin, "--session-id", m.ResumeSessionId} // an agent that never had a turn has no conversation to open
+		}
 		if m.Model != "" {
 			argv = append(argv, "--model", m.Model)
 		}
 		if m.Effort != "" {
 			argv = append(argv, "--effort", m.Effort)
 		}
-		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: m.ResumeSessionId}), nil
+		return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: m.ResumeSessionId, ResumeMissing: missing}), nil
 	}
 	deny := ReadOnly(m.Role) || m.DenyEdits
 	extra := map[string]any{}
@@ -292,9 +302,16 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	// A reopen resumes the agent's own conversation (same id, its context kept); a first launch picks the id now.
 	sid := m.ResumeSessionId
 	argv := []string{bin, "--resume", sid}
+	resumeMissing := false
 	if sid == "" {
 		sid = a.NewSessionID()
 		argv = []string{bin, "--session-id", sid}
+	} else if !SessionExists(m.Env, sid) {
+		// The id was chosen at the first launch, but Claude Code writes the conversation only with its first turn: an
+		// agent reopened before then has nothing to resume (`--resume` exits 1 with "No conversation found"). The same
+		// id starts it fresh, and the first turn is then the conversation `--resume` finds next time.
+		argv = []string{bin, "--session-id", sid}
+		resumeMissing = true
 	}
 	if m.Model != "" {
 		argv = append(argv, "--model", m.Model)
@@ -332,7 +349,7 @@ func (a *Adapter) PlanLaunch(_ context.Context, req *connect.Request[adapterv1.P
 	if m.SkipPermissions {
 		argv = append(argv, "--dangerously-skip-permissions")
 	}
-	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid}), nil
+	return connect.NewResponse(&adapterv1.PlanLaunchResponse{Argv: argv, Env: env, SessionId: sid, ResumeMissing: resumeMissing}), nil
 }
 
 // MeshPromptPrefix starts every doorbell the daemon types (`Doorbell`): a turn that began with it is the mesh's,
@@ -606,11 +623,46 @@ func DenyJSON(reason string) []byte {
 // PermissionJSON is what a Claude PermissionRequest hook prints to answer a prompt: `allow`, or `deny` with the
 // reason Claude reads. Any other decision prints nothing (the prompt stays).
 func PermissionJSON(decision, reason string) []byte {
-	d := map[string]any{"behavior": decision}
-	switch decision {
+	return PermissionAnswer{Decision: decision, Reason: reason}.JSON("", nil)
+}
+
+// PermissionAnswer is a decision on a prompt, with what a form tool needs on top of it.
+type PermissionAnswer struct {
+	Decision, Reason string
+	// Answers are the user's answers to an AskUserQuestion, by the question's text.
+	Answers map[string]string
+	// Mode is the permission mode an approved ExitPlanMode goes on in (`default`, `acceptEdits`), or empty to leave it
+	// to Claude.
+	Mode string
+}
+
+// JSON is what the hook prints for the tool and its input. Claude ignores an `allow` for AskUserQuestion and
+// ExitPlanMode that has no `updatedInput` (it still shows its dialog), so those carry the input back: the questions
+// with the user's `answers` added, the plan as it was, and, for a plan, `updatedPermissions` to set the mode.
+func (a PermissionAnswer) JSON(tool string, input json.RawMessage) []byte {
+	d := map[string]any{"behavior": a.Decision}
+	switch a.Decision {
 	case "allow":
+		switch tool {
+		case ToolAskUserQuestion:
+			var in map[string]json.RawMessage
+			if json.Unmarshal(input, &in) != nil || len(a.Answers) == 0 {
+				return nil
+			}
+			ans, _ := json.Marshal(a.Answers)
+			in["answers"] = ans
+			d["updatedInput"] = in
+		case ToolExitPlanMode:
+			if !json.Valid(input) {
+				return nil
+			}
+			d["updatedInput"] = input
+			if a.Mode != "" {
+				d["updatedPermissions"] = []map[string]string{{"type": "setMode", "mode": a.Mode, "destination": "session"}}
+			}
+		}
 	case "deny":
-		d["message"] = reason
+		d["message"] = a.Reason
 	default:
 		return nil
 	}

@@ -43,6 +43,25 @@ message TranscriptEntry {
   bool truncated = 9;
   // Where the entry's line starts in the CLI's record.
   int64 offset = 10;
+  // For a tool call that is a question to the user (Claude's `AskUserQuestion`): what it asks, so the chat can show
+  // it after it was answered. `tool_input` is its one-line summary.
+  repeated PromptQuestion questions = 11;
+}
+
+// One question of an `AskUserQuestion`.
+message PromptQuestion {
+  string question = 1;
+  // A short label for it (a tab).
+  string header = 2;
+  bool multi_select = 3;
+  repeated PromptOption options = 4;
+}
+
+message PromptOption {
+  string label = 1;
+  string description = 2;
+  // Markdown to show beside the options while this one is selected (a single choice only).
+  string preview = 3;
 }
 
 message ReadTranscriptRequest {

@@ -137,6 +137,44 @@ func TestPlanLaunchResumesAndDeniesAPlanner(t *testing.T) {
 	}
 }
 
+// A reopen of a session Claude Code has no conversation for (it writes one with the first prompt, and deletes old ones)
+// launches the same id fresh: `--resume` of it exits 1.
+func TestPlanLaunchStartsAMissingConversationFreshUnderItsId(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	plan := func(session string) *adapterv1.PlanLaunchResponse {
+		res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
+			Binary: "claude", ResumeSessionId: session, Role: agentmeshv1.AgentRole_AGENT_ROLE_WORKER, Cwd: cwd, Env: map[string]string{"HOME": home}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Msg
+	}
+	env := map[string]string{"HOME": home}
+	write := func(path string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := plan("sid-new"); strings.Join(got.Argv[:3], " ") != "claude --session-id sid-new" || !got.ResumeMissing || got.SessionId != "sid-new" {
+		t.Errorf("a missing conversation: argv %v, resume_missing %v, session %q", got.Argv, got.ResumeMissing, got.SessionId)
+	}
+	// Found by its id in any project folder (a worktree reached through a symlink is named after its real path).
+	write(filepath.Join(home, ".claude", "projects", "-some-other-folder", "sid-else.jsonl"))
+	if got := plan("sid-else"); got.ResumeMissing || got.Argv[1] != "--resume" {
+		t.Errorf("a conversation of another folder was started fresh: %v", got.Argv)
+	}
+	write(TranscriptPath(env, cwd, "sid-old"))
+	if res, err := New().PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Binary: "claude", ResumeSessionId: "sid-gone", Standalone: true, Env: env})); err != nil || res.Msg.Argv[1] != "--session-id" || !res.Msg.ResumeMissing {
+		t.Errorf("`mesh open` of a session with no conversation: %v, %v", res, err)
+	}
+	if got := plan("sid-old"); strings.Join(got.Argv[:3], " ") != "claude --resume sid-old" || got.ResumeMissing {
+		t.Errorf("an existing conversation: argv %v, resume_missing %v", got.Argv, got.ResumeMissing)
+	}
+}
+
 func decode(t *testing.T, session, event, payload string) []*adapterv1.AgentEvent {
 	t.Helper()
 	res, err := New().DecodeHook(context.Background(), connect.NewRequest(&adapterv1.DecodeHookRequest{
@@ -223,6 +261,13 @@ func TestSettingsEmitsStatusLineWhenStateFlagPresent(t *testing.T) {
 
 func TestPlanLaunchStandalone(t *testing.T) {
 	a := New()
+	home := t.TempDir() // its conversation exists, so `mesh open` resumes it
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "projects", "-p"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "projects", "-p", "sess-42.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	res, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{
 		Role:            agentmeshv1.AgentRole_AGENT_ROLE_ASKER,
 		DenyEdits:       true,
@@ -236,7 +281,7 @@ func TestPlanLaunchStandalone(t *testing.T) {
 		HookArgv:        []string{"mesh", "hook", "--state", "/tmp/st"},
 		Lean:            &adapterv1.LeanLaunch{DenyTools: []string{"Agent"}},
 		Env: map[string]string{
-			"HOME":        "/tmp/h",
+			"HOME":        home,
 			"CLAUDECODE":  "1",
 			"ANTHROPIC_K": "v",
 		},
@@ -252,7 +297,7 @@ func TestPlanLaunchStandalone(t *testing.T) {
 	if _, ok := res.Msg.Env["CLAUDECODE"]; ok {
 		t.Errorf("CLAUDECODE kept in standalone env: %v", res.Msg.Env)
 	}
-	if res.Msg.Env["HOME"] != "/tmp/h" {
+	if res.Msg.Env["HOME"] != home {
 		t.Errorf("HOME lost: %v", res.Msg.Env)
 	}
 	if _, err := a.PlanLaunch(context.Background(), connect.NewRequest(&adapterv1.PlanLaunchRequest{Standalone: true})); err == nil {
@@ -271,6 +316,53 @@ func TestPermissionJSON(t *testing.T) {
 		if got := string(PermissionJSON(tc.decision, tc.reason)); got != tc.want {
 			t.Errorf("PermissionJSON(%q, %q) = %q, want %q", tc.decision, tc.reason, got, tc.want)
 		}
+	}
+}
+
+// What the hook prints for a question and a plan: Claude ignores an allow for those two without `updatedInput`, so it
+// carries the input back (the questions with `answers`, the plan as it was) and, for a plan, the mode to go on in.
+func TestPermissionAnswerFormToolsEchoTheirInput(t *testing.T) {
+	question := json.RawMessage(`{"questions":[{"question":"Which?","header":"H","multiSelect":false,"options":[{"label":"A","description":"a"}]}]}`)
+	plan := json.RawMessage(`{"plan":"# P","planFilePath":"/p.md"}`)
+	decode := func(b []byte) map[string]any {
+		t.Helper()
+		var out struct {
+			H struct {
+				Event    string         `json:"hookEventName"`
+				Decision map[string]any `json:"decision"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(b, &out); err != nil || out.H.Event != "PermissionRequest" {
+			t.Fatalf("output %q: %v", b, err)
+		}
+		return out.H.Decision
+	}
+	d := decode(PermissionAnswer{Decision: "allow", Answers: map[string]string{"Which?": "A, other"}}.JSON(ToolAskUserQuestion, question))
+	in := d["updatedInput"].(map[string]any)
+	if d["behavior"] != "allow" || in["answers"].(map[string]any)["Which?"] != "A, other" || len(in["questions"].([]any)) != 1 || d["updatedPermissions"] != nil {
+		t.Errorf("question answer = %v", d)
+	}
+	noAnswers := PermissionAnswer{Decision: "allow"}
+	if got := noAnswers.JSON(ToolAskUserQuestion, question); got != nil {
+		t.Errorf("a question allowed with no answers printed %q", got)
+	}
+	d = decode(PermissionAnswer{Decision: "allow", Mode: "acceptEdits"}.JSON(ToolExitPlanMode, plan))
+	perms := d["updatedPermissions"].([]any)[0].(map[string]any)
+	if d["updatedInput"].(map[string]any)["plan"] != "# P" || perms["type"] != "setMode" || perms["mode"] != "acceptEdits" || perms["destination"] != "session" {
+		t.Errorf("plan approval = %v", d)
+	}
+	d = decode(PermissionAnswer{Decision: "allow"}.JSON(ToolExitPlanMode, plan))
+	if d["updatedPermissions"] != nil || d["updatedInput"] == nil {
+		t.Errorf("plan approval with no mode = %v", d)
+	}
+	d = decode(PermissionAnswer{Decision: "deny", Reason: "add a test"}.JSON(ToolExitPlanMode, plan))
+	if d["message"] != "add a test" || d["updatedInput"] != nil {
+		t.Errorf("plan sent back = %v", d)
+	}
+	// A plain tool's allow carries no input, as before.
+	d = decode(PermissionAnswer{Decision: "allow"}.JSON("Bash", json.RawMessage(`{"command":"ls"}`)))
+	if d["updatedInput"] != nil {
+		t.Errorf("a Bash allow = %v", d)
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 
 func TestOpenAgentStoppedAndLiveAcrossCLIsAndEnforcesGuards(t *testing.T) {
 	w := startReopen(t)
+	t.Setenv("HOME", w.home) // `mesh open` runs as the user: the conversation it resumes is under the user's home, which is the agents' here
 	ctx := context.Background()
 	run := startRun(t, w.device.Mesh, "")
 	_, asLead := w.root(t, run.Id)

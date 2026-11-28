@@ -17,12 +17,13 @@ public  final class RequestPermissionResponse extends
   private RequestPermissionResponse() {
     decision_ = "";
     reason_ = "";
+    mode_ = "";
   }
   public static final int DECISION_FIELD_NUMBER = 1;
   private java.lang.String decision_;
   /**
    * <pre>
-   * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+   * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
    * </pre>
    *
    * <code>string decision = 1 [json_name = "decision"];</code>
@@ -34,7 +35,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+   * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
    * </pre>
    *
    * <code>string decision = 1 [json_name = "decision"];</code>
@@ -47,7 +48,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+   * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
    * </pre>
    *
    * <code>string decision = 1 [json_name = "decision"];</code>
@@ -61,7 +62,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+   * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
    * </pre>
    *
    * <code>string decision = 1 [json_name = "decision"];</code>
@@ -72,7 +73,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+   * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
    * </pre>
    *
    * <code>string decision = 1 [json_name = "decision"];</code>
@@ -89,7 +90,7 @@ public  final class RequestPermissionResponse extends
   private java.lang.String reason_;
   /**
    * <pre>
-   * The parent's reason for a denial, which the agent reads.
+   * The reason for a denial, which the agent reads.
    * </pre>
    *
    * <code>string reason = 2 [json_name = "reason"];</code>
@@ -101,7 +102,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * The parent's reason for a denial, which the agent reads.
+   * The reason for a denial, which the agent reads.
    * </pre>
    *
    * <code>string reason = 2 [json_name = "reason"];</code>
@@ -114,7 +115,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * The parent's reason for a denial, which the agent reads.
+   * The reason for a denial, which the agent reads.
    * </pre>
    *
    * <code>string reason = 2 [json_name = "reason"];</code>
@@ -128,7 +129,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * The parent's reason for a denial, which the agent reads.
+   * The reason for a denial, which the agent reads.
    * </pre>
    *
    * <code>string reason = 2 [json_name = "reason"];</code>
@@ -139,7 +140,7 @@ public  final class RequestPermissionResponse extends
   }
   /**
    * <pre>
-   * The parent's reason for a denial, which the agent reads.
+   * The reason for a denial, which the agent reads.
    * </pre>
    *
    * <code>string reason = 2 [json_name = "reason"];</code>
@@ -149,6 +150,195 @@ public  final class RequestPermissionResponse extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     reason_ = value.toStringUtf8();
+
+  }
+
+  public static final int ANSWERS_FIELD_NUMBER = 3;
+  private static final class AnswersDefaultEntryHolder {
+    static final com.google.protobuf.MapEntryLite<
+        java.lang.String, java.lang.String> defaultEntry =
+            com.google.protobuf.MapEntryLite
+            .<java.lang.String, java.lang.String>newDefaultInstance(
+                com.google.protobuf.WireFormat.FieldType.STRING,
+                "",
+                com.google.protobuf.WireFormat.FieldType.STRING,
+                "");
+  }
+  private com.google.protobuf.MapFieldLite<
+      java.lang.String, java.lang.String> answers_ =
+          com.google.protobuf.MapFieldLite.emptyMapField();
+  private com.google.protobuf.MapFieldLite<java.lang.String, java.lang.String>
+  internalGetAnswers() {
+    return answers_;
+  }
+  private com.google.protobuf.MapFieldLite<java.lang.String, java.lang.String>
+  internalGetMutableAnswers() {
+    if (!answers_.isMutable()) {
+      answers_ = answers_.mutableCopy();
+    }
+    return answers_;
+  }
+  @java.lang.Override
+
+  public int getAnswersCount() {
+    return internalGetAnswers().size();
+  }
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  @java.lang.Override
+
+  public boolean containsAnswers(
+      java.lang.String key) {
+    java.util.Objects.requireNonNull(key);
+    return internalGetAnswers().containsKey(key);
+  }
+  /**
+   * Use {@link #getAnswersMap()} instead.
+   */
+  @java.lang.Override
+  @java.lang.Deprecated
+  public java.util.Map<java.lang.String, java.lang.String> getAnswers() {
+    return getAnswersMap();
+  }
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  @java.lang.Override
+
+  public java.util.Map<java.lang.String, java.lang.String> getAnswersMap() {
+    return java.util.Collections.unmodifiableMap(
+        internalGetAnswers());
+  }
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  @java.lang.Override
+
+  public /* nullable */
+java.lang.String getAnswersOrDefault(
+      java.lang.String key,
+      /* nullable */
+java.lang.String defaultValue) {
+    java.util.Objects.requireNonNull(key);
+    java.util.Map<java.lang.String, java.lang.String> map =
+        internalGetAnswers();
+    java.lang.String v = map.get(key);
+    return v != null ? v : defaultValue;
+  }
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  @java.lang.Override
+
+  public java.lang.String getAnswersOrThrow(
+      java.lang.String key) {
+    java.util.Objects.requireNonNull(key);
+    java.util.Map<java.lang.String, java.lang.String> map =
+        internalGetAnswers();
+    java.lang.String v = map.get(key);
+    if (v == null) {
+      throw new java.lang.IllegalArgumentException();
+    }
+    return v;
+  }
+  /**
+   * <pre>
+   * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+   * or the text the user wrote under "Other". Only for a question.
+   * </pre>
+   *
+   * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+   */
+  private java.util.Map<java.lang.String, java.lang.String>
+  getMutableAnswersMap() {
+    return internalGetMutableAnswers();
+  }
+
+  public static final int MODE_FIELD_NUMBER = 4;
+  private java.lang.String mode_;
+  /**
+   * <pre>
+   * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+   * </pre>
+   *
+   * <code>string mode = 4 [json_name = "mode"];</code>
+   * @return The mode.
+   */
+  @java.lang.Override
+  public java.lang.String getMode() {
+    return mode_;
+  }
+  /**
+   * <pre>
+   * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+   * </pre>
+   *
+   * <code>string mode = 4 [json_name = "mode"];</code>
+   * @return The bytes for mode.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getModeBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(mode_);
+  }
+  /**
+   * <pre>
+   * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+   * </pre>
+   *
+   * <code>string mode = 4 [json_name = "mode"];</code>
+   * @param value The mode to set.
+   */
+  private void setMode(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    mode_ = value;
+  }
+  /**
+   * <pre>
+   * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+   * </pre>
+   *
+   * <code>string mode = 4 [json_name = "mode"];</code>
+   */
+  private void clearMode() {
+
+    mode_ = getDefaultInstance().getMode();
+  }
+  /**
+   * <pre>
+   * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+   * </pre>
+   *
+   * <code>string mode = 4 [json_name = "mode"];</code>
+   * @param value The bytes for mode to set.
+   */
+  private void setModeBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    mode_ = value.toStringUtf8();
 
   }
 
@@ -251,7 +441,7 @@ public  final class RequestPermissionResponse extends
 
     /**
      * <pre>
-     * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+     * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
      * </pre>
      *
      * <code>string decision = 1 [json_name = "decision"];</code>
@@ -263,7 +453,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+     * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
      * </pre>
      *
      * <code>string decision = 1 [json_name = "decision"];</code>
@@ -276,7 +466,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+     * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
      * </pre>
      *
      * <code>string decision = 1 [json_name = "decision"];</code>
@@ -291,7 +481,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+     * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
      * </pre>
      *
      * <code>string decision = 1 [json_name = "decision"];</code>
@@ -304,7 +494,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * "allow" or "deny" when the parent decided; empty when nobody did in time (the prompt stays on the screen).
+     * "allow" or "deny" when the parent or the user decided; empty when nobody did in time (the prompt stays on the screen).
      * </pre>
      *
      * <code>string decision = 1 [json_name = "decision"];</code>
@@ -320,7 +510,7 @@ public  final class RequestPermissionResponse extends
 
     /**
      * <pre>
-     * The parent's reason for a denial, which the agent reads.
+     * The reason for a denial, which the agent reads.
      * </pre>
      *
      * <code>string reason = 2 [json_name = "reason"];</code>
@@ -332,7 +522,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * The parent's reason for a denial, which the agent reads.
+     * The reason for a denial, which the agent reads.
      * </pre>
      *
      * <code>string reason = 2 [json_name = "reason"];</code>
@@ -345,7 +535,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * The parent's reason for a denial, which the agent reads.
+     * The reason for a denial, which the agent reads.
      * </pre>
      *
      * <code>string reason = 2 [json_name = "reason"];</code>
@@ -360,7 +550,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * The parent's reason for a denial, which the agent reads.
+     * The reason for a denial, which the agent reads.
      * </pre>
      *
      * <code>string reason = 2 [json_name = "reason"];</code>
@@ -373,7 +563,7 @@ public  final class RequestPermissionResponse extends
     }
     /**
      * <pre>
-     * The parent's reason for a denial, which the agent reads.
+     * The reason for a denial, which the agent reads.
      * </pre>
      *
      * <code>string reason = 2 [json_name = "reason"];</code>
@@ -384,6 +574,210 @@ public  final class RequestPermissionResponse extends
         com.google.protobuf.ByteString value) {
       copyOnWrite();
       instance.setReasonBytes(value);
+      return this;
+    }
+
+    @java.lang.Override
+
+    public int getAnswersCount() {
+      return instance.getAnswersMap().size();
+    }
+    /**
+     * <pre>
+     * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+     * or the text the user wrote under "Other". Only for a question.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+     */
+    @java.lang.Override
+
+    public boolean containsAnswers(
+        java.lang.String key) {
+      java.util.Objects.requireNonNull(key);
+      return instance.getAnswersMap().containsKey(key);
+    }
+
+    public Builder clearAnswers() {
+      copyOnWrite();
+      instance.getMutableAnswersMap().clear();
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+     * or the text the user wrote under "Other". Only for a question.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+     */
+
+    public Builder removeAnswers(
+        java.lang.String key) {
+      java.util.Objects.requireNonNull(key);
+      copyOnWrite();
+      instance.getMutableAnswersMap().remove(key);
+      return this;
+    }
+    /**
+     * Use {@link #getAnswersMap()} instead.
+     */
+    @java.lang.Override
+    @java.lang.Deprecated
+    public java.util.Map<java.lang.String, java.lang.String> getAnswers() {
+      return getAnswersMap();
+    }
+    /**
+     * <pre>
+     * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+     * or the text the user wrote under "Other". Only for a question.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+     */
+    @java.lang.Override
+    public java.util.Map<java.lang.String, java.lang.String> getAnswersMap() {
+      return java.util.Collections.unmodifiableMap(
+          instance.getAnswersMap());
+    }
+    /**
+     * <pre>
+     * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+     * or the text the user wrote under "Other". Only for a question.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+     */
+    @java.lang.Override
+
+    public /* nullable */
+java.lang.String getAnswersOrDefault(
+        java.lang.String key,
+        /* nullable */
+java.lang.String defaultValue) {
+      java.util.Objects.requireNonNull(key);
+      java.util.Map<java.lang.String, java.lang.String> map =
+          instance.getAnswersMap();
+      return map.containsKey(key) ? map.get(key) : defaultValue;
+    }
+    /**
+     * <pre>
+     * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+     * or the text the user wrote under "Other". Only for a question.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+     */
+    @java.lang.Override
+
+    public java.lang.String getAnswersOrThrow(
+        java.lang.String key) {
+      java.util.Objects.requireNonNull(key);
+      java.util.Map<java.lang.String, java.lang.String> map =
+          instance.getAnswersMap();
+      if (!map.containsKey(key)) {
+        throw new java.lang.IllegalArgumentException();
+      }
+      return map.get(key);
+    }
+    /**
+     * <pre>
+     * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+     * or the text the user wrote under "Other". Only for a question.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+     */
+    public Builder putAnswers(
+        java.lang.String key,
+        java.lang.String value) {
+      java.util.Objects.requireNonNull(key);
+      java.util.Objects.requireNonNull(value);
+      copyOnWrite();
+      instance.getMutableAnswersMap().put(key, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The user's answers to an `AskUserQuestion`, by question text: a label, the labels of a multi-select joined with ", ",
+     * or the text the user wrote under "Other". Only for a question.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; answers = 3 [json_name = "answers"];</code>
+     */
+    public Builder putAllAnswers(
+        java.util.Map<java.lang.String, java.lang.String> values) {
+      copyOnWrite();
+      instance.getMutableAnswersMap().putAll(values);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+     * </pre>
+     *
+     * <code>string mode = 4 [json_name = "mode"];</code>
+     * @return The mode.
+     */
+    @java.lang.Override
+    public java.lang.String getMode() {
+      return instance.getMode();
+    }
+    /**
+     * <pre>
+     * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+     * </pre>
+     *
+     * <code>string mode = 4 [json_name = "mode"];</code>
+     * @return The bytes for mode.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getModeBytes() {
+      return instance.getModeBytes();
+    }
+    /**
+     * <pre>
+     * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+     * </pre>
+     *
+     * <code>string mode = 4 [json_name = "mode"];</code>
+     * @param value The mode to set.
+     * @return This builder for chaining.
+     */
+    public Builder setMode(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setMode(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+     * </pre>
+     *
+     * <code>string mode = 4 [json_name = "mode"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearMode() {
+      copyOnWrite();
+      instance.clearMode();
+      return this;
+    }
+    /**
+     * <pre>
+     * The permission mode an approved plan leaves plan mode for (`default` or `acceptEdits`). Only for a plan.
+     * </pre>
+     *
+     * <code>string mode = 4 [json_name = "mode"];</code>
+     * @param value The bytes for mode to set.
+     * @return This builder for chaining.
+     */
+    public Builder setModeBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setModeBytes(value);
       return this;
     }
 
@@ -405,10 +799,13 @@ public  final class RequestPermissionResponse extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "decision_",
             "reason_",
+            "answers_",
+            AnswersDefaultEntryHolder.defaultEntry,
+            "mode_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "";
+              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0001\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u00032\u0004\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
