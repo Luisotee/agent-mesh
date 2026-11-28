@@ -6,7 +6,7 @@ description: >-
   agent's model and effort is a tier the root picks per task. Use it, typed or not, when the user wants work or a question handed to agents,
   in this repo or others ("have Claude do it", "delegate this", "ask the shop-api agent"), or when you judge workers
   would do it better (several repos, a task list, parallel work, a long job you would otherwise do inline). Claude is
-  the default CLI; agy when the request names it (agy, Gemini, Argon, Hydrogen, Flash). Not for a PR review the user asks
+  the default CLI; agy or OpenCode when the request names it (agy, Gemini, Hydrogen, Flash; OpenCode, DeepSeek, free models), and the root also picks them by the work. Not for a PR review the user asks
   for on its own (`delegate-review`), or for a mesh agent (your task came by a `📬 [mesh]` doorbell).
 argument-hint: <what to build, fix or ask, in which repos, or a task list>
 ---
@@ -17,7 +17,7 @@ Run an **agent-mesh** for the user's request: `$ARGUMENTS` when the user typed t
 
 1. **The daemon:** `mesh hello` must answer (it names the daemon and who you are to it). If it doesn't, tell the user the daemon isn't running (`systemctl --user status agent-mesh.service`, or `./install.sh` in the agent-mesh checkout) and stop.
 2. **Start the run:** `mesh start-run --title "<one-line summary of the request>"`. Its output has the run id; `mesh dir --run <run id>` prints its folder.
-3. **Write the request** to `<run folder>/tasks/request.md`, for the root to read: the request in the user's own words, what you know that it needs (the repos and where they are, the contract between them, what you already tried, the files that matter), what is out of scope, any standing instruction ("run autonomously", "no Claude"), and the CLI to use (`claude` unless the request names agy). Say what you know and what you only assume.
+3. **Write the request** to `<run folder>/tasks/request.md`, for the root to read: the request in the user's own words, what you know that it needs (the repos and where they are, the contract between them, what you already tried, the files that matter), what is out of scope, any standing instruction ("run autonomously", "no Claude"), and the CLI to use (`claude` unless the request names agy or OpenCode). Say what you know and what you only assume.
 4. **Start the root,** in this repo's checkout (or the repo the request is mostly about):
 
    ```bash
