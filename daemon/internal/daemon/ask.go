@@ -710,8 +710,8 @@ func (d *Daemon) startReviewer(ctx context.Context, actor *v1.Actor, j reviewJob
 			d.dropStoredTask(ctx, actor, reuse.Id, res.Msg.Message.GetId())
 			return fail(reuse.Name, "could not be resumed: "+res.Msg.ResumeError)
 		}
-		member.AgentId = reuse.Id // only a reviewer that took the task is the member's agent
-		member.How, member.Model, member.Effort = "asked", reuse.Model, reuse.Effort
+		member.AgentId = reuse.Id                                                                                         // only a reviewer that took the task is the member's agent
+		member.How, member.Model, member.Effort = "asked", orDefault(model, reuse.Model), orDefault(effort, reuse.Effort) // where it will run
 		member.Tier = reuse.Tier
 		if reuse.Phase == v1.AgentPhase_AGENT_PHASE_EXECUTING && reuse.ExecTier != "" {
 			member.Tier = reuse.ExecTier

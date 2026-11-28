@@ -79,7 +79,7 @@ func TestUsageShowsPaceKeepsReadingsAndListsOpenCodeHolds(t *testing.T) {
 	if len(u.Held) != 1 || !strings.Contains(u.Held[0], "opencode/beam-free until") {
 		t.Errorf("held %v", u.Held)
 	}
-	for _, pool := range []string{"claude:seven_day", "claude:five_hour", "agy:Gemini 4 Neon:short"} {
+	for _, pool := range []string{"claude:seven_day", "claude:five_hour", "agy:Gemini 4 Neon:Neon"} {
 		s, err := w.d.Store().Read(ctx).UsageSamples(pool, time.Now().Add(-time.Hour))
 		if err != nil || len(s) != 1 {
 			t.Errorf("samples of %s: %v %v", pool, s, err)

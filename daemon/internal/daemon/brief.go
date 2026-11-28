@@ -442,6 +442,9 @@ func (d *Daemon) reviewerRecord(r store.Reader) []string {
 	type tally struct{ reviews, agree, findings, blocking int }
 	rows := map[key]*tally{}
 	for _, run := range runs {
+		if run.CreatedAt != nil && run.CreatedAt.AsTime().Before(since.Add(-60*24*time.Hour)) {
+			continue // a run begun over 90 days ago has no verdict of the last 30 (the history is not read for 8 lines)
+		}
 		asks, err := r.RunAsks(run.Id)
 		if err != nil {
 			continue

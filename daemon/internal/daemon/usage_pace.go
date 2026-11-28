@@ -40,6 +40,8 @@ const (
 	// mostly use the mesh's tokens don't show (the user's own sessions), which would make a pool look bigger in
 	// percent and so smaller in tokens.
 	maxReadingGap = 12 * time.Hour
+	// maxSizePeriods are the newest reset periods of a pool its size is worked out from (each costs one `mesh cost` scan).
+	maxSizePeriods = 8
 )
 
 // paceOf is how far through its window a pool is (percent) and, when use runs ahead of that and would reach the
@@ -80,13 +82,8 @@ func claudePool(key string) string {
 	return ""
 }
 
-func agyPool(r agy.UsageRow) string {
-	w := "short"
-	if r.Weekly() {
-		w = "weekly"
-	}
-	return "agy:" + r.Group + ":" + w
-}
+// agyPool names an agy row's pool by its group and label (a group may list a short and a weekly row, or several).
+func agyPool(r agy.UsageRow) string { return "agy:" + r.Group + ":" + r.Label }
 
 func windowOf(weekly bool) time.Duration {
 	if weekly {
@@ -119,7 +116,7 @@ func (d *Daemon) recordUsage(ctx context.Context, snap *hook.ClaudeUsageSnapshot
 		}
 	}
 	if agyAt.IsZero() {
-		agyAt = now
+		rows = nil // a reading with no date would enter the samples as fresh: it is not kept
 	}
 	for _, row := range rows {
 		s := store.UsageSample{Pool: agyPool(row), At: agyAt, Used: float64(100 - row.Left)}
@@ -182,6 +179,13 @@ func (d *Daemon) worth(r store.Reader, pool string, left float64) string {
 		return "not measured yet"
 	}
 	v := left * s.TokensPerPercent / ref.TokensPerPercent
+	if kindOfPool(pool) == "agy" { // agy's tokens are the CLI's, not split by group: an estimate
+		return worthText(v) + " (estimate)"
+	}
+	return worthText(v)
+}
+
+func worthText(v float64) string {
 	switch {
 	case v >= 10:
 		return fmt.Sprintf("≈ %.0f%% of %s", v, refPoolName)
@@ -235,7 +239,11 @@ func (d *Daemon) estimateSizesWith(ctx context.Context, tokensBetween func(ctx c
 		}
 		var points float64
 		var tokens int64
-		for _, per := range periodsOf(samples) {
+		periods := periodsOf(samples)
+		if len(periods) > maxSizePeriods { // each period is a scan of the transcripts: the newest ones tell enough
+			periods = periods[len(periods)-maxSizePeriods:]
+		}
+		for _, per := range periods {
 			first, last := per[0], per[len(per)-1]
 			if last.Used-first.Used < sizeMinPoints {
 				continue

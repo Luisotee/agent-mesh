@@ -16,8 +16,10 @@ func (t *Tx) PutUsageSample(s UsageSample, every, keep time.Duration) error {
 	var lastAt int64
 	var lastUsed float64
 	err := t.tx.QueryRowContext(t.ctx, `SELECT at, used FROM usage_samples WHERE pool = ? ORDER BY at DESC LIMIT 1`, s.Pool).Scan(&lastAt, &lastUsed)
-	if err == nil && s.At.Sub(time.Unix(0, lastAt)) < every && lastUsed == s.Used {
-		return nil
+	if err == nil {
+		if gap := s.At.Sub(time.Unix(0, lastAt)); gap < 0 || (gap < every && lastUsed == s.Used) {
+			return nil // a reading older than the last one, or one nothing moved
+		}
 	}
 	var resets int64
 	if !s.Resets.IsZero() {

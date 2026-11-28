@@ -1377,10 +1377,17 @@ func (d *Daemon) GetCost(ctx context.Context, req *connect.Request[v1.GetCostReq
 					}
 					reviewed[pr][who] = true
 				}
+				// The model stays the call's own (a Claude record names it); the effort is the agent's at that time,
+				// unless the record names another model than the one the agent was on.
+				segModel, effort := modelEffortAt(seg, c.t)
+				if segModel != "" && c.model != "" && costModelFamily(c.model) != costModelFamily(segModel) {
+					effort = ""
+				}
 				return &placedCall{
-					kind:  seg.kind,
-					agent: agentKey{run: seg.run, name: seg.name},
-					phase: phaseAt(seg.marks, c.t),
+					kind:   seg.kind,
+					agent:  agentKey{run: seg.run, name: seg.name},
+					phase:  phaseAt(seg.marks, c.t),
+					effort: effort,
 				}
 			}
 			if runID != "" {

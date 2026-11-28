@@ -346,7 +346,7 @@ func formatModelNotice(s modelCheckState) string {
 		}
 	}
 	for k, v := range s.Efforts {
-		if len(v) > 0 {
+		if len(v) > 0 && k == "agy" { // agy's launch fails; OpenCode's model runs on its default variant: listed by `mesh models`, not told to the root
 			kinds[k] = true
 		}
 	}
@@ -366,7 +366,7 @@ func formatModelNotice(s modelCheckState) string {
 		}
 	}
 	for _, k := range ordered {
-		if v := s.Efforts[k]; len(v) > 0 {
+		if v := s.Efforts[k]; len(v) > 0 && k == "agy" {
 			shown := v
 			more := ""
 			if len(v) > 3 {

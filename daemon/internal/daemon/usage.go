@@ -911,7 +911,9 @@ func (d *Daemon) GetUsage(ctx context.Context, req *connect.Request[v1.GetUsageR
 					cw.Elapsed, cw.Pace = paceOf(w.Used, rt, windowOf(meta.key != "five_hour"), now)
 				}
 			}
-			cw.Worth = d.worth(r, claudePool(meta.key), 100-w.Used)
+			if !claudeWindowStale(w, now) { // a window whose reset has passed is full again: its old reading says nothing
+				cw.Worth = d.worth(r, claudePool(meta.key), 100-w.Used)
+			}
 			cu.Windows = append(cu.Windows, cw)
 			if stale := claudeWindowStale(w, now); !stale {
 				if w.Used >= line && line < 100 {

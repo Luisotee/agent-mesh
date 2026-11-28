@@ -78,7 +78,7 @@ func TestWorthSaysHowMuchAPoolIsInAClaudeWeek(t *testing.T) {
 		t.Errorf("a pool not measured: %q", got)
 	}
 	put("agy:Gemini:weekly", 100000)
-	if got := d.worth(st.Read(ctx), "agy:Gemini:weekly", 50); got != "≈ 5.0% of a Claude week" {
+	if got := d.worth(st.Read(ctx), "agy:Gemini:weekly", 50); got != "≈ 5.0% of a Claude week (estimate)" {
 		t.Errorf("agy at half of a plan a tenth the size: %q", got)
 	}
 	if got := d.worth(st.Read(ctx), refPool, 40); got != "≈ 40% of a Claude week" {
