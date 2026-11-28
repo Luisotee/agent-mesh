@@ -141,6 +141,7 @@ When the request is a list of tasks ("work through TODO.md", "fix these five iss
 4. **Cap:** at most `caps.working` workers working at once (the `host:` line of `mesh brief`). A group counts as one. A fix round takes a slot like any working worker; reviewers don't. Start the next one when one reports.
 5. **Reviews:** the workers own them ("A worker runs its own PR's reviews"): read each worker's one outcome line, act only on NEEDS YOU, and send the findings you agree with to the author (a `task`, or by `mesh resume`), not to the reviewer.
 6. **Conflicts:** run `mesh conflicts --run-id <run>` before you report a merge order (it simulates merges across open PR branches, flags overlapping files and stacked branches); compare PR diffs by hand (`gh pr diff <url> --name-only`) only when needed. Nobody merges. When the user says a PR was merged, send each worker whose branch now conflicts a task to rebase onto the new default branch and push.
+   - **Gates:** don't re-run a part's gate (`check.sh`) on a tree a worker already gated and reported: read its output in the `done`. Gate again only a different tree, such as a merge with a newer default branch. Every gate takes memory from one host-wide queue (`scripts/gate-slot.sh`), and a repeated one makes the others wait.
 7. **Report:** the board as a table, with each task's PR, worker name, state (`mesh agents`) and review outcome and size; then the suggested merge order, and what's left for the user.
 
 ## Questions and reviews
