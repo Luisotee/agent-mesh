@@ -209,14 +209,14 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
   let from = win.current.all ? 0 : win.current.top ? items.findIndex((i) => i.id === win.current.top) : -1
   // The first block's item left (a card answered): the window stays where it was, never past the newest 60.
   if (from < 0) from = Math.min(win.current.index ?? Infinity, Math.max(0, items.length - WINDOW))
-  // Only a transcript that has its blocks sets the window: before that the items are the run's cards alone.
-  const settled = loaded && blocks.length > 0
-  if (settled) {
+  // Only a transcript that has its blocks sets the window: before that the items are the run's cards alone, and they are
+  // windowed too (a big run's lead has a thousand, and drawing them all froze the window for seconds before its transcript came).
+  if (loaded && blocks.length > 0) {
     win.current.top = items[from]?.id
     win.current.index = from
-  } else from = 0
+  }
   // A plan or question waiting on the user, or one an agent asked to show, is drawn above the window whatever its age: it is what the chat is for.
-  const above = settled ? items.slice(0, from).filter((i) => i.kind === 'message' && shown.has(i.message.id)) : []
+  const above = items.slice(0, from).filter((i) => i.kind === 'message' && shown.has(i.message.id))
   const hidden = from - above.length
   const revealed = useRef<{ height: number; top: number }>(undefined)
   const [reveals, setReveals] = useState(0)
@@ -388,7 +388,7 @@ export function ChatView({ host, agentId, active, onTerminal }: { host: HostRunt
             <Button size="sm" variant="outline" onClick={() => void sync()}>Try again</Button>
           </div>
         )}
-        {loaded && transcript.supported && (hidden > 0 || !transcript.atStart) && (
+        {(hidden > 0 || (loaded && transcript.supported && !transcript.atStart)) && (
           <Button size="sm" variant="ghost" className="self-center" disabled={earlierBusy} onClick={() => void earlier()}>
             {earlierBusy ? 'Loading…' : hidden > 0 ? `Show earlier (${hidden} more)` : 'Load earlier'}
           </Button>
